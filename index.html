@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07090d">
+<title>INPPL Stats — Forge Master</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">IP</div>
+      <div><div class="brand-name">INPPL <span>Stats</span></div><div class="brand-desc">Forge Master analytics</div></div>
+    </div>
+    <div class="nav-label">Nawigacja</div>
+    <nav class="nav">
+      <button class="nav-btn active" data-view="overview"><span class="nav-ico">◈</span>Przegląd</button>
+      <button class="nav-btn" data-view="warsView"><span class="nav-ico">⚔</span>Wojny</button>
+      <button class="nav-btn" data-view="playersView"><span class="nav-ico">♟</span>Gracze</button>
+      <button class="nav-btn" data-view="power"><span class="nav-ico">◆</span>Power</button>
+      <button class="nav-btn" data-view="compare"><span class="nav-ico">⇄</span>Porównaj</button>
+    </nav>
+    <div class="side-status"><strong>InPost [INPPL]</strong><div>Dane W1–W10 • Power w milionach</div></div>
+  </aside>
+
+  <main class="main">
+    <!-- OVERVIEW -->
+    <section class="view active" id="overview">
+      <div class="hero">
+        <div class="hero-grid">
+          <div>
+            <div class="hero-label">FORGE MASTER • CLAN INTELLIGENCE</div>
+            <div class="hero-title">InPost <span>[INPPL]</span></div>
+            <div class="hero-meta">
+              <span class="chip">Tydzień <b id="heroWeek"></b></span>
+              <span class="chip" id="heroTier"></span>
+              <span class="chip" id="heroDate"></span>
+              <span class="chip" id="heroPlayerCount"></span>
+            </div>
+          </div>
+          <div class="hero-score"><div class="big" id="heroScore"></div><div class="caption">punkty klanu</div><div id="heroTrend"></div></div>
+        </div>
+      </div>
+
+      <div class="metrics" id="overviewMetrics"></div>
+
+      <div class="grid-main">
+        <div class="panel">
+          <div class="panel-head">
+            <div><div class="panel-title">Punkty graczy w czasie</div><div class="panel-desc">Każda linia to jeden gracz • W1–W10</div></div>
+            <div class="chart-controls">
+              <select id="overviewPlayerSelect" class="select chart-select"></select>
+            </div>
+          </div>
+          <div class="chart-box"><canvas id="overviewWarChart"></canvas></div>
+          <div class="chart-legend">
+            <span><i class="legend-line everyone"></i>wszyscy gracze</span>
+            <span><i class="legend-line average"></i>średnia klanu</span>
+            <span><i class="legend-line selected"></i>wybrany gracz</span>
+            <span class="chart-note">Kliknij nick na liście lub wybierz go powyżej</span>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><div class="panel-title">Największe skoki</div><div class="panel-desc">ostatni tydzień vs poprzedni</div></div></div>
+          <div class="list" id="jumpList"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:11px">
+        <div class="panel-head"><div><div class="panel-title">Top 5 ostatniej wojny</div><div class="panel-desc">najlepsi punktujący</div></div></div>
+        <div class="top-grid" id="topFive"></div>
+      </div>
+
+      <div class="grid-main">
+        <div class="panel">
+          <div class="panel-head">
+            <div><div class="panel-title">Power graczy w czasie</div><div class="panel-desc">Każda linia to jeden gracz • W4–W10 • 1 w Excelu = 1 mln</div></div>
+            <div class="chart-controls"><select id="overviewPowerPlayerSelect" class="select chart-select"></select></div>
+          </div>
+          <div class="chart-box"><canvas id="overviewPowerChart"></canvas></div>
+          <div class="chart-legend">
+            <span><i class="legend-line everyone"></i>wszyscy gracze</span>
+            <span><i class="legend-line average"></i>średnia klanu</span>
+            <span><i class="legend-line selected"></i>wybrany gracz</span>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><div class="panel-title">Największy wzrost power</div><div class="panel-desc">ostatni snapshot</div></div></div>
+          <div class="list" id="growthList"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:11px">
+        <div class="panel-head"><div><div class="panel-title">Szybkie insighty</div><div class="panel-desc">najważniejsze rekordy klanu</div></div></div>
+        <div class="insights" id="insights"></div>
+      </div>
+    </section>
+
+    <!-- WARS -->
+    <section class="view" id="warsView">
+      <div class="page-head"><div><div class="kicker">Wars analytics</div><h1>Wojny klanowe</h1><div class="page-sub">Wybierz tydzień i przeanalizuj ranking, rozkład punktów oraz zmianę formy.</div></div><div class="status-pill"><span class="status-dot"></span><span id="warTitle"></span></div></div>
+      <div class="weekbar" id="weekbar"></div>
+      <div class="war-summary" id="warSummary"></div>
+      <div class="panel">
+        <div class="panel-head"><div><div class="panel-title">Rozkład punktów — Top 15</div><div class="panel-desc" id="warDeltaNote"></div></div></div>
+        <div class="chart-box small-chart"><canvas id="warDistribution"></canvas></div>
+      </div>
+      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>#</th><th>Gracz</th><th>Ranga</th><th class="num">Punkty</th><th class="num">Pozycja źródłowa</th></tr></thead><tbody id="warTable"></tbody></table></div>
+    </section>
+
+    <!-- PLAYERS -->
+    <section class="view" id="playersView">
+      <div class="page-head"><div><div class="kicker">Player database</div><h1>Gracze</h1><div class="page-sub">Forma, rekordy, power i historia. Kliknij nick, aby przejść do pełnego profilu.</div></div><div class="status-pill" id="playersCount"></div></div>
+      <div class="toolbar"><div style="display:flex;gap:7px"><input class="search" id="playerSearch" placeholder="Szukaj gracza…"><select class="select" id="rankFilter"></select></div><div style="font-size:9px;color:#5c6879">Kliknij nagłówki, aby sortować</div></div>
+      <div class="table-shell"><table><thead><tr>
+        <th class="sortable" data-sort="latestPlace">#</th><th class="sortable" data-sort="nick">Gracz</th><th class="sortable" data-sort="rank">Ranga</th>
+        <th class="sortable num" data-sort="latestPoints">Ostatni</th><th class="sortable num" data-sort="avg">Średnia</th><th class="sortable num" data-sort="best">Rekord</th>
+        <th class="sortable num" data-sort="powerM">Power</th><th class="sortable num" data-sort="powerChangeM">Δ Power</th><th class="sortable" data-sort="formDelta">Forma</th>
+      </tr></thead><tbody id="playersTable"></tbody></table></div>
+    </section>
+
+    <!-- POWER -->
+    <section class="view" id="power">
+      <div class="page-head"><div><div class="kicker">Power analytics</div><h1>Moc klanu</h1><div class="page-sub">Historia snapshotów, udział graczy oraz największe wzrosty i spadki.</div></div><div class="status-pill">W10 • zweryfikowane jednostki</div></div>
+      <div class="power-hero">
+        <div class="power-big"><div class="l">Łączna moc klanu</div><div class="v" id="powerTotal"></div><div class="sub" id="powerTotalSub"></div></div>
+        <div class="power-big"><div class="l">Zmiana vs poprzedni snapshot</div><div class="v" id="powerDelta"></div><div class="sub" id="powerDeltaSub"></div></div>
+      </div>
+
+      <div class="panel" style="margin-top:11px">
+        <div class="panel-head">
+          <div><div class="panel-title">Moc w poprzednich snapshotach</div><div class="panel-desc">Wybierz tydzień i zobacz ranking graczy z tamtego momentu</div></div>
+        </div>
+        <div style="padding:12px 14px 0"><div class="snapshot-bar" id="powerSnapshotBar"></div></div>
+        <div class="war-summary" id="powerSnapshotSummary" style="padding:12px 14px 0;margin-bottom:0"></div>
+        <div class="table-shell" style="margin:12px 14px 14px"><table><thead><tr><th>#</th><th>Gracz</th><th>Power</th><th class="num">Zmiana od poprzedniego</th><th class="num">%</th></tr></thead><tbody id="powerSnapshotTable"></tbody></table></div>
+      </div>
+      <div class="grid-main">
+        <div class="panel">
+          <div class="panel-head">
+            <div><div class="panel-title">Power wszystkich graczy</div><div class="panel-desc">W4–W10 • rozkład całego klanu</div></div>
+            <div class="chart-controls"><select id="powerPagePlayerSelect" class="select chart-select"></select></div>
+          </div>
+          <div class="chart-box"><canvas id="powerHistoryChart"></canvas></div>
+          <div class="chart-legend">
+            <span><i class="legend-line everyone"></i>wszyscy gracze</span>
+            <span><i class="legend-line average"></i>średnia klanu</span>
+            <span><i class="legend-line selected"></i>wybrany gracz</span>
+          </div>
+        </div>
+        <div class="panel"><div class="panel-head"><div><div class="panel-title">Top growth</div><div class="panel-desc">największy przyrost</div></div></div><div class="list" id="powerGrowthList"></div></div>
+      </div>
+      <div class="grid-half">
+        <div class="panel"><div class="panel-head"><div><div class="panel-title">Wzrost mocy — Top 10</div></div></div><div class="chart-box small-chart"><canvas id="growthChart"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><div><div class="panel-title">Największe spadki</div><div class="panel-desc">jeśli wystąpiły</div></div></div><div class="list" id="powerDropList"></div></div>
+      </div>
+      <div class="panel" style="margin-top:11px">
+        <div class="panel-head">
+          <div><div class="panel-title">Power spikes i tempo wzrostu</div><div class="panel-desc">Kto miał największy jednorazowy skok i kto rośnie najszybciej długoterminowo</div></div>
+          <div class="analytics-tabs">
+            <button class="active" data-power-analytics="spikePct">Największy spike %</button>
+            <button data-power-analytics="spikeAbs">Największy spike</button>
+            <button data-power-analytics="growthPct">Najszybszy wzrost %</button>
+            <button data-power-analytics="growthAbs">Najszybszy wzrost</button>
+          </div>
+        </div>
+        <div class="table-shell" style="margin:12px 14px 14px"><table class="spike-table"><thead id="powerAnalyticsHead"></thead><tbody id="powerAnalyticsBody"></tbody></table></div>
+      </div>
+
+      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>#</th><th>Gracz</th><th>Ranga</th><th class="num">Power</th><th class="num">Δ Power</th><th class="num">Δ %</th><th class="num">Udział klanu</th></tr></thead><tbody id="powerTable"></tbody></table></div>
+    </section>
+
+    <!-- COMPARE -->
+    <section class="view" id="compare">
+      <div class="page-head"><div><div class="kicker">Player comparison</div><h1>Porównaj graczy</h1><div class="page-sub">Do trzech graczy na jednym wykresie, z odniesieniem do średniej klanu.</div></div></div>
+      <div class="compare-controls">
+        <div class="compare-slot"><label>Gracz 1</label><select class="select" id="compare1"></select></div>
+        <div class="compare-slot"><label>Gracz 2</label><select class="select" id="compare2"></select></div>
+        <div class="compare-slot"><label>Gracz 3</label><select class="select" id="compare3"></select></div>
+        <button class="btn primary" onclick="renderCompare()">Odśwież</button>
+      </div>
+      <div class="panel"><div class="panel-head"><div><div class="panel-title">Punkty wojenne</div><div class="panel-desc">gracze + średnia klanu</div></div></div><div class="chart-box"><canvas id="compareScoreChart"></canvas></div></div>
+      <div class="panel" style="margin-top:11px"><div class="panel-head"><div><div class="panel-title">Power</div><div class="panel-desc">historia dostępnych snapshotów</div></div></div><div class="chart-box"><canvas id="comparePowerChart"></canvas></div></div>
+    </section>
+
+    <!-- FULL PROFILE VIEW -->
+    <section class="view" id="profile">
+      <div class="profile-header">
+        <div><button class="back-btn" id="profileBack">← Wróć</button><div class="profile-name" id="profileName"></div><div class="profile-rank" id="profileRank"></div></div>
+        <div class="profile-power"><div class="v" id="profilePower"></div><div class="l">aktualny power</div><div id="profilePowerDelta" style="font-size:9px;margin-top:6px"></div><button class="btn" id="profileCompare" style="margin-top:10px">Porównaj z innym</button></div>
+      </div>
+      <div class="profile-kpis" id="profileKpis"></div>
+      <div class="panel"><div class="panel-head"><div><div class="panel-title">Punkty vs średnia klanu</div><div class="panel-desc">pełna historia dostępnych tygodni</div></div></div><div class="chart-box"><canvas id="profileScoreChart"></canvas></div></div>
+      <div class="grid-half">
+        <div class="panel"><div class="panel-head"><div><div class="panel-title">Historia power</div></div></div><div class="chart-box small-chart"><canvas id="profilePowerChart"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><div><div class="panel-title">Pozycja w rankingu</div><div class="panel-desc">im wyżej na wykresie, tym lepiej</div></div></div><div class="chart-box small-chart"><canvas id="profilePositionChart"></canvas></div></div>
+      </div>
+      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>Tydzień</th><th>Tier</th><th>Data</th><th class="num">Punkty</th><th class="num">Pozycja</th></tr></thead><tbody id="profileHistory"></tbody></table></div>
+    </section>
+
+    <div class="footer">INPPL Stats • pełny redesign • dane lokalne z INPPL_Ranking_source.xlsx</div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

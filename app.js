@@ -65,7 +65,7 @@ function lineChart(id, labels, datasets, formatter=compact, extra={}){
       pointBackgroundColor:d.color||['#f4b651','#6ea8ff','#ad88ff'][i%3],
       pointBorderColor:d.pointBorderColor??'#0b1016',
       pointBorderWidth:d.pointBorderWidth??1.5,
-      spanGaps:true,
+      spanGaps:d.spanGaps??true,
       order:d.order??0
     }))},
     options:{...opts,...extra}
@@ -73,7 +73,7 @@ function lineChart(id, labels, datasets, formatter=compact, extra={}){
 }
 function barChart(id, labels, values, formatter=compact, horizontal=false){
   killChart(id); const el=$('#'+id); if(!el || typeof Chart==='undefined')return;
-  const opt=baseOptions(formatter); opt.indexAxis=horizontal?'y':'x'; opt.plugins.tooltip.callbacks.label=c=>formatter(horizontal?c.parsed.x:c.parsed.y);
+  const opt=baseOptions(formatter); opt.indexAxis=horizontal?'y':'x'; opt.interaction={mode:'nearest',intersect:true}; opt.hover={mode:'nearest',intersect:true}; opt.plugins.tooltip.callbacks.label=c=>formatter(horizontal?c.parsed.x:c.parsed.y);
   if(horizontal){opt.scales.x.ticks.callback=v=>formatter(v);opt.scales.y.grid.display=false}
   charts[id]=new Chart(el,{type:'bar',data:{labels,datasets:[{
     label:'Punkty',data:values,backgroundColor:values.map((_,i)=>i<3?['rgba(244,182,81,.92)','rgba(209,164,89,.78)','rgba(176,141,85,.72)'][i]:'rgba(110,168,255,.28)'),
@@ -101,6 +101,15 @@ function powerPct(deltaM,currentM){
   return prev?deltaM/prev*100:null;
 }
 function fmtPct1(v){return v==null?'—':`${v>=0?'+':''}${v.toFixed(1).replace('.',',')}%`;}
+function placeClass(place){
+ if(place===1)return'place-1'; if(place===2)return'place-2'; if(place===3)return'place-3';
+ if(place<=10)return'place-top10'; if(place<=20)return'place-top20'; if(place<=35)return'place-mid'; return'place-low';
+}
+function placeBadge(place){return `<span class="place-badge ${placeClass(place)}">#${place}</span>`;}
+function playerButton(nick,extra=''){return `<button class="player-inline ${extra}" onclick="openProfile('${escapeHtml(nick).replace(/'/g,"\\'")}')">${escapeHtml(nick)}</button>`;}
+const expandedLists={topFive:false,jumps:false,growth:false,powerGrowth:false,powerDrop:false,powerAnalytics:false};
+function moreButton(id,key,total,shown){const b=$('#'+id);if(!b)return;b.textContent=total>shown?(expandedLists[key]?`Zwiń`:`Pokaż więcej (${total})`):'';b.onclick=()=>{expandedLists[key]=!expandedLists[key];if(['topFive','jumps','growth'].includes(key))renderOverview();else if(key==='powerAnalytics')renderPowerAnalytics();else renderPower();};}
+
 
 
 function renderOverview(){
@@ -110,16 +119,25 @@ function renderOverview(){
   $('#heroTrend').textContent=`${D.warDeltaPct>=0?'▲':'▼'} ${Math.abs(D.warDeltaPct||0).toFixed(1).replace('.',',')}% vs poprzedni tydzień`;
   $('#heroTrend').className='trend '+(D.warDeltaPct>=0?'up':'down');
 
+  const leader=playerButton(l.winner);
+  const growthTop=D.topGrowth[0];
+  const growthName=growthTop?playerButton(growthTop.nick):'—';
   $('#overviewMetrics').innerHTML =
     metric('Średnia na gracza',compact(l.avg),`${l.count} punktujących`)+
     metric('Moc klanu',power(pw.totalM),`${pw.count} graczy`,D.powerDeltaPct)+
-    metric('Lider tygodnia',escapeHtml(l.winner),`${compact(l.winnerPoints)} pkt`)+
-    metric('Największy wzrost mocy',escapeHtml(D.topGrowth[0]?.nick||'—'),D.topGrowth[0]?`+${power(D.topGrowth[0].deltaM)}`:'—');
+    metric('Lider tygodnia',leader,`${compact(l.winnerPoints)} pkt`)+
+    metric('Największy wzrost mocy',growthName,growthTop?`${fmtPct1(growthTop.pct)} • ${formatDelta(growthTop.deltaM,power)}`:'—');
 
-  $('#topFive').innerHTML=l.entries.slice(0,5).map((e,i)=>`<button class="top-card" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')"><div class="place">#${i+1}</div><div class="name">${escapeHtml(e.nick)}</div><div class="score">${compact(e.points)}</div><div class="rank">${escapeHtml(e.rank)}</div></button>`).join('');
+  const topLim=expandedLists.topFive?l.entries.length:5;
+  $('#topFive').innerHTML=l.entries.slice(0,topLim).map((e,i)=>`<button class="top-card ${placeClass(i+1)}" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')"><div class="place">${placeBadge(i+1)}</div><div class="name">${escapeHtml(e.nick)}</div><div class="score">${compact(e.points)}</div><div class="rank">${escapeHtml(e.rank)}</div></button>`).join('');
+  moreButton('topFiveMore','topFive',l.entries.length,topLim);
 
-  $('#jumpList').innerHTML=D.topJumps.slice(0,6).map((x,i)=>listRow(i,x.nick,compact(x.points),x.delta,compact)).join('');
-  $('#growthList').innerHTML=D.topGrowth.slice(0,6).map((x,i)=>listRow(i,x.nick,power(x.powerM),x.deltaM,power)).join('');
+  const jumpLim=expandedLists.jumps?D.topJumps.length:6;
+  $('#jumpList').innerHTML=D.topJumps.slice(0,jumpLim).map((x,i)=>listRow(i,x.nick,compact(x.points),x.delta,compact)).join('');
+  moreButton('jumpMore','jumps',D.topJumps.length,jumpLim);
+  const growthLim=expandedLists.growth?D.topGrowth.length:6;
+  $('#growthList').innerHTML=D.topGrowth.slice(0,growthLim).map((x,i)=>listRow(i,x.nick,power(x.powerM),x.pct,fmtPct1,`${formatDelta(x.deltaM,power)}`)).join('');
+  moreButton('growthMore','growth',D.topGrowth.length,growthLim);
 
   const bestAvgWeek=[...D.weeks].sort((a,b)=>b.avg-a.avg)[0];
   const bestTotalWeek=[...D.weeks].sort((a,b)=>b.total-a.total)[0];
@@ -130,8 +148,9 @@ function renderOverview(){
     ['Największa frekwencja',mostActive.week,`${mostActive.count} punktujących graczy`]
   ].map(x=>`<div class="insight"><div class="insight-title">${x[0]}</div><div class="insight-main">${x[1]}</div><div class="insight-sub">${x[2]}</div></div>`).join('');
 }
-function listRow(i,nick,meta,delta,formatter){
- return `<div class="list-row"><div class="list-index">${i+1}</div><div><div class="list-name">${escapeHtml(nick)}</div><div class="list-meta">${meta}</div></div><div class="list-value ${delta>=0?'positive':'negative'}">${delta>=0?'▲':'▼'} ${formatter(Math.abs(delta))}</div></div>`;
+function listRow(i,nick,meta,delta,formatter,secondary=''){
+ const place=i+1;
+ return `<div class="list-row ${placeClass(place)}"><div class="list-index">${placeBadge(place)}</div><div><div class="list-name">${playerButton(nick)}</div><div class="list-meta">${meta}${secondary?` • ${secondary}`:''}</div></div><div class="list-value ${delta>=0?'positive':'negative'}">${delta>=0?'▲':'▼'} ${formatter(Math.abs(delta))}</div></div>`;
 }
 
 
@@ -219,7 +238,7 @@ function renderWarView(){
    ['Suma punktów',compact(w.total)],['Średnia',compact(w.avg)],['Gracze',w.count],['Zwycięzca',escapeHtml(w.winner)]
  ].map(x=>`<div class="mini-stat"><div class="l">${x[0]}</div><div class="v">${x[1]}</div></div>`).join('');
  $('#warDeltaNote').innerHTML=best?`Największy wzrost: <b class="positive">${escapeHtml(best.nick)} +${compact(best.delta)}</b> &nbsp;•&nbsp; Największy spadek: <b class="negative">${escapeHtml(worst.nick)} ${compact(worst.delta)}</b>`:'Brak poprzedniego tygodnia do porównania.';
- $('#warTable').innerHTML=w.entries.map(e=>`<tr><td>#${e.place}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')">${escapeHtml(e.nick)}</button></td><td><span class="rank-tag">${escapeHtml(e.rank)}</span></td><td class="num"><b>${fmt(e.points)}</b></td><td class="num">${e.position??'—'}</td></tr>`).join('');
+ $('#warTable').innerHTML=w.entries.map(e=>`<tr class="${placeClass(e.place)}"><td>${placeBadge(e.place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')">${escapeHtml(e.nick)}</button></td><td><span class="rank-tag">${escapeHtml(e.rank)}</span></td><td class="num"><b>${fmt(e.points)}</b></td><td class="num">${e.position??'—'}</td></tr>`).join('');
  requestAnimationFrame(()=>barChart('warDistribution',w.entries.slice(0,15).map(e=>e.nick),w.entries.slice(0,15).map(e=>e.points),compact,true));
 }
 
@@ -241,8 +260,8 @@ function renderPlayers(){
    return (av-bv)*playerSort.dir;
  });
  $('#playersCount').textContent=`${arr.length} graczy`;
- $('#playersTable').innerHTML=arr.map(p=>`<tr>
- <td>${p.latestPlace?'#'+p.latestPlace:'—'}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td>
+ $('#playersTable').innerHTML=arr.map(p=>`<tr class="${p.latestPlace?placeClass(p.latestPlace):''}">
+ <td>${p.latestPlace?placeBadge(p.latestPlace):'—'}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td>
  <td><span class="rank-tag">${escapeHtml(p.rank)}</span></td><td class="num">${fmt(p.latestPoints)}</td><td class="num">${fmt(p.avg)}</td><td class="num">${fmt(p.best)}</td>
  <td class="num">${power(p.powerM)}</td><td class="num ${p.powerChangeM>0?'positive':p.powerChangeM<0?'negative':''}">${formatDelta(p.powerChangeM,power)}</td><td>${formTag(p.formDelta)}</td></tr>`).join('');
 }
@@ -255,29 +274,23 @@ function renderPower(){
  $('#powerDelta').textContent=pct(D.powerDeltaPct);$('#powerDelta').className=D.powerDeltaPct>=0?'positive':'negative';
  $('#powerDeltaSub').textContent=prevPw?`${pw.week} vs ${prevPw.week}`:'brak poprzedniego snapshotu';
 
- $('#powerGrowthList').innerHTML=D.topGrowth.slice(0,7).map((x,i)=>{
-   const pc=powerPct(x.deltaM,x.powerM);
-   return `<div class="list-row"><div class="list-index">${i+1}</div><div><div class="list-name">${escapeHtml(x.nick)}</div><div class="list-meta">${power(x.powerM)}</div></div><div class="list-value positive">+${power(x.deltaM)} <small style="display:block;color:#55d98a">${fmtPct1(pc)}</small></div></div>`;
- }).join('');
-
- $('#powerDropList').innerHTML=D.topDrops.filter(x=>x.deltaM<0).slice(0,7).map((x,i)=>{
-   const pc=powerPct(x.deltaM,x.powerM);
-   return `<div class="list-row"><div class="list-index">${i+1}</div><div><div class="list-name">${escapeHtml(x.nick)}</div><div class="list-meta">${power(x.powerM)}</div></div><div class="list-value negative">${power(x.deltaM)} <small style="display:block;color:#ff6d7d">${fmtPct1(pc)}</small></div></div>`;
- }).join('') || '<div class="empty">Brak spadków w ostatnim snapshotcie</div>';
+ const growthLim=expandedLists.powerGrowth?D.topGrowth.length:7;
+ $('#powerGrowthList').innerHTML=D.topGrowth.slice(0,growthLim).map((x,i)=>listRow(i,x.nick,power(x.powerM),x.pct,fmtPct1,formatDelta(x.deltaM,power))).join('');
+ moreButton('powerGrowthMore','powerGrowth',D.topGrowth.length,growthLim);
+ const drops=D.topDrops.filter(x=>x.pct<0);
+ const dropLim=expandedLists.powerDrop?drops.length:7;
+ $('#powerDropList').innerHTML=drops.slice(0,dropLim).map((x,i)=>listRow(i,x.nick,power(x.powerM),x.pct,fmtPct1,formatDelta(x.deltaM,power))).join('') || '<div class="empty">Brak spadków w ostatnim snapshotcie</div>';
+ moreButton('powerDropMore','powerDrop',drops.length,dropLim);
 
  const arr=[...D.players].filter(p=>p.active!==false&&p.powerM!=null).sort((a,b)=>b.powerM-a.powerM);
  $('#powerTable').innerHTML=arr.map((p,i)=>{
-   const pc=powerPct(p.powerChangeM,p.powerM);
-   return `<tr><td>#${i+1}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\'")}')">${escapeHtml(p.nick)}</button></td><td><span class="rank-tag">${escapeHtml(p.rank)}</span></td><td class="num"><b>${power(p.powerM)}</b></td><td class="num ${p.powerChangeM>0?'positive':p.powerChangeM<0?'negative':''}">${formatDelta(p.powerChangeM,power)}</td><td class="num ${pc>0?'positive':pc<0?'negative':''}">${fmtPct1(pc)}</td><td class="num">${(p.powerM/pw.totalM*100).toFixed(2).replace('.',',')}%</td></tr>`;
+   const pc=p.powerChangePct??powerPct(p.powerChangeM,p.powerM); const place=i+1;
+   return `<tr class="${placeClass(place)}"><td>${placeBadge(place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td><td><span class="rank-tag">${escapeHtml(p.rank)}</span></td><td class="num"><b>${power(p.powerM)}</b></td><td class="num ${p.powerChangeM>0?'positive':p.powerChangeM<0?'negative':''}">${formatDelta(p.powerChangeM,power)}</td><td class="num ${pc>0?'positive':pc<0?'negative':''}"><b>${fmtPct1(pc)}</b></td><td class="num">${(p.powerM/pw.totalM*100).toFixed(2).replace('.',',')}%</td></tr>`;
  }).join('');
 
  renderPowerSnapshotBar();
  renderPowerAnalytics();
 }
-
-let selectedPowerSnapshot=D.powerWeeks.at(-1)?.week || 'W10';
-let powerAnalyticsMode='spikePct';
-
 function renderPowerSnapshotBar(){
  $('#powerSnapshotBar').innerHTML=D.powerWeeks.map(w=>`<button class="snapshot-btn ${w.week===selectedPowerSnapshot?'active':''}" data-snap="${w.week}"><b>${w.week}</b><span>${power(w.totalM)}</span></button>`).join('');
  $$('.snapshot-btn').forEach(b=>b.onclick=()=>{selectedPowerSnapshot=b.dataset.snap;renderPowerSnapshotBar();renderPowerSnapshot();});
@@ -301,26 +314,29 @@ function renderPowerSnapshot(){
    return {nick:p.nick,powerM:cur.powerM,deltaM:delta,pct:pc};
  }).filter(Boolean).sort((a,b)=>b.powerM-a.powerM);
 
- $('#powerSnapshotTable').innerHTML=arr.map((x,i)=>`<tr><td>#${i+1}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td><b>${power(x.powerM)}</b></td><td class="num ${x.deltaM>0?'positive':x.deltaM<0?'negative':''}">${x.deltaM==null?'—':formatDelta(x.deltaM,power)}</td><td class="num ${x.pct>0?'positive':x.pct<0?'negative':''}">${fmtPct1(x.pct)}</td></tr>`).join('');
+ $('#powerSnapshotTable').innerHTML=arr.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td><b>${power(x.powerM)}</b></td><td class="num ${x.deltaM>0?'positive':x.deltaM<0?'negative':''}">${x.deltaM==null?'—':formatDelta(x.deltaM,power)}</td><td class="num ${x.pct>0?'positive':x.pct<0?'negative':''}">${fmtPct1(x.pct)}</td></tr>`).join('');
 }
 
 function renderPowerAnalytics(){
  const head=$('#powerAnalyticsHead'), body=$('#powerAnalyticsBody');
- let rows=[];
- if(powerAnalyticsMode==='spikePct'){
+ let source=[], mode=powerAnalyticsMode;
+ if(mode==='spikePct')source=D.powerSpikesTopPct;
+ else if(mode==='spikeAbs')source=D.powerSpikesTopAbs;
+ else if(mode==='growthPct')source=D.fastestGrowthPct;
+ else source=D.fastestGrowthAbs;
+ const lim=expandedLists.powerAnalytics?source.length:15;
+ const shown=source.slice(0,lim); let rows=[];
+ if(mode==='spikePct'||mode==='spikeAbs'){
    head.innerHTML='<tr><th>#</th><th>Gracz</th><th>Okres</th><th class="num">Przed</th><th class="num">Po</th><th class="num">Spike</th><th class="num">Spike %</th></tr>';
-   rows=D.powerSpikesTopPct.slice(0,15).map((x,i)=>`<tr><td>#${i+1}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td>${x.fromWeek} → ${x.toWeek}</td><td class="num">${power(x.fromM)}</td><td class="num">${power(x.toM)}</td><td class="num positive">+${power(x.deltaM)}</td><td class="num positive"><b>${fmtPct1(x.pct)}</b></td></tr>`);
- }else if(powerAnalyticsMode==='spikeAbs'){
-   head.innerHTML='<tr><th>#</th><th>Gracz</th><th>Okres</th><th class="num">Przed</th><th class="num">Po</th><th class="num">Spike</th><th class="num">Spike %</th></tr>';
-   rows=D.powerSpikesTopAbs.slice(0,15).map((x,i)=>`<tr><td>#${i+1}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td>${x.fromWeek} → ${x.toWeek}</td><td class="num">${power(x.fromM)}</td><td class="num">${power(x.toM)}</td><td class="num positive"><b>+${power(x.deltaM)}</b></td><td class="num positive">${fmtPct1(x.pct)}</td></tr>`);
- }else if(powerAnalyticsMode==='growthPct'){
+   rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td>${x.fromWeek} → ${x.toWeek}</td><td class="num">${power(x.fromM)}</td><td class="num">${power(x.toM)}</td><td class="num positive">+${power(x.deltaM)}</td><td class="num positive"><b>${fmtPct1(x.pct)}</b></td></tr>`);
+ }else if(mode==='growthPct'){
    head.innerHTML='<tr><th>#</th><th>Gracz</th><th class="num">Śr. wzrost / snapshot</th><th class="num">Łączny wzrost</th><th class="num">Łącznie %</th></tr>';
-   rows=D.fastestGrowthPct.slice(0,15).map((x,i)=>`<tr><td>#${i+1}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>${fmtPct1(x.avgPct)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
+   rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>${fmtPct1(x.avgPct)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
  }else{
    head.innerHTML='<tr><th>#</th><th>Gracz</th><th class="num">Śr. wzrost / snapshot</th><th class="num">Łączny wzrost</th><th class="num">Łącznie %</th></tr>';
-   rows=D.fastestGrowthAbs.slice(0,15).map((x,i)=>`<tr><td>#${i+1}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>+${power(x.avgM)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
+   rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>+${power(x.avgM)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
  }
- body.innerHTML=rows.join('');
+ body.innerHTML=rows.join(''); moreButton('powerAnalyticsMore','powerAnalytics',source.length,lim);
 }
 $$('[data-power-analytics]').forEach(b=>b.onclick=()=>{
  powerAnalyticsMode=b.dataset.powerAnalytics;
@@ -331,7 +347,7 @@ $$('[data-power-analytics]').forEach(b=>b.onclick=()=>{
 function renderPowerCharts(){
   const labels=D.powerWeeks.map(x=>x.week);
   lineChart('powerHistoryChart',labels,allPlayerPowerDatasets(selectedPowerPlayer),power);
-  barChart('growthChart',D.topGrowth.slice(0,10).map(x=>x.nick),D.topGrowth.slice(0,10).map(x=>x.deltaM),power,true);
+  barChart('growthChart',D.topGrowth.slice(0,10).map(x=>x.nick),D.topGrowth.slice(0,10).map(x=>x.pct),v=>fmtPct1(v),true);
 }
 
 function fillCompareSelectors(){
@@ -359,7 +375,7 @@ window.openProfile=function(nick){
  lastView=$('.view.active')?.id||'playersView';
  $('#profileName').textContent=p.nick;$('#profileRank').textContent=p.rank;
  $('#profilePower').textContent=power(p.powerM);
- const profPct=powerPct(p.powerChangeM,p.powerM);
+ const profPct=p.powerChangePct??powerPct(p.powerChangeM,p.powerM);
  $('#profilePowerDelta').textContent=p.powerChangeM==null?'brak poprzedniego snapshotu':`${sign(p.powerChangeM)}${power(p.powerChangeM)} (${fmtPct1(profPct)}) vs poprzedni`;
  $('#profilePowerDelta').className=p.powerChangeM>=0?'positive':'negative';
  $('#profileKpis').innerHTML=[
@@ -370,7 +386,21 @@ window.openProfile=function(nick){
  requestAnimationFrame(()=>{
    const labs=D.weeks.map(w=>w.week);
    lineChart('profileScoreChart',labs,[{label:p.nick,data:labs.map(w=>p.history.find(h=>h.week===w)?.points??null),fill:true},{label:'Średnia klanu',data:D.weeks.map(w=>w.avg),color:'#6ea8ff'}],compact);
-   lineChart('profilePowerChart',D.powerWeeks.map(w=>w.week),[{label:'Moc',data:D.powerWeeks.map(w=>p.powers.find(h=>h.week===w)?.powerM??null),color:'#6ea8ff',fill:true}],power);
+   const powerLabs=p.powers.map(h=>h.week);
+   const powerVals=p.powers.map(h=>h.powerM);
+   lineChart('profilePowerChart',powerLabs,[{label:p.nick,data:powerVals,color:'#6ea8ff',fill:true,spanGaps:false}],power);
+   const powerRows=p.powers.map((h,i)=>{
+     const prev=i>0?p.powers[i-1]:null;
+     const delta=prev?h.powerM-prev.powerM:null;
+     const pc=h.growthPct??(prev&&prev.powerM?delta/prev.powerM*100:null);
+     return `<div class="list-row">
+       <div class="list-index">${escapeHtml(h.week)}</div>
+       <div><div class="list-name">${power(h.powerM)}</div><div class="list-meta">${prev?`poprzednio ${power(prev.powerM)}`:'pierwszy dostępny snapshot'}</div></div>
+       <div class="list-value ${delta>0?'positive':delta<0?'negative':''}">${delta==null?'—':`${sign(delta)}${power(delta)}<small style="display:block">${fmtPct1(pc)}</small>`}</div>
+     </div>`;
+   }).join('');
+   const histEl=$('#profilePowerHistory');
+   if(histEl) histEl.innerHTML=powerRows || '<div class="empty">Brak historii Power dla tego gracza</div>';
    const posLabs=p.history.filter(h=>h.position!=null).map(h=>h.week), posVals=p.history.filter(h=>h.position!=null).map(h=>h.position);
    killChart('profilePositionChart');
    if(typeof Chart!=='undefined')charts.profilePositionChart=new Chart($('#profilePositionChart'),{type:'line',data:{labels:posLabs,datasets:[{label:'Pozycja',data:posVals,borderColor:'#ad88ff',backgroundColor:'rgba(173,136,255,.12)',fill:true,tension:.3,borderWidth:2.3,pointRadius:3}]},options:{...baseOptions(v=>'#'+Math.round(v)),scales:{x:{grid:{display:false},border:{display:false},ticks:{color:'#657286',font:{size:9}}},y:{reverse:true,grid:{color:'rgba(255,255,255,.045)'},border:{display:false},ticks:{color:'#657286',font:{size:9},callback:v=>'#'+v}}}}});

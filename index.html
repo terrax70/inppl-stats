@@ -13,7 +13,7 @@
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">IP</div>
-      <div><div class="brand-name">INPPL <span>Stats</span></div><div class="brand-desc">Forge Master analytics</div></div>
+      <div><div class="brand-name">INPPL <span>Stats</span></div><div class="brand-desc">Forge Master</div></div>
     </div>
     <div class="nav-label">Nawigacja</div>
     <nav class="nav">
@@ -70,8 +70,8 @@
       </div>
 
       <div class="panel" style="margin-top:11px">
-        <div class="panel-head"><div><div class="panel-title">Top 5 ostatniej wojny</div><div class="panel-desc">najlepsi punktujący</div></div></div>
-        <div class="top-grid" id="topFive"></div>
+        <div class="panel-head"><div><div class="panel-title">Ranking ostatniej wojny</div><div class="panel-desc">najlepsi punktujący</div></div></div>
+        <div class="top-grid" id="topFive"></div><div class="panel-more"><button class="show-more-btn" id="topFiveMore"></button></div>
       </div>
 
       <div class="grid-main">
@@ -89,7 +89,7 @@
         </div>
         <div class="panel">
           <div class="panel-head"><div><div class="panel-title">Największy wzrost power</div><div class="panel-desc">ostatni snapshot</div></div></div>
-          <div class="list" id="growthList"></div>
+          <div class="list" id="growthList"></div><div class="panel-more"><button class="show-more-btn" id="growthMore"></button></div>
         </div>
       </div>
 
@@ -151,11 +151,11 @@
             <span><i class="legend-line selected"></i>wybrany gracz</span>
           </div>
         </div>
-        <div class="panel"><div class="panel-head"><div><div class="panel-title">Top growth</div><div class="panel-desc">największy przyrost</div></div></div><div class="list" id="powerGrowthList"></div></div>
+        <div class="panel"><div class="panel-head"><div><div class="panel-title">Najszybszy wzrost Power</div><div class="panel-desc">ranking według procentowego wzrostu</div></div></div><div class="list" id="powerGrowthList"></div><div class="panel-more"><button class="show-more-btn" id="powerGrowthMore"></button></div></div>
       </div>
       <div class="grid-half">
-        <div class="panel"><div class="panel-head"><div><div class="panel-title">Wzrost mocy — Top 10</div></div></div><div class="chart-box small-chart"><canvas id="growthChart"></canvas></div></div>
-        <div class="panel"><div class="panel-head"><div><div class="panel-title">Największe spadki</div><div class="panel-desc">jeśli wystąpiły</div></div></div><div class="list" id="powerDropList"></div></div>
+        <div class="panel"><div class="panel-head"><div><div class="panel-title">Wzrost mocy % — Top 10</div></div></div><div class="chart-box small-chart"><canvas id="growthChart"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><div><div class="panel-title">Największe spadki</div><div class="panel-desc">jeśli wystąpiły</div></div></div><div class="list" id="powerDropList"></div><div class="panel-more"><button class="show-more-btn" id="powerDropMore"></button></div></div>
       </div>
       <div class="panel" style="margin-top:11px">
         <div class="panel-head">
@@ -167,7 +167,7 @@
             <button data-power-analytics="growthAbs">Najszybszy wzrost</button>
           </div>
         </div>
-        <div class="table-shell" style="margin:12px 14px 14px"><table class="spike-table"><thead id="powerAnalyticsHead"></thead><tbody id="powerAnalyticsBody"></tbody></table></div>
+        <div class="table-shell" style="margin:12px 14px 8px"><table class="spike-table"><thead id="powerAnalyticsHead"></thead><tbody id="powerAnalyticsBody"></tbody></table></div><div class="panel-more"><button class="show-more-btn" id="powerAnalyticsMore"></button></div>
       </div>
 
       <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>#</th><th>Gracz</th><th>Ranga</th><th class="num">Power</th><th class="num">Δ Power</th><th class="num">Δ %</th><th class="num">Udział klanu</th></tr></thead><tbody id="powerTable"></tbody></table></div>
@@ -195,7 +195,11 @@
       <div class="profile-kpis" id="profileKpis"></div>
       <div class="panel"><div class="panel-head"><div><div class="panel-title">Punkty vs średnia klanu</div><div class="panel-desc">pełna historia dostępnych tygodni</div></div></div><div class="chart-box"><canvas id="profileScoreChart"></canvas></div></div>
       <div class="grid-half">
-        <div class="panel"><div class="panel-head"><div><div class="panel-title">Historia power</div></div></div><div class="chart-box small-chart"><canvas id="profilePowerChart"></canvas></div></div>
+        <div class="panel">
+          <div class="panel-head"><div><div class="panel-title">Historia Power</div><div class="panel-desc">Tylko realne snapshoty tego gracza</div></div></div>
+          <div class="chart-box small-chart"><canvas id="profilePowerChart"></canvas></div>
+          <div class="list" id="profilePowerHistory"></div>
+        </div>
         <div class="panel"><div class="panel-head"><div><div class="panel-title">Pozycja w rankingu</div><div class="panel-desc">im wyżej na wykresie, tym lepiej</div></div></div><div class="chart-box small-chart"><canvas id="profilePositionChart"></canvas></div></div>
       </div>
       <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>Tydzień</th><th>Tier</th><th>Data</th><th class="num">Punkty</th><th class="num">Pozycja</th></tr></thead><tbody id="profileHistory"></tbody></table></div>

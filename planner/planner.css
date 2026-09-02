@@ -425,3 +425,13 @@ body{overflow-x:hidden}
  .zoom-tabs{width:100%;overflow:auto}
  .zoom-tabs button{flex:1;white-space:nowrap}
 }
+
+/* V6.1 — segmenty przerw kuźni nie nachodzą na aktywne ulepszenia */
+.tl-event.reaction,
+.tl-event.waiting{
+  box-sizing:border-box;
+  overflow:hidden;
+}
+.tl-event.reaction{z-index:4}
+.tl-event.waiting{z-index:4}
+.tl-event.forge,.tl-event.ongoing{z-index:5}

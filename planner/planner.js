@@ -168,8 +168,19 @@ function calcForge(start,endLimit){
     let e=new Date(s.getTime()+forgeDur(def));
     if(s>endLimit)break;
 
+    const reactionStart=new Date(completion);
+    const reactionEnd=new Date(completion.getTime()+reactionWait);
+    const sleepStart=new Date(reactionEnd);
+    const sleepEnd=new Date(reactionEnd.getTime()+sleepWait);
+    const extraWaitStart=new Date(sleepEnd);
+    const extraWaitEnd=new Date(s);
+
     out.push({
       type:'forge',level:lvl+1,def,start:s,end:e,dur:forgeDur(def),
+      previousEnd:new Date(completion),
+      reactionStart,reactionEnd,
+      sleepStart,sleepEnd,
+      extraWaitStart,extraWaitEnd,
       wait:s-completion,reactionWait,sleepWait,pointWait,
       scored:isForgeDay(gameStart(s)),decision
     });
@@ -245,20 +256,14 @@ function renderTimeline(){
   }
   results.forge.forEach(x=>{
     if(x.wait>5*MIN){
-      let cursor=new Date(x.start.getTime()-x.wait);
-      if(x.reactionWait>5*MIN){
-        let rEnd=new Date(cursor.getTime()+x.reactionWait);
-        forgeEvents+=`<div class="tl-event reaction" style="left:${pos(cursor)}px;width:${width(cursor,rEnd)}px" title="Zakładamy około ${state.reactionMinutes} min zanim gracz wróci do gry."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
-        cursor=rEnd;
+      if(x.reactionWait>5*MIN && x.reactionEnd>x.reactionStart){
+        forgeEvents+=`<div class="tl-event reaction" style="left:${pos(x.reactionStart)}px;width:${width(x.reactionStart,x.reactionEnd)}px" title="Zakładamy około ${state.reactionMinutes} min zanim gracz wróci do gry."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
       }
-      if(x.sleepWait>5*MIN){
-        let sEnd=new Date(cursor.getTime()+x.sleepWait);
-        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(cursor)}px;width:${width(cursor,sEnd)}px" title="Mniejsza aktywność 23:00–08:00"><b>SEN — WRÓĆ RANO</b></div>`;
-        cursor=sEnd;
+      if(x.sleepWait>5*MIN && x.sleepEnd>x.sleepStart){
+        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(x.sleepStart)}px;width:${width(x.sleepStart,x.sleepEnd)}px" title="Mniejsza aktywność 23:00–08:00"><b>SEN — WRÓĆ RANO</b></div>`;
       }
-      let rest=x.start-cursor;
-      if(rest>5*MIN){
-        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(cursor)}px;width:${width(cursor,x.start)}px"><b>POCZEKAJ ${fmtDur(rest)}</b></div>`;
+      if(x.extraWaitEnd-x.extraWaitStart>5*MIN){
+        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(x.extraWaitStart)}px;width:${width(x.extraWaitStart,x.extraWaitEnd)}px"><b>POCZEKAJ ${fmtDur(x.extraWaitEnd-x.extraWaitStart)}</b></div>`;
       }
     }
     forgeEvents+=`<div class="tl-event forge ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${width(x.start,x.end)}px" title="Kuźnia ${x.level}: ${fmtDate(x.start)} → ${fmtDate(x.end)}"><span class="event-tag">${x.scored?'PUNKTOWANY START':'KUŹNIA'}</span><b>Poziom ${x.level}</b><span>START ${fmtDate(x.start)} • KONIEC ${fmtDate(x.end)}</span></div>`;

@@ -4,250 +4,135 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
-<title>INPPL Stats — Forge Master</title>
-<link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="stylesheet" href="styles.css?v=101">
+<title>Forge Master Planner</title>
+<link rel="stylesheet" href="planner.css?v=1">
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
+    <a class="back" href="../">← INPPL Stats</a>
     <div class="brand">
-      <div class="brand-mark">IP</div>
-      <div><div class="brand-name">INPPL <span>Stats</span></div><div class="brand-desc">Forge Master</div></div>
+      <div class="brand-mark">FM</div>
+      <div><div class="brand-name">Forge Master <span>Planner</span></div><div class="brand-desc">Tech • Kuźnia • Wojna</div></div>
     </div>
-    <div class="nav-label">Nawigacja</div>
+
+    <div class="nav-label">WIDOK</div>
     <nav class="nav">
-      <button class="nav-btn active" data-view="overview"><span class="nav-ico">◈</span>Przegląd</button>
-      <button class="nav-btn" data-view="warsView"><span class="nav-ico">⚔</span>Wojny</button>
-      <button class="nav-btn" data-view="playersView"><span class="nav-ico">♟</span>Gracze</button>
-      <button class="nav-btn" data-view="power"><span class="nav-ico">◆</span>Power</button>
-      <button class="nav-btn" data-view="compare"><span class="nav-ico">⇄</span>Porównaj</button>
+      <button class="nav-btn active" data-view="plannerView">◈ Planner</button>
+      <button class="nav-btn" data-view="timelineView">▰ Timeline</button>
+      <button class="nav-btn" data-view="techView">⚗ Tech</button>
+      <button class="nav-btn" data-view="forgeView">⚒ Kuźnia</button>
     </nav>
-    <div class="side-status">
-      <div class="release-row"><strong>InPost [INPPL]</strong><span class="release-badge">v1.0</span></div>
-      <div id="sideDataRange">Dane —</div>
-      <div class="data-updated" id="dataUpdated">Aktualizacja —</div>
+
+    <div class="side-card">
+      <b>Reset gry</b><strong>02:00</strong>
+      <span>Tech: odbiór ŚR/SOB</span>
+      <span>Kuźnia: start ŚR/PT</span>
     </div>
   </aside>
 
   <main class="main">
-    <!-- OVERVIEW -->
-    <section class="view active" id="overview">
-      <div class="hero">
-        <div class="hero-grid">
-          <div>
-            <div class="hero-label">FORGE MASTER</div>
-            <div class="hero-title">InPost <span>[INPPL]</span></div>
-            <div class="hero-meta">
-              <span class="chip">Tydzień <b id="heroWeek"></b></span>
-              <span class="chip" id="heroTier"></span>
-              <span class="chip" id="heroDate"></span>
-              <span class="chip" id="heroPlayerCount"></span>
+    <section class="view active" id="plannerView">
+      <div class="page-head">
+        <div><div class="kicker">FORGE MASTER TOOLS</div><h1>Planner progresu</h1><p>Planowanie Tech i Kuźni pod punktowane dni bez zatrzymywania progresu bardziej niż chcesz.</p></div>
+        <div class="now-card"><span>TERAZ</span><b id="nowText">—</b><small id="gameDayText">—</small></div>
+      </div>
+
+      <div class="grid inputs-grid">
+        <div class="panel settings-panel">
+          <div class="panel-head"><div><h2>Ustawienia</h2><p>Zmiany zapisują się automatycznie w przeglądarce.</p></div></div>
+          <div class="form-grid">
+            <label>Research Speed <span>%</span><input id="researchSpeed" type="number" min="0" step="1"></label>
+            <label>Forge Speed <span>%</span><input id="forgeSpeed" type="number" min="0" step="1"></label>
+            <label>Aktualny poziom kuźni<input id="forgeLevel" type="number" min="1" max="34" step="1"></label>
+            <label>Limit HYBRYDY <span>h</span><input id="waitLimit" type="number" min="0" step="1"></label>
+            <label>Horyzont<select id="horizon"><option value="7">1 tydzień</option><option value="14">2 tygodnie</option><option value="28">4 tygodnie</option><option value="56">8 tygodni</option></select></label>
+            <label>Strategia kuźni<select id="forgeMode"><option value="hybrid">HYBRYDA</option><option value="progress">PROGRES</option><option value="points">PUNKTY</option></select></label>
+          </div>
+          <div class="ongoing">
+            <label class="check"><input type="checkbox" id="forgeOngoing"> Kuźnia już trwa</label>
+            <div class="remaining" id="remainingInputs">
+              <label>Dni<input id="remainingDays" type="number" min="0"></label>
+              <label>Godz.<input id="remainingHours" type="number" min="0" max="23"></label>
+              <label>Min.<input id="remainingMinutes" type="number" min="0" max="59"></label>
             </div>
           </div>
-          <div class="hero-score"><div class="big" id="heroScore"></div><div class="caption">punkty klanu</div><div id="heroTrend"></div></div>
+          <div class="actions">
+            <button class="btn primary" id="recalculate">Przelicz plan</button>
+            <button class="btn" id="exportPlan">Eksport JSON</button>
+            <button class="btn" id="importPlan">Import JSON</button>
+            <button class="btn ghost" id="resetPlan">Reset</button>
+          </div>
+        </div>
+
+        <div class="panel tech-builder">
+          <div class="panel-head"><div><h2>Kolejka Tech</h2><p>Możesz mieszać różne badania — nie muszą być takie same.</p></div></div>
+          <div class="queue-add">
+            <select id="techSelect"></select>
+            <button class="btn primary" id="addTech">+ Dodaj</button>
+            <button class="btn" id="repeatTech">+ ×8</button>
+          </div>
+          <div class="queue" id="techQueue"></div>
+          <div class="queue-empty" id="queueEmpty">Dodaj badania do kolejki.</div>
         </div>
       </div>
 
-      <div class="metrics" id="overviewMetrics"></div>
+      <div class="summary-grid">
+        <div class="summary-card tech-accent"><span>NAJBLIŻSZY TECH</span><b id="nextTechName">—</b><div id="nextTechTime">—</div><small id="nextTechNote">—</small></div>
+        <div class="summary-card forge-accent"><span>NAJBLIŻSZA KUŹNIA</span><b id="nextForgeName">—</b><div id="nextForgeTime">—</div><small id="nextForgeNote">—</small></div>
+        <div class="summary-card"><span>PUNKTOWANE TECH</span><b id="techHits">0</b><div>odbiorów w horyzoncie</div><small id="techWaitTotal">—</small></div>
+        <div class="summary-card"><span>PUNKTOWANE KUŹNIE</span><b id="forgeHits">0</b><div>startów w horyzoncie</div><small id="forgeWaitTotal">—</small></div>
+      </div>
 
-      <div class="grid-main">
+      <div class="grid result-grid">
         <div class="panel">
-          <div class="panel-head">
-            <div><div class="panel-title">Punkty graczy w czasie</div><div class="panel-desc" id="warHistoryRange">Każda linia to jeden gracz</div></div>
-            <div class="chart-controls">
-              <select id="overviewPlayerSelect" class="select chart-select"></select>
-            </div>
-          </div>
-          <div class="chart-box"><canvas id="overviewWarChart"></canvas></div>
-          <div class="chart-legend">
-            <span><i class="legend-line everyone"></i>wszyscy gracze</span>
-            <span><i class="legend-line average"></i>średnia klanu</span>
-            <span><i class="legend-line selected"></i>wybrany gracz</span>
-            <span class="chart-note">Kliknij nick na liście lub wybierz go powyżej</span>
-          </div>
+          <div class="panel-head"><div><h2>Plan Tech</h2><p>Badanie ustawiane najpóźniej tak, aby skończyło się o 02:00 w punktowany dzień.</p></div></div>
+          <div class="table-shell"><table><thead><tr><th>#</th><th>Badanie</th><th>Twój czas</th><th>Wolne okno</th><th>Start</th><th>Odbiór</th><th>Punkty</th></tr></thead><tbody id="techTable"></tbody></table></div>
         </div>
         <div class="panel">
-          <div class="panel-head jump-panel-head">
-            <div>
-              <div class="panel-title" id="jumpPanelTitle">Największe wzrosty</div>
-              <div class="panel-desc">ostatni tydzień vs poprzedni</div>
-            </div>
-            <div class="jump-tabs" role="group" aria-label="Wzrosty lub spadki">
-              <button class="jump-tab active" data-jump-mode="up">Wzrosty</button>
-              <button class="jump-tab" data-jump-mode="down">Spadki</button>
-            </div>
-          </div>
-          <div class="list" id="jumpList"></div>
-          <div class="panel-more"><button class="show-more-btn" id="jumpMore"></button></div>
+          <div class="panel-head"><div><h2>Plan Kuźni</h2><p id="forgeModeDesc">HYBRYDA: czekaj na punktowany start tylko do limitu.</p></div></div>
+          <div class="table-shell"><table><thead><tr><th>Lvl</th><th>Twój czas</th><th>Start</th><th>Koniec</th><th>Czekanie</th><th>Decyzja</th></tr></thead><tbody id="forgeTable"></tbody></table></div>
         </div>
       </div>
 
-      <div class="panel" style="margin-top:11px">
-        <div class="panel-head"><div><div class="panel-title">Ranking ostatniej wojny</div><div class="panel-desc">najlepsi punktujący</div></div></div>
-        <div class="top-grid" id="topFive"></div><div class="panel-more"><button class="show-more-btn" id="topFiveMore"></button></div>
-      </div>
-
-      <div class="grid-main">
-        <div class="panel">
-          <div class="panel-head">
-            <div><div class="panel-title">Power graczy w czasie</div><div class="panel-desc" id="overviewPowerRange">Każda linia to jeden gracz • 1 w Excelu = 1 mln</div></div>
-            <div class="chart-controls"><select id="overviewPowerPlayerSelect" class="select chart-select"></select></div>
-          </div>
-          <div class="chart-box"><canvas id="overviewPowerChart"></canvas></div>
-          <div class="chart-legend">
-            <span><i class="legend-line everyone"></i>wszyscy gracze</span>
-            <span><i class="legend-line average"></i>średnia klanu</span>
-            <span><i class="legend-line selected"></i>wybrany gracz</span>
-          </div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><div><div class="panel-title">Największy wzrost power</div><div class="panel-desc">ostatni snapshot</div></div></div>
-          <div class="list" id="growthList"></div><div class="panel-more"><button class="show-more-btn" id="growthMore"></button></div>
-        </div>
-      </div>
-
-      <div class="panel" style="margin-top:11px">
-        <div class="panel-head"><div><div class="panel-title">Szybkie insighty</div><div class="panel-desc">najważniejsze rekordy klanu</div></div></div>
-        <div class="insights" id="insights"></div>
+      <div class="panel gap-panel">
+        <div class="panel-head"><div><h2>Wolne okna Tech</h2><p>Najdłuższe krótsze badania, które czasowo mieszczą się w przerwie. To sugestia czasowa — planner nie zna Twoich odblokowań drzewka.</p></div></div>
+        <div id="gapSuggestions" class="gap-list"></div>
       </div>
     </section>
 
-    <!-- WARS -->
-    <section class="view" id="warsView">
-      <div class="page-head war-page-head">
-        <div><div class="kicker">Wars analytics</div><h1>Wojny klanowe</h1><div class="page-sub">Wybierz tydzień i przeanalizuj ranking, rozkład punktów oraz zmianę formy.</div></div>
-        <div class="war-tier-focus" id="warTierFocus">
-          <div class="war-tier-caption">TIER WOJNY</div>
-          <div class="war-tier-value" id="warTierValue">—</div>
-          <div class="war-tier-week" id="warTierWeek">—</div>
-        </div>
+    <section class="view" id="timelineView">
+      <div class="page-head"><div><div class="kicker">VISUAL PLANNER</div><h1>Timeline</h1><p>Prawdziwa oś czasu zamiast setek kolumn Excela. Przewijaj poziomo.</p></div></div>
+      <div class="timeline-legend">
+        <span><i class="dot tech"></i>Tech</span><span><i class="dot forge"></i>Kuźnia</span><span><i class="dot scoring"></i>Dzień punktowany</span>
       </div>
-      <div class="weekbar" id="weekbar"></div>
-      <div class="war-summary" id="warSummary"></div>
-      <div class="panel">
-        <div class="panel-head"><div><div class="panel-title">Rozkład punktów — Top 15</div><div class="panel-desc" id="warDeltaNote"></div></div></div>
-        <div class="chart-box small-chart"><canvas id="warDistribution"></canvas></div>
-      </div>
-      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>#</th><th>Gracz</th><th>Ranga</th><th class="num">Punkty</th><th class="num">Pozycja źródłowa</th></tr></thead><tbody id="warTable"></tbody></table></div>
+      <div class="timeline-scroll"><div id="timeline"></div></div>
     </section>
 
-    <!-- PLAYERS -->
-    <section class="view" id="playersView">
-      <div class="page-head"><div><div class="kicker">Player database</div><h1>Gracze</h1><div class="page-sub">Forma, rekordy, power i historia. Kliknij nick, aby przejść do pełnego profilu.</div></div><div class="status-pill" id="playersCount"></div></div>
-      <div class="toolbar"><div style="display:flex;gap:7px"><input class="search" id="playerSearch" placeholder="Szukaj gracza…"><select class="select" id="rankFilter"></select></div><div style="font-size:9px;color:#5c6879">Kliknij nagłówki, aby sortować</div></div>
-      <div class="table-shell"><table><thead><tr>
-        <th class="sortable" data-sort="latestPlace">#</th><th class="sortable" data-sort="nick">Gracz</th><th class="sortable" data-sort="rank">Ranga</th>
-        <th class="sortable num" data-sort="latestPoints">Ostatni</th><th class="sortable num" data-sort="avg">Średnia</th><th class="sortable num" data-sort="best">Rekord</th>
-        <th class="sortable num" data-sort="powerM">Power</th><th class="sortable num" data-sort="powerChangeM">Δ Power</th><th class="sortable" data-sort="formDelta">Forma</th>
-      </tr></thead><tbody id="playersTable"></tbody></table></div>
+    <section class="view" id="techView">
+      <div class="page-head"><div><div class="kicker">TECH LIBRARY</div><h1>Czasy badań</h1><p>Pełna tabela z Excela, przeliczana na Twój Research Speed.</p></div></div>
+      <input class="search" id="techSearch" placeholder="Szukaj np. V 1/5…">
+      <div class="library-grid" id="techLibrary"></div>
     </section>
 
-    <!-- POWER -->
-    <section class="view" id="power">
-      <div class="page-head"><div><div class="kicker">Power analytics</div><h1>Moc klanu</h1><div class="page-sub">Historia snapshotów, udział graczy oraz największe wzrosty i spadki.</div></div><div class="status-pill" id="powerStatus">—</div></div>
-      <div class="power-hero">
-        <div class="power-big"><div class="l">Łączna moc klanu</div><div class="v" id="powerTotal"></div><div class="sub" id="powerTotalSub"></div></div>
-        <div class="power-big"><div class="l">Zmiana vs poprzedni snapshot</div><div class="v" id="powerDelta"></div><div class="sub" id="powerDeltaSub"></div></div>
-      </div>
-
-      <div class="panel" style="margin-top:11px">
-        <div class="panel-head power-snapshot-head">
-          <div>
-            <div class="panel-title">Ranking wzrostu Power w snapshotach</div>
-            <div class="panel-desc">Wybierz tydzień. Domyślnie ranking jest liczony według procentowego wzrostu względem poprzedniego snapshotu.</div>
-          </div>
-          <div class="power-default-pill">DOMYŚLNIE: Δ %</div>
-        </div>
-        <div class="toolbar power-toolbar power-snapshot-toolbar">
-          <div class="power-filter-row">
-            <input class="search" id="powerSearch" placeholder="Szukaj gracza…">
-            <select class="select" id="powerRankFilter"></select>
-            <select class="select" id="powerSort">
-              <option value="growthPct">Wzrost % ↓ (domyślne)</option>
-              <option value="power">Power ↓</option>
-              <option value="growthAbs">Wzrost Power ↓</option>
-              <option value="nick">Nick A–Z</option>
-            </select>
-          </div>
-          <div class="power-filter-note" id="powerFilterCount"></div>
-        </div>
-        <div style="padding:12px 14px 0"><div class="snapshot-bar" id="powerSnapshotBar"></div></div>
-        <div class="war-summary" id="powerSnapshotSummary" style="padding:12px 14px 0;margin-bottom:0"></div>
-        <div class="table-shell" style="margin:12px 14px 14px"><table><thead><tr><th># wzrostu</th><th>Gracz</th><th>Ranga</th><th class="num">Δ %</th><th class="num">Δ Power</th><th class="num">Power</th></tr></thead><tbody id="powerSnapshotTable"></tbody></table></div>
-      </div>
-      <div class="grid-main">
-        <div class="panel">
-          <div class="panel-head">
-            <div><div class="panel-title">Power wszystkich graczy</div><div class="panel-desc" id="powerHistoryRange">rozkład całego klanu</div></div>
-            <div class="chart-controls"><select id="powerPagePlayerSelect" class="select chart-select"></select></div>
-          </div>
-          <div class="chart-box"><canvas id="powerHistoryChart"></canvas></div>
-          <div class="chart-legend">
-            <span><i class="legend-line everyone"></i>wszyscy gracze</span>
-            <span><i class="legend-line average"></i>średnia klanu</span>
-            <span><i class="legend-line selected"></i>wybrany gracz</span>
-          </div>
-        </div>
-        <div class="panel"><div class="panel-head"><div><div class="panel-title">Najszybszy wzrost Power</div><div class="panel-desc">ranking według procentowego wzrostu</div></div></div><div class="list" id="powerGrowthList"></div><div class="panel-more"><button class="show-more-btn" id="powerGrowthMore"></button></div></div>
-      </div>
-      <div class="grid-half">
-        <div class="panel"><div class="panel-head"><div><div class="panel-title">Wzrost mocy % — Top 10</div></div></div><div class="chart-box small-chart"><canvas id="growthChart"></canvas></div></div>
-        <div class="panel"><div class="panel-head"><div><div class="panel-title">Największe spadki</div><div class="panel-desc">jeśli wystąpiły</div></div></div><div class="list" id="powerDropList"></div><div class="panel-more"><button class="show-more-btn" id="powerDropMore"></button></div></div>
-      </div>
-      <div class="panel" style="margin-top:11px">
-        <div class="panel-head">
-          <div><div class="panel-title">Power spikes i tempo wzrostu</div><div class="panel-desc">Kto miał największy jednorazowy skok i kto rośnie najszybciej długoterminowo</div></div>
-          <div class="analytics-tabs">
-            <button data-power-analytics="spikePct">Największy spike %</button>
-            <button data-power-analytics="spikeAbs">Największy spike</button>
-            <button class="active" data-power-analytics="growthPct">Najszybszy wzrost %</button>
-            <button data-power-analytics="growthAbs">Najszybszy wzrost</button>
-          </div>
-        </div>
-        <div class="table-shell" style="margin:12px 14px 8px"><table class="spike-table"><thead id="powerAnalyticsHead"></thead><tbody id="powerAnalyticsBody"></tbody></table></div><div class="panel-more"><button class="show-more-btn" id="powerAnalyticsMore"></button></div>
-      </div>
-
-          </section>
-
-    <!-- COMPARE -->
-    <section class="view" id="compare">
-      <div class="page-head"><div><div class="kicker">Player comparison</div><h1>Porównaj graczy</h1><div class="page-sub">Do trzech graczy na jednym wykresie, z odniesieniem do średniej klanu.</div></div></div>
-      <div class="compare-controls">
-        <div class="compare-slot"><label>Gracz 1</label><select class="select" id="compare1"></select></div>
-        <div class="compare-slot"><label>Gracz 2</label><select class="select" id="compare2"></select></div>
-        <div class="compare-slot"><label>Gracz 3</label><select class="select" id="compare3"></select></div>
-        <button class="btn primary" onclick="renderCompare()">Odśwież</button>
-      </div>
-      <div class="panel"><div class="panel-head"><div><div class="panel-title">Punkty wojenne</div><div class="panel-desc">gracze + średnia klanu</div></div></div><div class="chart-box"><canvas id="compareScoreChart"></canvas></div></div>
-      <div class="panel" style="margin-top:11px"><div class="panel-head"><div><div class="panel-title">Power</div><div class="panel-desc">Historia mocy graczy</div></div></div><div class="chart-box"><canvas id="comparePowerChart"></canvas></div></div>
+    <section class="view" id="forgeView">
+      <div class="page-head"><div><div class="kicker">FORGE LIBRARY</div><h1>Czasy kuźni</h1><p>Poziomy 2–35 z czasem bazowym i czasem po Twoim Forge Speed.</p></div></div>
+      <div class="strategy-compare" id="strategyCompare"></div>
+      <div class="library-grid forge-lib" id="forgeLibrary"></div>
     </section>
-
-    <!-- FULL PROFILE VIEW -->
-    <section class="view" id="profile">
-      <div class="profile-header">
-        <div><button class="back-btn" id="profileBack">← Wróć</button><div class="profile-name" id="profileName"></div><div class="profile-rank" id="profileRank"></div></div>
-        <div class="profile-power"><div class="v" id="profilePower"></div><div class="l">aktualny power</div><div id="profilePowerDelta" style="font-size:9px;margin-top:6px"></div><button class="btn" id="profileCompare" style="margin-top:10px">Porównaj z innym</button></div>
-      </div>
-      <div class="profile-kpis" id="profileKpis"></div>
-      <div class="panel"><div class="panel-head"><div><div class="panel-title">Punkty vs średnia klanu</div><div class="panel-desc">pełna historia dostępnych tygodni</div></div></div><div class="chart-box"><canvas id="profileScoreChart"></canvas></div></div>
-      <div class="grid-half">
-        <div class="panel">
-          <div class="panel-head"><div><div class="panel-title">Historia Power</div><div class="panel-desc">Tylko realne snapshoty tego gracza</div></div></div>
-          <div class="chart-box small-chart"><canvas id="profilePowerChart"></canvas></div>
-          <div class="list" id="profilePowerHistory"></div>
-        </div>
-        <div class="panel"><div class="panel-head"><div><div class="panel-title">Pozycja w rankingu</div><div class="panel-desc">im wyżej na wykresie, tym lepiej</div></div></div><div class="chart-box small-chart"><canvas id="profilePositionChart"></canvas></div></div>
-      </div>
-      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>Tydzień</th><th>Tier</th><th>Data</th><th class="num">Punkty</th><th class="num">Pozycja</th></tr></thead><tbody id="profileHistory"></tbody></table></div>
-    </section>
-
-    <div class="footer">INPPL Stats • pełny redesign • dane lokalne z INPPL_Ranking_source.xlsx</div>
   </main>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="data.js?v=101"></script>
-<script src="app.js?v=101"></script>
+<div class="modal" id="importModal">
+  <div class="modal-card">
+    <h2>Import planu</h2>
+    <p>Wklej JSON wyeksportowany z tego plannera.</p>
+    <textarea id="importText"></textarea>
+    <div class="actions"><button class="btn" id="cancelImport">Anuluj</button><button class="btn primary" id="doImport">Importuj</button></div>
+  </div>
+</div>
+
+<script src="game-data.js?v=1"></script>
+<script src="planner.js?v=1"></script>
 </body>
 </html>

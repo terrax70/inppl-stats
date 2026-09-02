@@ -13,13 +13,44 @@ function fmtDur(ms){if(!isFinite(ms))return'—';let m=Math.max(0,Math.round(ms/
 function speed(v){return 1+Math.max(0,Number(v)||0)/100}
 function gameStart(t){let d=new Date(t),g=new Date(d.getFullYear(),d.getMonth(),d.getDate(),D.resetHour);if(d<g)g.setDate(g.getDate()-1);return g}
 function weekday(t){let x=gameStart(t).getDay();return x===0?7:x}
-function nextBoundary(after,days){let g=gameStart(after);for(let i=0;i<18;i++){let c=new Date(g.getTime()+i*DAY);if(days.includes(weekday(c))&&c>=after)return c}return new Date(after.getTime()+14*DAY)}
+function nextBoundary(after,days){
+  let g=gameStart(after);
+  for(let i=0;i<18;i++){
+    let base=new Date(g.getTime()+i*DAY);
+    if(days.includes(weekday(base))){
+      let c=scoringActionAt(base);
+      if(c>=after)return c;
+    }
+  }
+  return new Date(after.getTime()+14*DAY);
+}
 function techDef(n){return D.tech.find(x=>x.name===n)}
 function forgeDef(l){return D.forge.find(x=>x.level===Number(l))}
 function techDur(x){return x.baseDays*DAY/speed(state.researchSpeed)}
 function forgeDur(x){return x.baseDays*DAY/speed(state.forgeSpeed)}
 function isTechDay(t){return D.techScoringWeekdays.includes(weekday(t))}
 function isForgeDay(t){return D.forgeScoringWeekdays.includes(weekday(t))}
+function isQuiet(t){
+  const h=t.getHours()+t.getMinutes()/60;
+  return h>=QUIET_START || h<QUIET_END;
+}
+function nextAwakeTime(t){
+  let d=new Date(t);
+  if(!isQuiet(d))return d;
+  if(d.getHours()>=QUIET_START){
+    d.setDate(d.getDate()+1);
+    d.setHours(QUIET_END,0,0,0);
+  }else{
+    d.setHours(QUIET_END,0,0,0);
+  }
+  return d;
+}
+function scoringActionAt(dayStart){
+  let d=new Date(dayStart);
+  d.setHours(QUIET_END,0,0,0);
+  return d;
+}
+
 function quietOverlap(start,end){
   let total=0;
   let cursor=new Date(start.getFullYear(),start.getMonth(),start.getDate()-1,QUIET_START,0,0,0);
@@ -68,7 +99,15 @@ function nextTechSlot(avail,dur){
   let start=new Date(avail),finish=new Date(avail.getTime()+dur);
   return {start,finish,collect:finish};
 }
-function nextForgeSlot(avail){return isForgeDay(avail)?new Date(avail):nextBoundary(avail,D.forgeScoringWeekdays)}
+function nextForgeSlot(avail){
+  let awake=nextAwakeTime(avail);
+  let g=gameStart(awake);
+  if(isForgeDay(g)){
+    let today=scoringActionAt(g);
+    if(today>=awake)return today;
+  }
+  return nextBoundary(awake,D.forgeScoringWeekdays);
+}
 
 function read(){
   state.researchSpeed=+$('#researchSpeed').value||0;state.forgeSpeed=+$('#forgeSpeed').value||0;state.forgeLevel=+$('#forgeLevel').value||1;
@@ -98,16 +137,42 @@ function calcTech(start,endLimit){
 }
 function calcForge(start,endLimit){
   let avail=new Date(start),out=[];
-  if(state.forgeOngoing)avail=new Date(start.getTime()+state.remainingDays*DAY+state.remainingHours*HOUR+state.remainingMinutes*MIN);
+  if(state.forgeOngoing){
+    avail=new Date(start.getTime()+state.remainingDays*DAY+state.remainingHours*HOUR+state.remainingMinutes*MIN);
+  }
   let lvl=state.forgeLevel;
   for(let i=0;i<80;i++){
-    let def=forgeDef(lvl+1);if(!def)break;let earliest=new Date(avail),point=nextForgeSlot(earliest),wait=Math.max(0,point-earliest),s=earliest,decision='ODPAL OD RAZU';
-    if(state.forgeMode==='points'&&!isForgeDay(earliest)){s=point;decision='CZEKAJ NA PUNKTY'}
-    if(state.forgeMode==='hybrid'&&!isForgeDay(earliest)&&wait<=state.waitLimit*HOUR){s=point;decision='CZEKAJ'}
-    if(state.forgeMode==='progress')decision='ODPAL OD RAZU';
-    let e=new Date(s.getTime()+forgeDur(def));if(s>endLimit)break;
-    out.push({type:'forge',level:lvl+1,def,start:s,end:e,dur:forgeDur(def),wait:s-earliest,scored:isForgeDay(s),decision});avail=e;lvl++
-  }return out
+    let def=forgeDef(lvl+1);if(!def)break;
+
+    // Gracz nie zakłada ręcznej aktywności między 23:00 a 08:00.
+    let completion=new Date(avail);
+    let earliest=nextAwakeTime(completion);
+    let sleepWait=Math.max(0,earliest-completion);
+
+    let point=nextForgeSlot(earliest);
+    let pointWait=Math.max(0,point-earliest);
+    let s=earliest,decision=sleepWait>0?'POCZEKAJ DO 08:00':'ODPAL OD RAZU';
+
+    if(state.forgeMode==='points'&&!isForgeDay(gameStart(earliest))){
+      s=point;decision='CZEKAJ NA PUNKTOWANY DZIEŃ';
+    }else if(state.forgeMode==='hybrid'&&!isForgeDay(gameStart(earliest))&&pointWait<=state.waitLimit*HOUR){
+      s=point;decision='CZEKAJ NA PUNKTOWANY DZIEŃ';
+    }else if(state.forgeMode==='progress'){
+      s=earliest;
+      decision=sleepWait>0?'ODPAL O 08:00':'ODPAL OD RAZU';
+    }
+
+    let e=new Date(s.getTime()+forgeDur(def));
+    if(s>endLimit)break;
+
+    out.push({
+      type:'forge',level:lvl+1,def,start:s,end:e,dur:forgeDur(def),
+      wait:s-completion,sleepWait,pointWait,
+      scored:isForgeDay(gameStart(s)),decision
+    });
+    avail=e;lvl++;
+  }
+  return out;
 }
 function calculate(){
   read();save();let start=new Date(),limit=new Date(start.getTime()+state.horizon*DAY);results.tech=calcTech(start,limit);results.forge=calcForge(start,limit);
@@ -130,7 +195,7 @@ function renderSummary(){
   $('#nextForgeAction').textContent=ongoing?'KUŹNIA JUŻ PRACUJE':f?(f.wait>5*MIN?'NA RAZIE NIE URUCHAMIAJ':'URUCHOM KUŹNIĘ TERAZ'):'BRAK KOLEJNEGO POZIOMU';
   $('#nextForgeName').textContent=ongoing?`Trwa poziom ${state.forgeLevel}`:(f?`Następnie: poziom ${f.level}`:'—');
   $('#nextForgeTime').textContent=ongoing?`Pozostało ${fmtDur(state.remainingDays*DAY+state.remainingHours*HOUR+state.remainingMinutes*MIN)}`:(f?`Start ${fmtDate(f.start)} • koniec ${fmtDate(f.end)}`:'—');
-  $('#nextForgeNote').textContent=ongoing?(f?`Po zakończeniu obecnej kuźni: ${f.wait>5*MIN?`poczekaj ${fmtDur(f.wait)} i uruchom poziom ${f.level}.`:`uruchom poziom ${f.level} od razu.`}`:'Obecna kuźnia trwa.'):(f?(f.wait>5*MIN?`Poczekaj ${fmtDur(f.wait)}, ponieważ najbliższy start opłaca się zrobić w punktowanym dniu.`:`Nie ma sensu czekać — uruchom następny poziom.`):'');
+  $('#nextForgeNote').textContent=ongoing?(f?`Po zakończeniu obecnej kuźni: ${f.sleepWait>5*MIN?`jeśli skończy się w nocy, poczekaj do 08:00. `:''}${f.wait>5*MIN?`Następny poziom uruchom ${fmtDate(f.start)}.`:`Uruchom poziom ${f.level} od razu.`}`:'Obecna kuźnia trwa.'):(f?(f.sleepWait>5*MIN?`Kuźnia skończyła się w czasie mniejszej aktywności. Następny poziom zaplanuj na ${fmtDate(f.start)}.`:f.wait>5*MIN?`Poczekaj do ${fmtDate(f.start)} — wtedy start będzie korzystniejszy.`:`Nie ma sensu czekać — uruchom następny poziom.`):'');
   $('#techHits').textContent=results.tech.filter(x=>x.scored).length;$('#forgeHits').textContent=results.forge.filter(x=>x.scored).length;
   let tw=results.tech.reduce((a,x)=>a+x.gap,0),fw=results.forge.reduce((a,x)=>a+x.wait,0);$('#waitSummary').textContent=`Łączne czekanie: Tech ${fmtDur(tw)} • Kuźnia ${fmtDur(fw)}`;
 }
@@ -170,7 +235,7 @@ function renderTimeline(){
   results.forge.forEach(x=>{
     if(x.wait>5*MIN){
       let a=new Date(x.start.getTime()-x.wait);
-      forgeEvents+=`<div class="tl-event waiting" style="left:${pos(a)}px;width:${width(a,x.start)}px"><b>CZEKAJ ${fmtDur(x.wait)}</b></div>`;
+      forgeEvents+=`<div class="tl-event waiting" style="left:${pos(a)}px;width:${width(a,x.start)}px" title="${x.sleepWait>5*MIN?'Noc / mniejsza aktywność':'Czekanie na korzystny start'}"><b>${x.sleepWait>5*MIN?'NOC — START O 08:00':`CZEKAJ ${fmtDur(x.wait)}`}</b></div>`;
     }
     forgeEvents+=`<div class="tl-event forge ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${width(x.start,x.end)}px" title="Kuźnia ${x.level}: ${fmtDate(x.start)} → ${fmtDate(x.end)}"><span class="event-tag">${x.scored?'PUNKTOWANY START':'KUŹNIA'}</span><b>Poziom ${x.level}</b><span>START ${fmtDate(x.start)} • KONIEC ${fmtDate(x.end)}</span></div>`;
   });
@@ -199,7 +264,7 @@ function renderTimeline(){
     focusText=`Badanie będzie gotowe ${fmtDate(x.finish)}. Odbierz je ${fmtDate(x.collect)}. ${x.scored?'Za ten odbiór dostaniesz punkty.':''}`;
   }else if(results.forge[0]){
     let x=results.forge[0];
-    focusTitle=x.wait>5*MIN?`Kuźnia ${x.level}: poczekaj do ${fmtDate(x.start)}`:`Uruchom kuźnię ${x.level} teraz`;
+    focusTitle=x.sleepWait>5*MIN?`Kuźnia ${x.level}: noc — uruchom o ${fmtDate(x.start)}`:x.wait>5*MIN?`Kuźnia ${x.level}: poczekaj do ${fmtDate(x.start)}`:`Uruchom kuźnię ${x.level} teraz`;
     focusText=`Przewidywany koniec: ${fmtDate(x.end)}. ${x.scored?'Start będzie punktowany.':''}`;
   }
   $('#timelineFocusTitle').textContent=focusTitle;
@@ -228,6 +293,8 @@ function clock(){let n=new Date(),cfg=D.days[weekday(n)-1];$('#nowText').textCon
 function hint(){let m=$('#forgeMode').value;$('#strategyHint').textContent=m==='hybrid'?'Czeka tylko, gdy strata progresu jest mała.':m==='progress'?'Każdy poziom startuje natychmiast.':'Zawsze czeka na środę lub piątek.'}
 
 function init(){
+  if('scrollRestoration' in history)history.scrollRestoration='manual';
+  window.scrollTo(0,0);
   sync();clock();setInterval(clock,30000);
   $('#techSelect').innerHTML=D.tech.map(x=>`<option value="${x.name}">${x.name} • ${fmtDur(techDur(x))}</option>`).join('');
   renderQueue();hint();

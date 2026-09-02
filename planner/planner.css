@@ -164,3 +164,111 @@ td{font-size:10px}
  .live-note small{flex-basis:100%;margin-left:17px}
  .sleep-rule p{font-size:11px}
 }
+
+/* V5 — timeline first */
+body{overflow-x:hidden}
+.topbar{height:58px;padding:0 22px}
+.shell{width:min(1560px,calc(100% - 28px));padding:18px 0 60px}
+.compact-hero{
+  margin-bottom:12px;
+  align-items:center;
+}
+.compact-hero h1{
+  font-size:30px!important;
+  margin:4px 0 5px!important;
+}
+.compact-hero p{font-size:11px!important}
+.clock{min-width:210px}
+.clock b{font-size:16px}
+
+.setup-card{
+  padding:14px 16px;
+  border-radius:13px;
+}
+.setup-title-row{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:11px
+}
+.setup-title-row h2{margin:0;font-size:15px}
+.setup-title-row p{margin:3px 0 0;font-size:9px;color:#69768a}
+.quiet-badge{
+  flex:none;padding:7px 10px;border-radius:8px;
+  border:1px solid rgba(134,114,193,.22);
+  background:rgba(94,78,142,.08);
+  color:#b8a8df;font-size:9px;font-weight:850
+}
+.setup-grid{
+  margin-top:0;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;
+}
+.field{gap:4px}
+.field>span{font-size:10px}
+.field small{font-size:8px}
+.field input,.field select,.tech-add select{height:36px;font-size:13px}
+.ongoing-row{
+  margin-top:9px;
+  padding:9px 11px;
+  min-height:55px
+}
+.switch-row b{font-size:11px}
+.switch-row small{font-size:8px}
+.remaining input{height:31px;font-size:12px}
+.tech-choice{
+  margin-top:9px;
+  padding:10px 11px;
+}
+.tech-choice-head b{font-size:11px}
+.tech-choice-head small{font-size:8px}
+.tech-add{margin-top:8px}
+.tech-add select{height:34px}
+.btn{height:34px;font-size:9px;padding:0 10px}
+.chips{margin-top:7px;gap:4px}
+.chip{font-size:9px;padding:6px 7px}
+.advanced-toggle{margin-top:7px}
+.advanced-toggle>button{font-size:9px}
+.advanced{margin-top:6px;padding:9px}
+.live-note{
+  margin-top:8px;
+  padding:8px 10px;
+  font-size:9px
+}
+.results{margin-top:10px}
+.timeline-card{
+  border-radius:14px;
+  min-height:560px;
+}
+.timeline-title{padding:15px 17px}
+.timeline-title h2{font-size:19px}
+.timeline-title p{font-size:10px}
+.timeline-focus{
+  margin:10px 12px 0;
+  padding:12px 14px
+}
+.timeline-focus b{font-size:16px}
+.timeline-focus p{font-size:10px}
+.timeline-scroll{margin-top:10px}
+.timeline{min-height:430px}
+.tl-header{height:68px}
+.tl-label-corner{height:68px}
+.tl-day{height:68px;padding:10px 8px}
+.tl-day b{font-size:11px;margin-bottom:5px}
+.tl-row{height:150px}
+.tl-row-label{height:150px;font-size:13px}
+.tl-event{top:29px;height:91px;padding:12px 13px}
+.tl-event b{font-size:14px}
+.tl-event span{font-size:9px}
+.tl-event.waiting{top:54px;height:40px}
+.compact-result-head{margin-top:13px}
+.decision-strip{margin-top:8px}
+
+@media(max-width:1000px){
+ .setup-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:700px){
+ .shell{width:min(100% - 18px,1560px);padding-top:12px}
+ .compact-hero h1{font-size:26px!important}
+ .setup-title-row{align-items:flex-start;flex-direction:column}
+ .quiet-badge{align-self:stretch;text-align:center}
+ .setup-grid{grid-template-columns:1fr 1fr}
+ .timeline-card{min-height:500px}
+}

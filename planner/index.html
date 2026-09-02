@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=4">
+<link rel="stylesheet" href="planner.css?v=5">
 </head>
 <body>
 <header class="topbar">
@@ -17,19 +17,19 @@
 </header>
 
 <main class="shell">
-  <section class="hero">
+  <section class="hero compact-hero">
     <div>
       <div class="eyebrow">FORGE MASTER PLANNER</div>
-      <h1>Co mam zrobić teraz i co będzie dalej?</h1>
-      <p>Podaj kilka danych. Dostaniesz czytelny plan z dokładnymi godzinami startu i odbioru.</p>
+      <h1>Twój plan progresu</h1>
+      <p>Ustaw kilka rzeczy. Timeline poniżej przelicza się automatycznie.</p>
     </div>
     <div class="clock"><span>TERAZ</span><b id="nowText">—</b><small id="gameDayText">—</small></div>
   </section>
 
   <section class="setup-card" id="setup">
-    <div class="step-head">
-      <span class="step-no">1</span>
-      <div><h2>Twoje dane</h2><p>Wypełnij pola poniżej. Resztę policzymy za Ciebie.</p></div>
+    <div class="setup-title-row">
+      <div><h2>Ustawienia planu</h2><p>Zmiana dowolnego pola od razu aktualizuje timeline.</p></div>
+      <div class="quiet-badge">☾ Mniejsza aktywność 23:00–08:00</div>
     </div>
 
     <div class="setup-grid">
@@ -74,17 +74,9 @@
         <label><span>Min.</span><input id="remainingMinutes" type="number" min="0" max="59" value="0"></label>
       </div>
     </div>
-
-    <div class="sleep-rule">
-      <div class="sleep-icon">☾</div>
-      <div><b>Planner uwzględnia noc 23:00–08:00</b><p>W tych godzinach zakładamy mniejszą aktywność. Badania są układane tak, żeby możliwie dużo czasu robiły się właśnie w nocy, bez tracenia punktowanych odbiorów.</p></div>
-    </div>
     <div class="tech-choice">
       <div class="tech-choice-head">
-        <div>
-          <b>Które badania Tech chcesz zrobić?</b>
-          <small>Dodaj badania w takiej kolejności, w jakiej chcesz je wykonywać.</small>
-        </div>
+        <div><b>Kolejka Tech</b><small>Dodaj badania w kolejności wykonywania.</small></div>
         <button type="button" class="text-btn" id="clearTech">Wyczyść</button>
       </div>
       <div class="tech-add">
@@ -104,7 +96,7 @@
       </div>
     </div>
 
-    <div class="live-note"><span class="live-dot"></span><b>Plan aktualizuje się automatycznie</b><small>Zmień dowolne pole — timeline przeliczy się od razu.</small></div>
+    <div class="live-note"><span class="live-dot"></span><b>Plan aktualizuje się na żywo</b></div>
   </section>
 
   <section class="results" id="results">
@@ -113,7 +105,7 @@
       <div class="timeline-title">
         <div>
           <span class="step-no done">2</span>
-          <div><h2>Twój timeline</h2><p>Cały plan na jednej osi czasu — od tego, co robisz teraz, po kolejne tygodnie.</p></div>
+          <div><h2>Twój timeline</h2><p>Najważniejszy widok plannera. Noc 23:00–08:00 jest uwzględniana przy planowaniu Tech i Kuźni.</p></div>
         </div>
         <div class="legend">
           <span><i class="dot tech"></i>Tech</span>
@@ -186,7 +178,7 @@
   </section>
 </main>
 
-<script src="game-data.js?v=4"></script>
-<script src="planner.js?v=4"></script>
+<script src="game-data.js?v=5"></script>
+<script src="planner.js?v=5"></script>
 </body>
 </html>

@@ -89,20 +89,37 @@ function setView(id, push=true){
   if(push && id!=='profile') history.replaceState(null,'','#'+id);
   if(id==='overview') requestAnimationFrame(renderOverviewCharts);
   if(id==='warsView') requestAnimationFrame(renderWarView);
-  if(id==='power') requestAnimationFrame(()=>{renderPower();renderPowerSnapshotBar();renderPowerCharts();});
+  if(id==='power') requestAnimationFrame(()=>{renderPower();renderPowerCharts();});
   if(id==='compare') requestAnimationFrame(renderCompare);
 }
 $$('.nav-btn').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
 
 function tierClass(tier){
- const t=String(tier||'').trim().toUpperCase();
+ let t=String(tier||'').trim().toUpperCase();
+ t=t.replace(/^TIER[\s:_-]*/,'').trim();
  if(t==='S++')return'tier-spp';
  if(t==='S+')return'tier-sp';
  if(t==='S')return'tier-s';
  return'tier-other';
 }
+function tierLabel(tier){
+ let t=String(tier||'').trim();
+ return t.replace(/^TIER[\s:_-]*/i,'').trim()||'—';
+}
 function tierBadge(tier,large=false){
- return `<span class="tier-badge ${tierClass(tier)} ${large?'large':''}">${escapeHtml(tier||'—')}</span>`;
+ return `<span class="tier-badge ${tierClass(tier)} ${large?'large':''}">${escapeHtml(tierLabel(tier))}</span>`;
+}
+
+function rangeLabel(items){
+ if(!items?.length)return'—';
+ if(items.length===1)return items[0].week;
+ return `${items[0].week}–${items.at(-1).week}`;
+}
+function formatGeneratedAt(value){
+ if(!value)return'Aktualizacja —';
+ const d=new Date(value);
+ if(Number.isNaN(d.getTime()))return'Aktualizacja —';
+ return `Aktualizacja ${d.toLocaleDateString('pl-PL')} • ${d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}`;
 }
 
 function metric(label,value,sub,delta=null){
@@ -122,6 +139,7 @@ function placeClass(place){
 function placeBadge(place){return `<span class="place-badge ${placeClass(place)}">#${place}</span>`;}
 function playerButton(nick,extra=''){return `<button class="player-inline ${extra}" onclick="openProfile('${escapeHtml(nick).replace(/'/g,"\\'")}')">${escapeHtml(nick)}</button>`;}
 const expandedLists={topFive:false,jumps:false,growth:false,powerGrowth:false,powerDrop:false,powerAnalytics:false};
+let jumpMode='up';
 function moreButton(id,key,total,shown){
  const b=$('#'+id);if(!b)return;
  const expanded=!!expandedLists[key];
@@ -155,9 +173,13 @@ function renderOverview(){
   $('#topFive').innerHTML=l.entries.slice(0,topLim).map((e,i)=>`<button class="top-card ${placeClass(i+1)}" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')"><div class="place">${placeBadge(i+1)}</div><div class="name">${escapeHtml(e.nick)}</div><div class="score">${compact(e.points)}</div><div class="rank">${escapeHtml(e.rank)}</div></button>`).join('');
   moreButton('topFiveMore','topFive',l.entries.length,topLim);
 
-  const jumpLim=expandedLists.jumps?D.topJumps.length:6;
-  $('#jumpList').innerHTML=D.topJumps.slice(0,jumpLim).map((x,i)=>listRow(i,x.nick,compact(x.points),x.delta,compact)).join('');
-  moreButton('jumpMore','jumps',D.topJumps.length,jumpLim);
+  const jumpSource=(jumpMode==='down'?(D.topFalls||[]):(D.topJumps||[]))
+    .filter(x=>jumpMode==='down'?x.delta<0:x.delta>0);
+  const jumpLim=expandedLists.jumps?jumpSource.length:6;
+  $('#jumpPanelTitle').textContent=jumpMode==='down'?'Największe spadki':'Największe wzrosty';
+  $$('.jump-tab').forEach(b=>b.classList.toggle('active',b.dataset.jumpMode===jumpMode));
+  $('#jumpList').innerHTML=jumpSource.slice(0,jumpLim).map((x,i)=>listRow(i,x.nick,compact(x.points),x.delta,compact)).join('');
+  moreButton('jumpMore','jumps',jumpSource.length,jumpLim);
   const growthLim=expandedLists.growth?D.topGrowth.length:6;
   $('#growthList').innerHTML=D.topGrowth.slice(0,growthLim).map((x,i)=>listRow(i,x.nick,power(x.powerM),x.pct,fmtPct1,`${formatDelta(x.deltaM,power)}`)).join('');
   moreButton('growthMore','growth',D.topGrowth.length,growthLim);
@@ -264,10 +286,11 @@ function renderWarView(){
  const best=[...deltas].sort((a,b)=>b.delta-a.delta)[0], worst=[...deltas].sort((a,b)=>a.delta-b.delta)[0];
  const tierFocus=$('#warTierFocus');
  if(tierFocus) tierFocus.className=`war-tier-focus ${tierClass(w.tier)}`;
- if($('#warTierValue')) $('#warTierValue').textContent=w.tier||'—';
+ if($('#warTierValue')) $('#warTierValue').textContent=tierLabel(w.tier);
  if($('#warTierWeek')) $('#warTierWeek').textContent=`${w.week}${w.date?` • ${w.date}`:''}`;
  document.body.classList.remove('war-page-win','war-page-loss');
- document.body.classList.add(w.result==='win'?'war-page-win':w.result==='loss'?'war-page-loss':'');
+ const warPageClass=w.result==='win'?'war-page-win':w.result==='loss'?'war-page-loss':null;
+ if(warPageClass) document.body.classList.add(warPageClass);
  const warSummary=$('#warSummary');
  warSummary.classList.remove('war-win','war-loss','war-unknown');
  warSummary.classList.add(w.result==='win'?'war-win':w.result==='loss'?'war-loss':'war-unknown');
@@ -330,6 +353,12 @@ function getPowerPlayerRows(){
 
 function renderPower(){
  const pw=D.powerWeeks.at(-1), prevPw=D.powerWeeks.at(-2);
+ if(!pw){
+   $('#powerTotal').textContent='—';$('#powerTotalSub').textContent='Brak snapshotów Power';
+   $('#powerDelta').textContent='—';$('#powerDeltaSub').textContent='—';
+   $('#powerSnapshotTable').innerHTML='<tr><td colspan="6" class="empty">Brak danych Power</td></tr>';
+   return;
+ }
  $('#powerTotal').textContent=power(pw.totalM);$('#powerTotalSub').textContent=`${pw.count} graczy • snapshot ${pw.week}`;
  $('#powerDelta').textContent=pct(D.powerDeltaPct);$('#powerDelta').className=D.powerDeltaPct>=0?'positive':'negative';
  $('#powerDeltaSub').textContent=prevPw?`${pw.week} vs ${prevPw.week}`:'brak poprzedniego snapshotu';
@@ -433,10 +462,10 @@ function fillCompareSelectors(){
  $('#compare2').value=activePlayers[1]?.nick||'';
 }
 function renderCompare(){
- const picks=['compare1','compare2','compare3']
+ const picks=[...new Set(['compare1','compare2','compare3']
    .map(id=>$('#'+id)?.value)
    .filter(Boolean)
-   .filter(n=>D.players.some(p=>p.nick===n&&p.active!==false));
+   .filter(n=>D.players.some(p=>p.nick===n&&p.active!==false)))];
  if(!picks.length){killChart('compareScoreChart');killChart('comparePowerChart');return;}
  const labels=D.weeks.map(w=>w.week);
  const colors=['#f4b651','#6ea8ff','#ad88ff'];
@@ -467,7 +496,7 @@ window.openProfile=function(nick){
  $('#profileKpis').innerHTML=[
    ['Ostatni wynik',fmt(p.latestPoints)],['Średnia',fmt(p.avg)],['Rekord',fmt(p.best)],['Najlepszy tydzień',p.bestWeek||'—'],['Wojny',p.warCount]
  ].map(x=>`<div class="mini-stat"><div class="l">${x[0]}</div><div class="v">${x[1]}</div></div>`).join('');
- $('#profileHistory').innerHTML=p.history.slice().reverse().map(h=>`<tr><td>${h.week}</td><td>${escapeHtml(h.tier)}</td><td>${h.date}</td><td class="num">${fmt(h.points)}</td><td class="num">${h.position??'—'}</td></tr>`).join('');
+ $('#profileHistory').innerHTML=p.history.slice().reverse().map(h=>`<tr><td>${h.week}</td><td>${escapeHtml(tierLabel(h.tier))}</td><td>${h.date}</td><td class="num">${fmt(h.points)}</td><td class="num">${h.position??'—'}</td></tr>`).join('');
  setView('profile',false);
  requestAnimationFrame(()=>{
    const labs=D.weeks.map(w=>w.week);
@@ -504,6 +533,7 @@ function scrollPageTop(){
 }
 
 function init(){
+ $$('.jump-tab').forEach(b=>b.onclick=()=>{jumpMode=b.dataset.jumpMode||'up';expandedLists.jumps=false;renderOverview();});
  renderOverview(); renderWeekBar(); renderWarView();
  const ranks=[...new Set(D.players.filter(p=>p.active!==false).map(p=>p.rank))].sort();
  $('#rankFilter').innerHTML='<option value="">Wszystkie rangi</option>'+ranks.map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
@@ -512,6 +542,13 @@ function init(){
  if(!activePlayers.some(p=>p.nick===selectedOverviewPlayer))selectedOverviewPlayer=activePlayers[0]?.nick||'';
  if(!activePlayers.some(p=>p.nick===selectedPowerPlayer))selectedPowerPlayer=selectedOverviewPlayer;
  $('#heroPlayerCount').textContent=`${D.activeCount??D.players.filter(p=>p.active!==false).length} graczy w składzie`;
+ const warRange=rangeLabel(D.weeks), powerRange=rangeLabel(D.powerWeeks);
+ if($('#sideDataRange'))$('#sideDataRange').textContent=`Wojny ${warRange} • Power ${powerRange}`;
+ if($('#dataUpdated'))$('#dataUpdated').textContent=formatGeneratedAt(D.generatedAt);
+ if($('#warHistoryRange'))$('#warHistoryRange').textContent=`Każda linia to jeden gracz • ${warRange}`;
+ if($('#overviewPowerRange'))$('#overviewPowerRange').textContent=`Każda linia to jeden gracz • ${powerRange} • 1 w Excelu = 1 mln`;
+ if($('#powerHistoryRange'))$('#powerHistoryRange').textContent=`${powerRange} • rozkład całego klanu`;
+ if($('#powerStatus'))$('#powerStatus').textContent=D.powerWeeks.length?`${D.powerWeeks.at(-1).week} • ${D.powerWeeks.at(-1).count} aktywnych graczy`:'Brak danych Power';
  $('#overviewPlayerSelect').innerHTML=playerOptions;
  $('#overviewPowerPlayerSelect').innerHTML=playerOptions;
  $('#powerPagePlayerSelect').innerHTML=playerOptions;

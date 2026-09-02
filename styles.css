@@ -393,3 +393,55 @@ body.war-page-loss .main{box-shadow:inset 0 0 120px rgba(218,63,76,.03)}
   border-color:rgba(164,179,199,.32)!important;
   box-shadow:0 0 0 1px rgba(164,179,199,.05) inset!important;
 }
+
+
+/* V14 — Wzrosty / Spadki w panelu zmian punktów */
+.jump-panel-head{align-items:center}
+.jump-tabs{
+  display:inline-flex;
+  gap:3px;
+  padding:3px;
+  border:1px solid rgba(255,255,255,.07);
+  background:rgba(255,255,255,.025);
+  border-radius:9px;
+}
+.jump-tab{
+  border:0;
+  border-radius:7px;
+  padding:6px 10px;
+  background:transparent;
+  color:#7f8b9c;
+  font-size:9px;
+  font-weight:900;
+  letter-spacing:.045em;
+  cursor:pointer;
+  transition:.15s ease;
+}
+.jump-tab:hover{color:#dce4ee;background:rgba(255,255,255,.04)}
+.jump-tab.active[data-jump-mode="up"]{
+  color:#76e3ac;
+  background:rgba(50,194,119,.11);
+  box-shadow:inset 0 0 0 1px rgba(77,222,144,.16);
+}
+.jump-tab.active[data-jump-mode="down"]{
+  color:#ff858d;
+  background:rgba(216,65,78,.11);
+  box-shadow:inset 0 0 0 1px rgba(240,87,100,.16);
+}
+@media(max-width:650px){
+  .jump-panel-head{align-items:flex-start}
+  .jump-tabs{margin-top:5px}
+}
+
+
+/* INPPL Stats 1.0 — release polish */
+.release-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.release-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:3px 6px;border-radius:999px;
+  font-size:8px;font-weight:950;letter-spacing:.06em;
+  color:#f4b651;background:rgba(244,182,81,.09);
+  border:1px solid rgba(244,182,81,.16)
+}
+.data-updated{margin-top:4px!important;font-size:8px!important;color:#596577!important}
+.empty{text-align:center;color:#697689;padding:18px!important}

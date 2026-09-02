@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#07090d">
 <title>INPPL Stats — Forge Master</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="stylesheet" href="styles.css?v=13">
+<link rel="stylesheet" href="styles.css?v=101">
 </head>
 <body>
 <div class="app">
@@ -23,7 +23,11 @@
       <button class="nav-btn" data-view="power"><span class="nav-ico">◆</span>Power</button>
       <button class="nav-btn" data-view="compare"><span class="nav-ico">⇄</span>Porównaj</button>
     </nav>
-    <div class="side-status"><strong>InPost [INPPL]</strong><div>Dane W1–W10 • Power w milionach</div></div>
+    <div class="side-status">
+      <div class="release-row"><strong>InPost [INPPL]</strong><span class="release-badge">v1.0</span></div>
+      <div id="sideDataRange">Dane —</div>
+      <div class="data-updated" id="dataUpdated">Aktualizacja —</div>
+    </div>
   </aside>
 
   <main class="main">
@@ -50,7 +54,7 @@
       <div class="grid-main">
         <div class="panel">
           <div class="panel-head">
-            <div><div class="panel-title">Punkty graczy w czasie</div><div class="panel-desc">Każda linia to jeden gracz • W1–W10</div></div>
+            <div><div class="panel-title">Punkty graczy w czasie</div><div class="panel-desc" id="warHistoryRange">Każda linia to jeden gracz</div></div>
             <div class="chart-controls">
               <select id="overviewPlayerSelect" class="select chart-select"></select>
             </div>
@@ -64,8 +68,18 @@
           </div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div><div class="panel-title">Największe skoki</div><div class="panel-desc">ostatni tydzień vs poprzedni</div></div></div>
+          <div class="panel-head jump-panel-head">
+            <div>
+              <div class="panel-title" id="jumpPanelTitle">Największe wzrosty</div>
+              <div class="panel-desc">ostatni tydzień vs poprzedni</div>
+            </div>
+            <div class="jump-tabs" role="group" aria-label="Wzrosty lub spadki">
+              <button class="jump-tab active" data-jump-mode="up">Wzrosty</button>
+              <button class="jump-tab" data-jump-mode="down">Spadki</button>
+            </div>
+          </div>
           <div class="list" id="jumpList"></div>
+          <div class="panel-more"><button class="show-more-btn" id="jumpMore"></button></div>
         </div>
       </div>
 
@@ -77,7 +91,7 @@
       <div class="grid-main">
         <div class="panel">
           <div class="panel-head">
-            <div><div class="panel-title">Power graczy w czasie</div><div class="panel-desc">Każda linia to jeden gracz • W4–W10 • 1 w Excelu = 1 mln</div></div>
+            <div><div class="panel-title">Power graczy w czasie</div><div class="panel-desc" id="overviewPowerRange">Każda linia to jeden gracz • 1 w Excelu = 1 mln</div></div>
             <div class="chart-controls"><select id="overviewPowerPlayerSelect" class="select chart-select"></select></div>
           </div>
           <div class="chart-box"><canvas id="overviewPowerChart"></canvas></div>
@@ -131,7 +145,7 @@
 
     <!-- POWER -->
     <section class="view" id="power">
-      <div class="page-head"><div><div class="kicker">Power analytics</div><h1>Moc klanu</h1><div class="page-sub">Historia snapshotów, udział graczy oraz największe wzrosty i spadki.</div></div><div class="status-pill">W10 • zweryfikowane jednostki</div></div>
+      <div class="page-head"><div><div class="kicker">Power analytics</div><h1>Moc klanu</h1><div class="page-sub">Historia snapshotów, udział graczy oraz największe wzrosty i spadki.</div></div><div class="status-pill" id="powerStatus">—</div></div>
       <div class="power-hero">
         <div class="power-big"><div class="l">Łączna moc klanu</div><div class="v" id="powerTotal"></div><div class="sub" id="powerTotalSub"></div></div>
         <div class="power-big"><div class="l">Zmiana vs poprzedni snapshot</div><div class="v" id="powerDelta"></div><div class="sub" id="powerDeltaSub"></div></div>
@@ -165,7 +179,7 @@
       <div class="grid-main">
         <div class="panel">
           <div class="panel-head">
-            <div><div class="panel-title">Power wszystkich graczy</div><div class="panel-desc">W4–W10 • rozkład całego klanu</div></div>
+            <div><div class="panel-title">Power wszystkich graczy</div><div class="panel-desc" id="powerHistoryRange">rozkład całego klanu</div></div>
             <div class="chart-controls"><select id="powerPagePlayerSelect" class="select chart-select"></select></div>
           </div>
           <div class="chart-box"><canvas id="powerHistoryChart"></canvas></div>
@@ -233,7 +247,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="data.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script src="data.js?v=101"></script>
+<script src="app.js?v=101"></script>
 </body>
 </html>

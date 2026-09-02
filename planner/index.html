@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=63">
+<link rel="stylesheet" href="planner.css?v=64">
 </head>
 <body>
 <header class="topbar">
@@ -82,13 +82,18 @@
     </div>
     <div class="tech-choice">
       <div class="tech-choice-head">
-        <div><b>Kolejka Tech</b><small>Dodaj badania w kolejności wykonywania.</small></div>
-        <button type="button" class="text-btn" id="clearTech">Wyczyść</button>
+        <div><b>Powtarzane badanie Tech</b><small>Wybierz jeden poziom — wszystkie kolejne badania będą takie same.</small></div>
+        <span class="auto-repeat-badge">AUTO × <b id="techCountBadge">10</b></span>
       </div>
-      <div class="tech-add">
-        <select id="techSelect"></select>
-        <button type="button" class="btn secondary" id="addTech">+ Dodaj badanie</button>
-        <button type="button" class="btn secondary" id="repeatTech">+ Dodaj ×5</button>
+      <div class="tech-add tech-repeat">
+        <label class="tech-select-wrap">
+          <span>Badanie</span>
+          <select id="techSelect"></select>
+        </label>
+        <label class="tech-count-wrap">
+          <span>Ile razy?</span>
+          <input id="techCount" type="number" min="1" max="100" step="1" value="10">
+        </label>
       </div>
       <div id="techQueue" class="chips"></div>
       <div id="queueEmpty" class="empty-state">Nie dodałeś jeszcze żadnego badania.</div>
@@ -190,7 +195,7 @@
   </section>
 </main>
 
-<script src="game-data.js?v=63"></script>
-<script src="planner.js?v=63"></script>
+<script src="game-data.js?v=64"></script>
+<script src="planner.js?v=64"></script>
 </body>
 </html>

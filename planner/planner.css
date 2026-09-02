@@ -515,3 +515,62 @@ body{overflow-x:hidden}
   .activity-profile{width:100%}
   .activity-title{flex-basis:100%;margin-bottom:1px}
 }
+
+/* V6.4 — Kuźnia ma dwa osobne tory */
+.tl-row.forge-row{height:190px!important}
+.tl-row.forge-row .tl-row-label{height:190px!important}
+
+.tl-row.forge-row .tl-event.forge,
+.tl-row.forge-row .tl-event.ongoing{
+  top:22px!important;
+  height:90px!important;
+  z-index:5!important;
+}
+.tl-row.forge-row .tl-event.reaction,
+.tl-row.forge-row .tl-event.waiting{
+  top:132px!important;
+  height:34px!important;
+  min-width:0!important;
+  padding:7px 8px!important;
+  border-radius:8px!important;
+  z-index:3!important;
+}
+.tl-row.forge-row:after{
+  content:"";
+  position:absolute;
+  left:112px;
+  right:0;
+  top:121px;
+  border-top:1px dashed rgba(112,129,151,.16);
+  pointer-events:none;
+  z-index:1;
+}
+
+/* Tech — jeden tier powtarzany automatycznie */
+.tech-add.tech-repeat{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 120px;
+  gap:8px;
+  align-items:end;
+}
+.tech-select-wrap,.tech-count-wrap{display:grid;gap:4px}
+.tech-select-wrap>span,.tech-count-wrap>span{
+  color:#68768a;font-size:8px;font-weight:900;
+  text-transform:uppercase;letter-spacing:.07em
+}
+.tech-count-wrap input{
+  width:100%;height:34px;border:1px solid #232d39;border-radius:8px;
+  background:#090d13;color:#eef2f7;padding:0 10px;font-size:12px;font-weight:850
+}
+.auto-repeat-badge{
+  display:inline-flex;align-items:center;gap:3px;padding:5px 8px;border-radius:999px;
+  border:1px solid rgba(83,130,199,.2);background:rgba(83,130,199,.08);
+  color:#83a9dc;font-size:8px;font-weight:900
+}
+.auto-repeat-badge b{color:#c1d8f4}
+.chips{max-height:64px;overflow:auto;padding-right:2px}
+.chip button{display:none!important}
+@media(max-width:700px){
+  .tech-add.tech-repeat{grid-template-columns:minmax(0,1fr) 92px}
+  .tl-row.forge-row:after{left:90px}
+}

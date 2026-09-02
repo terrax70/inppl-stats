@@ -2,7 +2,7 @@
 const D=window.FM_PLANNER_DATA,$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const DAY=86400000,HOUR=3600000,MIN=60000;
 const DEFAULT_SLEEP_START='23:00',DEFAULT_SLEEP_END='08:00';
-const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizon:14,reactionMinutes:30,sleepStart:DEFAULT_SLEEP_START,sleepEnd:DEFAULT_SLEEP_END,forgeMode:'hybrid',forgeOngoing:false,remainingDays:0,remainingHours:0,remainingMinutes:0,techQueue:[]};
+const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizon:14,reactionMinutes:30,sleepStart:DEFAULT_SLEEP_START,sleepEnd:DEFAULT_SLEEP_END,forgeMode:'hybrid',forgeOngoing:false,remainingDays:0,remainingHours:0,remainingMinutes:0,techQueue:[],techCount:10};
 let state=load(),results={tech:[],forge:[]};
 
 function load(){try{return {...defaults,...JSON.parse(localStorage.getItem('fmPlannerV2')||'{}')}}catch{return {...defaults}}}
@@ -126,13 +126,14 @@ function nextForgeSlot(avail){
 function read(){
   state.researchSpeed=+$('#researchSpeed').value||0;state.forgeSpeed=+$('#forgeSpeed').value||0;state.forgeLevel=+$('#forgeLevel').value||1;
   state.forgeMode=$('#forgeMode').value;state.forgeOngoing=$('#forgeOngoing').checked;state.remainingDays=+$('#remainingDays').value||0;
-  state.remainingHours=+$('#remainingHours').value||0;state.remainingMinutes=+$('#remainingMinutes').value||0;state.waitLimit=+$('#waitLimit').value||0;state.horizon=+$('#horizon').value||14;state.reactionMinutes=Math.max(0,+$('#reactionMinutesQuick').value||0);state.sleepStart=$('#sleepStart').value||DEFAULT_SLEEP_START;state.sleepEnd=$('#sleepEnd').value||DEFAULT_SLEEP_END;
+  state.remainingHours=+$('#remainingHours').value||0;state.remainingMinutes=+$('#remainingMinutes').value||0;state.waitLimit=+$('#waitLimit').value||0;state.horizon=+$('#horizon').value||14;state.reactionMinutes=Math.max(0,+$('#reactionMinutesQuick').value||0);state.sleepStart=$('#sleepStart').value||DEFAULT_SLEEP_START;state.sleepEnd=$('#sleepEnd').value||DEFAULT_SLEEP_END;state.techCount=Math.max(1,Math.min(100,+$('#techCount').value||10));
 }
 function sync(){
   ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon'].forEach(id=>$('#'+id).value=state[id]);
   $('#reactionMinutesQuick').value=state.reactionMinutes;
   $('#sleepStart').value=state.sleepStart||DEFAULT_SLEEP_START;
   $('#sleepEnd').value=state.sleepEnd||DEFAULT_SLEEP_END;
+  $('#techCount').value=state.techCount||state.techQueue?.length||10;
   $('#forgeOngoing').checked=state.forgeOngoing;toggleRemaining();
 }
 function toggleRemaining(){$('#remainingInputs').style.opacity=$('#forgeOngoing').checked?'1':'.32';$('#remainingInputs').querySelectorAll('input').forEach(x=>x.disabled=!$('#forgeOngoing').checked)}
@@ -211,9 +212,18 @@ function calculate(){
 }
 
 function renderQueue(){
+  const count=Math.max(1,Math.min(100,Number(state.techCount)||10));
   $('#queueEmpty').style.display=state.techQueue.length?'none':'block';
-  $('#techQueue').innerHTML=state.techQueue.map((n,i)=>`<span class="chip">${i+1}. ${n}<button type="button" data-del="${i}" aria-label="Usuń ${n}">×</button></span>`).join('');
-  $$('[data-del]').forEach(b=>b.addEventListener('click',()=>{state.techQueue.splice(+b.dataset.del,1);save();calculate()}))
+  if($('#techCountBadge'))$('#techCountBadge').textContent=count;
+  $('#techQueue').innerHTML=state.techQueue.map((n,i)=>`<span class="chip">${i+1}. ${n}</span>`).join('');
+}
+function rebuildTechQueue(){
+  const selected=$('#techSelect').value;
+  const count=Math.max(1,Math.min(100,+$('#techCount').value||10));
+  state.techCount=count;
+  state.techQueue=selected?Array(count).fill(selected):[];
+  save();
+  calculate();
 }
 function renderSummary(){
   let t=results.tech[0],f=results.forge[0],now=new Date();
@@ -299,7 +309,7 @@ function renderTimeline(){
     }
     return bands;
   };
-  const row=(name,events)=>`<div class="tl-row" style="width:${total}px"><div class="tl-row-label">${name}</div>${nightBands()}${events}</div>`;
+  const row=(name,events,type='')=>`<div class="tl-row ${type==='forge'?'forge-row':''}" style="width:${total}px"><div class="tl-row-label">${name}</div>${nightBands()}${events}</div>`;
   let nowPos=pos(nowTime);
 
   $('#timeline').style.width=total+'px';
@@ -348,12 +358,17 @@ function init(){
   window.scrollTo(0,0);
   sync();clock();setInterval(clock,30000);
   $('#techSelect').innerHTML=D.tech.map(x=>`<option value="${x.name}">${x.name} • ${fmtDur(techDur(x))}</option>`).join('');
+  if(state.techQueue?.length && techDef(state.techQueue[0]))$('#techSelect').value=state.techQueue[0];
+  else $('#techSelect').value=D.tech.at(-1)?.name||D.tech[0]?.name||'';
+  state.techCount=Math.max(1,Math.min(100,Number(state.techCount)||state.techQueue?.length||10));
+  $('#techCount').value=state.techCount;
+  state.techQueue=Array(state.techCount).fill($('#techSelect').value);
   renderQueue();hint();
   $('#forgeOngoing').addEventListener('change',toggleRemaining);
   $('#forgeMode').addEventListener('change',hint);
-  $('#addTech').addEventListener('click',()=>{state.techQueue.push($('#techSelect').value);save();calculate()});
-  $('#repeatTech').addEventListener('click',()=>{for(let i=0;i<5;i++)state.techQueue.push($('#techSelect').value);save();calculate()});
-  $('#clearTech').addEventListener('click',()=>{state.techQueue=[];save();calculate()});
+  $('#techSelect').addEventListener('change',rebuildTechQueue);
+  $('#techCount').addEventListener('input',rebuildTechQueue);
+  $('#techCount').addEventListener('change',rebuildTechQueue);
   $('#advancedBtn').addEventListener('click',()=>{$('#advanced').classList.toggle('open')});
 
   let timer=null;

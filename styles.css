@@ -356,3 +356,40 @@ body.war-page-loss .main{box-shadow:inset 0 0 120px rgba(218,63,76,.03)}
 .week-btn.tier-s.active{border-color:rgba(255,211,87,.52)!important;box-shadow:0 0 18px rgba(219,163,45,.12)}
 .week-btn.tier-sp.active{border-color:rgba(255,86,101,.52)!important;box-shadow:0 0 18px rgba(194,48,63,.13)}
 .week-btn.tier-spp.active{border-color:rgba(178,103,255,.55)!important;box-shadow:0 0 18px rgba(129,61,202,.16)}
+
+
+/* V13 — poprawione aktywne obramowanie tygodni w Wojnach */
+.week-btn.active{
+  outline:none!important;
+  box-shadow:none!important;
+  border-width:1px!important;
+  transform:none!important;
+}
+
+.week-btn.tier-s.active{
+  color:#ffd65c!important;
+  background:rgba(219,163,45,.10)!important;
+  border-color:rgba(255,211,87,.58)!important;
+  box-shadow:0 0 0 1px rgba(255,211,87,.08) inset,0 0 14px rgba(219,163,45,.09)!important;
+}
+
+.week-btn.tier-sp.active{
+  color:#ff737e!important;
+  background:rgba(194,48,63,.105)!important;
+  border-color:rgba(255,86,101,.58)!important;
+  box-shadow:0 0 0 1px rgba(255,86,101,.08) inset,0 0 14px rgba(194,48,63,.10)!important;
+}
+
+.week-btn.tier-spp.active{
+  color:#c58bff!important;
+  background:rgba(129,61,202,.12)!important;
+  border-color:rgba(178,103,255,.62)!important;
+  box-shadow:0 0 0 1px rgba(178,103,255,.09) inset,0 0 14px rgba(129,61,202,.12)!important;
+}
+
+.week-btn.tier-other.active{
+  color:#d8e0eb!important;
+  background:rgba(145,158,177,.08)!important;
+  border-color:rgba(164,179,199,.32)!important;
+  box-shadow:0 0 0 1px rgba(164,179,199,.05) inset!important;
+}

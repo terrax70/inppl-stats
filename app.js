@@ -228,7 +228,10 @@ $('#powerPagePlayerSelect').onchange=()=>{
 
 
 let selectedPowerSnapshot=D.powerWeeks.at(-1)?.week || '';
-let powerAnalyticsMode='spikePct';
+let powerSearch='';
+let powerRankFilter='all';
+let powerSort='growthPct';
+let powerAnalyticsMode='growthPct';
 
 let selectedWeek=D.latest.week;
 function renderWeekBar(){
@@ -283,6 +286,34 @@ function renderPlayers(){
 }
 $('#playerSearch').oninput=renderPlayers;$('#rankFilter').onchange=renderPlayers;
 $$('#playersView th.sortable').forEach(th=>th.onclick=()=>{let k=th.dataset.sort; if(playerSort.key===k)playerSort.dir*=-1;else{playerSort.key=k;playerSort.dir=1}renderPlayers()});
+
+function getPowerPlayerRows(){
+  let rows=D.players
+    .filter(p=>p.active!==false)
+    .map(p=>{
+      const latest=p.powers?.at(-1) || null;
+      const prev=p.powers?.length>1 ? p.powers.at(-2) : null;
+      const growthPct=latest?.growthPct ?? (prev&&prev.powerM ? ((latest.powerM-prev.powerM)/prev.powerM*100) : null);
+      const growthAbs=latest&&prev ? latest.powerM-prev.powerM : null;
+      return {p, latest, prev, growthPct, growthAbs};
+    });
+
+  const q=(powerSearch||'').trim().toLowerCase();
+  if(q) rows=rows.filter(x=>x.p.nick.toLowerCase().includes(q));
+
+  rows.sort((a,b)=>{
+    if(powerSort==='power') return (b.latest?.powerM??-Infinity)-(a.latest?.powerM??-Infinity);
+    if(powerSort==='growthAbs') return (b.growthAbs??-Infinity)-(a.growthAbs??-Infinity);
+    if(powerSort==='nick') return a.p.nick.localeCompare(b.p.nick,'pl');
+    return (b.growthPct??-Infinity)-(a.growthPct??-Infinity);
+  });
+
+  if(powerRankFilter==='top10') rows=rows.slice(0,10);
+  else if(powerRankFilter==='top20') rows=rows.slice(0,20);
+  else if(powerRankFilter==='bottom20') rows=rows.slice(-20).reverse();
+
+  return rows;
+}
 
 function renderPower(){
  const pw=D.powerWeeks.at(-1), prevPw=D.powerWeeks.at(-2);
@@ -460,6 +491,22 @@ function init(){
  $('#overviewPowerPlayerSelect').value=selectedPowerPlayer;
  $('#powerPagePlayerSelect').value=selectedPowerPlayer;
  renderPlayers(); renderPower(); fillCompareSelectors();
+ const ps=$('#powerSearch');
+ if(ps){
+   ps.value=powerSearch;
+   ps.oninput=()=>{powerSearch=ps.value;renderPower();};
+ }
+ const prf=$('#powerRankFilter');
+ if(prf){
+   prf.value=powerRankFilter;
+   prf.onchange=()=>{powerRankFilter=prf.value;renderPower();};
+ }
+ const pso=$('#powerSort');
+ if(pso){
+   pso.value=powerSort;
+   pso.onchange=()=>{powerSort=pso.value;renderPower();};
+ }
+
  const hash=location.hash.replace('#',''); const allowed=['overview','warsView','playersView','power','compare'];
  setView(allowed.includes(hash)?hash:'overview',false);
  requestAnimationFrame(()=>{renderOverviewCharts();renderPowerCharts();});

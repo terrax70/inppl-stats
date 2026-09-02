@@ -272,3 +272,19 @@ th{font-size:9px}td{font-size:11.5px}
   #warSummary{grid-template-columns:1fr 1fr}
   .war-result-stat{grid-column:1/-1}
 }
+
+
+/* V9 — Power filtering */
+.power-controls{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.power-controls .search{min-width:180px}
+.power-controls .select{min-width:130px}
+@media(max-width:700px){
+  .power-controls{width:100%}
+  .power-controls .search,
+  .power-controls .select{flex:1 1 140px;min-width:0}
+}

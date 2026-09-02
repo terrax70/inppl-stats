@@ -245,8 +245,8 @@ function renderTimeline(){
   let h=`<div class="tl-header" style="width:${total}px"><div class="tl-label-corner"></div>`;
   for(let i=0;i<days;i++){
     let d=new Date(start.getTime()+i*DAY),cfg=D.days[weekday(d)-1],labels=[];
-    if(cfg.tech)labels.push('ODBIÓR TECH');
-    if(cfg.forge)labels.push('START KUŹNI');
+    if(cfg.tech)labels.push('★ PUNKTY ZA ODBIÓR TECH');
+    if(cfg.forge)labels.push('★ PUNKTY ZA START KUŹNI');
     h+=`<div class="tl-day ${cfg.tech?'tech-score':''} ${cfg.forge?'forge-score':''}" style="left:${labelW+i*dayW}px;width:${dayW}px"><b>${cfg.short} ${pad(d.getDate())}.${pad(d.getMonth()+1)}</b>${labels.join(' • ')||'ZWYKŁY DZIEŃ'}</div>`;
   }
   h+='</div>';
@@ -280,8 +280,13 @@ function renderTimeline(){
       techEvents+=`<div class="tech-gap ready" style="left:${pos(x.finish)}px;width:${rw}px" title="Badanie gotowe. Odbierz ${fmtDate(x.collect)}, żeby dostać punkty."><span class="tech-gap-line"></span>${label}</div>`;
     }
 
-    // Odbiór marker
+    // Odbiór marker. Jeśli odbiór daje punkty, jest głównym beaconem wizualnym.
     techEvents+=`<div class="tech-action-marker collect" style="left:${pos(x.collect)}px" title="Odbierz ${x.def.name}: ${fmtDate(x.collect)}"></div>`;
+    if(x.scored){
+      techEvents+=`<div class="score-ray tech-score" style="left:${pos(x.collect)}px" title="PUNKTY: odbierz Tech ${x.def.name} ${fmtDate(x.collect)}"></div>`;
+      techEvents+=`<div class="score-point tech" style="left:${pos(x.collect)}px"></div>`;
+      techEvents+=`<div class="score-callout tech" style="left:${pos(x.collect)}px">+ PUNKTY • ODBIÓR TECH</div>`;
+    }
   });
 
   let forgeEvents='';
@@ -312,6 +317,11 @@ function renderTimeline(){
       }
     }
     forgeEvents+=`<div class="tl-event forge ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${eventWidth(x.start,x.end)}px" title="Kuźnia ${x.level}: ${fmtDate(x.start)} → ${fmtDate(x.end)}"><span class="event-tag">${x.scored?'PUNKTOWANY START':'KUŹNIA'}</span><b>Poziom ${x.level}</b><span>START ${fmtDate(x.start)} • KONIEC ${fmtDate(x.end)}</span></div>`;
+    if(x.scored){
+      forgeEvents+=`<div class="score-ray forge-score" style="left:${pos(x.start)}px" title="PUNKTY: rozpocznij Kuźnię ${x.level} ${fmtDate(x.start)}"></div>`;
+      forgeEvents+=`<div class="score-point forge" style="left:${pos(x.start)}px"></div>`;
+      forgeEvents+=`<div class="score-callout forge" style="left:${pos(x.start)}px">+ PUNKTY • START KUŹNI</div>`;
+    }
   });
 
   const nightBands=()=>{

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=67">
+<link rel="stylesheet" href="planner.css?v=70">
 </head>
 <body>
 <header class="topbar">
@@ -124,8 +124,8 @@
         <div class="legend">
           <span><i class="dot tech"></i>Tech</span>
           <span><i class="dot forge"></i>Kuźnia</span>
-          <span><i class="dot techday"></i>Tech punktuje</span>
-          <span><i class="dot forgeday"></i>Kuźnia punktuje</span><span><i class="dot ongoing"></i>Kuźnia w trakcie</span><span><i class="dot waiting"></i>Przerwa</span><span><i class="dot sleep"></i>Sen 23–08</span>
+          <span class="legend-score tech-score-legend"><i class="dot techday"></i><b>ODBIÓR TECH = PUNKTY</b></span>
+          <span class="legend-score forge-score-legend"><i class="dot forgeday"></i><b>START KUŹNI = PUNKTY</b></span><span><i class="dot ongoing"></i>Kuźnia w trakcie</span><span><i class="dot waiting"></i>Przerwa</span><span><i class="dot sleep"></i>Sen 23–08</span>
         </div>
         <div class="zoom-tabs" aria-label="Zakres timeline">
           <button type="button" data-days="7">7 dni</button>
@@ -198,7 +198,7 @@
   </section>
 </main>
 
-<script src="game-data.js?v=67"></script>
-<script src="planner.js?v=67"></script>
+<script src="game-data.js?v=70"></script>
+<script src="planner.js?v=70"></script>
 </body>
 </html>

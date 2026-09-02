@@ -928,3 +928,148 @@ td{font-size:10.5px!important}
     gap:8px!important;
   }
 }
+
+/* V7 — SCORE BEACONS: wizualizacja tego, ZA CO są punkty */
+.legend-score{
+  display:inline-flex!important;
+  align-items:center;
+  gap:4px;
+  padding:4px 7px;
+  border-radius:6px;
+  border:1px solid transparent;
+}
+.tech-score-legend{
+  background:rgba(77,139,220,.08);
+  border-color:rgba(77,139,220,.16);
+  color:#9ec6f6!important;
+}
+.forge-score-legend{
+  background:rgba(225,163,58,.08);
+  border-color:rgba(225,163,58,.17);
+  color:#f0c16b!important;
+}
+.legend-score b{font-size:9px;letter-spacing:.025em}
+
+/* Punktowany dzień ma czytelny pionowy promień przechodzący przez właściwy tor. */
+.score-ray{
+  position:absolute;
+  width:2px;
+  pointer-events:none;
+  z-index:8;
+}
+.score-ray:before{
+  content:"";
+  position:absolute;
+  left:50%;
+  transform:translateX(-50%);
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  top:-7px;
+}
+.score-ray:after{
+  content:"";
+  position:absolute;
+  inset:0;
+  width:2px;
+}
+
+.score-ray.tech-score{
+  top:0;
+  height:190px;
+  background:linear-gradient(
+    to bottom,
+    rgba(103,166,244,.92),
+    rgba(103,166,244,.54) 45%,
+    rgba(91,211,158,.88)
+  );
+  box-shadow:0 0 10px rgba(94,153,231,.34);
+}
+.score-ray.tech-score:before{
+  background:#68a6ef;
+  border:4px solid rgba(104,166,239,.18);
+  box-shadow:0 0 18px rgba(104,166,239,.38);
+}
+.score-ray.forge-score{
+  top:0;
+  height:190px;
+  background:linear-gradient(
+    to bottom,
+    rgba(239,182,79,.95),
+    rgba(229,166,61,.68),
+    rgba(229,166,61,.18)
+  );
+  box-shadow:0 0 11px rgba(229,166,61,.34);
+}
+.score-ray.forge-score:before{
+  background:#e9ad49;
+  border:4px solid rgba(233,173,73,.18);
+  box-shadow:0 0 18px rgba(233,173,73,.38);
+}
+
+/* Duży label przy samym wydarzeniu punktowanym */
+.score-callout{
+  position:absolute;
+  z-index:10;
+  min-width:max-content;
+  transform:translateX(-50%);
+  padding:5px 8px;
+  border-radius:7px;
+  font-size:9px;
+  line-height:1;
+  font-weight:950;
+  letter-spacing:.045em;
+  white-space:nowrap;
+  pointer-events:none;
+}
+.score-callout.tech{
+  top:119px;
+  color:#b9d8ff;
+  background:#10243b;
+  border:1px solid rgba(100,163,241,.50);
+  box-shadow:0 3px 14px rgba(53,107,174,.18);
+}
+.score-callout.forge{
+  top:116px;
+  color:#ffd98e;
+  background:#302310;
+  border:1px solid rgba(233,174,72,.52);
+  box-shadow:0 3px 14px rgba(158,108,30,.20);
+}
+
+/* Punkt końcowy promienia */
+.score-point{
+  position:absolute;
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  transform:translate(-50%,-50%);
+  z-index:11;
+  pointer-events:none;
+}
+.score-point.tech{
+  top:121px;
+  background:#70cfa8;
+  border:3px solid #163a2b;
+  box-shadow:0 0 0 3px rgba(112,207,168,.15),0 0 16px rgba(112,207,168,.35);
+}
+.score-point.forge{
+  top:22px;
+  background:#f1b850;
+  border:3px solid #3b2b0e;
+  box-shadow:0 0 0 3px rgba(241,184,80,.14),0 0 16px rgba(241,184,80,.38);
+}
+
+/* Same stare drobne START/ODBIÓR markery są wtórne względem beaconów. */
+.tech-action-marker.collect{opacity:.35}
+.tl-event.forge.scored{border-color:rgba(241,184,80,.72)!important}
+.tl-event.tech.scored{border-color:rgba(93,172,239,.72)!important}
+
+/* Punktowany dzień w nagłówku jest mocniejszy, ale nie krzykliwy. */
+.tl-day.tech-score b{color:#b7d4f5!important}
+.tl-day.forge-score b{color:#f0c77d!important}
+.tl-day.tech-score.forge-score b{color:#f2e1bd!important}
+
+@media(max-width:700px){
+  .score-callout{font-size:8px;padding:4px 6px}
+}

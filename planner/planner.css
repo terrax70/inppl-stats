@@ -456,3 +456,62 @@ body{overflow-x:hidden}
   border-left-width:2px;
   padding:0;
 }
+
+/* V6.3 — kompaktowy profil aktywności */
+.activity-profile{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+  padding:5px 6px;
+  border:1px solid #202a36;
+  border-radius:9px;
+  background:#090e14;
+}
+.activity-title{
+  margin:0 3px 0 2px;
+  color:#68768a;
+  font-size:8px;
+  font-weight:950;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.activity-profile label{
+  height:29px;
+  display:flex;
+  align-items:center;
+  gap:5px;
+  padding:0 7px;
+  border:1px solid #222d39;
+  border-radius:7px;
+  background:#0c1219;
+  color:#9ba7b7;
+  font-size:9px;
+  font-weight:850;
+}
+.activity-profile label>span{white-space:nowrap}
+.activity-profile input{
+  border:0;
+  outline:0;
+  background:transparent;
+  color:#eef3f8;
+  padding:0;
+  height:25px;
+  font-size:10px;
+  font-weight:850;
+}
+.activity-profile input[type="time"]{width:56px}
+.activity-profile input[type="number"]{width:28px;text-align:right}
+.activity-profile input:focus{box-shadow:none}
+.activity-profile em{
+  font-style:normal;
+  color:#59677a;
+  font-size:8px;
+}
+.activity-sep{color:#4f5c6f;font-size:9px}
+.reaction-compact{margin-left:2px}
+
+@media(max-width:800px){
+  .activity-profile{width:100%}
+  .activity-title{flex-basis:100%;margin-bottom:1px}
+}

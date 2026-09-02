@@ -1,8 +1,8 @@
 (()=>{
 const D=window.FM_PLANNER_DATA,$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const DAY=86400000,HOUR=3600000,MIN=60000;
-const QUIET_START=23,QUIET_END=8;
-const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizon:14,reactionMinutes:30,forgeMode:'hybrid',forgeOngoing:false,remainingDays:0,remainingHours:0,remainingMinutes:0,techQueue:[]};
+const DEFAULT_SLEEP_START='23:00',DEFAULT_SLEEP_END='08:00';
+const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizon:14,reactionMinutes:30,sleepStart:DEFAULT_SLEEP_START,sleepEnd:DEFAULT_SLEEP_END,forgeMode:'hybrid',forgeOngoing:false,remainingDays:0,remainingHours:0,remainingMinutes:0,techQueue:[]};
 let state=load(),results={tech:[],forge:[]};
 
 function load(){try{return {...defaults,...JSON.parse(localStorage.getItem('fmPlannerV2')||'{}')}}catch{return {...defaults}}}
@@ -12,6 +12,17 @@ function fmtDate(d){return d?`${pad(d.getDate())}.${pad(d.getMonth()+1)} ${pad(d
 function fmtDur(ms){if(!isFinite(ms))return'—';let m=Math.max(0,Math.round(ms/MIN)),d=Math.floor(m/1440);m-=d*1440;let h=Math.floor(m/60);m-=h*60;return `${d?d+'d ':''}${h?h+'h ':''}${m}m`}
 function speed(v){return 1+Math.max(0,Number(v)||0)/100}
 function reactionMs(){return Math.max(0,Number(state.reactionMinutes)||0)*MIN}
+function timeParts(value,fallback){
+  const m=String(value||fallback).match(/^(\d{1,2}):(\d{2})$/);
+  if(!m)return timeParts(fallback,'00:00');
+  return {h:Math.max(0,Math.min(23,+m[1])),m:Math.max(0,Math.min(59,+m[2]))};
+}
+function sleepStartParts(){return timeParts(state.sleepStart,DEFAULT_SLEEP_START)}
+function sleepEndParts(){return timeParts(state.sleepEnd,DEFAULT_SLEEP_END)}
+function atTime(base,parts,dayOffset=0){
+  return new Date(base.getFullYear(),base.getMonth(),base.getDate()+dayOffset,parts.h,parts.m,0,0);
+}
+
 function gameStart(t){let d=new Date(t),g=new Date(d.getFullYear(),d.getMonth(),d.getDate(),D.resetHour);if(d<g)g.setDate(g.getDate()-1);return g}
 function weekday(t){let x=gameStart(t).getDay();return x===0?7:x}
 function nextBoundary(after,days){
@@ -32,47 +43,49 @@ function forgeDur(x){return x.baseDays*DAY/speed(state.forgeSpeed)}
 function isTechDay(t){return D.techScoringWeekdays.includes(weekday(t))}
 function isForgeDay(t){return D.forgeScoringWeekdays.includes(weekday(t))}
 function isQuiet(t){
-  const h=t.getHours()+t.getMinutes()/60;
-  return h>=QUIET_START || h<QUIET_END;
+  const s=sleepStartParts(),e=sleepEndParts();
+  const cur=t.getHours()*60+t.getMinutes(),sm=s.h*60+s.m,em=e.h*60+e.m;
+  if(sm===em)return false;
+  return sm>em ? (cur>=sm || cur<em) : (cur>=sm && cur<em);
 }
 function nextAwakeTime(t){
   let d=new Date(t);
   if(!isQuiet(d))return d;
-  if(d.getHours()>=QUIET_START){
-    d.setDate(d.getDate()+1);
-    d.setHours(QUIET_END,0,0,0);
-  }else{
-    d.setHours(QUIET_END,0,0,0);
+  const s=sleepStartParts(),e=sleepEndParts();
+  const cur=d.getHours()*60+d.getMinutes(),sm=s.h*60+s.m,em=e.h*60+e.m;
+  if(sm>em && cur>=sm){
+    return atTime(d,e,1);
   }
-  return d;
+  return atTime(d,e,0);
 }
 function scoringActionAt(dayStart){
-  let d=new Date(dayStart);
-  d.setHours(QUIET_END,0,0,0);
-  return d;
+  return atTime(dayStart,sleepEndParts(),0);
 }
 
 function quietOverlap(start,end){
   let total=0;
-  let cursor=new Date(start.getFullYear(),start.getMonth(),start.getDate()-1,QUIET_START,0,0,0);
-  const limit=end.getTime();
-  for(let i=0;i<20;i++){
-    let qs=new Date(cursor),qe=new Date(cursor.getFullYear(),cursor.getMonth(),cursor.getDate()+1,QUIET_END,0,0,0);
-    let a=Math.max(start.getTime(),qs.getTime()),b=Math.min(limit,qe.getTime());
+  const s=sleepStartParts(),e=sleepEndParts();
+  let cursor=new Date(start.getFullYear(),start.getMonth(),start.getDate()-1);
+  for(let i=0;i<24;i++){
+    let qs=atTime(cursor,s,0);
+    let qe;
+    const sm=s.h*60+s.m,em=e.h*60+e.m;
+    if(sm===em)return 0;
+    qe=atTime(cursor,e,sm>em?1:0);
+    let a=Math.max(start.getTime(),qs.getTime()),b=Math.min(end.getTime(),qe.getTime());
     if(b>a)total+=b-a;
     cursor.setDate(cursor.getDate()+1);
-    if(cursor.getTime()>limit+DAY)break;
+    if(cursor.getTime()>end.getTime()+DAY)break;
   }
   return total;
 }
 function candidateTechStarts(avail,latest){
   const values=[new Date(avail),new Date(latest)];
-  let d=new Date(avail.getFullYear(),avail.getMonth(),avail.getDate()-1,QUIET_START,0,0,0);
-  for(let i=0;i<20;i++){
-    let q1=new Date(d),q2=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1,QUIET_END,0,0,0);
-    for(const c of [q1,q2]){
-      if(c>=avail&&c<=latest)values.push(c);
-    }
+  const s=sleepStartParts(),e=sleepEndParts(),sm=s.h*60+s.m,em=e.h*60+e.m;
+  let d=new Date(avail.getFullYear(),avail.getMonth(),avail.getDate()-1);
+  for(let i=0;i<24;i++){
+    let q1=atTime(d,s,0),q2=atTime(d,e,sm>em?1:0);
+    for(const c of [q1,q2])if(c>=avail&&c<=latest)values.push(c);
     d.setDate(d.getDate()+1);
     if(d>latest)break;
   }
@@ -113,10 +126,13 @@ function nextForgeSlot(avail){
 function read(){
   state.researchSpeed=+$('#researchSpeed').value||0;state.forgeSpeed=+$('#forgeSpeed').value||0;state.forgeLevel=+$('#forgeLevel').value||1;
   state.forgeMode=$('#forgeMode').value;state.forgeOngoing=$('#forgeOngoing').checked;state.remainingDays=+$('#remainingDays').value||0;
-  state.remainingHours=+$('#remainingHours').value||0;state.remainingMinutes=+$('#remainingMinutes').value||0;state.waitLimit=+$('#waitLimit').value||0;state.horizon=+$('#horizon').value||14;state.reactionMinutes=Math.max(0,+$('#reactionMinutes').value||0);
+  state.remainingHours=+$('#remainingHours').value||0;state.remainingMinutes=+$('#remainingMinutes').value||0;state.waitLimit=+$('#waitLimit').value||0;state.horizon=+$('#horizon').value||14;state.reactionMinutes=Math.max(0,+$('#reactionMinutesQuick').value||0);state.sleepStart=$('#sleepStart').value||DEFAULT_SLEEP_START;state.sleepEnd=$('#sleepEnd').value||DEFAULT_SLEEP_END;
 }
 function sync(){
-  ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon','reactionMinutes'].forEach(id=>$('#'+id).value=state[id]);
+  ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon'].forEach(id=>$('#'+id).value=state[id]);
+  $('#reactionMinutesQuick').value=state.reactionMinutes;
+  $('#sleepStart').value=state.sleepStart||DEFAULT_SLEEP_START;
+  $('#sleepEnd').value=state.sleepEnd||DEFAULT_SLEEP_END;
   $('#forgeOngoing').checked=state.forgeOngoing;toggleRemaining();
 }
 function toggleRemaining(){$('#remainingInputs').style.opacity=$('#forgeOngoing').checked?'1':'.32';$('#remainingInputs').querySelectorAll('input').forEach(x=>x.disabled=!$('#forgeOngoing').checked)}
@@ -154,7 +170,7 @@ function calcForge(start,endLimit){
 
     let point=nextForgeSlot(earliest);
     let pointWait=Math.max(0,point-earliest);
-    let s=earliest,decision=sleepWait>0?'POCZEKAJ DO 08:00':'ODPAL OD RAZU';
+    let s=earliest,decision=sleepWait>0?'POCZEKAJ DO KOŃCA SNU':'ODPAL OD RAZU';
 
     if(state.forgeMode==='points'&&!isForgeDay(gameStart(earliest))){
       s=point;decision='CZEKAJ NA PUNKTOWANY DZIEŃ';
@@ -162,7 +178,7 @@ function calcForge(start,endLimit){
       s=point;decision='CZEKAJ NA PUNKTOWANY DZIEŃ';
     }else if(state.forgeMode==='progress'){
       s=earliest;
-      decision=sleepWait>0?'ODPAL O 08:00':'ODPAL OD RAZU';
+      decision=sleepWait>0?'ODPAL PO ŚNIE':'ODPAL OD RAZU';
     }
 
     let e=new Date(s.getTime()+forgeDur(def));
@@ -273,10 +289,11 @@ function renderTimeline(){
 
   const nightBands=()=>{
     let bands='';
+    const s=sleepStartParts(),e=sleepEndParts(),sm=s.h*60+s.m,em=e.h*60+e.m;
+    if(sm===em)return bands;
     for(let i=-1;i<=days;i++){
       let base=new Date(start.getTime()+i*DAY);
-      let qs=new Date(base.getFullYear(),base.getMonth(),base.getDate(),QUIET_START,0,0,0);
-      let qe=new Date(base.getFullYear(),base.getMonth(),base.getDate()+1,QUIET_END,0,0,0);
+      let qs=atTime(base,s,0),qe=atTime(base,e,sm>em?1:0);
       if(qe<=start||qs>=new Date(start.getTime()+days*DAY))continue;
       bands+=`<div class="tl-night" style="left:${pos(qs)}px;width:${exactWidth(qs,qe)}px"></div>`;
     }
@@ -344,7 +361,7 @@ function init(){
     clearTimeout(timer);
     timer=setTimeout(()=>calculate(),120);
   };
-  ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','forgeOngoing','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon','reactionMinutes']
+  ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','forgeOngoing','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon','reactionMinutesQuick','sleepStart','sleepEnd']
     .forEach(id=>{
       const el=$('#'+id);
       el.addEventListener('input',live);

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=62">
+<link rel="stylesheet" href="planner.css?v=63">
 </head>
 <body>
 <header class="topbar">
@@ -28,8 +28,14 @@
 
   <section class="setup-card" id="setup">
     <div class="setup-title-row">
-      <div><h2>Ustawienia planu</h2><p>Zmiana dowolnego pola od razu aktualizuje timeline.</p></div>
-      <div class="human-rules"><span>☾ 23:00–08:00 sen</span><span>◷ 30 min reakcji</span></div>
+      <div><h2>Ustawienia planu</h2><p>Zmiana ustawień od razu aktualizuje timeline.</p></div>
+      <div class="activity-profile">
+        <span class="activity-title">Profil aktywności</span>
+        <label title="Godzina rozpoczęcia snu"><span>☾ Sen</span><input id="sleepStart" type="time" value="23:00"></label>
+        <span class="activity-sep">→</span>
+        <label title="Godzina zakończenia snu"><input id="sleepEnd" type="time" value="08:00"></label>
+        <label class="reaction-compact" title="Orientacyjny czas, po którym gracz wraca do gry po zakończeniu akcji"><span>◷ Reakcja</span><input id="reactionMinutesQuick" type="number" min="0" max="180" step="5" value="30"><em>min</em></label>
+      </div>
     </div>
 
     <div class="setup-grid">
@@ -93,7 +99,6 @@
       <div class="advanced" id="advanced">
         <label class="field compact"><span>Limit czekania HYBRYDY <i>h</i></span><input id="waitLimit" type="number" min="0" value="30"><small>Maksymalnie tyle planner pozwoli kuźni czekać na punktowany dzień.</small></label>
         <label class="field compact"><span>Zakres timeline</span><select id="horizon"><option value="7">1 tydzień</option><option value="14" selected>2 tygodnie</option><option value="28">4 tygodnie</option><option value="56">8 tygodni</option></select><small>2 tygodnie są najbardziej czytelne. Możesz rozszerzyć widok.</small></label>
-        <label class="field compact"><span>Typowy czas reakcji <i>min</i></span><input id="reactionMinutes" type="number" min="0" max="180" step="5" value="30"><small>Po zakończeniu akcji gracz zwykle nie klika następnej idealnie w tej samej sekundzie.</small></label>
       </div>
     </div>
 
@@ -185,7 +190,7 @@
   </section>
 </main>
 
-<script src="game-data.js?v=62"></script>
-<script src="planner.js?v=62"></script>
+<script src="game-data.js?v=63"></script>
+<script src="planner.js?v=63"></script>
 </body>
 </html>

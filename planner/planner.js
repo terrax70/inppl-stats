@@ -227,7 +227,9 @@ function renderTimeline(){
 
   const clip=d=>Math.max(start.getTime(),Math.min(start.getTime()+days*DAY,d.getTime()));
   const pos=d=>labelW+(clip(d)-start)/DAY*dayW;
-  const width=(a,b)=>Math.max(8,(clip(b)-clip(a))/DAY*dayW);
+  const exactWidth=(a,b)=>Math.max(0,(clip(b)-clip(a))/DAY*dayW);
+  const eventWidth=(a,b)=>Math.max(8,exactWidth(a,b));
+  const gapWidth=(a,b)=>Math.max(1,exactWidth(a,b));
 
   let techEvents='';
   results.tech.forEach(x=>{
@@ -235,16 +237,16 @@ function renderTimeline(){
       let a=new Date(x.start.getTime()-x.gap),cursor=new Date(a);
       if(x.i>1 && reactionMs()>5*MIN){
         let rEnd=new Date(Math.min(x.start.getTime(),cursor.getTime()+reactionMs()));
-        techEvents+=`<div class="tl-event reaction" style="left:${pos(cursor)}px;width:${width(cursor,rEnd)}px" title="Czas na wejście do gry po poprzednim odbiorze."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
+        techEvents+=`<div class="tl-event reaction" style="left:${pos(cursor)}px;width:${gapWidth(cursor,rEnd)}px" title="Czas na wejście do gry po poprzednim odbiorze."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
         cursor=rEnd;
       }
       if(x.start-cursor>5*MIN){
-        techEvents+=`<div class="tl-event waiting" style="left:${pos(cursor)}px;width:${width(cursor,x.start)}px"><b>POCZEKAJ ${fmtDur(x.start-cursor)}</b></div>`;
+        techEvents+=`<div class="tl-event waiting" style="left:${pos(cursor)}px;width:${gapWidth(cursor,x.start)}px"><b>POCZEKAJ ${fmtDur(x.start-cursor)}</b></div>`;
       }
     }
-    techEvents+=`<div class="tl-event tech ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${width(x.start,x.finish)}px" title="${x.def.name}: start ${fmtDate(x.start)} • gotowe ${fmtDate(x.finish)} • odbiór ${fmtDate(x.collect)}"><span class="event-tag">BADANIE TECH</span><b>${x.def.name}</b><span>START ${fmtDate(x.start)} • GOTOWE ${fmtDate(x.finish)}</span></div>`;
+    techEvents+=`<div class="tl-event tech ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${eventWidth(x.start,x.finish)}px" title="${x.def.name}: start ${fmtDate(x.start)} • gotowe ${fmtDate(x.finish)} • odbiór ${fmtDate(x.collect)}"><span class="event-tag">BADANIE TECH</span><b>${x.def.name}</b><span>START ${fmtDate(x.start)} • GOTOWE ${fmtDate(x.finish)}</span></div>`;
     if(x.readyWait>5*MIN){
-      techEvents+=`<div class="tl-event ready" style="left:${pos(x.finish)}px;width:${width(x.finish,x.collect)}px" title="Badanie gotowe. Odbierz ${fmtDate(x.collect)}, żeby dostać punkty."><b>GOTOWE — ODBIERZ ${fmtDate(x.collect)}</b></div>`;
+      techEvents+=`<div class="tl-event ready" style="left:${pos(x.finish)}px;width:${gapWidth(x.finish,x.collect)}px" title="Badanie gotowe. Odbierz ${fmtDate(x.collect)}, żeby dostać punkty."><b>GOTOWE — ODBIERZ ${fmtDate(x.collect)}</b></div>`;
     }
   });
 
@@ -252,21 +254,21 @@ function renderTimeline(){
   const rem=state.remainingDays*DAY+state.remainingHours*HOUR+state.remainingMinutes*MIN;
   if(state.forgeOngoing&&rem>0){
     let ongoingStart=nowTime,ongoingEnd=new Date(nowTime.getTime()+rem);
-    forgeEvents+=`<div class="tl-event ongoing" style="left:${pos(ongoingStart)}px;width:${width(ongoingStart,ongoingEnd)}px" title="Aktualnie wykonywana kuźnia. Pozostało ${fmtDur(rem)}"><span class="event-tag">KUŹNIA W TRAKCIE</span><b>Poziom ${state.forgeLevel}</b><span>TERAZ • KONIEC ${fmtDate(ongoingEnd)}</span></div>`;
+    forgeEvents+=`<div class="tl-event ongoing" style="left:${pos(ongoingStart)}px;width:${eventWidth(ongoingStart,ongoingEnd)}px" title="Aktualnie wykonywana kuźnia. Pozostało ${fmtDur(rem)}"><span class="event-tag">KUŹNIA W TRAKCIE</span><b>Poziom ${state.forgeLevel}</b><span>TERAZ • KONIEC ${fmtDate(ongoingEnd)}</span></div>`;
   }
   results.forge.forEach(x=>{
     if(x.wait>5*MIN){
       if(x.reactionWait>5*MIN && x.reactionEnd>x.reactionStart){
-        forgeEvents+=`<div class="tl-event reaction" style="left:${pos(x.reactionStart)}px;width:${width(x.reactionStart,x.reactionEnd)}px" title="Zakładamy około ${state.reactionMinutes} min zanim gracz wróci do gry."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
+        forgeEvents+=`<div class="tl-event reaction" style="left:${pos(x.reactionStart)}px;width:${gapWidth(x.reactionStart,x.reactionEnd)}px" title="Zakładamy około ${state.reactionMinutes} min zanim gracz wróci do gry."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
       }
       if(x.sleepWait>5*MIN && x.sleepEnd>x.sleepStart){
-        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(x.sleepStart)}px;width:${width(x.sleepStart,x.sleepEnd)}px" title="Mniejsza aktywność 23:00–08:00"><b>SEN — WRÓĆ RANO</b></div>`;
+        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(x.sleepStart)}px;width:${gapWidth(x.sleepStart,x.sleepEnd)}px" title="Mniejsza aktywność 23:00–08:00"><b>SEN — WRÓĆ RANO</b></div>`;
       }
       if(x.extraWaitEnd-x.extraWaitStart>5*MIN){
-        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(x.extraWaitStart)}px;width:${width(x.extraWaitStart,x.extraWaitEnd)}px"><b>POCZEKAJ ${fmtDur(x.extraWaitEnd-x.extraWaitStart)}</b></div>`;
+        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(x.extraWaitStart)}px;width:${gapWidth(x.extraWaitStart,x.extraWaitEnd)}px"><b>POCZEKAJ ${fmtDur(x.extraWaitEnd-x.extraWaitStart)}</b></div>`;
       }
     }
-    forgeEvents+=`<div class="tl-event forge ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${width(x.start,x.end)}px" title="Kuźnia ${x.level}: ${fmtDate(x.start)} → ${fmtDate(x.end)}"><span class="event-tag">${x.scored?'PUNKTOWANY START':'KUŹNIA'}</span><b>Poziom ${x.level}</b><span>START ${fmtDate(x.start)} • KONIEC ${fmtDate(x.end)}</span></div>`;
+    forgeEvents+=`<div class="tl-event forge ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${eventWidth(x.start,x.end)}px" title="Kuźnia ${x.level}: ${fmtDate(x.start)} → ${fmtDate(x.end)}"><span class="event-tag">${x.scored?'PUNKTOWANY START':'KUŹNIA'}</span><b>Poziom ${x.level}</b><span>START ${fmtDate(x.start)} • KONIEC ${fmtDate(x.end)}</span></div>`;
   });
 
   const nightBands=()=>{
@@ -276,7 +278,7 @@ function renderTimeline(){
       let qs=new Date(base.getFullYear(),base.getMonth(),base.getDate(),QUIET_START,0,0,0);
       let qe=new Date(base.getFullYear(),base.getMonth(),base.getDate()+1,QUIET_END,0,0,0);
       if(qe<=start||qs>=new Date(start.getTime()+days*DAY))continue;
-      bands+=`<div class="tl-night" style="left:${pos(qs)}px;width:${width(qs,qe)}px"></div>`;
+      bands+=`<div class="tl-night" style="left:${pos(qs)}px;width:${exactWidth(qs,qe)}px"></div>`;
     }
     return bands;
   };

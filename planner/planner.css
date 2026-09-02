@@ -435,3 +435,24 @@ body{overflow-x:hidden}
 .tl-event.reaction{z-index:4}
 .tl-event.waiting{z-index:4}
 .tl-event.forge,.tl-event.ongoing{z-index:5}
+
+/* V6.2 — poprawna geometria czasu
+   Przerwy nie mają minimalnej szerokości 8px, więc nie mogą wejść w następną kuźnię. */
+.tl-event.reaction,
+.tl-event.waiting,
+.tl-event.ready{
+  min-width:0!important;
+  max-width:none!important;
+  z-index:2!important;
+}
+.tl-event.forge,
+.tl-event.ongoing,
+.tl-event.tech{
+  z-index:4!important;
+}
+
+.tl-event.reaction[style*="width:1px"],
+.tl-event.waiting[style*="width:1px"]{
+  border-left-width:2px;
+  padding:0;
+}

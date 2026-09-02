@@ -101,7 +101,14 @@
 
     <!-- WARS -->
     <section class="view" id="warsView">
-      <div class="page-head"><div><div class="kicker">Wars analytics</div><h1>Wojny klanowe</h1><div class="page-sub">Wybierz tydzień i przeanalizuj ranking, rozkład punktów oraz zmianę formy.</div></div><div class="status-pill"><span class="status-dot"></span><span id="warTitle"></span></div></div>
+      <div class="page-head war-page-head">
+        <div><div class="kicker">Wars analytics</div><h1>Wojny klanowe</h1><div class="page-sub">Wybierz tydzień i przeanalizuj ranking, rozkład punktów oraz zmianę formy.</div></div>
+        <div class="war-tier-focus" id="warTierFocus">
+          <div class="war-tier-caption">TIER WOJNY</div>
+          <div class="war-tier-value" id="warTierValue">—</div>
+          <div class="war-tier-week" id="warTierWeek">—</div>
+        </div>
+      </div>
       <div class="weekbar" id="weekbar"></div>
       <div class="war-summary" id="warSummary"></div>
       <div class="panel">
@@ -172,14 +179,14 @@
 
       <div class="panel power-ranking-panel" style="margin-top:11px">
         <div class="panel-head">
-          <div><div class="panel-title">Ranking Power — wzrost %</div><div class="panel-desc">Domyślnie sortowany według procentowego wzrostu z ostatniego snapshotu</div></div>
+          <div><div class="panel-title">Ranking wzrostu Power (%)</div><div class="panel-desc">Pozycja # oznacza ranking procentowego wzrostu, a nie całkowitej mocy</div></div><div class="power-default-pill">DOMYŚLNIE: Δ %</div>
         </div>
         <div class="toolbar power-toolbar">
           <div class="power-filter-row">
             <input class="search" id="powerSearch" placeholder="Szukaj gracza…">
             <select class="select" id="powerRankFilter"></select>
             <select class="select" id="powerSort">
-              <option value="growthPct">Wzrost % ↓</option>
+              <option value="growthPct">Wzrost % ↓ (domyślne)</option>
               <option value="power">Power ↓</option>
               <option value="growthAbs">Wzrost Power ↓</option>
               <option value="nick">Nick A–Z</option>
@@ -187,7 +194,7 @@
           </div>
           <div class="power-filter-note" id="powerFilterCount"></div>
         </div>
-        <div class="table-shell"><table><thead><tr><th>#</th><th>Gracz</th><th>Ranga</th><th class="num">Power</th><th class="num">Δ Power</th><th class="num">Δ %</th><th class="num">Udział klanu</th></tr></thead><tbody id="powerTable"></tbody></table></div>
+        <div class="table-shell"><table><thead><tr><th># wzrostu</th><th>Gracz</th><th>Ranga</th><th class="num">Δ %</th><th class="num">Δ Power</th><th class="num">Power</th><th class="num">Udział klanu</th></tr></thead><tbody id="powerTable"></tbody></table></div>
       </div>
     </section>
 

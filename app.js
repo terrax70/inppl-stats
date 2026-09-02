@@ -261,7 +261,10 @@ function getWarDeltas(w){
 function renderWarView(){
  const w=D.weeks.find(x=>x.week===selectedWeek); const deltas=getWarDeltas(w);
  const best=[...deltas].sort((a,b)=>b.delta-a.delta)[0], worst=[...deltas].sort((a,b)=>a.delta-b.delta)[0];
- $('#warTitle').innerHTML=`<span class="war-week-label">${escapeHtml(w.week)}</span>${tierBadge(w.tier,true)}`;
+ const tierFocus=$('#warTierFocus');
+ if(tierFocus) tierFocus.className=`war-tier-focus ${tierClass(w.tier)}`;
+ if($('#warTierValue')) $('#warTierValue').textContent=w.tier||'—';
+ if($('#warTierWeek')) $('#warTierWeek').textContent=`${w.week}${w.date?` • ${w.date}`:''}`;
  document.body.classList.remove('war-page-win','war-page-loss');
  document.body.classList.add(w.result==='win'?'war-page-win':w.result==='loss'?'war-page-loss':'');
  const warSummary=$('#warSummary');
@@ -342,7 +345,7 @@ function renderPower(){
  if($('#powerFilterCount'))$('#powerFilterCount').textContent=`${rows.length} aktywnych graczy`;
  $('#powerTable').innerHTML=rows.map((x,i)=>{
    const p=x.p,pc=x.growthPct,delta=x.growthAbs,current=x.latest?.powerM??p.powerM,place=i+1;
-   return `<tr class="${placeClass(place)}"><td>${placeBadge(place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td><td><span class="rank-tag">${escapeHtml(p.rank)}</span></td><td class="num"><b>${power(current)}</b></td><td class="num ${delta>0?'positive':delta<0?'negative':''}">${formatDelta(delta,power)}</td><td class="num ${pc>0?'positive':pc<0?'negative':''}"><b>${fmtPct1(pc)}</b></td><td class="num">${current!=null&&pw.totalM?`${(current/pw.totalM*100).toFixed(2).replace('.',',')}%`:'—'}</td></tr>`;
+   return `<tr class="${placeClass(place)}"><td>${placeBadge(place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td><td><span class="rank-tag">${escapeHtml(p.rank)}</span></td><td class="num growth-pct-cell ${pc>0?'positive':pc<0?'negative':''}"><b>${fmtPct1(pc)}</b></td><td class="num ${delta>0?'positive':delta<0?'negative':''}">${formatDelta(delta,power)}</td><td class="num"><b>${power(current)}</b></td><td class="num">${current!=null&&pw.totalM?`${(current/pw.totalM*100).toFixed(2).replace('.',',')}%`:'—'}</td></tr>`;
  }).join('');
 
  renderPowerSnapshotBar();
@@ -512,7 +515,7 @@ function init(){
    prf.onchange=()=>{powerRankFilter=prf.value;renderPower();};
  }
  const pso=$('#powerSort');
- if(pso){pso.value=powerSort;pso.onchange=()=>{powerSort=pso.value;renderPower();};}
+ if(pso){pso.value=powerSort;pso.onchange=()=>{powerSort=pso.value;const pill=$('.power-default-pill');if(pill)pill.textContent=powerSort==='growthPct'?'SORTOWANIE: Δ %':`SORTOWANIE: ${pso.options[pso.selectedIndex].text}`;renderPower();};}
 
  const hash=location.hash.replace('#',''); const allowed=['overview','warsView','playersView','power','compare'];
  setView(allowed.includes(hash)?hash:'overview',false);

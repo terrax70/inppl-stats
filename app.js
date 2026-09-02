@@ -82,6 +82,7 @@ function barChart(id, labels, values, formatter=compact, horizontal=false){
 }
 
 function setView(id, push=true){
+ scrollPageTop();
   $$('.view').forEach(v=>v.classList.toggle('active',v.id===id));
   $$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===id));
   if(push && id!=='profile') history.replaceState(null,'','#'+id);
@@ -431,6 +432,12 @@ $('#profileCompare').onclick=()=>{
  const n=$('#profileName').textContent; setView('compare',false); $('#compare1').value=n; renderCompare();
 };
 
+function scrollPageTop(){
+  window.scrollTo({top:0,left:0,behavior:'auto'});
+  const main=document.querySelector('.main, main, .content, .page-content');
+  if(main && typeof main.scrollTo==='function') main.scrollTo({top:0,left:0,behavior:'auto'});
+}
+
 function init(){
  renderOverview(); renderWeekBar(); renderWarView();
  const ranks=[...new Set(D.players.filter(p=>p.active!==false).map(p=>p.rank))].sort();
@@ -452,3 +459,13 @@ function init(){
  requestAnimationFrame(()=>{renderOverviewCharts();renderPowerCharts();});
 }
 init();
+
+window.addEventListener('hashchange',()=>{
+  requestAnimationFrame(()=>scrollPageTop());
+});
+
+document.addEventListener('click',(e)=>{
+  const a=e.target.closest('a[href^="#"], [data-view], .nav-item, .nav-link');
+  if(!a) return;
+  requestAnimationFrame(()=>scrollPageTop());
+});

@@ -259,21 +259,29 @@ function renderTimeline(){
 
   let techEvents='';
   results.tech.forEach(x=>{
+    // Start marker
+    techEvents+=`<div class="tech-action-marker start" style="left:${pos(x.start)}px" title="Start ${x.def.name}: ${fmtDate(x.start)}"></div>`;
+
+    // Czekanie przed startem — cienka linia, bez kapsułki
     if(x.gap>5*MIN){
-      let a=new Date(x.start.getTime()-x.gap),cursor=new Date(a);
-      if(x.i>1 && reactionMs()>5*MIN){
-        let rEnd=new Date(Math.min(x.start.getTime(),cursor.getTime()+reactionMs()));
-        techEvents+=`<div class="tl-event reaction" style="left:${pos(cursor)}px;width:${gapWidth(cursor,rEnd)}px" title="Czas na wejście do gry po poprzednim odbiorze."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
-        cursor=rEnd;
-      }
-      if(x.start-cursor>5*MIN){
-        techEvents+=`<div class="tl-event waiting" style="left:${pos(cursor)}px;width:${gapWidth(cursor,x.start)}px"><b>POCZEKAJ ${fmtDur(x.start-cursor)}</b></div>`;
-      }
+      let gapStart=new Date(x.start.getTime()-x.gap);
+      const gw=gapWidth(gapStart,x.start);
+      const label=gw>=90?`<span class="tech-gap-label">POCZEKAJ ${fmtDur(x.gap)}</span>`:'';
+      techEvents+=`<div class="tech-gap wait" style="left:${pos(gapStart)}px;width:${gw}px"><span class="tech-gap-line"></span>${label}</div>`;
     }
+
+    // Samo badanie — jedyny duży blok
     techEvents+=`<div class="tl-event tech ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${eventWidth(x.start,x.finish)}px" title="${x.def.name}: start ${fmtDate(x.start)} • gotowe ${fmtDate(x.finish)} • odbiór ${fmtDate(x.collect)}"><span class="event-tag">BADANIE TECH</span><b>${x.def.name}</b><span>START ${fmtDate(x.start)} • GOTOWE ${fmtDate(x.finish)}</span></div>`;
+
+    // Gotowe, ale czekamy z odbiorem — cienka zielona linia
     if(x.readyWait>5*MIN){
-      techEvents+=`<div class="tl-event ready" style="left:${pos(x.finish)}px;width:${gapWidth(x.finish,x.collect)}px" title="Badanie gotowe. Odbierz ${fmtDate(x.collect)}, żeby dostać punkty."><b>GOTOWE — ODBIERZ ${fmtDate(x.collect)}</b></div>`;
+      const rw=gapWidth(x.finish,x.collect);
+      const label=rw>=105?`<span class="tech-gap-label">GOTOWE — ODBIERZ ${fmtDate(x.collect)}</span>`:'';
+      techEvents+=`<div class="tech-gap ready" style="left:${pos(x.finish)}px;width:${rw}px" title="Badanie gotowe. Odbierz ${fmtDate(x.collect)}, żeby dostać punkty."><span class="tech-gap-line"></span>${label}</div>`;
     }
+
+    // Odbiór marker
+    techEvents+=`<div class="tech-action-marker collect" style="left:${pos(x.collect)}px" title="Odbierz ${x.def.name}: ${fmtDate(x.collect)}"></div>`;
   });
 
   let forgeEvents='';
@@ -318,7 +326,10 @@ function renderTimeline(){
     }
     return bands;
   };
-  const row=(name,events,type='')=>`<div class="tl-row ${type==='forge'?'forge-row':''}" style="width:${total}px"><div class="tl-row-label">${name}</div>${nightBands()}${events}</div>`;
+  const row=(name,events,type='')=>{
+    const cls=type==='forge'?'forge-row':type==='tech'?'tech-row':'';
+    return `<div class="tl-row ${cls}" style="width:${total}px"><div class="tl-row-label">${name}</div>${nightBands()}${events}</div>`;
+  };
   let nowPos=pos(nowTime);
 
   $('#timeline').style.width=total+'px';

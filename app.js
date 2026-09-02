@@ -83,6 +83,7 @@ function barChart(id, labels, values, formatter=compact, horizontal=false){
 
 function setView(id, push=true){
  scrollPageTop();
+  if(id!=='warsView')document.body.classList.remove('war-page-win','war-page-loss');
   $$('.view').forEach(v=>v.classList.toggle('active',v.id===id));
   $$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===id));
   if(push && id!=='profile') history.replaceState(null,'','#'+id);
@@ -91,6 +92,17 @@ function setView(id, push=true){
   if(id==='compare') requestAnimationFrame(renderCompare);
 }
 $$('.nav-btn').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+
+function tierClass(tier){
+ const t=String(tier||'').trim().toUpperCase();
+ if(t==='S++')return'tier-spp';
+ if(t==='S+')return'tier-sp';
+ if(t==='S')return'tier-s';
+ return'tier-other';
+}
+function tierBadge(tier,large=false){
+ return `<span class="tier-badge ${tierClass(tier)} ${large?'large':''}">${escapeHtml(tier||'—')}</span>`;
+}
 
 function metric(label,value,sub,delta=null){
   return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-val">${value}${delta!=null?`<span class="delta ${delta>=0?'positive':'negative'}">${pct(delta)}</span>`:''}</div><div class="metric-bottom">${sub}</div></div>`;
@@ -121,7 +133,10 @@ function moreButton(id,key,total,shown){
 
 function renderOverview(){
   const l=D.latest,pw=D.powerWeeks.at(-1);
-  $('#heroWeek').textContent=l.week; $('#heroTier').textContent=l.tier||'—'; $('#heroDate').textContent=l.date||'';
+  $('#heroWeek').textContent=l.week;
+  $('#heroTier').className=`chip hero-tier-chip ${tierClass(l.tier)}`;
+  $('#heroTier').innerHTML=`<span class="hero-tier-label">TIER</span>${tierBadge(l.tier,true)}`;
+  $('#heroDate').textContent=l.date||'';
   $('#heroScore').textContent=compact(l.total);
   $('#heroTrend').textContent=`${D.warDeltaPct>=0?'▲':'▼'} ${Math.abs(D.warDeltaPct||0).toFixed(1).replace('.',',')}% vs poprzedni tydzień`;
   $('#heroTrend').className='trend '+(D.warDeltaPct>=0?'up':'down');
@@ -229,7 +244,7 @@ $('#powerPagePlayerSelect').onchange=()=>{
 
 let selectedPowerSnapshot=D.powerWeeks.at(-1)?.week || '';
 let powerSearch='';
-let powerRankFilter='all';
+let powerRankFilter='';
 let powerSort='growthPct';
 let powerAnalyticsMode='growthPct';
 
@@ -246,7 +261,9 @@ function getWarDeltas(w){
 function renderWarView(){
  const w=D.weeks.find(x=>x.week===selectedWeek); const deltas=getWarDeltas(w);
  const best=[...deltas].sort((a,b)=>b.delta-a.delta)[0], worst=[...deltas].sort((a,b)=>a.delta-b.delta)[0];
- $('#warTitle').textContent=`${w.week} • ${w.tier||'—'}`;
+ $('#warTitle').innerHTML=`<span class="war-week-label">${escapeHtml(w.week)}</span>${tierBadge(w.tier,true)}`;
+ document.body.classList.remove('war-page-win','war-page-loss');
+ document.body.classList.add(w.result==='win'?'war-page-win':w.result==='loss'?'war-page-loss':'');
  const warSummary=$('#warSummary');
  warSummary.classList.remove('war-win','war-loss','war-unknown');
  warSummary.classList.add(w.result==='win'?'war-win':w.result==='loss'?'war-loss':'war-unknown');
@@ -288,30 +305,22 @@ $('#playerSearch').oninput=renderPlayers;$('#rankFilter').onchange=renderPlayers
 $$('#playersView th.sortable').forEach(th=>th.onclick=()=>{let k=th.dataset.sort; if(playerSort.key===k)playerSort.dir*=-1;else{playerSort.key=k;playerSort.dir=1}renderPlayers()});
 
 function getPowerPlayerRows(){
-  let rows=D.players
-    .filter(p=>p.active!==false)
-    .map(p=>{
-      const latest=p.powers?.at(-1) || null;
-      const prev=p.powers?.length>1 ? p.powers.at(-2) : null;
-      const growthPct=latest?.growthPct ?? (prev&&prev.powerM ? ((latest.powerM-prev.powerM)/prev.powerM*100) : null);
-      const growthAbs=latest&&prev ? latest.powerM-prev.powerM : null;
-      return {p, latest, prev, growthPct, growthAbs};
-    });
-
+  let rows=D.players.filter(p=>p.active!==false).map(p=>{
+    const latest=p.powers?.at(-1)||null;
+    const prev=p.powers?.length>1?p.powers.at(-2):null;
+    const growthPct=latest?.growthPct ?? p.powerChangePct ?? (prev&&prev.powerM&&latest?((latest.powerM-prev.powerM)/prev.powerM*100):null);
+    const growthAbs=latest&&prev?latest.powerM-prev.powerM:p.powerChangeM;
+    return {p,latest,prev,growthPct,growthAbs};
+  });
   const q=(powerSearch||'').trim().toLowerCase();
-  if(q) rows=rows.filter(x=>x.p.nick.toLowerCase().includes(q));
-
+  if(q)rows=rows.filter(x=>x.p.nick.toLowerCase().includes(q));
+  if(powerRankFilter)rows=rows.filter(x=>x.p.rank===powerRankFilter);
   rows.sort((a,b)=>{
-    if(powerSort==='power') return (b.latest?.powerM??-Infinity)-(a.latest?.powerM??-Infinity);
-    if(powerSort==='growthAbs') return (b.growthAbs??-Infinity)-(a.growthAbs??-Infinity);
-    if(powerSort==='nick') return a.p.nick.localeCompare(b.p.nick,'pl');
+    if(powerSort==='power')return (b.latest?.powerM??b.p.powerM??-Infinity)-(a.latest?.powerM??a.p.powerM??-Infinity);
+    if(powerSort==='growthAbs')return (b.growthAbs??-Infinity)-(a.growthAbs??-Infinity);
+    if(powerSort==='nick')return a.p.nick.localeCompare(b.p.nick,'pl');
     return (b.growthPct??-Infinity)-(a.growthPct??-Infinity);
   });
-
-  if(powerRankFilter==='top10') rows=rows.slice(0,10);
-  else if(powerRankFilter==='top20') rows=rows.slice(0,20);
-  else if(powerRankFilter==='bottom20') rows=rows.slice(-20).reverse();
-
   return rows;
 }
 
@@ -329,10 +338,11 @@ function renderPower(){
  $('#powerDropList').innerHTML=drops.slice(0,dropLim).map((x,i)=>listRow(i,x.nick,power(x.powerM),x.pct,fmtPct1,formatDelta(x.deltaM,power))).join('') || '<div class="empty">Brak spadków w ostatnim snapshotcie</div>';
  moreButton('powerDropMore','powerDrop',drops.length,dropLim);
 
- const arr=[...D.players].filter(p=>p.active!==false&&p.powerM!=null).sort((a,b)=>b.powerM-a.powerM);
- $('#powerTable').innerHTML=arr.map((p,i)=>{
-   const pc=p.powerChangePct??powerPct(p.powerChangeM,p.powerM); const place=i+1;
-   return `<tr class="${placeClass(place)}"><td>${placeBadge(place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td><td><span class="rank-tag">${escapeHtml(p.rank)}</span></td><td class="num"><b>${power(p.powerM)}</b></td><td class="num ${p.powerChangeM>0?'positive':p.powerChangeM<0?'negative':''}">${formatDelta(p.powerChangeM,power)}</td><td class="num ${pc>0?'positive':pc<0?'negative':''}"><b>${fmtPct1(pc)}</b></td><td class="num">${(p.powerM/pw.totalM*100).toFixed(2).replace('.',',')}%</td></tr>`;
+ const rows=getPowerPlayerRows();
+ if($('#powerFilterCount'))$('#powerFilterCount').textContent=`${rows.length} aktywnych graczy`;
+ $('#powerTable').innerHTML=rows.map((x,i)=>{
+   const p=x.p,pc=x.growthPct,delta=x.growthAbs,current=x.latest?.powerM??p.powerM,place=i+1;
+   return `<tr class="${placeClass(place)}"><td>${placeBadge(place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td><td><span class="rank-tag">${escapeHtml(p.rank)}</span></td><td class="num"><b>${power(current)}</b></td><td class="num ${delta>0?'positive':delta<0?'negative':''}">${formatDelta(delta,power)}</td><td class="num ${pc>0?'positive':pc<0?'negative':''}"><b>${fmtPct1(pc)}</b></td><td class="num">${current!=null&&pw.totalM?`${(current/pw.totalM*100).toFixed(2).replace('.',',')}%`:'—'}</td></tr>`;
  }).join('');
 
  renderPowerSnapshotBar();
@@ -365,6 +375,7 @@ function renderPowerSnapshot(){
 }
 
 function renderPowerAnalytics(){
+ $$('[data-power-analytics]').forEach(b=>b.classList.toggle('active',b.dataset.powerAnalytics===powerAnalyticsMode));
  const head=$('#powerAnalyticsHead'), body=$('#powerAnalyticsBody');
  let source=[], mode=powerAnalyticsMode;
  if(mode==='spikePct')source=D.powerSpikesTopPct;
@@ -492,20 +503,16 @@ function init(){
  $('#powerPagePlayerSelect').value=selectedPowerPlayer;
  renderPlayers(); renderPower(); fillCompareSelectors();
  const ps=$('#powerSearch');
- if(ps){
-   ps.value=powerSearch;
-   ps.oninput=()=>{powerSearch=ps.value;renderPower();};
- }
+ if(ps){ps.value=powerSearch;ps.oninput=()=>{powerSearch=ps.value;renderPower();};}
  const prf=$('#powerRankFilter');
  if(prf){
+   const ranks=[...new Set(D.players.filter(p=>p.active!==false).map(p=>p.rank).filter(Boolean))].sort();
+   prf.innerHTML='<option value="">Wszystkie rangi</option>'+ranks.map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
    prf.value=powerRankFilter;
    prf.onchange=()=>{powerRankFilter=prf.value;renderPower();};
  }
  const pso=$('#powerSort');
- if(pso){
-   pso.value=powerSort;
-   pso.onchange=()=>{powerSort=pso.value;renderPower();};
- }
+ if(pso){pso.value=powerSort;pso.onchange=()=>{powerSort=pso.value;renderPower();};}
 
  const hash=location.hash.replace('#',''); const allowed=['overview','warsView','playersView','power','compare'];
  setView(allowed.includes(hash)?hash:'overview',false);

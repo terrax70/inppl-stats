@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#07090d">
 <title>INPPL Stats — Forge Master</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
 <div class="app">
@@ -161,16 +161,34 @@
         <div class="panel-head">
           <div><div class="panel-title">Power spikes i tempo wzrostu</div><div class="panel-desc">Kto miał największy jednorazowy skok i kto rośnie najszybciej długoterminowo</div></div>
           <div class="analytics-tabs">
-            <button class="active" data-power-analytics="spikePct">Największy spike %</button>
+            <button data-power-analytics="spikePct">Największy spike %</button>
             <button data-power-analytics="spikeAbs">Największy spike</button>
-            <button data-power-analytics="growthPct">Najszybszy wzrost %</button>
+            <button class="active" data-power-analytics="growthPct">Najszybszy wzrost %</button>
             <button data-power-analytics="growthAbs">Najszybszy wzrost</button>
           </div>
         </div>
         <div class="table-shell" style="margin:12px 14px 8px"><table class="spike-table"><thead id="powerAnalyticsHead"></thead><tbody id="powerAnalyticsBody"></tbody></table></div><div class="panel-more"><button class="show-more-btn" id="powerAnalyticsMore"></button></div>
       </div>
 
-      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>#</th><th>Gracz</th><th>Ranga</th><th class="num">Power</th><th class="num">Δ Power</th><th class="num">Δ %</th><th class="num">Udział klanu</th></tr></thead><tbody id="powerTable"></tbody></table></div>
+      <div class="panel power-ranking-panel" style="margin-top:11px">
+        <div class="panel-head">
+          <div><div class="panel-title">Ranking Power — wzrost %</div><div class="panel-desc">Domyślnie sortowany według procentowego wzrostu z ostatniego snapshotu</div></div>
+        </div>
+        <div class="toolbar power-toolbar">
+          <div class="power-filter-row">
+            <input class="search" id="powerSearch" placeholder="Szukaj gracza…">
+            <select class="select" id="powerRankFilter"></select>
+            <select class="select" id="powerSort">
+              <option value="growthPct">Wzrost % ↓</option>
+              <option value="power">Power ↓</option>
+              <option value="growthAbs">Wzrost Power ↓</option>
+              <option value="nick">Nick A–Z</option>
+            </select>
+          </div>
+          <div class="power-filter-note" id="powerFilterCount"></div>
+        </div>
+        <div class="table-shell"><table><thead><tr><th>#</th><th>Gracz</th><th>Ranga</th><th class="num">Power</th><th class="num">Δ Power</th><th class="num">Δ %</th><th class="num">Udział klanu</th></tr></thead><tbody id="powerTable"></tbody></table></div>
+      </div>
     </section>
 
     <!-- COMPARE -->
@@ -183,7 +201,7 @@
         <button class="btn primary" onclick="renderCompare()">Odśwież</button>
       </div>
       <div class="panel"><div class="panel-head"><div><div class="panel-title">Punkty wojenne</div><div class="panel-desc">gracze + średnia klanu</div></div></div><div class="chart-box"><canvas id="compareScoreChart"></canvas></div></div>
-      <div class="panel" style="margin-top:11px"><div class="panel-head"><div><div class="panel-title">Power</div><div class="panel-desc">historia dostępnych snapshotów</div></div></div><div class="chart-box"><canvas id="comparePowerChart"></canvas></div></div>
+      <div class="panel" style="margin-top:11px"><div class="panel-head"><div><div class="panel-title">Power</div><div class="panel-desc">Historia mocy graczy</div></div></div><div class="chart-box"><canvas id="comparePowerChart"></canvas></div></div>
     </section>
 
     <!-- FULL PROFILE VIEW -->
@@ -210,7 +228,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="data.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="data.js?v=10"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

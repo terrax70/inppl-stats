@@ -244,9 +244,15 @@ function renderWarView(){
  const w=D.weeks.find(x=>x.week===selectedWeek); const deltas=getWarDeltas(w);
  const best=[...deltas].sort((a,b)=>b.delta-a.delta)[0], worst=[...deltas].sort((a,b)=>a.delta-b.delta)[0];
  $('#warTitle').textContent=`${w.week} • ${w.tier||'—'}`;
- $('#warSummary').innerHTML=[
-   ['Suma punktów',compact(w.total)],['Średnia',compact(w.avg)],['Gracze',w.count],['Zwycięzca',escapeHtml(w.winner)]
- ].map(x=>`<div class="mini-stat"><div class="l">${x[0]}</div><div class="v">${x[1]}</div></div>`).join('');
+ const warSummary=$('#warSummary');
+ warSummary.classList.remove('war-win','war-loss','war-unknown');
+ warSummary.classList.add(w.result==='win'?'war-win':w.result==='loss'?'war-loss':'war-unknown');
+ const resultText=w.resultLabel||'BRAK WYNIKU';
+ const typeText=w.resultType&&w.resultType.toUpperCase()!==resultText?escapeHtml(w.resultType):'';
+ warSummary.innerHTML=[
+   ['Wynik wojny',`<span class="war-result-badge ${w.result==='win'?'win':w.result==='loss'?'loss':'unknown'}">${escapeHtml(resultText)}</span>${typeText?`<span class="war-result-type">${typeText}</span>`:''}`],
+   ['Suma punktów',compact(w.total)],['Średnia',compact(w.avg)],['Gracze',w.count],['Lider punktów',escapeHtml(w.winner)]
+ ].map((x,i)=>`<div class="mini-stat ${i===0?'war-result-stat':''}"><div class="l">${x[0]}</div><div class="v">${x[1]}</div></div>`).join('');
  $('#warDeltaNote').innerHTML=best?`Największy wzrost: <b class="positive">${escapeHtml(best.nick)} +${compact(best.delta)}</b> &nbsp;•&nbsp; Największy spadek: <b class="negative">${escapeHtml(worst.nick)} ${compact(worst.delta)}</b>`:'Brak poprzedniego tygodnia do porównania.';
  $('#warTable').innerHTML=w.entries.map(e=>`<tr class="${placeClass(e.place)}"><td>${placeBadge(e.place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')">${escapeHtml(e.nick)}</button></td><td><span class="rank-tag">${escapeHtml(e.rank)}</span></td><td class="num"><b>${fmt(e.points)}</b></td><td class="num">${e.position??'—'}</td></tr>`).join('');
  requestAnimationFrame(()=>barChart('warDistribution',w.entries.slice(0,15).map(e=>e.nick),w.entries.slice(0,15).map(e=>e.points),compact,true));

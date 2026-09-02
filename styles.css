@@ -206,3 +206,69 @@ th{font-size:9px}td{font-size:11.5px}
 .analytics-tabs button,.show-more-btn{font-size:10px}
 .place-badge{font-size:10px}
 .inactive-tag{font-size:9px}
+
+
+/* V8 — wynik wojny z Excela */
+#warSummary{
+  grid-template-columns:1.15fr repeat(4,1fr);
+  padding:10px;
+  border:1px solid rgba(255,255,255,.055);
+  border-radius:12px;
+  transition:background .2s ease,border-color .2s ease,box-shadow .2s ease;
+}
+#warSummary.war-win{
+  background:linear-gradient(135deg,rgba(39,174,96,.115),rgba(39,174,96,.025));
+  border-color:rgba(56,210,123,.24);
+  box-shadow:inset 0 0 34px rgba(35,185,103,.035);
+}
+#warSummary.war-loss{
+  background:linear-gradient(135deg,rgba(222,72,79,.11),rgba(222,72,79,.024));
+  border-color:rgba(239,91,99,.23);
+  box-shadow:inset 0 0 34px rgba(222,72,79,.035);
+}
+#warSummary.war-unknown{
+  background:rgba(255,255,255,.012);
+}
+.war-result-stat .v{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  flex-wrap:wrap;
+}
+.war-result-badge{
+  display:inline-flex;
+  align-items:center;
+  min-height:24px;
+  padding:4px 9px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.war-result-badge.win{
+  color:#7df0ad;
+  background:rgba(47,196,111,.13);
+  border:1px solid rgba(67,221,132,.24);
+}
+.war-result-badge.loss{
+  color:#ff8e94;
+  background:rgba(226,73,81,.13);
+  border:1px solid rgba(242,91,99,.24);
+}
+.war-result-badge.unknown{
+  color:#9ba8b9;
+  background:rgba(155,168,185,.08);
+  border:1px solid rgba(155,168,185,.13);
+}
+.war-result-type{
+  display:inline-block;
+  color:#98a6b7;
+  font-size:9px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.055em;
+}
+@media(max-width:900px){
+  #warSummary{grid-template-columns:1fr 1fr}
+  .war-result-stat{grid-column:1/-1}
+}

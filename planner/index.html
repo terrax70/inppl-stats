@@ -1,1 +1,138 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07090d">
+<title>Forge Master Planner</title>
+<link rel="stylesheet" href="planner.css?v=1">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <a class="back" href="../">← INPPL Stats</a>
+    <div class="brand">
+      <div class="brand-mark">FM</div>
+      <div><div class="brand-name">Forge Master <span>Planner</span></div><div class="brand-desc">Tech • Kuźnia • Wojna</div></div>
+    </div>
 
+    <div class="nav-label">WIDOK</div>
+    <nav class="nav">
+      <button class="nav-btn active" data-view="plannerView">◈ Planner</button>
+      <button class="nav-btn" data-view="timelineView">▰ Timeline</button>
+      <button class="nav-btn" data-view="techView">⚗ Tech</button>
+      <button class="nav-btn" data-view="forgeView">⚒ Kuźnia</button>
+    </nav>
+
+    <div class="side-card">
+      <b>Reset gry</b><strong>02:00</strong>
+      <span>Tech: odbiór ŚR/SOB</span>
+      <span>Kuźnia: start ŚR/PT</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <section class="view active" id="plannerView">
+      <div class="page-head">
+        <div><div class="kicker">FORGE MASTER TOOLS</div><h1>Planner progresu</h1><p>Planowanie Tech i Kuźni pod punktowane dni bez zatrzymywania progresu bardziej niż chcesz.</p></div>
+        <div class="now-card"><span>TERAZ</span><b id="nowText">—</b><small id="gameDayText">—</small></div>
+      </div>
+
+      <div class="grid inputs-grid">
+        <div class="panel settings-panel">
+          <div class="panel-head"><div><h2>Ustawienia</h2><p>Zmiany zapisują się automatycznie w przeglądarce.</p></div></div>
+          <div class="form-grid">
+            <label>Research Speed <span>%</span><input id="researchSpeed" type="number" min="0" step="1"></label>
+            <label>Forge Speed <span>%</span><input id="forgeSpeed" type="number" min="0" step="1"></label>
+            <label>Aktualny poziom kuźni<input id="forgeLevel" type="number" min="1" max="34" step="1"></label>
+            <label>Limit HYBRYDY <span>h</span><input id="waitLimit" type="number" min="0" step="1"></label>
+            <label>Horyzont<select id="horizon"><option value="7">1 tydzień</option><option value="14">2 tygodnie</option><option value="28">4 tygodnie</option><option value="56">8 tygodni</option></select></label>
+            <label>Strategia kuźni<select id="forgeMode"><option value="hybrid">HYBRYDA</option><option value="progress">PROGRES</option><option value="points">PUNKTY</option></select></label>
+          </div>
+          <div class="ongoing">
+            <label class="check"><input type="checkbox" id="forgeOngoing"> Kuźnia już trwa</label>
+            <div class="remaining" id="remainingInputs">
+              <label>Dni<input id="remainingDays" type="number" min="0"></label>
+              <label>Godz.<input id="remainingHours" type="number" min="0" max="23"></label>
+              <label>Min.<input id="remainingMinutes" type="number" min="0" max="59"></label>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn primary" id="recalculate">Przelicz plan</button>
+            <button class="btn" id="exportPlan">Eksport JSON</button>
+            <button class="btn" id="importPlan">Import JSON</button>
+            <button class="btn ghost" id="resetPlan">Reset</button>
+          </div>
+        </div>
+
+        <div class="panel tech-builder">
+          <div class="panel-head"><div><h2>Kolejka Tech</h2><p>Możesz mieszać różne badania — nie muszą być takie same.</p></div></div>
+          <div class="queue-add">
+            <select id="techSelect"></select>
+            <button class="btn primary" id="addTech">+ Dodaj</button>
+            <button class="btn" id="repeatTech">+ ×8</button>
+          </div>
+          <div class="queue" id="techQueue"></div>
+          <div class="queue-empty" id="queueEmpty">Dodaj badania do kolejki.</div>
+        </div>
+      </div>
+
+      <div class="summary-grid">
+        <div class="summary-card tech-accent"><span>NAJBLIŻSZY TECH</span><b id="nextTechName">—</b><div id="nextTechTime">—</div><small id="nextTechNote">—</small></div>
+        <div class="summary-card forge-accent"><span>NAJBLIŻSZA KUŹNIA</span><b id="nextForgeName">—</b><div id="nextForgeTime">—</div><small id="nextForgeNote">—</small></div>
+        <div class="summary-card"><span>PUNKTOWANE TECH</span><b id="techHits">0</b><div>odbiorów w horyzoncie</div><small id="techWaitTotal">—</small></div>
+        <div class="summary-card"><span>PUNKTOWANE KUŹNIE</span><b id="forgeHits">0</b><div>startów w horyzoncie</div><small id="forgeWaitTotal">—</small></div>
+      </div>
+
+      <div class="grid result-grid">
+        <div class="panel">
+          <div class="panel-head"><div><h2>Plan Tech</h2><p>Badanie ustawiane najpóźniej tak, aby skończyło się o 02:00 w punktowany dzień.</p></div></div>
+          <div class="table-shell"><table><thead><tr><th>#</th><th>Badanie</th><th>Twój czas</th><th>Wolne okno</th><th>Start</th><th>Odbiór</th><th>Punkty</th></tr></thead><tbody id="techTable"></tbody></table></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><h2>Plan Kuźni</h2><p id="forgeModeDesc">HYBRYDA: czekaj na punktowany start tylko do limitu.</p></div></div>
+          <div class="table-shell"><table><thead><tr><th>Lvl</th><th>Twój czas</th><th>Start</th><th>Koniec</th><th>Czekanie</th><th>Decyzja</th></tr></thead><tbody id="forgeTable"></tbody></table></div>
+        </div>
+      </div>
+
+      <div class="panel gap-panel">
+        <div class="panel-head"><div><h2>Wolne okna Tech</h2><p>Najdłuższe krótsze badania, które czasowo mieszczą się w przerwie. To sugestia czasowa — planner nie zna Twoich odblokowań drzewka.</p></div></div>
+        <div id="gapSuggestions" class="gap-list"></div>
+      </div>
+    </section>
+
+    <section class="view" id="timelineView">
+      <div class="page-head"><div><div class="kicker">VISUAL PLANNER</div><h1>Timeline</h1><p>Prawdziwa oś czasu zamiast setek kolumn Excela. Przewijaj poziomo.</p></div></div>
+      <div class="timeline-legend">
+        <span><i class="dot tech"></i>Tech</span><span><i class="dot forge"></i>Kuźnia</span><span><i class="dot scoring"></i>Dzień punktowany</span>
+      </div>
+      <div class="timeline-scroll"><div id="timeline"></div></div>
+    </section>
+
+    <section class="view" id="techView">
+      <div class="page-head"><div><div class="kicker">TECH LIBRARY</div><h1>Czasy badań</h1><p>Pełna tabela z Excela, przeliczana na Twój Research Speed.</p></div></div>
+      <input class="search" id="techSearch" placeholder="Szukaj np. V 1/5…">
+      <div class="library-grid" id="techLibrary"></div>
+    </section>
+
+    <section class="view" id="forgeView">
+      <div class="page-head"><div><div class="kicker">FORGE LIBRARY</div><h1>Czasy kuźni</h1><p>Poziomy 2–35 z czasem bazowym i czasem po Twoim Forge Speed.</p></div></div>
+      <div class="strategy-compare" id="strategyCompare"></div>
+      <div class="library-grid forge-lib" id="forgeLibrary"></div>
+    </section>
+  </main>
+</div>
+
+<div class="modal" id="importModal">
+  <div class="modal-card">
+    <h2>Import planu</h2>
+    <p>Wklej JSON wyeksportowany z tego plannera.</p>
+    <textarea id="importText"></textarea>
+    <div class="actions"><button class="btn" id="cancelImport">Anuluj</button><button class="btn primary" id="doImport">Importuj</button></div>
+  </div>
+</div>
+
+<script src="game-data.js?v=1"></script>
+<script src="planner.js?v=1"></script>
+</body>
+</html>

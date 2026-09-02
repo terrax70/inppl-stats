@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=2">
+<link rel="stylesheet" href="planner.css?v=3">
 </head>
 <body>
 <header class="topbar">
@@ -19,9 +19,9 @@
 <main class="shell">
   <section class="hero">
     <div>
-      <div class="eyebrow">PLANER PROGRESU</div>
-      <h1>Co mam zrobić i kiedy?</h1>
-      <p>Uzupełnij swoją sytuację. Planner sam rozłoży Tech i Kuźnię na osi czasu.</p>
+      <div class="eyebrow">FORGE MASTER PLANNER</div>
+      <h1>Co mam zrobić teraz i co będzie dalej?</h1>
+      <p>Podaj kilka danych. Dostaniesz czytelny plan z dokładnymi godzinami startu i odbioru.</p>
     </div>
     <div class="clock"><span>TERAZ</span><b id="nowText">—</b><small id="gameDayText">—</small></div>
   </section>
@@ -29,7 +29,7 @@
   <section class="setup-card" id="setup">
     <div class="step-head">
       <span class="step-no">1</span>
-      <div><h2>Twoje dane</h2><p>To wszystko, czego potrzebujemy do wyliczenia planu.</p></div>
+      <div><h2>Twoje dane</h2><p>Wypełnij pola poniżej. Resztę policzymy za Ciebie.</p></div>
     </div>
 
     <div class="setup-grid">
@@ -78,8 +78,8 @@
     <div class="tech-choice">
       <div class="tech-choice-head">
         <div>
-          <b>Jakie badania Tech chcesz planować?</b>
-          <small>Dodaj je w kolejności. Możesz dodać to samo wiele razy.</small>
+          <b>Które badania Tech chcesz zrobić?</b>
+          <small>Dodaj badania w takiej kolejności, w jakiej chcesz je wykonywać.</small>
         </div>
         <button type="button" class="text-btn" id="clearTech">Wyczyść</button>
       </div>
@@ -93,7 +93,7 @@
     </div>
 
     <div class="advanced-toggle">
-      <button type="button" id="advancedBtn">Ustawienia dodatkowe <span>⌄</span></button>
+      <button type="button" id="advancedBtn">Więcej ustawień <span>⌄</span></button>
       <div class="advanced" id="advanced">
         <label class="field compact"><span>Limit czekania HYBRYDY <i>h</i></span><input id="waitLimit" type="number" min="0" value="30"><small>Maksymalnie tyle planner pozwoli kuźni czekać na punktowany dzień.</small></label>
         <label class="field compact"><span>Zakres planu</span><select id="horizon"><option value="7">1 tydzień</option><option value="14">2 tygodnie</option><option value="28">4 tygodnie</option><option value="56" selected>8 tygodni</option></select><small>Jak daleko ma sięgać timeline.</small></label>
@@ -101,8 +101,8 @@
     </div>
 
     <button type="button" class="plan-btn" id="recalculate">
-      <span>UŁÓŻ MÓJ PLAN</span>
-      <small>Tech + Kuźnia + punktowane dni</small>
+      <span>POKAŻ MI PLAN</span>
+      <small>Dokładne godziny • Tech • Kuźnia • punkty</small>
     </button>
   </section>
 
@@ -110,7 +110,7 @@
     <div class="result-head">
       <div class="step-head">
         <span class="step-no done">2</span>
-        <div><h2>Twój plan</h2><p>Najważniejsze decyzje masz od razu poniżej.</p></div>
+        <div><h2>Twój plan</h2><p>Najpierw zobacz, co zrobić najbliżej. Potem sprawdź całą oś czasu.</p></div>
       </div>
       <button type="button" class="btn secondary" id="editSetup">↑ Zmień dane</button>
     </div>
@@ -142,26 +142,31 @@
       <div class="timeline-title">
         <div>
           <span class="step-no done">3</span>
-          <div><h2>Timeline</h2><p>Wszystko na jednej osi. Najedź lub kliknij blok, żeby zobaczyć szczegóły.</p></div>
+          <div><h2>Timeline</h2><p>Cały plan na jednej osi czasu — od tego, co robisz teraz, po kolejne tygodnie.</p></div>
         </div>
         <div class="legend">
           <span><i class="dot tech"></i>Tech</span>
           <span><i class="dot forge"></i>Kuźnia</span>
           <span><i class="dot techday"></i>Tech punktuje</span>
-          <span><i class="dot forgeday"></i>Kuźnia punktuje</span>
+          <span><i class="dot forgeday"></i>Kuźnia punktuje</span><span><i class="dot ongoing"></i>Kuźnia w trakcie</span><span><i class="dot waiting"></i>Czekanie</span>
         </div>
       </div>
+      <div class="timeline-focus">
+        <span>NAJBLIŻSZE</span>
+        <b id="timelineFocusTitle">Ułóż plan, aby zobaczyć oś czasu</b>
+        <p id="timelineFocusText">Tutaj pokażemy dokładnie, co masz zrobić.</p>
+      </div>
       <div class="timeline-scroll"><div id="timeline"></div></div>
-      <div class="timeline-help">◀ przewiń w bok, jeśli plan jest dłuższy ▶</div>
+      <div class="timeline-help">← Przewiń w bok, aby zobaczyć kolejne dni →</div>
     </section>
 
     <section class="instructions-card">
-      <div class="section-title"><h2>Instrukcje krok po kroku</h2><p>Jeśli nie chcesz analizować osi czasu — po prostu rób po kolei to, co jest tutaj.</p></div>
+      <div class="section-title"><h2>Instrukcje krok po kroku</h2><p>Nie musisz analizować osi czasu. Wykonuj te kroki po kolei.</p></div>
       <div id="actionList" class="action-list"></div>
     </section>
 
     <details class="details">
-      <summary>Szczegółowe tabele i wolne okna</summary>
+      <summary>Pokaż szczegółowe obliczenia</summary>
       <div class="detail-grid">
         <div class="detail-box">
           <h3>Tech</h3>
@@ -180,7 +185,7 @@
   </section>
 </main>
 
-<script src="game-data.js?v=2"></script>
-<script src="planner.js?v=2"></script>
+<script src="game-data.js?v=3"></script>
+<script src="planner.js?v=3"></script>
 </body>
 </html>

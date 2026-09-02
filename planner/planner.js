@@ -1,6 +1,7 @@
 (()=>{
 const D=window.FM_PLANNER_DATA,$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const DAY=86400000,HOUR=3600000,MIN=60000;
+const QUIET_START=23,QUIET_END=8;
 const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizon:56,forgeMode:'hybrid',forgeOngoing:false,remainingDays:0,remainingHours:0,remainingMinutes:0,techQueue:[]};
 let state=load(),results={tech:[],forge:[]};
 
@@ -19,7 +20,54 @@ function techDur(x){return x.baseDays*DAY/speed(state.researchSpeed)}
 function forgeDur(x){return x.baseDays*DAY/speed(state.forgeSpeed)}
 function isTechDay(t){return D.techScoringWeekdays.includes(weekday(t))}
 function isForgeDay(t){return D.forgeScoringWeekdays.includes(weekday(t))}
-function nextTechSlot(avail,dur){let end=nextBoundary(avail,D.techScoringWeekdays);for(let i=0;i<24;i++){let start=new Date(end-dur);if(start>=avail)return{start,end};end=nextBoundary(new Date(end.getTime()+MIN),D.techScoringWeekdays)}return{start:avail,end:new Date(avail.getTime()+dur)}}
+function quietOverlap(start,end){
+  let total=0;
+  let cursor=new Date(start.getFullYear(),start.getMonth(),start.getDate()-1,QUIET_START,0,0,0);
+  const limit=end.getTime();
+  for(let i=0;i<20;i++){
+    let qs=new Date(cursor),qe=new Date(cursor.getFullYear(),cursor.getMonth(),cursor.getDate()+1,QUIET_END,0,0,0);
+    let a=Math.max(start.getTime(),qs.getTime()),b=Math.min(limit,qe.getTime());
+    if(b>a)total+=b-a;
+    cursor.setDate(cursor.getDate()+1);
+    if(cursor.getTime()>limit+DAY)break;
+  }
+  return total;
+}
+function candidateTechStarts(avail,latest){
+  const values=[new Date(avail),new Date(latest)];
+  let d=new Date(avail.getFullYear(),avail.getMonth(),avail.getDate()-1,QUIET_START,0,0,0);
+  for(let i=0;i<20;i++){
+    let q1=new Date(d),q2=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1,QUIET_END,0,0,0);
+    for(const c of [q1,q2]){
+      if(c>=avail&&c<=latest)values.push(c);
+    }
+    d.setDate(d.getDate()+1);
+    if(d>latest)break;
+  }
+  return values;
+}
+function nextTechSlot(avail,dur){
+  let collect=nextBoundary(avail,D.techScoringWeekdays);
+  for(let i=0;i<24;i++){
+    let latest=new Date(collect.getTime()-dur);
+    if(latest>=avail){
+      let candidates=candidateTechStarts(avail,latest);
+      let best=candidates[0],bestScore=-1;
+      for(const s of candidates){
+        let finish=new Date(s.getTime()+dur);
+        let night=quietOverlap(s,finish);
+        // Najpierw maksymalizuj czas badania podczas 23–08.
+        // Przy takim samym wyniku wybierz późniejszy start, żeby nie marnować progresu.
+        let score=night*100000 + s.getTime()/1e9;
+        if(score>bestScore){bestScore=score;best=s}
+      }
+      return {start:new Date(best),finish:new Date(best.getTime()+dur),collect};
+    }
+    collect=nextBoundary(new Date(collect.getTime()+MIN),D.techScoringWeekdays);
+  }
+  let start=new Date(avail),finish=new Date(avail.getTime()+dur);
+  return {start,finish,collect:finish};
+}
 function nextForgeSlot(avail){return isForgeDay(avail)?new Date(avail):nextBoundary(avail,D.forgeScoringWeekdays)}
 
 function read(){
@@ -36,9 +84,17 @@ function toggleRemaining(){$('#remainingInputs').style.opacity=$('#forgeOngoing'
 function calcTech(start,endLimit){
   let avail=new Date(start),out=[];
   for(let i=0;i<state.techQueue.length;i++){
-    const def=techDef(state.techQueue[i]);if(!def)continue;const dur=techDur(def),slot=nextTechSlot(avail,dur);if(slot.end>endLimit)break;
-    out.push({type:'tech',i:i+1,def,start:slot.start,end:slot.end,dur,gap:slot.start-avail,scored:isTechDay(slot.end)});avail=new Date(slot.end)
-  }return out
+    const def=techDef(state.techQueue[i]);if(!def)continue;
+    const dur=techDur(def),slot=nextTechSlot(avail,dur);
+    if(slot.collect>endLimit)break;
+    out.push({
+      type:'tech',i:i+1,def,start:slot.start,finish:slot.finish,end:slot.collect,collect:slot.collect,
+      dur,gap:slot.start-avail,readyWait:slot.collect-slot.finish,
+      quiet:quietOverlap(slot.start,slot.finish),scored:isTechDay(slot.collect)
+    });
+    avail=new Date(slot.collect);
+  }
+  return out
 }
 function calcForge(start,endLimit){
   let avail=new Date(start),out=[];
@@ -53,23 +109,23 @@ function calcForge(start,endLimit){
     out.push({type:'forge',level:lvl+1,def,start:s,end:e,dur:forgeDur(def),wait:s-earliest,scored:isForgeDay(s),decision});avail=e;lvl++
   }return out
 }
-function calculate(show=true){
+function calculate(){
   read();save();let start=new Date(),limit=new Date(start.getTime()+state.horizon*DAY);results.tech=calcTech(start,limit);results.forge=calcForge(start,limit);
   renderAll();
-  if(show){$('#results').classList.remove('hidden');setTimeout(()=>$('#results').scrollIntoView({behavior:'smooth',block:'start'}),50)}
+  $('#results').classList.remove('hidden');
 }
 
 function renderQueue(){
   $('#queueEmpty').style.display=state.techQueue.length?'none':'block';
   $('#techQueue').innerHTML=state.techQueue.map((n,i)=>`<span class="chip">${i+1}. ${n}<button type="button" data-del="${i}" aria-label="Usuń ${n}">×</button></span>`).join('');
-  $$('[data-del]').forEach(b=>b.addEventListener('click',()=>{state.techQueue.splice(+b.dataset.del,1);save();renderQueue()}))
+  $$('[data-del]').forEach(b=>b.addEventListener('click',()=>{state.techQueue.splice(+b.dataset.del,1);save();calculate()}))
 }
 function renderSummary(){
   let t=results.tech[0],f=results.forge[0],now=new Date();
   $('#nextTechAction').textContent=t?(t.gap>5*MIN?'NA RAZIE NIE URUCHAMIAJ':'URUCHOM BADANIE TERAZ'):'DODAJ BADANIE';
   $('#nextTechName').textContent=t?.def.name||'Nie wybrano żadnego Tech';
-  $('#nextTechTime').textContent=t?(t.gap>5*MIN?`Uruchom ${fmtDate(t.start)} • odbierz ${fmtDate(t.end)}`:`Odbierz ${fmtDate(t.end)}`):'—';
-  $('#nextTechNote').textContent=t?(t.gap>5*MIN?`Opłaca się poczekać ${fmtDur(t.gap)}, aby badanie skończyło się w punktowanym dniu.`:`Badanie może ruszyć od razu i skończy się w punktowanym dniu.`):'Dodaj przynajmniej jedno badanie do kolejki.';
+  $('#nextTechTime').textContent=t?(t.gap>5*MIN?`Uruchom ${fmtDate(t.start)} • odbierz ${fmtDate(t.collect)}`:`Odbierz ${fmtDate(t.collect)}`):'—';
+  $('#nextTechNote').textContent=t?(t.gap>5*MIN?`Opłaca się poczekać ${fmtDur(t.gap)}. Planner ustawił badanie tak, żeby możliwie dużo robiło się w nocy i można je było odebrać w punktowanym dniu.`:`Badanie może ruszyć od razu. Odbierz je w punktowanym dniu.`):'Dodaj przynajmniej jedno badanie do kolejki.';
   const ongoing=state.forgeOngoing&&(state.remainingDays*DAY+state.remainingHours*HOUR+state.remainingMinutes*MIN)>0;
   $('#nextForgeAction').textContent=ongoing?'KUŹNIA JUŻ PRACUJE':f?(f.wait>5*MIN?'NA RAZIE NIE URUCHAMIAJ':'URUCHOM KUŹNIĘ TERAZ'):'BRAK KOLEJNEGO POZIOMU';
   $('#nextForgeName').textContent=ongoing?`Trwa poziom ${state.forgeLevel}`:(f?`Następnie: poziom ${f.level}`:'—');
@@ -99,7 +155,10 @@ function renderTimeline(){
       let a=new Date(x.start.getTime()-x.gap);
       techEvents+=`<div class="tl-event waiting" style="left:${pos(a)}px;width:${width(a,x.start)}px"><b>CZEKAJ ${fmtDur(x.gap)}</b></div>`;
     }
-    techEvents+=`<div class="tl-event tech ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${width(x.start,x.end)}px" title="${x.def.name}: ${fmtDate(x.start)} → ${fmtDate(x.end)}"><span class="event-tag">BADANIE TECH</span><b>${x.def.name}</b><span>START ${fmtDate(x.start)} • ODBIÓR ${fmtDate(x.end)}</span></div>`;
+    techEvents+=`<div class="tl-event tech ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${width(x.start,x.finish)}px" title="${x.def.name}: start ${fmtDate(x.start)} • gotowe ${fmtDate(x.finish)} • odbiór ${fmtDate(x.collect)}"><span class="event-tag">BADANIE TECH</span><b>${x.def.name}</b><span>START ${fmtDate(x.start)} • GOTOWE ${fmtDate(x.finish)}</span></div>`;
+    if(x.readyWait>5*MIN){
+      techEvents+=`<div class="tl-event ready" style="left:${pos(x.finish)}px;width:${width(x.finish,x.collect)}px" title="Badanie gotowe. Odbierz ${fmtDate(x.collect)}, żeby dostać punkty."><b>GOTOWE — ODBIERZ ${fmtDate(x.collect)}</b></div>`;
+    }
   });
 
   let forgeEvents='';
@@ -118,8 +177,17 @@ function renderTimeline(){
 
   const row=(name,events)=>`<div class="tl-row" style="width:${total}px"><div class="tl-row-label">${name}</div>${events}</div>`;
   let nowPos=pos(nowTime);
+  let sleepBands='';
+  for(let i=-1;i<=days;i++){
+    let dayBase=new Date(start.getTime()+i*DAY);
+    let qs=new Date(dayBase.getFullYear(),dayBase.getMonth(),dayBase.getDate(),QUIET_START,0,0,0);
+    let qe=new Date(dayBase.getFullYear(),dayBase.getMonth(),dayBase.getDate()+1,QUIET_END,0,0,0);
+    if(qe<=start||qs>=new Date(start.getTime()+days*DAY))continue;
+    let left=pos(qs),w=width(qs,qe);
+    sleepBands+=`<div class="tl-sleep" style="left:${left}px;width:${w}px"><span class="tl-sleep-label">23–08</span></div>`;
+  }
   $('#timeline').style.width=total+'px';
-  $('#timeline').innerHTML=h+row('TECH',techEvents)+row('KUŹNIA',forgeEvents)+`<div class="tl-now" style="left:${nowPos}px"></div>`;
+  $('#timeline').innerHTML=h+sleepBands+row('TECH',techEvents)+row('KUŹNIA',forgeEvents)+`<div class="tl-now" style="left:${nowPos}px"></div>`;
 
   let focusTitle='Plan gotowy',focusText='Sprawdź pierwsze bloki na osi czasu.';
   if(state.forgeOngoing&&rem>0){
@@ -128,7 +196,7 @@ function renderTimeline(){
   }else if(results.tech[0]){
     let x=results.tech[0];
     focusTitle=x.gap>5*MIN?`Tech ${x.def.name}: poczekaj do ${fmtDate(x.start)}`:`Uruchom Tech ${x.def.name} teraz`;
-    focusText=`Odbierz ${fmtDate(x.end)}. ${x.scored?'Za ten odbiór dostaniesz punkty.':''}`;
+    focusText=`Badanie będzie gotowe ${fmtDate(x.finish)}. Odbierz je ${fmtDate(x.collect)}. ${x.scored?'Za ten odbiór dostaniesz punkty.':''}`;
   }else if(results.forge[0]){
     let x=results.forge[0];
     focusTitle=x.wait>5*MIN?`Kuźnia ${x.level}: poczekaj do ${fmtDate(x.start)}`:`Uruchom kuźnię ${x.level} teraz`;
@@ -143,8 +211,8 @@ function renderTimeline(){
   });
 }
 function renderActions(){
-  let all=[...results.tech.map(x=>({when:x.start,type:'tech',title:`Uruchom badanie ${x.def.name}`,sub:`Odbierz je ${fmtDate(x.end)}${x.scored?' — wtedy dostaniesz punkty.':'.'}`})),
-           ...results.tech.map(x=>({when:x.end,type:'tech',title:`Odbierz badanie ${x.def.name}`,sub:x.scored?'Ten odbiór jest punktowany.':'Ten odbiór nie daje punktów wojennych.'})),
+  let all=[...results.tech.map(x=>({when:x.start,type:'tech',title:`Uruchom badanie ${x.def.name}`,sub:`Będzie gotowe ${fmtDate(x.finish)}. Odbierz ${fmtDate(x.collect)}${x.scored?' — wtedy dostaniesz punkty.':'.'}`})),
+           ...results.tech.map(x=>({when:x.collect,type:'tech',title:`Odbierz badanie ${x.def.name}`,sub:x.scored?'Ten odbiór jest punktowany.':'Ten odbiór nie daje punktów wojennych.'})),
            ...results.forge.map(x=>({when:x.start,type:'forge',title:`Uruchom kuźnię — poziom ${x.level}`,sub:`Skończy się około ${fmtDate(x.end)}${x.scored?' — start daje punkty.':'.'}`}))]
     .sort((a,b)=>a.when-b.when).slice(0,24);
   $('#actionList').innerHTML=all.length?all.map((x,i)=>`<div class="action-item"><div class="action-num">${i+1}</div><div class="action-when">${fmtDate(x.when)}</div><div class="action-main"><b>${x.title}</b><span>${x.sub}</span></div><span class="badge ${x.type}">${x.type==='tech'?'TECH':'KUŹNIA'}</span></div>`).join(''):'<div class="empty-state">Dodaj badania Tech lub sprawdź ustawienia Kuźni.</div>';
@@ -165,12 +233,24 @@ function init(){
   renderQueue();hint();
   $('#forgeOngoing').addEventListener('change',toggleRemaining);
   $('#forgeMode').addEventListener('change',hint);
-  $('#addTech').addEventListener('click',()=>{state.techQueue.push($('#techSelect').value);renderQueue();save()});
-  $('#repeatTech').addEventListener('click',()=>{for(let i=0;i<5;i++)state.techQueue.push($('#techSelect').value);renderQueue();save()});
-  $('#clearTech').addEventListener('click',()=>{state.techQueue=[];renderQueue();save()});
+  $('#addTech').addEventListener('click',()=>{state.techQueue.push($('#techSelect').value);save();calculate()});
+  $('#repeatTech').addEventListener('click',()=>{for(let i=0;i<5;i++)state.techQueue.push($('#techSelect').value);save();calculate()});
+  $('#clearTech').addEventListener('click',()=>{state.techQueue=[];save();calculate()});
   $('#advancedBtn').addEventListener('click',()=>{$('#advanced').classList.toggle('open')});
-  $('#recalculate').addEventListener('click',()=>calculate(true));
-  $('#editSetup').addEventListener('click',()=>$('#setup').scrollIntoView({behavior:'smooth',block:'start'}));
+
+  let timer=null;
+  const live=()=>{
+    clearTimeout(timer);
+    timer=setTimeout(()=>calculate(),120);
+  };
+  ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','forgeOngoing','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon']
+    .forEach(id=>{
+      const el=$('#'+id);
+      el.addEventListener('input',live);
+      el.addEventListener('change',live);
+    });
+
+  calculate();
 }
 init();
 })();

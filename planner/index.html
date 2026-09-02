@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=3">
+<link rel="stylesheet" href="planner.css?v=4">
 </head>
 <body>
 <header class="topbar">
@@ -75,6 +75,10 @@
       </div>
     </div>
 
+    <div class="sleep-rule">
+      <div class="sleep-icon">☾</div>
+      <div><b>Planner uwzględnia noc 23:00–08:00</b><p>W tych godzinach zakładamy mniejszą aktywność. Badania są układane tak, żeby możliwie dużo czasu robiły się właśnie w nocy, bez tracenia punktowanych odbiorów.</p></div>
+    </div>
     <div class="tech-choice">
       <div class="tech-choice-head">
         <div>
@@ -100,19 +104,38 @@
       </div>
     </div>
 
-    <button type="button" class="plan-btn" id="recalculate">
-      <span>POKAŻ MI PLAN</span>
-      <small>Dokładne godziny • Tech • Kuźnia • punkty</small>
-    </button>
+    <div class="live-note"><span class="live-dot"></span><b>Plan aktualizuje się automatycznie</b><small>Zmień dowolne pole — timeline przeliczy się od razu.</small></div>
   </section>
 
-  <section class="results hidden" id="results">
-    <div class="result-head">
-      <div class="step-head">
-        <span class="step-no done">2</span>
-        <div><h2>Twój plan</h2><p>Najpierw zobacz, co zrobić najbliżej. Potem sprawdź całą oś czasu.</p></div>
+  <section class="results" id="results">
+
+    <section class="timeline-card">
+      <div class="timeline-title">
+        <div>
+          <span class="step-no done">2</span>
+          <div><h2>Twój timeline</h2><p>Cały plan na jednej osi czasu — od tego, co robisz teraz, po kolejne tygodnie.</p></div>
+        </div>
+        <div class="legend">
+          <span><i class="dot tech"></i>Tech</span>
+          <span><i class="dot forge"></i>Kuźnia</span>
+          <span><i class="dot techday"></i>Tech punktuje</span>
+          <span><i class="dot forgeday"></i>Kuźnia punktuje</span><span><i class="dot ongoing"></i>Kuźnia w trakcie</span><span><i class="dot waiting"></i>Czekanie</span><span><i class="dot sleep"></i>Mniejsza aktywność 23–08</span>
+        </div>
       </div>
-      <button type="button" class="btn secondary" id="editSetup">↑ Zmień dane</button>
+      <div class="timeline-focus">
+        <span>NAJBLIŻSZE</span>
+        <b id="timelineFocusTitle">Uzupełnij dane powyżej</b>
+        <p id="timelineFocusText">Timeline aktualizuje się automatycznie.</p>
+      </div>
+      <div class="timeline-scroll"><div id="timeline"></div></div>
+      <div class="timeline-help">← Przewiń w bok, aby zobaczyć kolejne dni →</div>
+    </section>
+
+    <div class="result-head compact-result-head">
+      <div class="step-head">
+        <span class="step-no done">3</span>
+        <div><h2>Co masz zrobić?</h2><p>Najważniejsze decyzje wynikające z timeline.</p></div>
+      </div>
     </div>
 
     <div class="decision-strip">
@@ -137,28 +160,6 @@
         <small id="waitSummary">—</small>
       </article>
     </div>
-
-    <section class="timeline-card">
-      <div class="timeline-title">
-        <div>
-          <span class="step-no done">3</span>
-          <div><h2>Timeline</h2><p>Cały plan na jednej osi czasu — od tego, co robisz teraz, po kolejne tygodnie.</p></div>
-        </div>
-        <div class="legend">
-          <span><i class="dot tech"></i>Tech</span>
-          <span><i class="dot forge"></i>Kuźnia</span>
-          <span><i class="dot techday"></i>Tech punktuje</span>
-          <span><i class="dot forgeday"></i>Kuźnia punktuje</span><span><i class="dot ongoing"></i>Kuźnia w trakcie</span><span><i class="dot waiting"></i>Czekanie</span>
-        </div>
-      </div>
-      <div class="timeline-focus">
-        <span>NAJBLIŻSZE</span>
-        <b id="timelineFocusTitle">Ułóż plan, aby zobaczyć oś czasu</b>
-        <p id="timelineFocusText">Tutaj pokażemy dokładnie, co masz zrobić.</p>
-      </div>
-      <div class="timeline-scroll"><div id="timeline"></div></div>
-      <div class="timeline-help">← Przewiń w bok, aby zobaczyć kolejne dni →</div>
-    </section>
 
     <section class="instructions-card">
       <div class="section-title"><h2>Instrukcje krok po kroku</h2><p>Nie musisz analizować osi czasu. Wykonuj te kroki po kolei.</p></div>
@@ -185,7 +186,7 @@
   </section>
 </main>
 
-<script src="game-data.js?v=3"></script>
-<script src="planner.js?v=3"></script>
+<script src="game-data.js?v=4"></script>
+<script src="planner.js?v=4"></script>
 </body>
 </html>

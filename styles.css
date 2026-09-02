@@ -445,3 +445,61 @@ body.war-page-loss .main{box-shadow:inset 0 0 120px rgba(218,63,76,.03)}
 }
 .data-updated{margin-top:4px!important;font-size:8px!important;color:#596577!important}
 .empty{text-align:center;color:#697689;padding:18px!important}
+
+
+/* OFFICIAL 1.0.1 — tygodnie wojny kolorowane wynikiem, nie tierem */
+.week-btn.war-week-win{
+  color:#9be7bb!important;
+  background:rgba(42,156,94,.075)!important;
+  border-color:rgba(72,201,128,.22)!important;
+}
+.week-btn.war-week-win strong{
+  color:#7fe1a8!important;
+}
+.week-btn.war-week-win:hover{
+  background:rgba(42,156,94,.105)!important;
+  border-color:rgba(72,201,128,.34)!important;
+}
+.week-btn.war-week-win.active{
+  color:#b8f3cf!important;
+  background:rgba(40,174,100,.145)!important;
+  border-color:rgba(79,222,143,.62)!important;
+  box-shadow:
+    0 0 0 1px rgba(79,222,143,.08) inset,
+    0 0 18px rgba(40,174,100,.13)!important;
+}
+
+.week-btn.war-week-loss{
+  color:#ff9ea5!important;
+  background:rgba(190,52,66,.075)!important;
+  border-color:rgba(233,76,89,.22)!important;
+}
+.week-btn.war-week-loss strong{
+  color:#ff7e88!important;
+}
+.week-btn.war-week-loss:hover{
+  background:rgba(190,52,66,.105)!important;
+  border-color:rgba(233,76,89,.34)!important;
+}
+.week-btn.war-week-loss.active{
+  color:#ffc0c5!important;
+  background:rgba(202,55,69,.145)!important;
+  border-color:rgba(244,84,98,.62)!important;
+  box-shadow:
+    0 0 0 1px rgba(244,84,98,.08) inset,
+    0 0 18px rgba(202,55,69,.13)!important;
+}
+
+.week-btn.war-week-unknown{
+  color:#aab4c2!important;
+  background:rgba(135,147,164,.045)!important;
+  border-color:rgba(158,171,189,.13)!important;
+}
+.week-btn.war-week-unknown strong{
+  color:#97a3b3!important;
+}
+.week-btn.war-week-unknown.active{
+  border-color:rgba(181,194,211,.34)!important;
+  background:rgba(135,147,164,.075)!important;
+  box-shadow:none!important;
+}

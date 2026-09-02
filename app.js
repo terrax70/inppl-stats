@@ -273,7 +273,10 @@ let powerAnalyticsMode='growthPct';
 
 let selectedWeek=D.latest.week;
 function renderWeekBar(){
- $('#weekbar').innerHTML=D.weeks.map(w=>`<button class="week-btn ${tierClass(w.tier)} ${w.week===selectedWeek?'active':''}" data-week="${w.week}"><b>${w.week}</b><strong>${escapeHtml(w.tier||'—')}</strong><span>${w.date||''}</span></button>`).join('');
+ $('#weekbar').innerHTML=D.weeks.map(w=>{
+   const resultClass=w.result==='win'?'war-week-win':w.result==='loss'?'war-week-loss':'war-week-unknown';
+   return `<button class="week-btn ${resultClass} ${w.week===selectedWeek?'active':''}" data-week="${w.week}"><b>${w.week}</b><strong>${escapeHtml(tierLabel(w.tier))}</strong><span>${w.date||''}</span></button>`;
+ }).join('');
  $$('.week-btn').forEach(b=>b.onclick=()=>{selectedWeek=b.dataset.week;renderWeekBar();renderWarView()});
 }
 function getWarDeltas(w){

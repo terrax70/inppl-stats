@@ -2,7 +2,7 @@
 const D=window.FM_PLANNER_DATA,$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const DAY=86400000,HOUR=3600000,MIN=60000;
 const QUIET_START=23,QUIET_END=8;
-const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizon:56,forgeMode:'hybrid',forgeOngoing:false,remainingDays:0,remainingHours:0,remainingMinutes:0,techQueue:[]};
+const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizon:14,reactionMinutes:30,forgeMode:'hybrid',forgeOngoing:false,remainingDays:0,remainingHours:0,remainingMinutes:0,techQueue:[]};
 let state=load(),results={tech:[],forge:[]};
 
 function load(){try{return {...defaults,...JSON.parse(localStorage.getItem('fmPlannerV2')||'{}')}}catch{return {...defaults}}}
@@ -11,6 +11,7 @@ function pad(n){return String(n).padStart(2,'0')}
 function fmtDate(d){return d?`${pad(d.getDate())}.${pad(d.getMonth()+1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`:'—'}
 function fmtDur(ms){if(!isFinite(ms))return'—';let m=Math.max(0,Math.round(ms/MIN)),d=Math.floor(m/1440);m-=d*1440;let h=Math.floor(m/60);m-=h*60;return `${d?d+'d ':''}${h?h+'h ':''}${m}m`}
 function speed(v){return 1+Math.max(0,Number(v)||0)/100}
+function reactionMs(){return Math.max(0,Number(state.reactionMinutes)||0)*MIN}
 function gameStart(t){let d=new Date(t),g=new Date(d.getFullYear(),d.getMonth(),d.getDate(),D.resetHour);if(d<g)g.setDate(g.getDate()-1);return g}
 function weekday(t){let x=gameStart(t).getDay();return x===0?7:x}
 function nextBoundary(after,days){
@@ -112,10 +113,10 @@ function nextForgeSlot(avail){
 function read(){
   state.researchSpeed=+$('#researchSpeed').value||0;state.forgeSpeed=+$('#forgeSpeed').value||0;state.forgeLevel=+$('#forgeLevel').value||1;
   state.forgeMode=$('#forgeMode').value;state.forgeOngoing=$('#forgeOngoing').checked;state.remainingDays=+$('#remainingDays').value||0;
-  state.remainingHours=+$('#remainingHours').value||0;state.remainingMinutes=+$('#remainingMinutes').value||0;state.waitLimit=+$('#waitLimit').value||0;state.horizon=+$('#horizon').value||56;
+  state.remainingHours=+$('#remainingHours').value||0;state.remainingMinutes=+$('#remainingMinutes').value||0;state.waitLimit=+$('#waitLimit').value||0;state.horizon=+$('#horizon').value||14;state.reactionMinutes=Math.max(0,+$('#reactionMinutes').value||0);
 }
 function sync(){
-  ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon'].forEach(id=>$('#'+id).value=state[id]);
+  ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon','reactionMinutes'].forEach(id=>$('#'+id).value=state[id]);
   $('#forgeOngoing').checked=state.forgeOngoing;toggleRemaining();
 }
 function toggleRemaining(){$('#remainingInputs').style.opacity=$('#forgeOngoing').checked?'1':'.32';$('#remainingInputs').querySelectorAll('input').forEach(x=>x.disabled=!$('#forgeOngoing').checked)}
@@ -131,7 +132,7 @@ function calcTech(start,endLimit){
       dur,gap:slot.start-avail,readyWait:slot.collect-slot.finish,
       quiet:quietOverlap(slot.start,slot.finish),scored:isTechDay(slot.collect)
     });
-    avail=new Date(slot.collect);
+    avail=new Date(slot.collect.getTime()+reactionMs());
   }
   return out
 }
@@ -146,8 +147,10 @@ function calcForge(start,endLimit){
 
     // Gracz nie zakłada ręcznej aktywności między 23:00 a 08:00.
     let completion=new Date(avail);
-    let earliest=nextAwakeTime(completion);
-    let sleepWait=Math.max(0,earliest-completion);
+    let afterReaction=new Date(completion.getTime()+reactionMs());
+    let earliest=nextAwakeTime(afterReaction);
+    let reactionWait=Math.min(reactionMs(),Math.max(0,earliest-completion));
+    let sleepWait=Math.max(0,earliest-afterReaction);
 
     let point=nextForgeSlot(earliest);
     let pointWait=Math.max(0,point-earliest);
@@ -167,7 +170,7 @@ function calcForge(start,endLimit){
 
     out.push({
       type:'forge',level:lvl+1,def,start:s,end:e,dur:forgeDur(def),
-      wait:s-completion,sleepWait,pointWait,
+      wait:s-completion,reactionWait,sleepWait,pointWait,
       scored:isForgeDay(gameStart(s)),decision
     });
     avail=e;lvl++;
@@ -195,11 +198,12 @@ function renderSummary(){
   $('#nextForgeAction').textContent=ongoing?'KUŹNIA JUŻ PRACUJE':f?(f.wait>5*MIN?'NA RAZIE NIE URUCHAMIAJ':'URUCHOM KUŹNIĘ TERAZ'):'BRAK KOLEJNEGO POZIOMU';
   $('#nextForgeName').textContent=ongoing?`Trwa poziom ${state.forgeLevel}`:(f?`Następnie: poziom ${f.level}`:'—');
   $('#nextForgeTime').textContent=ongoing?`Pozostało ${fmtDur(state.remainingDays*DAY+state.remainingHours*HOUR+state.remainingMinutes*MIN)}`:(f?`Start ${fmtDate(f.start)} • koniec ${fmtDate(f.end)}`:'—');
-  $('#nextForgeNote').textContent=ongoing?(f?`Po zakończeniu obecnej kuźni: ${f.sleepWait>5*MIN?`jeśli skończy się w nocy, poczekaj do 08:00. `:''}${f.wait>5*MIN?`Następny poziom uruchom ${fmtDate(f.start)}.`:`Uruchom poziom ${f.level} od razu.`}`:'Obecna kuźnia trwa.'):(f?(f.sleepWait>5*MIN?`Kuźnia skończyła się w czasie mniejszej aktywności. Następny poziom zaplanuj na ${fmtDate(f.start)}.`:f.wait>5*MIN?`Poczekaj do ${fmtDate(f.start)} — wtedy start będzie korzystniejszy.`:`Nie ma sensu czekać — uruchom następny poziom.`):'');
+  $('#nextForgeNote').textContent=ongoing?(f?`Po zakończeniu obecnej kuźni zakładamy około ${state.reactionMinutes} min na wejście do gry. ${f.sleepWait>5*MIN?'Jeśli wypadnie noc, następna akcja przechodzi na poranek. ':''}Następny poziom: około ${fmtDate(f.start)}.`:'Obecna kuźnia trwa.'):(f?(f.sleepWait>5*MIN?`Po zakończeniu kuźni doliczamy około ${state.reactionMinutes} min na wejście do gry. Następny poziom zaplanuj około ${fmtDate(f.start)}.`:f.wait>5*MIN?`Poczekaj do ${fmtDate(f.start)} — wtedy start będzie korzystniejszy.`:`Nie ma sensu czekać — uruchom następny poziom.`):'');
   $('#techHits').textContent=results.tech.filter(x=>x.scored).length;$('#forgeHits').textContent=results.forge.filter(x=>x.scored).length;
   let tw=results.tech.reduce((a,x)=>a+x.gap,0),fw=results.forge.reduce((a,x)=>a+x.wait,0);$('#waitSummary').textContent=`Łączne czekanie: Tech ${fmtDur(tw)} • Kuźnia ${fmtDur(fw)}`;
 }
 function renderTimeline(){
+  $$('.zoom-tabs button').forEach(b=>b.classList.toggle('active',Number(b.dataset.days)===Number(state.horizon)));
   const start=gameStart(new Date()),days=state.horizon,dayW=148,labelW=112,total=labelW+days*dayW,nowTime=new Date();
   let h=`<div class="tl-header" style="width:${total}px"><div class="tl-label-corner"></div>`;
   for(let i=0;i<days;i++){
@@ -217,8 +221,15 @@ function renderTimeline(){
   let techEvents='';
   results.tech.forEach(x=>{
     if(x.gap>5*MIN){
-      let a=new Date(x.start.getTime()-x.gap);
-      techEvents+=`<div class="tl-event waiting" style="left:${pos(a)}px;width:${width(a,x.start)}px"><b>CZEKAJ ${fmtDur(x.gap)}</b></div>`;
+      let a=new Date(x.start.getTime()-x.gap),cursor=new Date(a);
+      if(x.i>1 && reactionMs()>5*MIN){
+        let rEnd=new Date(Math.min(x.start.getTime(),cursor.getTime()+reactionMs()));
+        techEvents+=`<div class="tl-event reaction" style="left:${pos(cursor)}px;width:${width(cursor,rEnd)}px" title="Czas na wejście do gry po poprzednim odbiorze."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
+        cursor=rEnd;
+      }
+      if(x.start-cursor>5*MIN){
+        techEvents+=`<div class="tl-event waiting" style="left:${pos(cursor)}px;width:${width(cursor,x.start)}px"><b>POCZEKAJ ${fmtDur(x.start-cursor)}</b></div>`;
+      }
     }
     techEvents+=`<div class="tl-event tech ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${width(x.start,x.finish)}px" title="${x.def.name}: start ${fmtDate(x.start)} • gotowe ${fmtDate(x.finish)} • odbiór ${fmtDate(x.collect)}"><span class="event-tag">BADANIE TECH</span><b>${x.def.name}</b><span>START ${fmtDate(x.start)} • GOTOWE ${fmtDate(x.finish)}</span></div>`;
     if(x.readyWait>5*MIN){
@@ -234,25 +245,41 @@ function renderTimeline(){
   }
   results.forge.forEach(x=>{
     if(x.wait>5*MIN){
-      let a=new Date(x.start.getTime()-x.wait);
-      forgeEvents+=`<div class="tl-event waiting" style="left:${pos(a)}px;width:${width(a,x.start)}px" title="${x.sleepWait>5*MIN?'Noc / mniejsza aktywność':'Czekanie na korzystny start'}"><b>${x.sleepWait>5*MIN?'NOC — START O 08:00':`CZEKAJ ${fmtDur(x.wait)}`}</b></div>`;
+      let cursor=new Date(x.start.getTime()-x.wait);
+      if(x.reactionWait>5*MIN){
+        let rEnd=new Date(cursor.getTime()+x.reactionWait);
+        forgeEvents+=`<div class="tl-event reaction" style="left:${pos(cursor)}px;width:${width(cursor,rEnd)}px" title="Zakładamy około ${state.reactionMinutes} min zanim gracz wróci do gry."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
+        cursor=rEnd;
+      }
+      if(x.sleepWait>5*MIN){
+        let sEnd=new Date(cursor.getTime()+x.sleepWait);
+        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(cursor)}px;width:${width(cursor,sEnd)}px" title="Mniejsza aktywność 23:00–08:00"><b>SEN — WRÓĆ RANO</b></div>`;
+        cursor=sEnd;
+      }
+      let rest=x.start-cursor;
+      if(rest>5*MIN){
+        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(cursor)}px;width:${width(cursor,x.start)}px"><b>POCZEKAJ ${fmtDur(rest)}</b></div>`;
+      }
     }
     forgeEvents+=`<div class="tl-event forge ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${width(x.start,x.end)}px" title="Kuźnia ${x.level}: ${fmtDate(x.start)} → ${fmtDate(x.end)}"><span class="event-tag">${x.scored?'PUNKTOWANY START':'KUŹNIA'}</span><b>Poziom ${x.level}</b><span>START ${fmtDate(x.start)} • KONIEC ${fmtDate(x.end)}</span></div>`;
   });
 
-  const row=(name,events)=>`<div class="tl-row" style="width:${total}px"><div class="tl-row-label">${name}</div>${events}</div>`;
+  const nightBands=()=>{
+    let bands='';
+    for(let i=-1;i<=days;i++){
+      let base=new Date(start.getTime()+i*DAY);
+      let qs=new Date(base.getFullYear(),base.getMonth(),base.getDate(),QUIET_START,0,0,0);
+      let qe=new Date(base.getFullYear(),base.getMonth(),base.getDate()+1,QUIET_END,0,0,0);
+      if(qe<=start||qs>=new Date(start.getTime()+days*DAY))continue;
+      bands+=`<div class="tl-night" style="left:${pos(qs)}px;width:${width(qs,qe)}px"></div>`;
+    }
+    return bands;
+  };
+  const row=(name,events)=>`<div class="tl-row" style="width:${total}px"><div class="tl-row-label">${name}</div>${nightBands()}${events}</div>`;
   let nowPos=pos(nowTime);
-  let sleepBands='';
-  for(let i=-1;i<=days;i++){
-    let dayBase=new Date(start.getTime()+i*DAY);
-    let qs=new Date(dayBase.getFullYear(),dayBase.getMonth(),dayBase.getDate(),QUIET_START,0,0,0);
-    let qe=new Date(dayBase.getFullYear(),dayBase.getMonth(),dayBase.getDate()+1,QUIET_END,0,0,0);
-    if(qe<=start||qs>=new Date(start.getTime()+days*DAY))continue;
-    let left=pos(qs),w=width(qs,qe);
-    sleepBands+=`<div class="tl-sleep" style="left:${left}px;width:${w}px"><span class="tl-sleep-label">23–08</span></div>`;
-  }
+
   $('#timeline').style.width=total+'px';
-  $('#timeline').innerHTML=h+sleepBands+row('TECH',techEvents)+row('KUŹNIA',forgeEvents)+`<div class="tl-now" style="left:${nowPos}px"></div>`;
+  $('#timeline').innerHTML=h+row('TECH',techEvents,'tech')+row('KUŹNIA',forgeEvents,'forge')+`<div class="tl-now" style="left:${nowPos}px"></div>`;
 
   let focusTitle='Plan gotowy',focusText='Sprawdź pierwsze bloki na osi czasu.';
   if(state.forgeOngoing&&rem>0){
@@ -278,7 +305,7 @@ function renderTimeline(){
 function renderActions(){
   let all=[...results.tech.map(x=>({when:x.start,type:'tech',title:`Uruchom badanie ${x.def.name}`,sub:`Będzie gotowe ${fmtDate(x.finish)}. Odbierz ${fmtDate(x.collect)}${x.scored?' — wtedy dostaniesz punkty.':'.'}`})),
            ...results.tech.map(x=>({when:x.collect,type:'tech',title:`Odbierz badanie ${x.def.name}`,sub:x.scored?'Ten odbiór jest punktowany.':'Ten odbiór nie daje punktów wojennych.'})),
-           ...results.forge.map(x=>({when:x.start,type:'forge',title:`Uruchom kuźnię — poziom ${x.level}`,sub:`Skończy się około ${fmtDate(x.end)}${x.scored?' — start daje punkty.':'.'}`}))]
+           ...results.forge.map(x=>({when:x.start,type:'forge',title:`Uruchom kuźnię — poziom ${x.level}`,sub:`Uruchom około ${fmtDate(x.start)}. Skończy się około ${fmtDate(x.end)}${x.scored?' — start daje punkty.':'.'}`}))]
     .sort((a,b)=>a.when-b.when).slice(0,24);
   $('#actionList').innerHTML=all.length?all.map((x,i)=>`<div class="action-item"><div class="action-num">${i+1}</div><div class="action-when">${fmtDate(x.when)}</div><div class="action-main"><b>${x.title}</b><span>${x.sub}</span></div><span class="badge ${x.type}">${x.type==='tech'?'TECH':'KUŹNIA'}</span></div>`).join(''):'<div class="empty-state">Dodaj badania Tech lub sprawdź ustawienia Kuźni.</div>';
 }
@@ -310,12 +337,20 @@ function init(){
     clearTimeout(timer);
     timer=setTimeout(()=>calculate(),120);
   };
-  ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','forgeOngoing','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon']
+  ['researchSpeed','forgeSpeed','forgeLevel','forgeMode','forgeOngoing','remainingDays','remainingHours','remainingMinutes','waitLimit','horizon','reactionMinutes']
     .forEach(id=>{
       const el=$('#'+id);
       el.addEventListener('input',live);
       el.addEventListener('change',live);
     });
+
+  $$('.zoom-tabs button').forEach(btn=>btn.addEventListener('click',()=>{
+    const days=Number(btn.dataset.days)||14;
+    $('#horizon').value=days;
+    state.horizon=days;
+    $$('.zoom-tabs button').forEach(x=>x.classList.toggle('active',x===btn));
+    calculate();
+  }));
 
   calculate();
 }

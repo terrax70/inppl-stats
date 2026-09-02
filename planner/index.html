@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=5">
+<link rel="stylesheet" href="planner.css?v=6">
 </head>
 <body>
 <header class="topbar">
@@ -29,7 +29,7 @@
   <section class="setup-card" id="setup">
     <div class="setup-title-row">
       <div><h2>Ustawienia planu</h2><p>Zmiana dowolnego pola od razu aktualizuje timeline.</p></div>
-      <div class="quiet-badge">☾ Mniejsza aktywność 23:00–08:00</div>
+      <div class="human-rules"><span>☾ 23:00–08:00 sen</span><span>◷ 30 min reakcji</span></div>
     </div>
 
     <div class="setup-grid">
@@ -92,7 +92,8 @@
       <button type="button" id="advancedBtn">Więcej ustawień <span>⌄</span></button>
       <div class="advanced" id="advanced">
         <label class="field compact"><span>Limit czekania HYBRYDY <i>h</i></span><input id="waitLimit" type="number" min="0" value="30"><small>Maksymalnie tyle planner pozwoli kuźni czekać na punktowany dzień.</small></label>
-        <label class="field compact"><span>Zakres planu</span><select id="horizon"><option value="7">1 tydzień</option><option value="14">2 tygodnie</option><option value="28">4 tygodnie</option><option value="56" selected>8 tygodni</option></select><small>Jak daleko ma sięgać timeline.</small></label>
+        <label class="field compact"><span>Zakres timeline</span><select id="horizon"><option value="7">1 tydzień</option><option value="14" selected>2 tygodnie</option><option value="28">4 tygodnie</option><option value="56">8 tygodni</option></select><small>2 tygodnie są najbardziej czytelne. Możesz rozszerzyć widok.</small></label>
+        <label class="field compact"><span>Typowy czas reakcji <i>min</i></span><input id="reactionMinutes" type="number" min="0" max="180" step="5" value="30"><small>Po zakończeniu akcji gracz zwykle nie klika następnej idealnie w tej samej sekundzie.</small></label>
       </div>
     </div>
 
@@ -105,13 +106,19 @@
       <div class="timeline-title">
         <div>
           <span class="step-no done">2</span>
-          <div><h2>Twój timeline</h2><p>Najważniejszy widok plannera. Noc 23:00–08:00 jest uwzględniana przy planowaniu Tech i Kuźni.</p></div>
+          <div><h2>Twój timeline</h2><p>To jest główny widok. Widać tu pracę, przerwy, sen i momenty, w których naprawdę trzeba wejść do gry.</p></div>
         </div>
         <div class="legend">
           <span><i class="dot tech"></i>Tech</span>
           <span><i class="dot forge"></i>Kuźnia</span>
           <span><i class="dot techday"></i>Tech punktuje</span>
-          <span><i class="dot forgeday"></i>Kuźnia punktuje</span><span><i class="dot ongoing"></i>Kuźnia w trakcie</span><span><i class="dot waiting"></i>Czekanie</span><span><i class="dot sleep"></i>Mniejsza aktywność 23–08</span>
+          <span><i class="dot forgeday"></i>Kuźnia punktuje</span><span><i class="dot ongoing"></i>Kuźnia w trakcie</span><span><i class="dot waiting"></i>Przerwa</span><span><i class="dot sleep"></i>Sen 23–08</span>
+        </div>
+        <div class="zoom-tabs" aria-label="Zakres timeline">
+          <button type="button" data-days="7">7 dni</button>
+          <button type="button" data-days="14" class="active">14 dni</button>
+          <button type="button" data-days="28">4 tyg.</button>
+          <button type="button" data-days="56">8 tyg.</button>
         </div>
       </div>
       <div class="timeline-focus">
@@ -178,7 +185,7 @@
   </section>
 </main>
 
-<script src="game-data.js?v=5"></script>
-<script src="planner.js?v=5"></script>
+<script src="game-data.js?v=6"></script>
+<script src="planner.js?v=6"></script>
 </body>
 </html>

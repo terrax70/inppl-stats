@@ -108,7 +108,13 @@ function placeClass(place){
 function placeBadge(place){return `<span class="place-badge ${placeClass(place)}">#${place}</span>`;}
 function playerButton(nick,extra=''){return `<button class="player-inline ${extra}" onclick="openProfile('${escapeHtml(nick).replace(/'/g,"\\'")}')">${escapeHtml(nick)}</button>`;}
 const expandedLists={topFive:false,jumps:false,growth:false,powerGrowth:false,powerDrop:false,powerAnalytics:false};
-function moreButton(id,key,total,shown){const b=$('#'+id);if(!b)return;b.textContent=total>shown?(expandedLists[key]?`Zwiń`:`Pokaż więcej (${total})`):'';b.onclick=()=>{expandedLists[key]=!expandedLists[key];if(['topFive','jumps','growth'].includes(key))renderOverview();else if(key==='powerAnalytics')renderPowerAnalytics();else renderPower();};}
+function moreButton(id,key,total,shown){
+ const b=$('#'+id);if(!b)return;
+ const expanded=!!expandedLists[key];
+ b.textContent=expanded?'Pokaż mniej':(total>shown?`Pokaż więcej (${total})`:'');
+ b.style.display=b.textContent?'inline-flex':'none';
+ b.onclick=()=>{expandedLists[key]=!expandedLists[key];if(['topFive','jumps','growth'].includes(key))renderOverview();else if(key==='powerAnalytics')renderPowerAnalytics();else renderPower();};
+}
 
 
 
@@ -154,7 +160,7 @@ function listRow(i,nick,meta,delta,formatter,secondary=''){
 }
 
 
-let selectedOverviewPlayer = D.players.find(p=>p.nick==='Wosiu')?.nick || D.players[0]?.nick || '';
+let selectedOverviewPlayer = D.players.find(p=>p.nick==='Wosiu'&&p.active!==false)?.nick || D.players.find(p=>p.active!==false)?.nick || '';
 let selectedPowerPlayer = selectedOverviewPlayer;
 
 function allPlayerWarDatasets(selectedNick){
@@ -219,6 +225,9 @@ $('#powerPagePlayerSelect').onchange=()=>{
   renderPowerCharts();
 };
 
+
+let selectedPowerSnapshot=D.powerWeeks.at(-1)?.week || '';
+let powerAnalyticsMode='spikePct';
 
 let selectedWeek=D.latest.week;
 function renderWeekBar(){
@@ -310,7 +319,7 @@ function renderPowerSnapshot(){
    const pi=p.powers.findIndex(x=>x.week===selectedPowerSnapshot);
    const prv=pi>0?p.powers[pi-1]:null;
    const delta=prv?cur.powerM-prv.powerM:null;
-   const pc=prv&&prv.powerM?delta/prv.powerM*100:null;
+   const pc=cur.growthPct??(prv&&prv.powerM?delta/prv.powerM*100:null);
    return {nick:p.nick,powerM:cur.powerM,deltaM:delta,pct:pc};
  }).filter(Boolean).sort((a,b)=>b.powerM-a.powerM);
 
@@ -351,20 +360,31 @@ function renderPowerCharts(){
 }
 
 function fillCompareSelectors(){
- const opts='<option value="">— wybierz —</option>'+D.players.map(p=>`<option value="${escapeHtml(p.nick)}">${escapeHtml(p.nick)}</option>`).join('');
- ['compare1','compare2','compare3'].forEach((id,i)=>{$('#'+id).innerHTML=opts;});
- $('#compare1').value=D.players[0]?.nick||'';$('#compare2').value=D.players[1]?.nick||'';
+ const activePlayers=D.players.filter(p=>p.active!==false);
+ const opts='<option value="">— wybierz —</option>'+activePlayers.map(p=>`<option value="${escapeHtml(p.nick)}">${escapeHtml(p.nick)}</option>`).join('');
+ ['compare1','compare2','compare3'].forEach(id=>{$('#'+id).innerHTML=opts;});
+ $('#compare1').value=activePlayers[0]?.nick||'';
+ $('#compare2').value=activePlayers[1]?.nick||'';
 }
 function renderCompare(){
- const picks=['compare1','compare2','compare3'].map(id=>$('#'+id).value).filter(Boolean);
- if(!picks.length)return;
+ const picks=['compare1','compare2','compare3']
+   .map(id=>$('#'+id)?.value)
+   .filter(Boolean)
+   .filter(n=>D.players.some(p=>p.nick===n&&p.active!==false));
+ if(!picks.length){killChart('compareScoreChart');killChart('comparePowerChart');return;}
  const labels=D.weeks.map(w=>w.week);
  const colors=['#f4b651','#6ea8ff','#ad88ff'];
- const scoreDs=picks.map((n,i)=>{let p=D.players.find(x=>x.nick===n);return{label:n,data:labels.map(w=>p.history.find(h=>h.week===w)?.points??null),color:colors[i]}});
- scoreDs.push({label:'Średnia klanu',data:D.weeks.map(w=>w.avg),color:'#6e7b8e'});
+ const scoreDs=picks.map((n,i)=>{
+   const p=D.players.find(x=>x.nick===n&&x.active!==false);
+   return{label:n,data:labels.map(w=>p?.history.find(h=>h.week===w)?.points??null),color:colors[i],spanGaps:false};
+ });
+ scoreDs.push({label:'Średnia klanu',data:D.weeks.map(w=>w.avg),color:'#6e7b8e',spanGaps:false});
  lineChart('compareScoreChart',labels,scoreDs,compact);
  const plabels=D.powerWeeks.map(x=>x.week);
- const powerDs=picks.map((n,i)=>{let p=D.players.find(x=>x.nick===n);return{label:n,data:plabels.map(w=>p.powers.find(h=>h.week===w)?.powerM??null),color:colors[i]}});
+ const powerDs=picks.map((n,i)=>{
+   const p=D.players.find(x=>x.nick===n&&x.active!==false);
+   return{label:n,data:plabels.map(w=>p?.powers.find(h=>h.week===w)?.powerM??null),color:colors[i],spanGaps:false};
+ });
  lineChart('comparePowerChart',plabels,powerDs,power);
 }
 ['compare1','compare2','compare3'].forEach(id=>$('#'+id).onchange=renderCompare);
@@ -415,7 +435,10 @@ function init(){
  renderOverview(); renderWeekBar(); renderWarView();
  const ranks=[...new Set(D.players.filter(p=>p.active!==false).map(p=>p.rank))].sort();
  $('#rankFilter').innerHTML='<option value="">Wszystkie rangi</option>'+ranks.map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
- const playerOptions=D.players.map(p=>`<option value="${escapeHtml(p.nick)}">${escapeHtml(p.nick)}</option>`).join('');
+ const activePlayers=D.players.filter(p=>p.active!==false);
+ const playerOptions=activePlayers.map(p=>`<option value="${escapeHtml(p.nick)}">${escapeHtml(p.nick)}</option>`).join('');
+ if(!activePlayers.some(p=>p.nick===selectedOverviewPlayer))selectedOverviewPlayer=activePlayers[0]?.nick||'';
+ if(!activePlayers.some(p=>p.nick===selectedPowerPlayer))selectedPowerPlayer=selectedOverviewPlayer;
  $('#heroPlayerCount').textContent=`${D.activeCount??D.players.filter(p=>p.active!==false).length} graczy w składzie`;
  $('#overviewPlayerSelect').innerHTML=playerOptions;
  $('#overviewPowerPlayerSelect').innerHTML=playerOptions;

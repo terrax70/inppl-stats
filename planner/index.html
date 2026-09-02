@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=64">
+<link rel="stylesheet" href="planner.css?v=65">
 </head>
 <body>
 <header class="topbar">
@@ -31,9 +31,12 @@
       <div><h2>Ustawienia planu</h2><p>Zmiana ustawień od razu aktualizuje timeline.</p></div>
       <div class="activity-profile">
         <span class="activity-title">Profil aktywności</span>
-        <label title="Godzina rozpoczęcia snu"><span>☾ Sen</span><input id="sleepStart" type="time" value="23:00"></label>
-        <span class="activity-sep">→</span>
-        <label title="Godzina zakończenia snu"><input id="sleepEnd" type="time" value="08:00"></label>
+        <label class="sleep-select" title="Od tej godziny zakładamy mniejszą aktywność">
+          <span>☾ Śpię od</span><select id="sleepStart"></select>
+        </label>
+        <label class="sleep-select" title="Od tej godziny znowu zakładamy normalną aktywność">
+          <span>Wstaję o</span><select id="sleepEnd"></select>
+        </label>
         <label class="reaction-compact" title="Orientacyjny czas, po którym gracz wraca do gry po zakończeniu akcji"><span>◷ Reakcja</span><input id="reactionMinutesQuick" type="number" min="0" max="180" step="5" value="30"><em>min</em></label>
       </div>
     </div>
@@ -195,7 +198,7 @@
   </section>
 </main>
 
-<script src="game-data.js?v=64"></script>
-<script src="planner.js?v=64"></script>
+<script src="game-data.js?v=65"></script>
+<script src="planner.js?v=65"></script>
 </body>
 </html>

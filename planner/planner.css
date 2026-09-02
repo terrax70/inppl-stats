@@ -574,3 +574,94 @@ body{overflow-x:hidden}
   .tech-add.tech-repeat{grid-template-columns:minmax(0,1fr) 92px}
   .tl-row.forge-row:after{left:90px}
 }
+
+/* V6.5 — profesjonalna geometria przerw, bez "fasolek" */
+.activity-profile select{
+  border:0;
+  outline:0;
+  background:transparent;
+  color:#eef3f8;
+  height:25px;
+  min-width:62px;
+  padding:0 16px 0 2px;
+  font-size:10px;
+  font-weight:850;
+  cursor:pointer;
+}
+.activity-profile select:focus{box-shadow:none}
+.activity-profile .sleep-select{padding-right:5px}
+
+/* Stare kapsułki przerw wyłączone */
+.tl-row.forge-row .tl-event.reaction,
+.tl-row.forge-row .tl-event.waiting{
+  display:none!important;
+}
+
+/* Dolny tor ma teraz czyste, liniowe znaczniki */
+.forge-gap{
+  position:absolute;
+  top:137px;
+  height:22px;
+  z-index:3;
+  pointer-events:none;
+}
+.forge-gap-line{
+  position:absolute;
+  left:0;right:0;
+  top:10px;
+  height:2px;
+  border-radius:0;
+  background:rgba(118,135,158,.34);
+}
+.forge-gap.wait .forge-gap-line{
+  background:rgba(132,148,170,.42);
+}
+.forge-gap.sleep .forge-gap-line{
+  background:repeating-linear-gradient(
+    90deg,
+    rgba(135,117,186,.42) 0 5px,
+    transparent 5px 9px
+  );
+}
+.forge-gap-label{
+  position:absolute;
+  left:50%;
+  top:-1px;
+  transform:translateX(-50%);
+  white-space:nowrap;
+  padding:2px 5px;
+  border-radius:4px;
+  background:#0a0f15;
+  color:#718095;
+  font-size:7px;
+  font-weight:900;
+  letter-spacing:.04em;
+}
+.forge-reaction-marker{
+  position:absolute;
+  top:128px;
+  width:2px;
+  height:34px;
+  background:#58a98d;
+  z-index:4;
+  pointer-events:none;
+}
+.forge-reaction-marker:after{
+  content:"REAKCJA";
+  position:absolute;
+  top:35px;
+  left:4px;
+  color:#649783;
+  font-size:6px;
+  font-weight:950;
+  letter-spacing:.07em;
+  white-space:nowrap;
+}
+
+/* Aktywne kuźnie są jedynymi dużymi bryłami */
+.tl-row.forge-row .tl-event.forge,
+.tl-row.forge-row .tl-event.ongoing{
+  top:22px!important;
+  height:90px!important;
+  z-index:6!important;
+}

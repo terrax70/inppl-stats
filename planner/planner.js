@@ -284,14 +284,23 @@ function renderTimeline(){
   }
   results.forge.forEach(x=>{
     if(x.wait>5*MIN){
+      // 1) Reakcja = znacznik czasu, a nie szeroka kapsułka.
       if(x.reactionWait>5*MIN && x.reactionEnd>x.reactionStart){
-        forgeEvents+=`<div class="tl-event reaction" style="left:${pos(x.reactionStart)}px;width:${gapWidth(x.reactionStart,x.reactionEnd)}px" title="Zakładamy około ${state.reactionMinutes} min zanim gracz wróci do gry."><b>OK. ${state.reactionMinutes} MIN NA WEJŚCIE</b></div>`;
+        forgeEvents+=`<div class="forge-reaction-marker" style="left:${pos(x.reactionStart)}px" title="Zakładamy około ${state.reactionMinutes} min na powrót gracza do gry."></div>`;
       }
+
+      // 2) Sen = cienka przerywana linia. Noc jest dodatkowo widoczna w tle osi.
       if(x.sleepWait>5*MIN && x.sleepEnd>x.sleepStart){
-        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(x.sleepStart)}px;width:${gapWidth(x.sleepStart,x.sleepEnd)}px" title="Mniejsza aktywność 23:00–08:00"><b>SEN — WRÓĆ RANO</b></div>`;
+        const sw=gapWidth(x.sleepStart,x.sleepEnd);
+        const sleepLabel=sw>=54?`<span class="forge-gap-label">SEN</span>`:'';
+        forgeEvents+=`<div class="forge-gap sleep" style="left:${pos(x.sleepStart)}px;width:${sw}px"><span class="forge-gap-line"></span>${sleepLabel}</div>`;
       }
+
+      // 3) Dodatkowe oczekiwanie na punktowany start = cienka neutralna linia.
       if(x.extraWaitEnd-x.extraWaitStart>5*MIN){
-        forgeEvents+=`<div class="tl-event waiting" style="left:${pos(x.extraWaitStart)}px;width:${gapWidth(x.extraWaitStart,x.extraWaitEnd)}px"><b>POCZEKAJ ${fmtDur(x.extraWaitEnd-x.extraWaitStart)}</b></div>`;
+        const ww=gapWidth(x.extraWaitStart,x.extraWaitEnd);
+        const waitText=ww>=76?`<span class="forge-gap-label">CZEKAJ ${fmtDur(x.extraWaitEnd-x.extraWaitStart)}</span>`:'';
+        forgeEvents+=`<div class="forge-gap wait" style="left:${pos(x.extraWaitStart)}px;width:${ww}px"><span class="forge-gap-line"></span>${waitText}</div>`;
       }
     }
     forgeEvents+=`<div class="tl-event forge ${x.scored?'scored':''}" style="left:${pos(x.start)}px;width:${eventWidth(x.start,x.end)}px" title="Kuźnia ${x.level}: ${fmtDate(x.start)} → ${fmtDate(x.end)}"><span class="event-tag">${x.scored?'PUNKTOWANY START':'KUŹNIA'}</span><b>Poziom ${x.level}</b><span>START ${fmtDate(x.start)} • KONIEC ${fmtDate(x.end)}</span></div>`;
@@ -353,9 +362,21 @@ function renderAll(){renderQueue();renderSummary();renderTimeline();renderAction
 function clock(){let n=new Date(),cfg=D.days[weekday(n)-1];$('#nowText').textContent=fmtDate(n);$('#gameDayText').textContent=`Dzień gry: ${cfg.name}`}
 function hint(){let m=$('#forgeMode').value;$('#strategyHint').textContent=m==='hybrid'?'Czeka tylko, gdy strata progresu jest mała.':m==='progress'?'Każdy poziom startuje natychmiast.':'Zawsze czeka na środę lub piątek.'}
 
+function sleepOptions(){
+  const out=[];
+  for(let h=0;h<24;h++){
+    for(let m of [0,30]){
+      out.push(`${pad(h)}:${pad(m)}`);
+    }
+  }
+  return out;
+}
 function init(){
   if('scrollRestoration' in history)history.scrollRestoration='manual';
   window.scrollTo(0,0);
+  const sleepOpts=sleepOptions().map(t=>`<option value="${t}">${t}</option>`).join('');
+  $('#sleepStart').innerHTML=sleepOpts;
+  $('#sleepEnd').innerHTML=sleepOpts;
   sync();clock();setInterval(clock,30000);
   $('#techSelect').innerHTML=D.tech.map(x=>`<option value="${x.name}">${x.name} • ${fmtDur(techDur(x))}</option>`).join('');
   if(state.techQueue?.length && techDef(state.techQueue[0]))$('#techSelect').value=state.techQueue[0];

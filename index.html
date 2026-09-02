@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#07090d">
 <title>INPPL Stats — Forge Master</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
 <div class="app">
@@ -138,12 +138,29 @@
       </div>
 
       <div class="panel" style="margin-top:11px">
-        <div class="panel-head">
-          <div><div class="panel-title">Moc w poprzednich snapshotach</div><div class="panel-desc">Wybierz tydzień i zobacz ranking graczy z tamtego momentu</div></div>
+        <div class="panel-head power-snapshot-head">
+          <div>
+            <div class="panel-title">Ranking wzrostu Power w snapshotach</div>
+            <div class="panel-desc">Wybierz tydzień. Domyślnie ranking jest liczony według procentowego wzrostu względem poprzedniego snapshotu.</div>
+          </div>
+          <div class="power-default-pill">DOMYŚLNIE: Δ %</div>
+        </div>
+        <div class="toolbar power-toolbar power-snapshot-toolbar">
+          <div class="power-filter-row">
+            <input class="search" id="powerSearch" placeholder="Szukaj gracza…">
+            <select class="select" id="powerRankFilter"></select>
+            <select class="select" id="powerSort">
+              <option value="growthPct">Wzrost % ↓ (domyślne)</option>
+              <option value="power">Power ↓</option>
+              <option value="growthAbs">Wzrost Power ↓</option>
+              <option value="nick">Nick A–Z</option>
+            </select>
+          </div>
+          <div class="power-filter-note" id="powerFilterCount"></div>
         </div>
         <div style="padding:12px 14px 0"><div class="snapshot-bar" id="powerSnapshotBar"></div></div>
         <div class="war-summary" id="powerSnapshotSummary" style="padding:12px 14px 0;margin-bottom:0"></div>
-        <div class="table-shell" style="margin:12px 14px 14px"><table><thead><tr><th>#</th><th>Gracz</th><th>Power</th><th class="num">Zmiana od poprzedniego</th><th class="num">%</th></tr></thead><tbody id="powerSnapshotTable"></tbody></table></div>
+        <div class="table-shell" style="margin:12px 14px 14px"><table><thead><tr><th># wzrostu</th><th>Gracz</th><th>Ranga</th><th class="num">Δ %</th><th class="num">Δ Power</th><th class="num">Power</th></tr></thead><tbody id="powerSnapshotTable"></tbody></table></div>
       </div>
       <div class="grid-main">
         <div class="panel">
@@ -177,26 +194,7 @@
         <div class="table-shell" style="margin:12px 14px 8px"><table class="spike-table"><thead id="powerAnalyticsHead"></thead><tbody id="powerAnalyticsBody"></tbody></table></div><div class="panel-more"><button class="show-more-btn" id="powerAnalyticsMore"></button></div>
       </div>
 
-      <div class="panel power-ranking-panel" style="margin-top:11px">
-        <div class="panel-head">
-          <div><div class="panel-title">Ranking wzrostu Power (%)</div><div class="panel-desc">Pozycja # oznacza ranking procentowego wzrostu, a nie całkowitej mocy</div></div><div class="power-default-pill">DOMYŚLNIE: Δ %</div>
-        </div>
-        <div class="toolbar power-toolbar">
-          <div class="power-filter-row">
-            <input class="search" id="powerSearch" placeholder="Szukaj gracza…">
-            <select class="select" id="powerRankFilter"></select>
-            <select class="select" id="powerSort">
-              <option value="growthPct">Wzrost % ↓ (domyślne)</option>
-              <option value="power">Power ↓</option>
-              <option value="growthAbs">Wzrost Power ↓</option>
-              <option value="nick">Nick A–Z</option>
-            </select>
-          </div>
-          <div class="power-filter-note" id="powerFilterCount"></div>
-        </div>
-        <div class="table-shell"><table><thead><tr><th># wzrostu</th><th>Gracz</th><th>Ranga</th><th class="num">Δ %</th><th class="num">Δ Power</th><th class="num">Power</th><th class="num">Udział klanu</th></tr></thead><tbody id="powerTable"></tbody></table></div>
-      </div>
-    </section>
+          </section>
 
     <!-- COMPARE -->
     <section class="view" id="compare">
@@ -235,7 +233,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="data.js?v=11"></script>
-<script src="app.js?v=11"></script>
+<script src="data.js?v=13"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

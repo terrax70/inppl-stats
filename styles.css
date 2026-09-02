@@ -338,3 +338,21 @@ body.war-page-loss .main{box-shadow:inset 0 0 120px rgba(218,63,76,.03)}
 .power-filter-row .search,.power-filter-row .select{display:block!important;visibility:visible!important;opacity:1!important;min-height:34px}
 .growth-pct-cell{font-size:12.5px;font-weight:900}
 #powerTable tr:nth-child(-n+3) .growth-pct-cell{font-size:13.5px}
+
+
+/* V12 — główna tabela Power jest rankingiem procentowego wzrostu */
+.power-snapshot-head{align-items:center}
+.power-snapshot-toolbar{margin:0 14px!important;border-radius:10px;border:1px solid rgba(255,255,255,.055)!important}
+#powerSnapshotTable .growth-pct-cell{font-size:13px;font-weight:950}
+#powerSnapshotTable tr:nth-child(-n+3) .growth-pct-cell{font-size:14px}
+#powerSnapshotTable th:nth-child(4){color:#76e3ac}
+
+/* V12 — tier widoczny również na przyciskach tygodni */
+.week-btn{position:relative}
+.week-btn strong{display:block;font-size:10px;font-weight:950;margin-top:3px}
+.week-btn.tier-s strong{color:#ffd65c}
+.week-btn.tier-sp strong{color:#ff737e}
+.week-btn.tier-spp strong{color:#c58bff}
+.week-btn.tier-s.active{border-color:rgba(255,211,87,.52)!important;box-shadow:0 0 18px rgba(219,163,45,.12)}
+.week-btn.tier-sp.active{border-color:rgba(255,86,101,.52)!important;box-shadow:0 0 18px rgba(194,48,63,.13)}
+.week-btn.tier-spp.active{border-color:rgba(178,103,255,.55)!important;box-shadow:0 0 18px rgba(129,61,202,.16)}

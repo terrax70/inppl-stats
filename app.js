@@ -88,7 +88,8 @@ function setView(id, push=true){
   $$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===id));
   if(push && id!=='profile') history.replaceState(null,'','#'+id);
   if(id==='overview') requestAnimationFrame(renderOverviewCharts);
-  if(id==='power') requestAnimationFrame(renderPowerCharts);
+  if(id==='warsView') requestAnimationFrame(renderWarView);
+  if(id==='power') requestAnimationFrame(()=>{renderPower();renderPowerSnapshotBar();renderPowerCharts();});
   if(id==='compare') requestAnimationFrame(renderCompare);
 }
 $$('.nav-btn').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
@@ -250,7 +251,7 @@ let powerAnalyticsMode='growthPct';
 
 let selectedWeek=D.latest.week;
 function renderWeekBar(){
- $('#weekbar').innerHTML=D.weeks.map(w=>`<button class="week-btn ${w.week===selectedWeek?'active':''}" data-week="${w.week}"><b>${w.week}</b><span>${w.date||''}</span></button>`).join('');
+ $('#weekbar').innerHTML=D.weeks.map(w=>`<button class="week-btn ${tierClass(w.tier)} ${w.week===selectedWeek?'active':''}" data-week="${w.week}"><b>${w.week}</b><strong>${escapeHtml(w.tier||'—')}</strong><span>${w.date||''}</span></button>`).join('');
  $$('.week-btn').forEach(b=>b.onclick=()=>{selectedWeek=b.dataset.week;renderWeekBar();renderWarView()});
 }
 function getWarDeltas(w){
@@ -341,13 +342,6 @@ function renderPower(){
  $('#powerDropList').innerHTML=drops.slice(0,dropLim).map((x,i)=>listRow(i,x.nick,power(x.powerM),x.pct,fmtPct1,formatDelta(x.deltaM,power))).join('') || '<div class="empty">Brak spadków w ostatnim snapshotcie</div>';
  moreButton('powerDropMore','powerDrop',drops.length,dropLim);
 
- const rows=getPowerPlayerRows();
- if($('#powerFilterCount'))$('#powerFilterCount').textContent=`${rows.length} aktywnych graczy`;
- $('#powerTable').innerHTML=rows.map((x,i)=>{
-   const p=x.p,pc=x.growthPct,delta=x.growthAbs,current=x.latest?.powerM??p.powerM,place=i+1;
-   return `<tr class="${placeClass(place)}"><td>${placeBadge(place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td><td><span class="rank-tag">${escapeHtml(p.rank)}</span></td><td class="num growth-pct-cell ${pc>0?'positive':pc<0?'negative':''}"><b>${fmtPct1(pc)}</b></td><td class="num ${delta>0?'positive':delta<0?'negative':''}">${formatDelta(delta,power)}</td><td class="num"><b>${power(current)}</b></td><td class="num">${current!=null&&pw.totalM?`${(current/pw.totalM*100).toFixed(2).replace('.',',')}%`:'—'}</td></tr>`;
- }).join('');
-
  renderPowerSnapshotBar();
  renderPowerAnalytics();
 }
@@ -364,17 +358,37 @@ function renderPowerSnapshot(){
    ['Łączna moc',power(snap.totalM)],['Średnia',power(snap.avgM)],['Gracze',snap.count],['Zmiana klanu',prev?fmtPct1((snap.totalM/prev.totalM-1)*100):'—']
  ].map(x=>`<div class="mini-stat"><div class="l">${x[0]}</div><div class="v">${x[1]}</div></div>`).join('');
 
- const arr=D.players.map(p=>{
+ let arr=D.players.filter(p=>p.active!==false).map(p=>{
    const cur=p.powers.find(x=>x.week===selectedPowerSnapshot);
    if(!cur)return null;
    const pi=p.powers.findIndex(x=>x.week===selectedPowerSnapshot);
    const prv=pi>0?p.powers[pi-1]:null;
    const delta=prv?cur.powerM-prv.powerM:null;
    const pc=cur.growthPct??(prv&&prv.powerM?delta/prv.powerM*100:null);
-   return {nick:p.nick,powerM:cur.powerM,deltaM:delta,pct:pc};
- }).filter(Boolean).sort((a,b)=>b.powerM-a.powerM);
+   return {nick:p.nick,rank:p.rank,powerM:cur.powerM,deltaM:delta,pct:pc};
+ }).filter(Boolean);
 
- $('#powerSnapshotTable').innerHTML=arr.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td><b>${power(x.powerM)}</b></td><td class="num ${x.deltaM>0?'positive':x.deltaM<0?'negative':''}">${x.deltaM==null?'—':formatDelta(x.deltaM,power)}</td><td class="num ${x.pct>0?'positive':x.pct<0?'negative':''}">${fmtPct1(x.pct)}</td></tr>`).join('');
+ const q=(powerSearch||'').trim().toLowerCase();
+ if(q)arr=arr.filter(x=>x.nick.toLowerCase().includes(q));
+ if(powerRankFilter)arr=arr.filter(x=>x.rank===powerRankFilter);
+
+ arr.sort((a,b)=>{
+   if(powerSort==='power')return (b.powerM??-Infinity)-(a.powerM??-Infinity);
+   if(powerSort==='growthAbs')return (b.deltaM??-Infinity)-(a.deltaM??-Infinity);
+   if(powerSort==='nick')return a.nick.localeCompare(b.nick,'pl');
+   return (b.pct??-Infinity)-(a.pct??-Infinity);
+ });
+
+ if($('#powerFilterCount'))$('#powerFilterCount').textContent=`${arr.length} aktywnych graczy • ${selectedPowerSnapshot}`;
+
+ $('#powerSnapshotTable').innerHTML=arr.map((x,i)=>`<tr class="${placeClass(i+1)}">
+   <td>${placeBadge(i+1)}</td>
+   <td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td>
+   <td><span class="rank-tag">${escapeHtml(x.rank||'')}</span></td>
+   <td class="num growth-pct-cell ${x.pct>0?'positive':x.pct<0?'negative':''}"><b>${fmtPct1(x.pct)}</b></td>
+   <td class="num ${x.deltaM>0?'positive':x.deltaM<0?'negative':''}">${x.deltaM==null?'—':formatDelta(x.deltaM,power)}</td>
+   <td class="num"><b>${power(x.powerM)}</b></td>
+ </tr>`).join('');
 }
 
 function renderPowerAnalytics(){
@@ -506,16 +520,16 @@ function init(){
  $('#powerPagePlayerSelect').value=selectedPowerPlayer;
  renderPlayers(); renderPower(); fillCompareSelectors();
  const ps=$('#powerSearch');
- if(ps){ps.value=powerSearch;ps.oninput=()=>{powerSearch=ps.value;renderPower();};}
+ if(ps){ps.value=powerSearch;ps.oninput=()=>{powerSearch=ps.value;renderPowerSnapshot();};}
  const prf=$('#powerRankFilter');
  if(prf){
    const ranks=[...new Set(D.players.filter(p=>p.active!==false).map(p=>p.rank).filter(Boolean))].sort();
    prf.innerHTML='<option value="">Wszystkie rangi</option>'+ranks.map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
    prf.value=powerRankFilter;
-   prf.onchange=()=>{powerRankFilter=prf.value;renderPower();};
+   prf.onchange=()=>{powerRankFilter=prf.value;renderPowerSnapshot();};
  }
  const pso=$('#powerSort');
- if(pso){pso.value=powerSort;pso.onchange=()=>{powerSort=pso.value;const pill=$('.power-default-pill');if(pill)pill.textContent=powerSort==='growthPct'?'SORTOWANIE: Δ %':`SORTOWANIE: ${pso.options[pso.selectedIndex].text}`;renderPower();};}
+ if(pso){pso.value=powerSort;pso.onchange=()=>{powerSort=pso.value;const pill=$('.power-default-pill');if(pill)pill.textContent=powerSort==='growthPct'?'SORTOWANIE: Δ %':`SORTOWANIE: ${pso.options[pso.selectedIndex].text}`;renderPowerSnapshot();};}
 
  const hash=location.hash.replace('#',''); const allowed=['overview','warsView','playersView','power','compare'];
  setView(allowed.includes(hash)?hash:'overview',false);

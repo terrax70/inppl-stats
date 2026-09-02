@@ -388,6 +388,9 @@ function init(){
   const sleepOpts=sleepOptions().map(t=>`<option value="${t}">${t}</option>`).join('');
   $('#sleepStart').innerHTML=sleepOpts;
   $('#sleepEnd').innerHTML=sleepOpts;
+  $('#sleepStart').setAttribute('aria-label','Śpię od');
+  $('#sleepEnd').setAttribute('aria-label','Wstaję o');
+  $('#reactionMinutesQuick').setAttribute('aria-label','Czas reakcji w minutach');
   sync();clock();setInterval(clock,30000);
   $('#techSelect').innerHTML=D.tech.map(x=>`<option value="${x.name}">${x.name} • ${fmtDur(techDur(x))}</option>`).join('');
   if(state.techQueue?.length && techDef(state.techQueue[0]))$('#techSelect').value=state.techQueue[0];

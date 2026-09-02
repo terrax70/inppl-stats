@@ -783,3 +783,148 @@ body{overflow-x:hidden}
 @media(max-width:700px){
   .tl-row.tech-row:after{left:90px}
 }
+
+/* V6.7 — READABILITY / ACCESSIBILITY PASS */
+
+/* Minimalne czytelne rozmiary tekstu */
+body{font-size:16px}
+.top-meta{font-size:11px!important}
+.brand small{font-size:10px!important}
+.eyebrow{font-size:10px!important}
+.compact-hero p{font-size:12px!important}
+.clock span{font-size:9px!important}
+.clock small{font-size:10px!important}
+
+.setup-title-row p{font-size:10px!important}
+.field>span{font-size:11px!important}
+.field small{font-size:9.5px!important;line-height:1.45!important;color:#718096!important}
+.switch-row b{font-size:12px!important}
+.switch-row small{font-size:9.5px!important;color:#718096!important}
+.tech-choice-head b{font-size:12px!important}
+.tech-choice-head small{font-size:9.5px!important;color:#718096!important}
+.tech-select-wrap>span,.tech-count-wrap>span{font-size:9px!important}
+.auto-repeat-badge{font-size:9px!important}
+.chip{font-size:10px!important}
+.advanced-toggle>button{font-size:10px!important}
+.field.compact>span{font-size:10px!important}
+.field.compact small{font-size:9px!important}
+
+.timeline-title p{font-size:11px!important}
+.legend{font-size:9.5px!important;color:#8795a8!important}
+.zoom-tabs button{font-size:10px!important}
+.timeline-focus span{font-size:9px!important}
+.timeline-focus p{font-size:11px!important}
+.tl-day{font-size:9px!important;color:#718096!important}
+.tl-day b{font-size:11px!important;color:#aeb9c7!important}
+.tl-row-label{font-size:13px!important}
+.tl-event b{font-size:14px!important}
+.tl-event span{font-size:9.5px!important}
+.event-tag{font-size:8px!important}
+.timeline-help{font-size:10px!important;color:#748398!important}
+
+.action-when{font-size:11px!important}
+.action-main b{font-size:13px!important}
+.action-main span{font-size:10px!important;color:#77869a!important}
+.badge{font-size:9px!important}
+.details summary{font-size:11px!important}
+th{font-size:9px!important}
+td{font-size:10.5px!important}
+
+/* Profil aktywności — pełny dark theme */
+.activity-profile{
+  background:#0b1017!important;
+  border-color:#283342!important;
+  padding:7px 8px!important;
+}
+.activity-title{
+  font-size:9px!important;
+  color:#8190a4!important;
+}
+.activity-profile label{
+  background:#0f1620!important;
+  border-color:#2a3544!important;
+  color:#b2bdca!important;
+  height:34px!important;
+  padding:0 9px!important;
+}
+.activity-profile label:hover{
+  border-color:#3a4b60!important;
+  background:#121b27!important;
+}
+.activity-profile label>span{
+  font-size:10px!important;
+  color:#9eabba!important;
+}
+.activity-profile select,
+.activity-profile input{
+  color:#f1f5f9!important;
+  background:#111923!important;
+  border:1px solid #2b3746!important;
+  border-radius:6px!important;
+  height:26px!important;
+  font-size:11px!important;
+  font-weight:850!important;
+}
+.activity-profile select{
+  min-width:72px!important;
+  padding:0 20px 0 6px!important;
+  color-scheme:dark!important;
+}
+.activity-profile select option{
+  background:#111923!important;
+  color:#f1f5f9!important;
+}
+.activity-profile input[type="number"]{
+  width:40px!important;
+  text-align:center!important;
+  padding:0 4px!important;
+}
+.activity-profile em{
+  font-size:9px!important;
+  color:#718096!important;
+}
+.activity-sep{
+  color:#68778b!important;
+  font-size:11px!important;
+}
+
+/* Wzmocnienie kontrastu pomocniczych tekstów */
+.page-head p,
+.panel-head p,
+.section-title p,
+.tech-choice-head small,
+.setup-title-row p,
+.field small,
+.switch-row small{
+  color:#718096!important;
+}
+
+/* Nie pozwalaj na mikroskopijne napisy na timeline */
+.tl-night:after,
+.tech-action-marker.start:after,
+.tech-action-marker.collect:after,
+.forge-reaction-marker:after,
+.forge-gap-label,
+.tech-gap-label{
+  font-size:8px!important;
+}
+
+/* Lepsza czytelność aktywnych kart */
+.decision-kind{font-size:10px!important}
+.decision p{font-size:12px!important}
+.decision small{font-size:10px!important}
+
+/* Mobile — minimum 16px w polach aby uniknąć zoomu iOS */
+@media(max-width:700px){
+  .activity-profile select,
+  .activity-profile input,
+  .field input,
+  .field select,
+  .tech-count-wrap input,
+  .tech-select-wrap select{
+    font-size:16px!important;
+  }
+  .activity-profile{
+    gap:8px!important;
+  }
+}

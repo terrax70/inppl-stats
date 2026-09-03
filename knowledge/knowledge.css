@@ -903,3 +903,13 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
 .path-legend{
   font-size:10px !important;
 }
+
+/* Forge Knowledge 0.14 — guide-calibrated equal-power recovery */
+.asc-path-viz{min-height:570px !important}
+.asc-path-svg.guide-asc-svg{height:570px !important;min-width:1540px}
+.guide-equal-line{
+  stroke:#61d3a4;
+  stroke-width:1.7;
+  stroke-dasharray:6 4;
+  opacity:.9;
+}

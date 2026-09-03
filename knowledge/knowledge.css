@@ -170,3 +170,16 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
 @media(max-width:900px){
   .insights{grid-template-columns:1fr}
 }
+
+/* Forge Knowledge 0.4 — stat icons + hatch time */
+.node-hatch{
+  fill:#d7b56d;
+  font-size:10px;
+  font-weight:850;
+}
+.node-value{
+  letter-spacing:.01em;
+}
+.tooltip strong{
+  color:#eef3f8;
+}

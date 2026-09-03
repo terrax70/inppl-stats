@@ -80,8 +80,13 @@ function renderProgressViz(containerId, rows, systemName){
    g.append(svgEl("rect",{x:ladderX+42,y:ny-30,width:ladderW-42,height:60,rx:8,class:"node-bg"}));
    g.append(svgEl("circle",{cx:ladderX+22,cy:ny,r:8,fill:c,stroke:"#0a1017","stroke-width":"4"}));
    g.append(svgEl("text",{x:ladderX+58,y:ny-10,fill:c,class:"node-rarity"},r.rarity.toUpperCase()));
-   g.append(svgEl("text",{x:ladderX+58,y:ny+10,class:"node-value"},`HP ${fmt(r.health)} • DMG ${fmt(r.damage)}`));
-   g.append(svgEl("text",{x:ladderX+58,y:ny+25,class:"node-sub"},`Łącznie względem Common: ×${power[i].toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
+   g.append(svgEl("text",{x:ladderX+58,y:ny+7,class:"node-value"},`❤️ HP ${fmt(r.health)}   ⚔️ DMG ${fmt(r.damage)}`));
+   if(r.hatchSeconds){
+     g.append(svgEl("text",{x:ladderX+58,y:ny+22,class:"node-hatch"},`🥚 Wyklucie: ${fmtTime(r.hatchSeconds)}`));
+     g.append(svgEl("text",{x:ladderX+205,y:ny+22,class:"node-sub"},`vs Common: ×${power[i].toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
+   }else{
+     g.append(svgEl("text",{x:ladderX+58,y:ny+24,class:"node-sub"},`Łącznie względem Common: ×${power[i].toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
+   }
    svg.append(g);
 
    const p=svgEl("circle",{cx:px,cy:py,r:8,fill:c,class:"point","data-i":i});
@@ -119,8 +124,9 @@ function renderProgressViz(containerId, rows, systemName){
      const i=Number(p.dataset.i),r=rows[i];
      const step=i?rows[i].damage/rows[i-1].damage:null;
      tip.innerHTML=`<b style="color:${D.colors[r.rarity]}">${r.rarity}</b>
-       <span>HP: <strong>${fmt(r.health)}</strong></span>
-       <span>Damage: <strong>${fmt(r.damage)}</strong></span>
+       <span>❤️ HP: <strong>${fmt(r.health)}</strong></span>
+       <span>⚔️ DMG: <strong>${fmt(r.damage)}</strong></span>
+       ${r.hatchSeconds?`<span>🥚 Wyklucie: <strong>${fmtTime(r.hatchSeconds)}</strong></span>`:""}
        <span>vs Common: <strong>×${power[i].toLocaleString("pl-PL",{maximumFractionDigits:1})}</strong></span>
        ${step?`<span>vs ${rows[i-1].rarity}: <strong>×${step.toLocaleString("pl-PL",{maximumFractionDigits:1})}</strong></span>`:""}`;
      tip.style.display="block";

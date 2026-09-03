@@ -214,6 +214,117 @@ function renderItems(){
  }
 }
 
+
+function getRarityRow(section, rarity){
+ const rows = section==="items" ? D.itemTiers : section==="pets" ? D.pets : D.mounts;
+ return rows.find(r=>r.rarity===rarity);
+}
+
+function renderAscensionPath(section, hostId){
+ const cfg=D.ascensionPaths[section];
+ const baseRows = section==="items" ? D.itemTiers : section==="pets" ? D.pets : D.mounts;
+ const endRow=getRarityRow(section,cfg.endRarity);
+ const recoveryRow=getRarityRow(section,cfg.recoveryRarity);
+ const commonRow=baseRows[0];
+ const host=$(hostId); if(!host)return;
+ host.innerHTML="";
+
+ const W=1460,H=470,left=66,right=34,top=46,bottom=390;
+ const innerW=W-left-right, innerH=bottom-top;
+ const asc=D.ascensionMultipliers;
+
+ // Sequence mirrors the guide: start common -> end rarity -> next asc common -> recovery -> next end...
+ const nodes=[];
+ nodes.push({kind:"start", asc:0, rarity:commonRow.rarity, value:commonRow.damage*ascMultiplier(0), label:`A0 ${commonRow.rarity}`});
+ for(let a=0;a<=2;a++){
+   const peakVal=endRow.damage*ascMultiplier(a);
+   nodes.push({kind:"peak",asc:a,rarity:cfg.endRarity,value:peakVal,label:`A${a} ${cfg.endRarity}`});
+   const next=a+1;
+   const resetVal=commonRow.damage*ascMultiplier(next);
+   nodes.push({kind:"reset",asc:next,rarity:commonRow.rarity,value:resetVal,label:`A${next} ${commonRow.rarity}`});
+   const recoverVal=recoveryRow.damage*ascMultiplier(next);
+   nodes.push({kind:"recover",asc:next,rarity:cfg.recoveryRarity,value:recoverVal,label:`A${next} ${cfg.recoveryRarity}`,oldPower:peakVal});
+ }
+ nodes.push({kind:"peak",asc:3,rarity:cfg.endRarity,value:endRow.damage*ascMultiplier(3),label:`A3 ${cfg.endRarity}`});
+
+ const vals=nodes.map(n=>n.value);
+ const min=Math.min(...vals),max=Math.max(...vals);
+ const lmin=Math.log10(min),lmax=Math.log10(max);
+ const x=i=>left+(i/(nodes.length-1))*innerW;
+ const y=v=>bottom-((Math.log10(v)-lmin)/(lmax-lmin||1))*innerH;
+
+ const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,class:"asc-path-svg",role:"img","aria-label":`${cfg.system}: pełna ścieżka Ascension A0 do A3`});
+
+ // subtle guide bands
+ for(let i=0;i<4;i++){
+   const startIdx=i===0?0:1+i*3;
+   const endIdx=Math.min(nodes.length-1,1+i*3);
+   const sx=x(startIdx),ex=x(endIdx);
+   svg.append(svgEl("rect",{x:sx,y:top-20,width:Math.max(0,ex-sx),height:innerH+40,rx:10,class:"asc-band"}));
+   svg.append(svgEl("text",{x:(sx+ex)/2,y:26,"text-anchor":"middle",class:"asc-band-label"},`A${i}`));
+ }
+
+ const pts=nodes.map((n,i)=>[x(i),y(n.value)]);
+ const path=pts.map((p,i)=>(i?"L":"M")+p[0]+","+p[1]).join(" ");
+ svg.append(svgEl("path",{d:path,class:"asc-zigzag"}));
+
+ // old-power comparison lines from peak to recovery
+ nodes.forEach((n,i)=>{
+   if(n.kind!=="recover" || i<2)return;
+   const prevPeakIndex=i-2;
+   const py=y(nodes[prevPeakIndex].value);
+   svg.append(svgEl("line",{x1:x(prevPeakIndex),y1:py,x2:x(i),y2:py,class:"old-power-line"}));
+   svg.append(svgEl("text",{x:(x(prevPeakIndex)+x(i))/2,y:py-8,"text-anchor":"middle",class:"old-power-label"},"stara moc"));
+ })
+
+ nodes.forEach((n,i)=>{
+   const px=x(i),py=y(n.value);
+   let cls="path-point";
+   if(n.kind==="peak")cls+=" peak";
+   if(n.kind==="recover")cls+=" recover";
+   if(n.kind==="reset")cls+=" reset";
+   svg.append(svgEl("circle",{cx:px,cy:py,r:n.kind==="peak"?7:6,class:cls}));
+
+   const labelY = n.kind==="reset" ? py+31 : py-14;
+   svg.append(svgEl("text",{x:px,y:labelY,"text-anchor":"middle",class:`path-label ${n.kind}`},n.label));
+
+   if(n.kind==="peak" && n.asc<3){
+     const nextNode=nodes[i+1];
+     const ax=(px+x(i+1))/2;
+     const ay=(py+y(nextNode.value))/2;
+     const g=svgEl("g",{class:"ascend-badge"});
+     g.append(svgEl("rect",{x:ax-46,y:ay-20,width:92,height:40,rx:9}));
+     g.append(svgEl("text",{x:ax,y:ay-2,"text-anchor":"middle",class:"ascend-title"},"ASCEND"));
+     g.append(svgEl("text",{x:ax,y:ay+12,"text-anchor":"middle",class:"ascend-sub"},`A${n.asc} → A${n.asc+1}`));
+     svg.append(g);
+   }
+
+   if(n.kind==="recover"){
+     const targetRatio=n.value/n.oldPower;
+     const g=svgEl("g",{class:"recover-badge"});
+     g.append(svgEl("rect",{x:px-65,y:py+12,width:130,height:36,rx:8}));
+     g.append(svgEl("text",{x:px,y:py+27,"text-anchor":"middle",class:"recover-title"},"ODZYSK MOCY"));
+     g.append(svgEl("text",{x:px,y:py+40,"text-anchor":"middle",class:"recover-sub"},cfg.recoveryRarity));
+     svg.append(g);
+   }
+ });
+
+ // bottom explanation
+ svg.append(svgEl("text",{x:left,y:H-18,class:"asc-path-foot"},
+   `${cfg.system}: Ascend na ${cfg.endRarity} • po resecie stara moc wraca około ${cfg.recoveryRarity}`));
+
+ host.append(svg);
+
+ const p=document.querySelector(`[data-path-copy="${section}"]`);
+ if(p)p.innerHTML=`Według poradnika: <b>Ascenduj na ${cfg.endRarity}</b>. Po resecie poprzednią moc odzyskujesz mniej więcej na <b>${cfg.recoveryRarity}</b>.`;
+}
+
+function renderAllAscensionPaths(){
+ renderAscensionPath("pets","#petsAscPath");
+ renderAscensionPath("mounts","#mountsAscPath");
+ renderAscensionPath("items","#itemsAscPath");
+}
+
 function renderAscension(){
  const A=D.ascension;
  const labels={gold:"Gold",tickets:"Tickets",eggshells:"Eggshells",clockwinders:"Clockwinders"};
@@ -283,5 +394,5 @@ $$(".tab").forEach(b=>b.onclick=()=>{
  $$(".view").forEach(v=>v.classList.toggle("active",v.id===b.dataset.tab));
 });
 
-renderPets();renderMounts();renderItems();renderAscension();
+renderPets();renderMounts();renderItems();renderAscension();renderAllAscensionPaths();
 })();

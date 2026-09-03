@@ -376,3 +376,147 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
   .asc-power-steps{overflow:auto}
   .asc-power-step{min-width:105px}
 }
+
+/* Forge Knowledge 0.9 — full A0→A3 guide path */
+.asc-path-card{
+  margin-top:12px;
+  border:1px solid #1b2632;
+  background:linear-gradient(180deg,#0b1017,#090d13);
+  border-radius:14px;
+  padding:15px 16px 12px;
+  overflow:hidden;
+}
+.asc-path-head{
+  display:flex;
+  justify-content:space-between;
+  gap:20px;
+  align-items:flex-start;
+  margin-bottom:8px;
+}
+.asc-path-head h3{
+  margin:6px 0 5px;
+  font-size:18px;
+}
+.asc-path-head p{
+  margin:0;
+  color:#758397;
+  font-size:10px;
+  line-height:1.55;
+}
+.asc-path-head p b{color:#dce5ee}
+.path-legend{
+  display:flex;
+  gap:13px;
+  flex-wrap:wrap;
+  color:#68768a;
+  font-size:9px;
+  font-weight:850;
+  padding-top:8px;
+}
+.path-legend span{display:flex;align-items:center;gap:6px}
+.path-legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.legend-peak{background:#f0b75b;box-shadow:0 0 10px rgba(240,183,91,.35)}
+.legend-recover{background:#6ee7b7;box-shadow:0 0 10px rgba(110,231,183,.25)}
+.asc-path-viz{
+  min-height:470px;
+  overflow-x:auto;
+}
+.asc-path-svg{
+  display:block;
+  width:100%;
+  min-width:1120px;
+  height:470px;
+}
+.asc-band{
+  fill:rgba(255,255,255,.012);
+  stroke:#151f29;
+  stroke-width:1;
+}
+.asc-band-label{
+  fill:#526176;
+  font-size:10px;
+  font-weight:950;
+  letter-spacing:.12em;
+}
+.asc-zigzag{
+  fill:none;
+  stroke:#8b78ff;
+  stroke-width:4;
+  stroke-linejoin:round;
+  stroke-linecap:round;
+}
+.path-point{
+  fill:#8b78ff;
+  stroke:#091019;
+  stroke-width:4;
+}
+.path-point.peak{
+  fill:#f0b75b;
+  filter:drop-shadow(0 0 8px rgba(240,183,91,.28));
+}
+.path-point.recover{
+  fill:#6ee7b7;
+  filter:drop-shadow(0 0 8px rgba(110,231,183,.22));
+}
+.path-point.reset{
+  fill:#718096;
+}
+.path-label{
+  fill:#9aa7b7;
+  font-size:9px;
+  font-weight:900;
+}
+.path-label.peak{fill:#e9c98e}
+.path-label.recover{fill:#8fe7c4}
+.path-label.reset{fill:#66758a}
+.old-power-line{
+  stroke:#6c7b8f;
+  stroke-width:1.2;
+  stroke-dasharray:5 5;
+  opacity:.75;
+}
+.old-power-label{
+  fill:#68778b;
+  font-size:8px;
+  font-weight:850;
+}
+.ascend-badge rect{
+  fill:#1b1010;
+  stroke:#ef6c6c;
+  stroke-width:1.4;
+}
+.ascend-title{
+  fill:#ff9292;
+  font-size:10px;
+  font-weight:1000;
+}
+.ascend-sub{
+  fill:#896d73;
+  font-size:8px;
+  font-weight:850;
+}
+.recover-badge rect{
+  fill:#0d1815;
+  stroke:#4ebd91;
+  stroke-width:1.2;
+}
+.recover-title{
+  fill:#7ce3ba;
+  font-size:8px;
+  font-weight:1000;
+  letter-spacing:.05em;
+}
+.recover-sub{
+  fill:#9aa8b9;
+  font-size:8px;
+  font-weight:850;
+}
+.asc-path-foot{
+  fill:#5f6d80;
+  font-size:9px;
+  font-weight:850;
+}
+@media(max-width:900px){
+  .asc-path-head{flex-direction:column}
+  .asc-path-svg{width:1120px}
+}

@@ -50,6 +50,30 @@ window.FORGE_KNOWLEDGE = {
     "Modern":"#c06cff","Space":"#f16ac1","Interstellar":"#ff776e",
     "Multiverse":"#ff9f5b","Quantum":"#f7c95b","Underworld":"#7be09d","Divine":"#65e6d0"
   },
+
+  ascensionPaths: {
+    pets: {
+      system:"Pety",
+      endRarity:"Mythic",
+      recoveryRarity:"Legendary",
+      note:"Według poradnika po Ascension poprzednią moc odzyskujesz mniej więcej na Legendary.",
+      guideSource:"Skills/Pets/Mounts chart"
+    },
+    mounts: {
+      system:"Mounty",
+      endRarity:"Mythic",
+      recoveryRarity:"Epic",
+      note:"Według legendy poradnika dla Mountów próg odzyskania starej mocy to Epic.",
+      guideSource:"Skills/Pets/Mounts chart — Epic for Mounts"
+    },
+    items: {
+      system:"Itemy",
+      endRarity:"Divine",
+      recoveryRarity:"Multiverse",
+      note:"Według poradnika po Ascension poprzednią moc odzyskujesz mniej więcej na Multiverse.",
+      guideSource:"Gear chart"
+    }
+  },
   ascension: {
     totalCost: {
       base: {

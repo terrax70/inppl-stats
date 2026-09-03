@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#07090d">
 <title>INPPL Stats — Forge Master</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="stylesheet" href="styles.css?v=120">
+<link rel="stylesheet" href="styles.css?v=130">
 </head>
 <body>
 <div class="app">
@@ -20,15 +20,18 @@
       <button class="nav-btn active" data-view="overview"><span class="nav-ico">◈</span>Przegląd</button>
       <button class="nav-btn" data-view="warsView"><span class="nav-ico">⚔</span>Wojny</button>
       <button class="nav-btn" data-view="playersView"><span class="nav-ico">♟</span>Gracze</button>
-      <button class="nav-btn" data-view="outcastsView"><span class="nav-ico">↪</span>Wyrzutki</button>
       <button class="nav-btn" data-view="power"><span class="nav-ico">◆</span>Power</button>
       <button class="nav-btn" data-view="compare"><span class="nav-ico">⇄</span>Porównaj</button>
+
       <div class="nav-label nav-section-label">Narzędzia</div>
-      <a class="nav-btn nav-link-btn" href="share/"><span class="nav-ico">☷</span>Do skopiowania</a>
+      <a class="nav-btn nav-link-btn" href="share/"><span class="nav-ico">☷</span>Podsumowanie</a>
       <a class="nav-btn nav-link-btn" href="planner/"><span class="nav-ico">⌁</span>Planner</a>
+
+      <div class="nav-label nav-section-label nav-addon-label">Dodatek</div>
+      <button class="nav-btn nav-addon" data-view="outcastsView"><span class="nav-ico">↪</span>Wyrzutki</button>
     </nav>
     <div class="side-status">
-      <div class="release-row"><strong>InPost [INPPL]</strong><span class="release-badge">v1.2</span></div>
+      <div class="release-row"><strong>InPost [INPPL]</strong><span class="release-badge">v1.3</span></div>
       <div id="sideDataRange">Dane —</div>
       <div class="data-updated" id="dataUpdated">Aktualizacja —</div>
     </div>
@@ -198,18 +201,12 @@
             <div class="panel-title">Ranking wzrostu Power w snapshotach</div>
             <div class="panel-desc">Wybierz tydzień. Domyślnie ranking jest liczony według procentowego wzrostu względem poprzedniego snapshotu.</div>
           </div>
-          <div class="power-default-pill">DOMYŚLNIE: Δ %</div>
+          <div class="power-default-pill">SORTUJ KLIKNIĘCIEM W NAGŁÓWEK</div>
         </div>
         <div class="toolbar power-toolbar power-snapshot-toolbar">
           <div class="power-filter-row">
             <input class="search" id="powerSearch" placeholder="Szukaj gracza…">
             <select class="select" id="powerRankFilter"></select>
-            <select class="select" id="powerSort">
-              <option value="growthPct">Wzrost % ↓ (domyślne)</option>
-              <option value="power">Power ↓</option>
-              <option value="growthAbs">Wzrost Power ↓</option>
-              <option value="nick">Nick A–Z</option>
-            </select>
           </div>
           <div class="power-filter-note" id="powerFilterCount"></div>
         </div>
@@ -288,7 +285,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="data.js?v=120"></script>
-<script src="app.js?v=120"></script>
+<script src="data.js?v=130"></script>
+<script src="app.js?v=130"></script>
 </body>
 </html>

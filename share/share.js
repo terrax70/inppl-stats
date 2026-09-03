@@ -58,7 +58,16 @@ function render(){
  $('#warPreview').textContent=warText();
  $('#powerPreview').textContent=powerText();
 }
+function formatGeneratedAt(value){
+ if(!value)return'Aktualizacja —';
+ const d=new Date(value);if(Number.isNaN(d.getTime()))return'Aktualizacja —';
+ return `Aktualizacja ${d.toLocaleDateString('pl-PL')} • ${d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}`;
+}
 function init(){
+ const warRange=D.weeks.length?`${D.weeks[0].week}–${D.weeks.at(-1).week}`:'—';
+ const powerRange=D.powerWeeks?.length?`${D.powerWeeks[0].week}–${D.powerWeeks.at(-1).week}`:'—';
+ if($('#sideDataRange'))$('#sideDataRange').textContent=`Wojny ${warRange} • Power ${powerRange}`;
+ if($('#dataUpdated'))$('#dataUpdated').textContent=formatGeneratedAt(D.generatedAt);
  ['warThreshold','warLimit','powerThreshold','powerLimit'].forEach(id=>{
    $('#'+id).addEventListener('change',render);
    $('#'+id).addEventListener('input',render);

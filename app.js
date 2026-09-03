@@ -503,7 +503,6 @@ $$('#power th.sortable').forEach(th=>th.onclick=()=>{
  const map={growthRank:'growthPct',pct:'growthPct',deltaM:'growthAbs',powerM:'power'};
  const k=map[th.dataset.sort]||th.dataset.sort;
  if(powerSort===k)powerSortDir*=-1;else{powerSort=k;powerSortDir=(k==='nick'||k==='rank')?1:-1}
- const pso=$('#powerSort');if(pso&&[...pso.options].some(o=>o.value===powerSort))pso.value=powerSort;
  renderPowerSnapshot();
 });
 
@@ -674,8 +673,6 @@ function init(){
    prf.value=powerRankFilter;
    prf.onchange=()=>{powerRankFilter=prf.value;renderPowerSnapshot();};
  }
- const pso=$('#powerSort');
- if(pso){pso.value=powerSort;pso.onchange=()=>{powerSort=pso.value;powerSortDir=(powerSort==='nick'?1:-1);const pill=$('.power-default-pill');if(pill)pill.textContent=powerSort==='growthPct'?'SORTOWANIE: Δ %':`SORTOWANIE: ${pso.options[pso.selectedIndex].text}`;renderPowerSnapshot();};}
 
  const hash=location.hash.replace('#',''); const allowed=['overview','warsView','playersView','outcastsView','power','compare'];
  setView(allowed.includes(hash)?hash:'overview',false);

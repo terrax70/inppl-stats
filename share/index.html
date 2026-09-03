@@ -4,33 +4,44 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
-<title>INPPL — Gotowe rankingi</title>
-<link rel="stylesheet" href="share.css?v=12">
+<title>INPPL Stats — Podsumowanie</title>
+<link rel="stylesheet" href="share.css?v=13">
 </head>
 <body>
-<header class="topbar">
-  <a href="../" class="brand"><span class="logo">IP</span><span><b>INPPL Stats</b><small>Forge Master</small></span></a>
-  <div class="top-title">Gotowe rankingi</div>
-</header>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">IP</div>
+      <div><div class="brand-name">INPPL <span>Stats</span></div><div class="brand-desc">Forge Master</div></div>
+    </div>
+    <div class="nav-label">Nawigacja</div>
+    <nav class="nav">
+      <a class="nav-btn nav-link-btn" href="../#overview"><span class="nav-ico">◈</span>Przegląd</a>
+      <a class="nav-btn nav-link-btn" href="../#warsView"><span class="nav-ico">⚔</span>Wojny</a>
+      <a class="nav-btn nav-link-btn" href="../#playersView"><span class="nav-ico">♟</span>Gracze</a>
+      <a class="nav-btn nav-link-btn" href="../#power"><span class="nav-ico">◆</span>Power</a>
+      <a class="nav-btn nav-link-btn" href="../#compare"><span class="nav-ico">⇄</span>Porównaj</a>
 
-<nav class="project-nav" aria-label="Nawigacja INPPL Stats">
-  <a href="../#overview">Przegląd</a>
-  <a href="../#warsView">Wojny</a>
-  <a href="../#playersView">Gracze</a>
-  <a href="../#outcastsView">Wyrzutki</a>
-  <a href="../#power">Power</a>
-  <a href="../#compare">Porównaj</a>
-  <span></span>
-  <a class="active" href="./">Gotowe rankingi</a>
-  <a href="../planner/">Planner</a>
-</nav>
+      <div class="nav-label nav-section-label">Narzędzia</div>
+      <a class="nav-btn nav-link-btn active" href="./"><span class="nav-ico">☷</span>Podsumowanie</a>
+      <a class="nav-btn nav-link-btn" href="../planner/"><span class="nav-ico">⌁</span>Planner</a>
 
-<main class="shell">
+      <div class="nav-label nav-section-label nav-addon-label">Dodatek</div>
+      <a class="nav-btn nav-link-btn nav-addon" href="../#outcastsView"><span class="nav-ico">↪</span>Wyrzutki</a>
+    </nav>
+    <div class="side-status">
+      <div class="release-row"><strong>InPost [INPPL]</strong><span class="release-badge">v1.3</span></div>
+      <div id="sideDataRange">Dane —</div>
+      <div class="data-updated" id="dataUpdated">Aktualizacja —</div>
+    </div>
+  </aside>
+  <main class="main external-main">
+    <div class="shell">
   <section class="hero">
     <div>
       <div class="kicker">CLAN SHARE</div>
-      <h1>Gotowe rankingi</h1>
-      <p>Wybierz wojnę jak w zakładce Wojny. Wszystko poniżej odświeża się natychmiast i jest gotowe do skopiowania.</p>
+      <h1>Podsumowanie</h1>
+      <p>Rankingi wojny i wzrostu Power w formacie gotowym do pokazania klanowiczom lub skopiowania.</p>
     </div>
   </section>
 
@@ -109,10 +120,12 @@
     <b>Format gotowy do wklejenia</b>
     <span>👑 #1 • 🥈 #2 • 🥉 #3 • ⭐ #4–9 • 🔥 #10+. Zmiana wojny, progu lub liczby osób od razu przebudowuje listę i tekst.</span>
   </section>
-</main>
+    </div>
+  </main>
+</div>
 
 <div class="toast" id="toast">Skopiowano ✓</div>
 <script src="../data.js"></script>
-<script src="share.js?v=12"></script>
+<script src="share.js?v=13"></script>
 </body>
 </html>

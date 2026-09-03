@@ -5,29 +5,38 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=120">
+<link rel="stylesheet" href="planner.css?v=130">
 </head>
 <body>
-<header class="topbar">
-  <a class="brand" href="../">
-    <span class="brand-icon">IP</span>
-    <span><b>INPPL Stats</b><small>Forge Master Planner</small></span>
-  </a>
-  <div class="top-meta"><span>Reset gry <b>02:00</b></span><span>Tech <b>ŚR / SOB</b></span><span>Kuźnia <b>ŚR / PT</b></span></div>
-</header>
-<nav class="project-nav" aria-label="Nawigacja INPPL Stats">
-  <a href="../#overview">Przegląd</a>
-  <a href="../#warsView">Wojny</a>
-  <a href="../#playersView">Gracze</a>
-  <a href="../#outcastsView">Wyrzutki</a>
-  <a href="../#power">Power</a>
-  <a href="../#compare">Porównaj</a>
-  <span class="nav-spacer"></span>
-  <a href="../share/">Gotowe rankingi</a>
-  <a class="active" href="./">Planner</a>
-</nav>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">IP</div>
+      <div><div class="brand-name">INPPL <span>Stats</span></div><div class="brand-desc">Forge Master</div></div>
+    </div>
+    <div class="nav-label">Nawigacja</div>
+    <nav class="nav">
+      <a class="nav-btn nav-link-btn" href="../#overview"><span class="nav-ico">◈</span>Przegląd</a>
+      <a class="nav-btn nav-link-btn" href="../#warsView"><span class="nav-ico">⚔</span>Wojny</a>
+      <a class="nav-btn nav-link-btn" href="../#playersView"><span class="nav-ico">♟</span>Gracze</a>
+      <a class="nav-btn nav-link-btn" href="../#power"><span class="nav-ico">◆</span>Power</a>
+      <a class="nav-btn nav-link-btn" href="../#compare"><span class="nav-ico">⇄</span>Porównaj</a>
 
-<main class="shell">
+      <div class="nav-label nav-section-label">Narzędzia</div>
+      <a class="nav-btn nav-link-btn" href="../share/"><span class="nav-ico">☷</span>Podsumowanie</a>
+      <a class="nav-btn nav-link-btn active" href="./"><span class="nav-ico">⌁</span>Planner</a>
+
+      <div class="nav-label nav-section-label nav-addon-label">Dodatek</div>
+      <a class="nav-btn nav-link-btn nav-addon" href="../#outcastsView"><span class="nav-ico">↪</span>Wyrzutki</a>
+    </nav>
+    <div class="side-status">
+      <div class="release-row"><strong>InPost [INPPL]</strong><span class="release-badge">v1.3</span></div>
+      <div id="sideDataRange">Dane —</div>
+      <div class="data-updated" id="dataUpdated">Aktualizacja —</div>
+    </div>
+  </aside>
+  <main class="main external-main">
+    <div class="shell">
   <section class="hero compact-hero">
     <div>
       <div class="eyebrow">FORGE MASTER PLANNER</div>
@@ -207,8 +216,11 @@
       </div>
     </details>
   </section>
-</main>
+    </div>
+  </main>
+</div>
 
+<script src="../data.js"></script>
 <script src="game-data.js?v=70"></script>
 <script src="planner.js?v=70"></script>
 </body>

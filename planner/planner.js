@@ -392,7 +392,16 @@ function sleepOptions(){
   }
   return out;
 }
+function updateSidebarStatus(){
+ const C=window.INPPL_DATA;if(!C)return;
+ const wr=C.weeks?.length?`${C.weeks[0].week}–${C.weeks.at(-1).week}`:'—';
+ const pr=C.powerWeeks?.length?`${C.powerWeeks[0].week}–${C.powerWeeks.at(-1).week}`:'—';
+ const r=document.querySelector('#sideDataRange'),u=document.querySelector('#dataUpdated');
+ if(r)r.textContent=`Wojny ${wr} • Power ${pr}`;
+ if(u&&C.generatedAt){const d=new Date(C.generatedAt);u.textContent=`Aktualizacja ${d.toLocaleDateString('pl-PL')} • ${d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}`;}
+}
 function init(){
+  updateSidebarStatus();
   if('scrollRestoration' in history)history.scrollRestoration='manual';
   window.scrollTo(0,0);
   const sleepOpts=sleepOptions().map(t=>`<option value="${t}">${t}</option>`).join('');

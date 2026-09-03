@@ -520,3 +520,120 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
   .asc-path-head{flex-direction:column}
   .asc-path-svg{width:1120px}
 }
+
+/* Forge Knowledge 0.10 — real Ascension drops */
+.asc-path-viz{
+  min-height:620px;
+}
+.asc-path-svg.power-drop-svg{
+  height:620px;
+}
+.cycle-band{
+  fill:rgba(255,255,255,.010);
+  stroke:#17212c;
+  stroke-width:1;
+}
+.cycle-label{
+  fill:#536276;
+  font-size:9px;
+  font-weight:950;
+  letter-spacing:.10em;
+}
+.power-ref{
+  stroke:#1c2834;
+  stroke-width:1;
+}
+.power-ref.old{
+  stroke:#6b7d91;
+  stroke-width:1.3;
+  stroke-dasharray:6 5;
+}
+.power-axis{
+  fill:#4f5e72;
+  font-size:8px;
+  font-weight:850;
+}
+.power-axis.old{
+  fill:#8a99ab;
+  font-size:9px;
+  font-weight:950;
+}
+.power-zigzag{
+  fill:none;
+  stroke:#8a78ff;
+  stroke-width:4.5;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.power-point{
+  fill:#8172ed;
+  stroke:#091019;
+  stroke-width:4;
+}
+.power-point.peak{
+  fill:#f1b653;
+  filter:drop-shadow(0 0 8px rgba(241,182,83,.28));
+}
+.power-point.reset{
+  fill:#ef6d6d;
+  filter:drop-shadow(0 0 7px rgba(239,109,109,.20));
+}
+.power-point.recover{
+  fill:#68dfb2;
+  filter:drop-shadow(0 0 8px rgba(104,223,178,.23));
+}
+.power-node-label{
+  fill:#93a1b2;
+  font-size:9px;
+  font-weight:950;
+}
+.power-node-label.peak{fill:#efca88}
+.power-node-label.reset{fill:#ef9696}
+.power-node-label.recover{fill:#8fe5c2}
+.power-raw-label{
+  fill:#657489;
+  font-size:8px;
+  font-weight:850;
+}
+.drop-badge rect{
+  fill:#1c0e10;
+  stroke:#ef6464;
+  stroke-width:1.5;
+  filter:drop-shadow(0 5px 14px rgba(0,0,0,.3));
+}
+.drop-title{
+  fill:#ff8c8c;
+  font-size:9px;
+  font-weight:1000;
+  letter-spacing:.06em;
+}
+.drop-factor{
+  fill:#ffb0b0;
+  font-size:15px;
+  font-weight:1000;
+}
+.drop-pct{
+  fill:#9d6c72;
+  font-size:8px;
+  font-weight:900;
+}
+.recover-power-badge rect{
+  fill:#0c1814;
+  stroke:#4dbc8e;
+  stroke-width:1.2;
+}
+.recover-power-title{
+  fill:#82dfba;
+  font-size:9px;
+  font-weight:1000;
+}
+.recover-power-pct{
+  fill:#809489;
+  font-size:8px;
+  font-weight:900;
+}
+.power-path-foot{
+  fill:#5c6a7d;
+  font-size:9px;
+  font-weight:850;
+}

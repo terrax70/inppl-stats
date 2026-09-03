@@ -220,103 +220,156 @@ function getRarityRow(section, rarity){
  return rows.find(r=>r.rarity===rarity);
 }
 
+
 function renderAscensionPath(section, hostId){
  const cfg=D.ascensionPaths[section];
- const baseRows = section==="items" ? D.itemTiers : section==="pets" ? D.pets : D.mounts;
+ const rows = section==="items" ? D.itemTiers : section==="pets" ? D.pets : D.mounts;
+ const common=rows[0];
  const endRow=getRarityRow(section,cfg.endRarity);
  const recoveryRow=getRarityRow(section,cfg.recoveryRarity);
- const commonRow=baseRows[0];
  const host=$(hostId); if(!host)return;
  host.innerHTML="";
 
- const W=1460,H=470,left=66,right=34,top=46,bottom=390;
- const innerW=W-left-right, innerH=bottom-top;
- const asc=D.ascensionMultipliers;
-
- // Sequence mirrors the guide: start common -> end rarity -> next asc common -> recovery -> next end...
- const nodes=[];
- nodes.push({kind:"start", asc:0, rarity:commonRow.rarity, value:commonRow.damage*ascMultiplier(0), label:`A0 ${commonRow.rarity}`});
+ // Build the real sequence from actual config values.
+ // For every Ascension cycle we show:
+ // peak -> next Common -> guide recovery rarity -> next peak.
+ const nodes=[{
+   kind:"start", asc:0, rarity:common.rarity,
+   value:common.damage*ascMultiplier(0),
+   label:`A0 ${common.rarity}`
+ }];
  for(let a=0;a<=2;a++){
-   const peakVal=endRow.damage*ascMultiplier(a);
-   nodes.push({kind:"peak",asc:a,rarity:cfg.endRarity,value:peakVal,label:`A${a} ${cfg.endRarity}`});
+   const peak=endRow.damage*ascMultiplier(a);
+   nodes.push({kind:"peak",asc:a,rarity:cfg.endRarity,value:peak,label:`A${a} ${cfg.endRarity}`});
+
    const next=a+1;
-   const resetVal=commonRow.damage*ascMultiplier(next);
-   nodes.push({kind:"reset",asc:next,rarity:commonRow.rarity,value:resetVal,label:`A${next} ${commonRow.rarity}`});
-   const recoverVal=recoveryRow.damage*ascMultiplier(next);
-   nodes.push({kind:"recover",asc:next,rarity:cfg.recoveryRarity,value:recoverVal,label:`A${next} ${cfg.recoveryRarity}`,oldPower:peakVal});
- }
- nodes.push({kind:"peak",asc:3,rarity:cfg.endRarity,value:endRow.damage*ascMultiplier(3),label:`A3 ${cfg.endRarity}`});
+   const reset=common.damage*ascMultiplier(next);
+   nodes.push({
+     kind:"reset",asc:next,rarity:common.rarity,value:reset,
+     oldPeak:peak,label:`A${next} ${common.rarity}`
+   });
 
- const vals=nodes.map(n=>n.value);
- const min=Math.min(...vals),max=Math.max(...vals);
- const lmin=Math.log10(min),lmax=Math.log10(max);
+   const recovery=recoveryRow.damage*ascMultiplier(next);
+   nodes.push({
+     kind:"recover",asc:next,rarity:cfg.recoveryRarity,value:recovery,
+     oldPeak:peak,label:`A${next} ${cfg.recoveryRarity}`
+   });
+ }
+ nodes.push({
+   kind:"peak",asc:3,rarity:cfg.endRarity,
+   value:endRow.damage*ascMultiplier(3),
+   label:`A3 ${cfg.endRarity}`
+ });
+
+ /*
+   A single absolute A0→A3 y-axis makes early cycles look flat because A3 is 125,000× A0.
+   To show the real rises/drops without lying about them, each Ascension cycle gets its own
+   vertical "power lane", normalized to that cycle's previous peak = 100%.
+   Labels still display the true raw stat values and true ratios.
+   This makes a 99.9% Ascension drop visually a 99.9% drop instead of a compressed wiggle.
+ */
+ const W=1460,H=620,left=72,right=38,top=78,bottom=520;
+ const innerW=W-left-right;
  const x=i=>left+(i/(nodes.length-1))*innerW;
- const y=v=>bottom-((Math.log10(v)-lmin)/(lmax-lmin||1))*innerH;
 
- const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,class:"asc-path-svg",role:"img","aria-label":`${cfg.system}: pełna ścieżka Ascension A0 do A3`});
+ const cyclePeak=a=>endRow.damage*ascMultiplier(a);
+ const relativePower=n=>{
+   if(n.kind==="start") return n.value/cyclePeak(0);
+   if(n.kind==="peak") return 1;
+   if(n.kind==="reset" || n.kind==="recover") return n.value/n.oldPeak;
+   return 1;
+ };
+ // Allow values above old power (recovery rarity can overshoot) while preserving strong drops.
+ const relVals=nodes.map(relativePower);
+ const relMax=Math.max(1.35,...relVals);
+ const chartTop=top+32;
+ const chartBottom=bottom;
+ const chartH=chartBottom-chartTop;
+ const yRel=r=>{
+   const clipped=Math.max(0,Math.min(relMax,r));
+   return chartBottom-(clipped/relMax)*chartH;
+ };
 
- // subtle guide bands
- for(let i=0;i<4;i++){
-   const startIdx=i===0?0:1+i*3;
-   const endIdx=Math.min(nodes.length-1,1+i*3);
-   const sx=x(startIdx),ex=x(endIdx);
-   svg.append(svgEl("rect",{x:sx,y:top-20,width:Math.max(0,ex-sx),height:innerH+40,rx:10,class:"asc-band"}));
-   svg.append(svgEl("text",{x:(sx+ex)/2,y:26,"text-anchor":"middle",class:"asc-band-label"},`A${i}`));
+ const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,class:"asc-path-svg power-drop-svg",role:"img",
+   "aria-label":`${cfg.system}: realne spadki i odbudowa mocy po Ascension`});
+
+ // horizontal reference levels
+ [0,.25,.5,.75,1,1.25].filter(v=>v<=relMax+.01).forEach(v=>{
+   const yy=yRel(v);
+   svg.append(svgEl("line",{x1:left,y1:yy,x2:W-right,y2:yy,class:v===1?"power-ref old":"power-ref"}));
+   svg.append(svgEl("text",{x:left-12,y:yy+4,"text-anchor":"end",class:v===1?"power-axis old":"power-axis"},
+     v===1?"100% starej mocy":`${Math.round(v*100)}%`));
+ });
+
+ // Ascension cycle background bands.
+ for(let a=0;a<4;a++){
+   const first = a===0 ? 0 : (a*3-1);
+   const last = Math.min(nodes.length-1, a===3 ? nodes.length-1 : (a*3+1));
+   const sx=x(first), ex=x(last);
+   svg.append(svgEl("rect",{x:sx-14,y:top-24,width:Math.max(30,ex-sx+28),height:chartBottom-top+40,rx:12,class:"cycle-band"}));
+   svg.append(svgEl("text",{x:(sx+ex)/2,y:top-5,"text-anchor":"middle",class:"cycle-label"},`ASCENSION A${a}`));
  }
 
- const pts=nodes.map((n,i)=>[x(i),y(n.value)]);
+ const pts=nodes.map((n,i)=>[x(i),yRel(relativePower(n))]);
  const path=pts.map((p,i)=>(i?"L":"M")+p[0]+","+p[1]).join(" ");
- svg.append(svgEl("path",{d:path,class:"asc-zigzag"}));
-
- // old-power comparison lines from peak to recovery
- nodes.forEach((n,i)=>{
-   if(n.kind!=="recover" || i<2)return;
-   const prevPeakIndex=i-2;
-   const py=y(nodes[prevPeakIndex].value);
-   svg.append(svgEl("line",{x1:x(prevPeakIndex),y1:py,x2:x(i),y2:py,class:"old-power-line"}));
-   svg.append(svgEl("text",{x:(x(prevPeakIndex)+x(i))/2,y:py-8,"text-anchor":"middle",class:"old-power-label"},"stara moc"));
- })
+ svg.append(svgEl("path",{d:path,class:"power-zigzag"}));
 
  nodes.forEach((n,i)=>{
-   const px=x(i),py=y(n.value);
-   let cls="path-point";
+   const px=x(i), py=yRel(relativePower(n));
+   const rel=relativePower(n);
+
+   let cls="power-point";
    if(n.kind==="peak")cls+=" peak";
-   if(n.kind==="recover")cls+=" recover";
    if(n.kind==="reset")cls+=" reset";
-   svg.append(svgEl("circle",{cx:px,cy:py,r:n.kind==="peak"?7:6,class:cls}));
+   if(n.kind==="recover")cls+=" recover";
+   svg.append(svgEl("circle",{cx:px,cy:py,r:n.kind==="peak"?8:7,class:cls}));
 
-   const labelY = n.kind==="reset" ? py+31 : py-14;
-   svg.append(svgEl("text",{x:px,y:labelY,"text-anchor":"middle",class:`path-label ${n.kind}`},n.label));
+   // label + true raw stat
+   let anchorY = n.kind==="reset" ? py+28 : py-17;
+   svg.append(svgEl("text",{x:px,y:anchorY,"text-anchor":"middle",class:`power-node-label ${n.kind}`},n.label));
+   const rawY = n.kind==="reset" ? py+42 : py-4;
+   svg.append(svgEl("text",{x:px,y:rawY,"text-anchor":"middle",class:"power-raw-label"},`⚔ ${fmt(n.value)}`));
 
    if(n.kind==="peak" && n.asc<3){
-     const nextNode=nodes[i+1];
-     const ax=(px+x(i+1))/2;
-     const ay=(py+y(nextNode.value))/2;
-     const g=svgEl("g",{class:"ascend-badge"});
-     g.append(svgEl("rect",{x:ax-46,y:ay-20,width:92,height:40,rx:9}));
-     g.append(svgEl("text",{x:ax,y:ay-2,"text-anchor":"middle",class:"ascend-title"},"ASCEND"));
-     g.append(svgEl("text",{x:ax,y:ay+12,"text-anchor":"middle",class:"ascend-sub"},`A${n.asc} → A${n.asc+1}`));
+     const resetNode=nodes[i+1];
+     const dropFactor=n.value/resetNode.value;
+     const dropPct=(1-resetNode.value/n.value)*100;
+     const bx=(px+x(i+1))/2;
+     const by=(py+yRel(relativePower(resetNode)))/2;
+
+     const g=svgEl("g",{class:"drop-badge"});
+     g.append(svgEl("rect",{x:bx-70,y:by-29,width:140,height:58,rx:10}));
+     g.append(svgEl("text",{x:bx,y:by-9,"text-anchor":"middle",class:"drop-title"},"ASCEND"));
+     g.append(svgEl("text",{x:bx,y:by+9,"text-anchor":"middle",class:"drop-factor"},`↓ ×${dropFactor.toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
+     g.append(svgEl("text",{x:bx,y:by+22,"text-anchor":"middle",class:"drop-pct"},`−${dropPct.toLocaleString("pl-PL",{maximumFractionDigits:1})}% mocy`));
      svg.append(g);
    }
 
    if(n.kind==="recover"){
-     const targetRatio=n.value/n.oldPower;
-     const g=svgEl("g",{class:"recover-badge"});
-     g.append(svgEl("rect",{x:px-65,y:py+12,width:130,height:36,rx:8}));
-     g.append(svgEl("text",{x:px,y:py+27,"text-anchor":"middle",class:"recover-title"},"ODZYSK MOCY"));
-     g.append(svgEl("text",{x:px,y:py+40,"text-anchor":"middle",class:"recover-sub"},cfg.recoveryRarity));
+     const pct=n.value/n.oldPeak*100;
+     const g=svgEl("g",{class:"recover-power-badge"});
+     const bx=px, by=Math.min(chartBottom-40,py+54);
+     g.append(svgEl("rect",{x:bx-74,y:by-20,width:148,height:42,rx:9}));
+     g.append(svgEl("text",{x:bx,y:by-4,"text-anchor":"middle",class:"recover-power-title"},`${cfg.recoveryRarity}`));
+     g.append(svgEl("text",{x:bx,y:by+12,"text-anchor":"middle",class:"recover-power-pct"},`${pct.toLocaleString("pl-PL",{maximumFractionDigits:0})}% starej mocy`));
      svg.append(g);
    }
  });
 
- // bottom explanation
- svg.append(svgEl("text",{x:left,y:H-18,class:"asc-path-foot"},
-   `${cfg.system}: Ascend na ${cfg.endRarity} • po resecie stara moc wraca około ${cfg.recoveryRarity}`));
+ svg.append(svgEl("text",{x:left,y:H-30,class:"power-path-foot"},
+   `Wysokość = moc względem szczytu przed danym Ascension. 100% = poprzednia moc. Surowe ⚔ DMG pod każdym punktem.`));
 
  host.append(svg);
 
- const p=document.querySelector(`[data-path-copy="${section}"]`);
- if(p)p.innerHTML=`Według poradnika: <b>Ascenduj na ${cfg.endRarity}</b>. Po resecie poprzednią moc odzyskujesz mniej więcej na <b>${cfg.recoveryRarity}</b>.`;
+ const copy=document.querySelector(`[data-path-copy="${section}"]`);
+ if(copy){
+   const firstPeak=endRow.damage;
+   const firstReset=common.damage*ascMultiplier(1);
+   const firstRecovery=recoveryRow.damage*ascMultiplier(1);
+   const drop=(1-firstReset/firstPeak)*100;
+   const recoveryPct=firstRecovery/firstPeak*100;
+   copy.innerHTML=`Ascend na <b>${cfg.endRarity}</b> → po resecie spadasz w tym modelu do około <b>${(100-drop).toLocaleString("pl-PL",{maximumFractionDigits:2})}%</b> poprzedniej mocy. Poradnik wskazuje <b>${cfg.recoveryRarity}</b> jako próg odbudowy; z bazowych statów daje tu około <b>${recoveryPct.toLocaleString("pl-PL",{maximumFractionDigits:0})}%</b> starego szczytu.`;
+ }
 }
 
 function renderAllAscensionPaths(){

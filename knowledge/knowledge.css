@@ -183,3 +183,6 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
 .tooltip strong{
   color:#eef3f8;
 }
+
+/* Forge Knowledge 0.5 — no competing axis multipliers */
+.grid-line{opacity:.72}

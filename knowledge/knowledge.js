@@ -53,10 +53,9 @@ function renderProgressViz(containerId, rows, systemName){
  [1,10,100,1000,10000,100000].filter(v=>v<=max*1.2).forEach(v=>{
    const yy=y(Math.min(v,max));
    svg.append(svgEl("line",{x1:chartX,y1:yy,x2:chartX+chartW,y2:yy,class:"grid-line"}));
-   svg.append(svgEl("text",{x:chartX-18,y:yy+4,"text-anchor":"end",class:"axis-text"},`×${fmt(v)}`));
  });
  svg.append(svgEl("text",{x:chartX,y:30,class:"chart-title"},`${systemName.toUpperCase()} • COMMON = ×1`));
- svg.append(svgEl("text",{x:chartX,y:48,class:"chart-note"},"Jedna krzywa = wspólny mnożnik rarity dla HP i Damage"));
+ svg.append(svgEl("text",{x:chartX,y:48,class:"chart-note"},"Złote × wartości pokazują wyłącznie skok między kolejnymi rarity"));
 
  svg.append(svgEl("line",{x1:ladderX+22,y1:top,x2:ladderX+22,y2:bottom,class:"ladder-spine"}));
 

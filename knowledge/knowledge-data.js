@@ -54,24 +54,24 @@ window.FORGE_KNOWLEDGE = {
   ascensionPaths: {
     pets: {
       system:"Pety",
+      eligibilityLabel:"Level 100",
       endRarity:"Mythic",
       recoveryRarity:"Legendary",
-      note:"Według poradnika po Ascension poprzednią moc odzyskujesz mniej więcej na Legendary.",
-      guideSource:"Skills/Pets/Mounts chart"
+      note:"Ascension odblokowuje poziom systemu, nie rarity. Poradnik wskazuje Legendary jako około-próg odzyskania poprzedniej mocy."
     },
     mounts: {
       system:"Mounty",
+      eligibilityLabel:"Level 100",
       endRarity:"Mythic",
       recoveryRarity:"Epic",
-      note:"Według legendy poradnika dla Mountów próg odzyskania starej mocy to Epic.",
-      guideSource:"Skills/Pets/Mounts chart — Epic for Mounts"
+      note:"Ascension odblokowuje Level 100. Epic jest tylko około-progiem odzyskania poprzedniej mocy."
     },
     items: {
-      system:"Itemy",
+      system:"Itemy / Gear",
+      eligibilityLabel:"Forge 35",
       endRarity:"Divine",
       recoveryRarity:"Multiverse",
-      note:"Według poradnika po Ascension poprzednią moc odzyskujesz mniej więcej na Multiverse.",
-      guideSource:"Gear chart"
+      note:"Ascension Forge odblokowuje Forge 35. Multiverse jest około-progiem odzyskania poprzedniej mocy."
     }
   },
   ascension: {

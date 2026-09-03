@@ -637,3 +637,96 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
   font-size:9px;
   font-weight:850;
 }
+
+/* Forge Knowledge 0.11 — corrected Ascension semantics */
+.asc-path-viz{min-height:680px}
+.asc-path-svg.corrected-asc-svg{height:680px;min-width:1500px}
+.cycle-power-line{
+  fill:none;
+  stroke:#7faef5;
+  stroke-width:3;
+  stroke-linejoin:round;
+  stroke-linecap:round;
+}
+.cycle-power-point{
+  fill:#7faef5;
+  stroke:#081018;
+  stroke-width:3;
+}
+.cycle-power-point.end{
+  fill:#f0b75b;
+  filter:drop-shadow(0 0 8px rgba(240,183,91,.3));
+}
+.cycle-power-point.recovery{
+  fill:#6ee7b7;
+  filter:drop-shadow(0 0 8px rgba(110,231,183,.28));
+}
+.cycle-rarity{
+  fill:#657489;
+  font-size:8px;
+  font-weight:900;
+}
+.cycle-rarity.recovery{fill:#72d8b0}
+.eligibility-gate rect{
+  fill:#17130c;
+  stroke:#e2aa4f;
+  stroke-width:1.2;
+}
+.eligibility-title{
+  fill:#f2bd65;
+  font-size:8px;
+  font-weight:1000;
+}
+.eligibility-sub{
+  fill:#a58d67;
+  font-size:8px;
+  font-weight:900;
+}
+.asc-reset-arrow{
+  fill:none;
+  stroke:#ef6e6e;
+  stroke-width:2.2;
+  stroke-dasharray:6 5;
+}
+.reset-arrow-head{fill:#ef6e6e}
+.reset-badge rect{
+  fill:#190d0f;
+  stroke:#e96060;
+  stroke-width:1.2;
+}
+.reset-title{
+  fill:#ff8f8f;
+  font-size:8px;
+  font-weight:1000;
+}
+.reset-factor{
+  fill:#ffb0b0;
+  font-size:14px;
+  font-weight:1000;
+}
+.reset-pct{
+  fill:#976b70;
+  font-size:8px;
+  font-weight:900;
+}
+.recovery-marker rect{
+  fill:#0c1814;
+  stroke:#51bb90;
+  stroke-width:1.1;
+}
+.recovery-marker-title{
+  fill:#7fe0b8;
+  font-size:7.5px;
+  font-weight:1000;
+}
+.recovery-marker-sub{
+  fill:#8ca599;
+  font-size:8px;
+  font-weight:900;
+}
+.recovery-guide{
+  stroke:#64b995;
+  stroke-width:1;
+  stroke-dasharray:5 5;
+  opacity:.65;
+}

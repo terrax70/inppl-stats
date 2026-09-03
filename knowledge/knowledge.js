@@ -221,154 +221,172 @@ function getRarityRow(section, rarity){
 }
 
 
+
 function renderAscensionPath(section, hostId){
  const cfg=D.ascensionPaths[section];
- const rows = section==="items" ? D.itemTiers : section==="pets" ? D.pets : D.mounts;
- const common=rows[0];
- const endRow=getRarityRow(section,cfg.endRarity);
- const recoveryRow=getRarityRow(section,cfg.recoveryRarity);
+ const baseRows = section==="items" ? D.itemTiers : section==="pets" ? D.pets : D.mounts;
  const host=$(hostId); if(!host)return;
  host.innerHTML="";
 
- // Build the real sequence from actual config values.
- // For every Ascension cycle we show:
- // peak -> next Common -> guide recovery rarity -> next peak.
- const nodes=[{
-   kind:"start", asc:0, rarity:common.rarity,
-   value:common.damage*ascMultiplier(0),
-   label:`A0 ${common.rarity}`
- }];
- for(let a=0;a<=2;a++){
-   const peak=endRow.damage*ascMultiplier(a);
-   nodes.push({kind:"peak",asc:a,rarity:cfg.endRarity,value:peak,label:`A${a} ${cfg.endRarity}`});
+ const W=1700;
+ const cycleCount=4;
+ const cycleW=390;
+ const left=70,right=30,top=78,bottom=590,H=680;
+ const chartH=bottom-top;
 
-   const next=a+1;
-   const reset=common.damage*ascMultiplier(next);
-   nodes.push({
-     kind:"reset",asc:next,rarity:common.rarity,value:reset,
-     oldPeak:peak,label:`A${next} ${common.rarity}`
-   });
+ // Each Ascension cycle uses its own local 0→100% power scale.
+ // This preserves the real ordering inside a cycle:
+ // Common < ... < Mythic/Divine.
+ // A0/A1/A2/A3 differ in their absolute raw values, shown in labels/tooltips.
+ const endRow=baseRows.at(-1);
+ const recoveryIndex=baseRows.findIndex(r=>r.rarity===cfg.recoveryRarity);
+ const recoveryRow=baseRows[recoveryIndex];
 
-   const recovery=recoveryRow.damage*ascMultiplier(next);
-   nodes.push({
-     kind:"recover",asc:next,rarity:cfg.recoveryRarity,value:recovery,
-     oldPeak:peak,label:`A${next} ${cfg.recoveryRarity}`
-   });
- }
- nodes.push({
-   kind:"peak",asc:3,rarity:cfg.endRarity,
-   value:endRow.damage*ascMultiplier(3),
-   label:`A3 ${cfg.endRarity}`
+ const localPower = r => r.damage/endRow.damage;
+ const y = rel => bottom - Math.max(0,Math.min(1,rel))*chartH;
+
+ const svg=svgEl("svg",{
+   viewBox:`0 0 ${W} ${H}`,
+   class:"asc-path-svg corrected-asc-svg",
+   role:"img",
+   "aria-label":`${cfg.system}: rarity rośnie do końca cyklu, Ascension dopiero przy ${cfg.eligibilityLabel}`
  });
 
- /*
-   A single absolute A0→A3 y-axis makes early cycles look flat because A3 is 125,000× A0.
-   To show the real rises/drops without lying about them, each Ascension cycle gets its own
-   vertical "power lane", normalized to that cycle's previous peak = 100%.
-   Labels still display the true raw stat values and true ratios.
-   This makes a 99.9% Ascension drop visually a 99.9% drop instead of a compressed wiggle.
- */
- const W=1460,H=620,left=72,right=38,top=78,bottom=520;
- const innerW=W-left-right;
- const x=i=>left+(i/(nodes.length-1))*innerW;
-
- const cyclePeak=a=>endRow.damage*ascMultiplier(a);
- const relativePower=n=>{
-   if(n.kind==="start") return n.value/cyclePeak(0);
-   if(n.kind==="peak") return 1;
-   if(n.kind==="reset" || n.kind==="recover") return n.value/n.oldPeak;
-   return 1;
- };
- // Allow values above old power (recovery rarity can overshoot) while preserving strong drops.
- const relVals=nodes.map(relativePower);
- const relMax=Math.max(1.35,...relVals);
- const chartTop=top+32;
- const chartBottom=bottom;
- const chartH=chartBottom-chartTop;
- const yRel=r=>{
-   const clipped=Math.max(0,Math.min(relMax,r));
-   return chartBottom-(clipped/relMax)*chartH;
- };
-
- const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,class:"asc-path-svg power-drop-svg",role:"img",
-   "aria-label":`${cfg.system}: realne spadki i odbudowa mocy po Ascension`});
-
- // horizontal reference levels
- [0,.25,.5,.75,1,1.25].filter(v=>v<=relMax+.01).forEach(v=>{
-   const yy=yRel(v);
+ // Reference grid.
+ [0,.25,.5,.75,1].forEach(v=>{
+   const yy=y(v);
    svg.append(svgEl("line",{x1:left,y1:yy,x2:W-right,y2:yy,class:v===1?"power-ref old":"power-ref"}));
    svg.append(svgEl("text",{x:left-12,y:yy+4,"text-anchor":"end",class:v===1?"power-axis old":"power-axis"},
-     v===1?"100% starej mocy":`${Math.round(v*100)}%`));
+     v===1?"100% końca cyklu":`${Math.round(v*100)}%`));
  });
 
- // Ascension cycle background bands.
- for(let a=0;a<4;a++){
-   const first = a===0 ? 0 : (a*3-1);
-   const last = Math.min(nodes.length-1, a===3 ? nodes.length-1 : (a*3+1));
-   const sx=x(first), ex=x(last);
-   svg.append(svgEl("rect",{x:sx-14,y:top-24,width:Math.max(30,ex-sx+28),height:chartBottom-top+40,rx:12,class:"cycle-band"}));
-   svg.append(svgEl("text",{x:(sx+ex)/2,y:top-5,"text-anchor":"middle",class:"cycle-label"},`ASCENSION A${a}`));
+ // Render each A cycle with every rarity/tier in correct order.
+ for(let a=0;a<cycleCount;a++){
+   const ascMul=ascMultiplier(a);
+   const cx0=left+a*cycleW;
+   const cx1=cx0+cycleW-70;
+   const stepX=(cx1-cx0)/(baseRows.length-1);
+
+   svg.append(svgEl("rect",{
+     x:cx0-24,y:top-34,width:(cx1-cx0)+48,height:chartH+58,rx:14,class:"cycle-band"
+   }));
+   svg.append(svgEl("text",{
+     x:(cx0+cx1)/2,y:top-12,"text-anchor":"middle",class:"cycle-label"
+   },`A${a} • ${cfg.eligibilityLabel}`));
+
+   const pts=baseRows.map((r,i)=>[
+     cx0+i*stepX,
+     y(localPower(r))
+   ]);
+   const path=pts.map((p,i)=>(i?"L":"M")+p[0]+","+p[1]).join(" ");
+   svg.append(svgEl("path",{d:path,class:"cycle-power-line"}));
+
+   baseRows.forEach((r,i)=>{
+     const [px,py]=pts[i];
+     const isEnd=i===baseRows.length-1;
+     const isRecovery=i===recoveryIndex && a>0;
+     let cls="cycle-power-point";
+     if(isEnd)cls+=" end";
+     if(isRecovery)cls+=" recovery";
+
+     svg.append(svgEl("circle",{cx:px,cy:py,r:isEnd?7:5,class:cls}));
+
+     // Reduce label clutter for item tiers.
+     const showLabel = baseRows.length<=6 || i===0 || isEnd || isRecovery || i%2===0;
+     if(showLabel){
+       const short=r.rarity
+         .replace("Early-Modern","E-Mod")
+         .replace("Interstellar","Inter")
+         .replace("Multiverse","Multi")
+         .replace("Underworld","Under");
+       svg.append(svgEl("text",{
+         x:px,y:bottom+22,"text-anchor":"middle",class:isRecovery?"cycle-rarity recovery":"cycle-rarity"
+       },short));
+     }
+
+     // tooltip title data encoded as SVG <title>
+     const t=svgEl("title",{},`${r.rarity} • A${a}\n❤️ HP ${fmt(r.health*ascMul)}\n⚔ DMG ${fmt(r.damage*ascMul)}`);
+     svg.lastChild.append?.(t);
+
+     if(isRecovery){
+       // Compare recovery rarity after Ascension with previous cycle end.
+       const previousPeak=endRow.damage*ascMultiplier(a-1);
+       const recoveryValue=r.damage*ascMul;
+       const pct=recoveryValue/previousPeak*100;
+
+       const gy=py-52;
+       const g=svgEl("g",{class:"recovery-marker"});
+       g.append(svgEl("rect",{x:px-66,y:gy-19,width:132,height:39,rx:8}));
+       g.append(svgEl("text",{x:px,y:gy-3,"text-anchor":"middle",class:"recovery-marker-title"},"ODZYSK STAREJ MOCY"));
+       g.append(svgEl("text",{x:px,y:gy+12,"text-anchor":"middle",class:"recovery-marker-sub"},
+         `${cfg.recoveryRarity} • ~${pct.toLocaleString("pl-PL",{maximumFractionDigits:0})}%`));
+       svg.append(g);
+
+       // Horizontal old-power guide from previous peak to recovery point.
+       const prevEndX=left+(a-1)*cycleW+(cycleW-70);
+       svg.append(svgEl("line",{x1:prevEndX,y1:y(1),x2:px,y2:py,class:"recovery-guide"}));
+     }
+
+     if(isEnd){
+       const gateY=py-48;
+       const gate=svgEl("g",{class:"eligibility-gate"});
+       gate.append(svgEl("rect",{x:px-61,y:gateY-19,width:122,height:39,rx:9}));
+       gate.append(svgEl("text",{x:px,y:gateY-3,"text-anchor":"middle",class:"eligibility-title"},
+         a<3?"ASCENSION GOTOWA":"KONIEC A3"));
+       gate.append(svgEl("text",{x:px,y:gateY+12,"text-anchor":"middle",class:"eligibility-sub"},
+         cfg.eligibilityLabel));
+       svg.append(g);
+     }
+   });
+
+   // Between cycles: show reset from previous peak to next Common.
+   if(a<cycleCount-1){
+     const endX=cx1;
+     const endY=y(1);
+     const nextCommonX=left+(a+1)*cycleW;
+     const nextCommonRel=baseRows[0].damage/endRow.damage;
+     const nextCommonY=y(nextCommonRel);
+
+     svg.append(svgEl("path",{
+       d:`M${endX},${endY} C${endX+35},${endY+35} ${nextCommonX-35},${nextCommonY-35} ${nextCommonX},${nextCommonY}`,
+       class:"asc-reset-arrow",
+       "marker-end":"url(#ascResetArrow)"
+     }));
+
+     // Real raw drop ratio: peak A -> Common A+1.
+     const peakRaw=endRow.damage*ascMultiplier(a);
+     const resetRaw=baseRows[0].damage*ascMultiplier(a+1);
+     const factor=peakRaw/resetRaw;
+     const pctLoss=(1-resetRaw/peakRaw)*100;
+     const bx=(endX+nextCommonX)/2;
+     const by=(endY+nextCommonY)/2;
+
+     const g=svgEl("g",{class:"reset-badge"});
+     g.append(svgEl("rect",{x:bx-78,y:by-28,width:156,height:56,rx:10}));
+     g.append(svgEl("text",{x:bx,y:by-10,"text-anchor":"middle",class:"reset-title"},"ASCEND / RESET"));
+     g.append(svgEl("text",{x:bx,y:by+8,"text-anchor":"middle",class:"reset-factor"},
+       factor>=1?`↓ ×${factor.toLocaleString("pl-PL",{maximumFractionDigits:1})}`:`↑ ×${(1/factor).toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
+     g.append(svgEl("text",{x:bx,y:by+21,"text-anchor":"middle",class:"reset-pct"},
+       pctLoss>=0?`−${pctLoss.toLocaleString("pl-PL",{maximumFractionDigits:1})}%`:`+${(-pctLoss).toLocaleString("pl-PL",{maximumFractionDigits:1})}%`));
+     svg.append(g);
+   }
  }
 
- const pts=nodes.map((n,i)=>[x(i),yRel(relativePower(n))]);
- const path=pts.map((p,i)=>(i?"L":"M")+p[0]+","+p[1]).join(" ");
- svg.append(svgEl("path",{d:path,class:"power-zigzag"}));
+ // Arrow marker for reset transitions.
+ const defs=svgEl("defs");
+ const marker=svgEl("marker",{id:"ascResetArrow",markerWidth:"8",markerHeight:"8",refX:"7",refY:"3",orient:"auto"});
+ marker.append(svgEl("path",{d:"M0,0 L0,6 L8,3 z",class:"reset-arrow-head"}));
+ defs.append(marker);
+ svg.insertBefore(defs,svg.firstChild);
 
- nodes.forEach((n,i)=>{
-   const px=x(i), py=yRel(relativePower(n));
-   const rel=relativePower(n);
-
-   let cls="power-point";
-   if(n.kind==="peak")cls+=" peak";
-   if(n.kind==="reset")cls+=" reset";
-   if(n.kind==="recover")cls+=" recover";
-   svg.append(svgEl("circle",{cx:px,cy:py,r:n.kind==="peak"?8:7,class:cls}));
-
-   // label + true raw stat
-   let anchorY = n.kind==="reset" ? py+28 : py-17;
-   svg.append(svgEl("text",{x:px,y:anchorY,"text-anchor":"middle",class:`power-node-label ${n.kind}`},n.label));
-   const rawY = n.kind==="reset" ? py+42 : py-4;
-   svg.append(svgEl("text",{x:px,y:rawY,"text-anchor":"middle",class:"power-raw-label"},`⚔ ${fmt(n.value)}`));
-
-   if(n.kind==="peak" && n.asc<3){
-     const resetNode=nodes[i+1];
-     const dropFactor=n.value/resetNode.value;
-     const dropPct=(1-resetNode.value/n.value)*100;
-     const bx=(px+x(i+1))/2;
-     const by=(py+yRel(relativePower(resetNode)))/2;
-
-     const g=svgEl("g",{class:"drop-badge"});
-     g.append(svgEl("rect",{x:bx-70,y:by-29,width:140,height:58,rx:10}));
-     g.append(svgEl("text",{x:bx,y:by-9,"text-anchor":"middle",class:"drop-title"},"ASCEND"));
-     g.append(svgEl("text",{x:bx,y:by+9,"text-anchor":"middle",class:"drop-factor"},`↓ ×${dropFactor.toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
-     g.append(svgEl("text",{x:bx,y:by+22,"text-anchor":"middle",class:"drop-pct"},`−${dropPct.toLocaleString("pl-PL",{maximumFractionDigits:1})}% mocy`));
-     svg.append(g);
-   }
-
-   if(n.kind==="recover"){
-     const pct=n.value/n.oldPeak*100;
-     const g=svgEl("g",{class:"recover-power-badge"});
-     const bx=px, by=Math.min(chartBottom-40,py+54);
-     g.append(svgEl("rect",{x:bx-74,y:by-20,width:148,height:42,rx:9}));
-     g.append(svgEl("text",{x:bx,y:by-4,"text-anchor":"middle",class:"recover-power-title"},`${cfg.recoveryRarity}`));
-     g.append(svgEl("text",{x:bx,y:by+12,"text-anchor":"middle",class:"recover-power-pct"},`${pct.toLocaleString("pl-PL",{maximumFractionDigits:0})}% starej mocy`));
-     svg.append(g);
-   }
- });
-
- svg.append(svgEl("text",{x:left,y:H-30,class:"power-path-foot"},
-   `Wysokość = moc względem szczytu przed danym Ascension. 100% = poprzednia moc. Surowe ⚔ DMG pod każdym punktem.`));
+ svg.append(svgEl("text",{x:left,y:H-28,class:"power-path-foot"},
+   `Rarity/tier zawsze rośnie w cyklu. Ascension odblokowuje dopiero ${cfg.eligibilityLabel}. ${cfg.recoveryRarity} = próg odzyskania starej mocy z poradnika.`));
 
  host.append(svg);
 
  const copy=document.querySelector(`[data-path-copy="${section}"]`);
  if(copy){
-   const firstPeak=endRow.damage;
-   const firstReset=common.damage*ascMultiplier(1);
-   const firstRecovery=recoveryRow.damage*ascMultiplier(1);
-   const drop=(1-firstReset/firstPeak)*100;
-   const recoveryPct=firstRecovery/firstPeak*100;
-   copy.innerHTML=`Ascend na <b>${cfg.endRarity}</b> → po resecie spadasz w tym modelu do około <b>${(100-drop).toLocaleString("pl-PL",{maximumFractionDigits:2})}%</b> poprzedniej mocy. Poradnik wskazuje <b>${cfg.recoveryRarity}</b> jako próg odbudowy; z bazowych statów daje tu około <b>${recoveryPct.toLocaleString("pl-PL",{maximumFractionDigits:0})}%</b> starego szczytu.`;
+   copy.innerHTML=`W każdym cyklu rarity/tier rośnie normalnie aż do <b>${cfg.endRarity}</b>. <b>Ascension nie zależy od rarity</b> — można ją zrobić dopiero przy <b>${cfg.eligibilityLabel}</b>. Po resecie poradnik wskazuje <b>${cfg.recoveryRarity}</b> jako około-próg odzyskania poprzedniej mocy.`;
  }
 }
 

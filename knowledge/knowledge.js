@@ -372,9 +372,10 @@ function renderAscensionPath(section, hostId){
        `${cfg.recoveryRarity} • ~${pct.toLocaleString("pl-PL",{maximumFractionDigits:0})}%`));
      svg.append(rb);
 
-     // Horizontal reference to previous cycle peak, preserving absolute y.
+     // Visual recovery guide: always crosses the green recovery point exactly.
+     // The badge shows how this actual point compares with the previous peak.
      const prevPeakIndex=(p.asc-1)*n+(n-1);
-     svg.append(svgEl("line",{x1:x(prevPeakIndex),y1:y(prevPeak),x2:px,y2:y(prevPeak),class:"abs-old-power-line"}));
+     svg.append(svgEl("line",{x1:x(prevPeakIndex),y1:py,x2:px,y2:py,class:"abs-old-power-line"}));
    }
  });
 
@@ -387,7 +388,7 @@ function renderAscensionPath(section, hostId){
 
  const copy=document.querySelector(`[data-path-copy="${section}"]`);
  if(copy){
-   copy.innerHTML=`To jest <b>jedna wspólna skala mocy</b>. Common A1 nie jest równy Common A0, a ${cfg.endRarity} A1 jest <b>×50</b> mocniejszy od ${cfg.endRarity} A0. Ascension jest dostępna przy <b>${cfg.eligibilityLabel}</b>; po resecie poradnik wskazuje <b>${cfg.recoveryRarity}</b> jako około-próg odzyskania starej mocy.`;
+   copy.innerHTML=`To jest <b>jedna wspólna skala mocy</b>. Common A1 nie jest równy Common A0, a ${cfg.endRarity} A1 jest <b>×50</b> mocniejszy od ${cfg.endRarity} A0. Ascension jest dostępna przy <b>${cfg.eligibilityLabel}</b>; po resecie poradnik wskazuje <b>${cfg.recoveryRarity}</b> jako około-próg odzyskania starej mocy; zielona linia przechodzi dokładnie przez rzeczywisty punkt tej rarity.`;
  }
 }
 

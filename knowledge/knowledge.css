@@ -845,3 +845,61 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
   .asc-path-viz{min-height:560px !important}
   .asc-path-svg.absolute-asc-svg{height:560px !important;width:1540px}
 }
+
+/* Forge Knowledge 0.13 — readable chart typography + aligned recovery guide */
+.abs-title{
+  font-size:15px !important;
+  letter-spacing:.06em !important;
+}
+.abs-subtitle{
+  font-size:11px !important;
+}
+.abs-axis{
+  font-size:11px !important;
+}
+.abs-cycle-label{
+  font-size:12px !important;
+  letter-spacing:.055em !important;
+}
+.abs-rarity{
+  font-size:10.5px !important;
+}
+.abs-reset-title{
+  font-size:9.5px !important;
+}
+.abs-reset-value{
+  font-size:15px !important;
+}
+.abs-reset-loss{
+  font-size:9px !important;
+}
+.abs-end-title{
+  font-size:8.8px !important;
+}
+.abs-end-sub{
+  font-size:8.5px !important;
+}
+.abs-recovery-title{
+  font-size:8.6px !important;
+}
+.abs-recovery-sub{
+  font-size:8.8px !important;
+}
+.abs-foot{
+  font-size:10.5px !important;
+}
+.abs-old-power-line{
+  stroke:#62c59a !important;
+  stroke-width:1.4 !important;
+  stroke-dasharray:5 4 !important;
+  opacity:.78 !important;
+}
+.asc-path-head h3{
+  font-size:18px !important;
+}
+.asc-path-head p{
+  font-size:11px !important;
+}
+.path-legend{
+  font-size:10px !important;
+}

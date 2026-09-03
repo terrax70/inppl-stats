@@ -270,7 +270,7 @@ function renderAscensionPath(section, hostId){
    });
  }
 
- const W=1760,H=690,left=96,right=36,top=70,bottom=430;
+ const W=1760,H=735,left=96,right=36,top=70,bottom=420;
  const innerW=W-left-right;
  const values=series.map(p=>p.rawDamage);
  const min=Math.min(...values),max=Math.max(...values);
@@ -412,7 +412,7 @@ function renderAscensionPath(section, hostId){
  // Dedicated resource lane: cards are never placed over the plotted data.
  const rr=D.recoveryResources?.[section];
  if(rr){
-   const laneTop=488;
+   const laneTop=468;
    svg.append(svgEl("line",{x1:left,y1:laneTop-18,x2:W-right,y2:laneTop-18,class:"resource-lane-line"}));
    svg.append(svgEl("text",{x:left,y:laneTop-26,class:"resource-lane-title"},"ZAPAS PRZED ASCENSION"));
 
@@ -420,23 +420,36 @@ function renderAscensionPath(section, hostId){
      const peakIndex=a*n+(n-1);
      const nextCommonIndex=(a+1)*n;
      const centerX=(x(peakIndex)+x(nextCommonIndex))/2;
-     const cardW=250, cardH=92;
-     const cardY=laneTop+12;
+     const cardW=292, cardH=126;
+     const cardY=laneTop+10;
 
      const card=svgEl("g",{class:a===0?"resource-lane-card primary":"resource-lane-card baseline"});
      card.append(svgEl("rect",{x:centerX-cardW/2,y:cardY,width:cardW,height:cardH,rx:12}));
 
-     card.append(svgEl("text",{x:centerX,y:cardY+20,"text-anchor":"middle",class:"resource-lane-kicker"},
-       a===0?`${rr.icon} ZAPAS NA TEN MANEWR`:`${rr.icon} BASELINE Z PORADNIKA A0→A1`));
+     card.append(svgEl("text",{x:centerX,y:cardY+19,"text-anchor":"middle",class:"resource-lane-kicker"},
+       a===0?`${rr.icon} ZAPAS PRZED ASCENSION`:`${rr.icon} BASELINE A0→A1`));
 
-     card.append(svgEl("text",{x:centerX,y:cardY+47,"text-anchor":"middle",class:"resource-lane-value"},
+     card.append(svgEl("text",{x:centerX,y:cardY+44,"text-anchor":"middle",class:"resource-lane-value"},
        `${rr.baseLabel} ${rr.resource}`));
 
-     card.append(svgEl("text",{x:centerX,y:cardY+66,"text-anchor":"middle",class:"resource-lane-tech"},
+     card.append(svgEl("text",{x:centerX,y:cardY+62,"text-anchor":"middle",class:"resource-lane-tech"},
        `Max Tech: ${rr.maxTechLabel}`));
 
-     card.append(svgEl("text",{x:centerX,y:cardY+82,"text-anchor":"middle",class:"resource-lane-target"},
-       `Cel odbudowy: ${rr.target}`));
+     card.append(svgEl("text",{x:centerX,y:cardY+81,"text-anchor":"middle",class:"resource-lane-target"},
+       `${rr.targetLevel} • cel: ${rr.target}`));
+
+     if(rr.pullChance){
+       card.append(svgEl("text",{x:centerX,y:cardY+97,"text-anchor":"middle",class:"resource-lane-extra"},
+         `${rr.pullChance}`));
+     }
+
+     if(rr.cumulativeSummons){
+       card.append(svgEl("text",{x:centerX,y:cardY+113,"text-anchor":"middle",class:"resource-lane-extra strong"},
+         `${rr.cumulativeSummons.toLocaleString("pl-PL")} cumulative summons`));
+     }else if(rr.ascensionCost){
+       card.append(svgEl("text",{x:centerX,y:cardY+113,"text-anchor":"middle",class:"resource-lane-extra strong"},
+         `+ ${rr.ascensionCostLabel} Gold • koszt samego Ascension`));
+     }
 
      svg.append(card);
 
@@ -451,7 +464,7 @@ function renderAscensionPath(section, hostId){
    }
  }
 
- svg.append(svgEl("text",{x:left,y:H-18,class:"abs-foot"},
+ svg.append(svgEl("text",{x:left,y:H-14,class:"abs-foot"},
    `Kalibracja poradnika: ${cfg.recoveryRarity} A1 = ${cfg.endRarity} A0 • każdy kolejny cykl zachowuje tę samą relację. Krok Ascension tej ścieżki: ×${guideStep.toLocaleString("pl-PL",{maximumFractionDigits:2})}.`));
 
  host.append(svg);
@@ -459,7 +472,7 @@ function renderAscensionPath(section, hostId){
  const copy=document.querySelector(`[data-path-copy="${section}"]`);
  if(copy){
    const rr=D.recoveryResources?.[section];
-   copy.innerHTML=`Wizualizacja jest skalowana <b>dokładnie według poradnika</b>: <b>${cfg.recoveryRarity} A1 = ${cfg.endRarity} A0</b>, ${cfg.recoveryRarity} A2 = ${cfg.endRarity} A1 itd. Ascension jest dostępna przy <b>${cfg.eligibilityLabel}</b>. ${rr?`Poradnik podaje dla pierwszego manewru Base→A1 zapas około <b>${rr.baseLabel} ${rr.resource}</b> lub <b>${rr.maxTechLabel}</b> z Maxed Tech, aby dojść do ${rr.target}.`:""}`;
+   copy.innerHTML=`Wizualizacja jest skalowana <b>dokładnie według poradnika</b>: <b>${cfg.recoveryRarity} A1 = ${cfg.endRarity} A0</b>, ${cfg.recoveryRarity} A2 = ${cfg.endRarity} A1 itd. Ascension jest dostępna przy <b>${cfg.eligibilityLabel}</b>. ${rr?`Dla pierwszego manewru Base→A1 poradnik podaje <b>${rr.baseLabel} ${rr.resource}</b> lub <b>${rr.maxTechLabel}</b> z Maxed Tech, aby dojść do <b>${rr.targetLevel}</b> / ${rr.target}.${rr.cumulativeSummons?` To odpowiada około <b>${rr.cumulativeSummons.toLocaleString("pl-PL")} cumulative summons</b>.`:""}${rr.ascensionCost?` Samo Ascension kosztuje dodatkowo <b>${rr.ascensionCostLabel} Gold</b>.`:""}`:""}`;
  }
 }
 

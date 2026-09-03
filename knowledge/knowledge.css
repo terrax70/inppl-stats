@@ -1014,3 +1014,36 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
   .asc-path-viz{min-height:690px !important}
   .asc-path-svg.guide-asc-svg{height:690px !important;width:1540px}
 }
+
+/* Forge Knowledge 0.17 — richer Ascension prep cards */
+.asc-path-viz{min-height:735px !important}
+.asc-path-svg.guide-asc-svg{height:735px !important}
+.resource-lane-card rect{
+  stroke-width:1.4;
+}
+.resource-lane-kicker{
+  font-size:9.8px !important;
+}
+.resource-lane-value{
+  font-size:18px !important;
+}
+.resource-lane-tech{
+  font-size:11px !important;
+}
+.resource-lane-target{
+  font-size:10px !important;
+}
+.resource-lane-extra{
+  fill:#8191a4;
+  font-size:9.2px;
+  font-weight:850;
+}
+.resource-lane-extra.strong{
+  fill:#dfe7ef;
+  font-size:9.8px;
+  font-weight:1000;
+}
+@media(max-width:900px){
+  .asc-path-viz{min-height:735px !important}
+  .asc-path-svg.guide-asc-svg{height:735px !important}
+}

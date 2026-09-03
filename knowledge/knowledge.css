@@ -186,3 +186,38 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
 
 /* Forge Knowledge 0.5 — no competing axis multipliers */
 .grid-line{opacity:.72}
+
+/* Forge Knowledge 0.6 — Items */
+.item-type-note{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin:0 0 10px;
+}
+.item-type-note>div{
+  border:1px solid #1b2632;
+  background:#0a0f15;
+  border-radius:9px;
+  padding:10px 12px;
+}
+.item-type-note span{
+  display:block;
+  font-size:10px;
+  font-weight:950;
+  color:#f0b75b;
+  margin-bottom:4px;
+}
+.item-type-note b{
+  color:#7f8da0;
+  font-size:10px;
+  font-weight:800;
+}
+.item-viz-shell .viz-svg{
+  height:720px;
+}
+.item-viz-shell{
+  min-height:720px;
+}
+@media(max-width:700px){
+  .item-type-note{grid-template-columns:1fr}
+}

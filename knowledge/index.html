@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Forge Knowledge Lab</title>
-<link rel="stylesheet" href="knowledge.css?v=5">
+<link rel="stylesheet" href="knowledge.css?v=6">
 </head>
 <body>
 <div class="app">
@@ -32,7 +32,7 @@
     </nav>
 
     <div class="side-status">
-      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.5</span></div>
+      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.6</span></div>
       <div>Moduł ukryty • brak linku w INPPL</div>
       <div>Dane config: 2026-07-15</div>
     </div>
@@ -55,6 +55,7 @@
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="pets">🐾 Pety</button>
       <button class="tab" data-tab="mounts">🐎 Mounty</button>
+      <button class="tab" data-tab="items">🛡️ Itemy</button>
       <button class="tab" data-tab="ascension">↗ Ascension</button>
     </div>
 
@@ -82,7 +83,26 @@
       <div class="insights" id="mountInsights"></div>
     </section>
 
-    <section class="view" id="ascension">
+    
+    <section class="view" id="items">
+      <div class="view-head">
+        <div>
+          <div class="eyebrow">ITEMY • TIER / AGE</div>
+          <h2>O ile mocniejszy jest kolejny tier itemu?</h2>
+          <p>W bazowych statystykach itemów każdy kolejny tier daje dokładnie <b>×4</b>. Jedna krzywa wystarcza, bo bazowe ❤️ HP i ⚔️ DMG rosną tym samym mnożnikiem.</p>
+        </div>
+      </div>
+
+      <div class="item-type-note">
+        <div><span>❤️ HP</span><b>Helmet • Armour • Shoes • Belt</b></div>
+        <div><span>⚔️ DMG</span><b>Weapon • Gloves • Necklace • Ring</b></div>
+      </div>
+
+      <div class="viz-shell item-viz-shell" id="itemViz"></div>
+      <div class="insights" id="itemInsights"></div>
+    </section>
+
+<section class="view" id="ascension">
       <div class="view-head">
         <div>
           <div class="eyebrow">ASCENSION GUIDE • DANE ZE ŹRÓDŁOWEGO ARKUSZA</div>
@@ -156,13 +176,13 @@
     </section>
 
     <footer>
-      <span>Forge Knowledge Lab 0.5</span>
+      <span>Forge Knowledge Lab 0.6</span>
       <span>Ten moduł nie jest podlinkowany z głównej strony.</span>
     </footer>
   </main>
 </div>
 
-<script src="knowledge-data.js?v=5"></script>
-<script src="knowledge.js?v=5"></script>
+<script src="knowledge-data.js?v=6"></script>
+<script src="knowledge.js?v=6"></script>
 </body>
 </html>

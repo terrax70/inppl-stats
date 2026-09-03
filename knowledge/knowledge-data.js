@@ -26,6 +26,24 @@ window.FORGE_KNOWLEDGE = {
     {type:"Damage",   damageMultiplier:1.5, healthMultiplier:0.5},
     {type:"Health",   damageMultiplier:0.5, healthMultiplier:1.5}
   ],
+
+  itemTiers: [
+    {rarity:"Primitive",    damage:5,       health:40},
+    {rarity:"Medieval",     damage:20,      health:160},
+    {rarity:"Early-Modern", damage:80,      health:640},
+    {rarity:"Modern",       damage:320,     health:2560},
+    {rarity:"Space",        damage:1280,    health:10240},
+    {rarity:"Interstellar", damage:5120,    health:40960},
+    {rarity:"Multiverse",   damage:20480,   health:163840},
+    {rarity:"Quantum",      damage:81920,   health:655360},
+    {rarity:"Underworld",   damage:327680,  health:2621440},
+    {rarity:"Divine",       damage:1310720, health:10485760}
+  ],
+  itemTierColors: {
+    "Primitive":"#aeb8c6","Medieval":"#7eafff","Early-Modern":"#8f7dff",
+    "Modern":"#c06cff","Space":"#f16ac1","Interstellar":"#ff776e",
+    "Multiverse":"#ff9f5b","Quantum":"#f7c95b","Underworld":"#7be09d","Divine":"#65e6d0"
+  },
   ascension: {
     totalCost: {
       base: {

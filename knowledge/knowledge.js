@@ -66,7 +66,7 @@ function renderProgressViz(containerId, rows, systemName){
  svg.append(svgEl("path",{d:path,class:"plot-line"}));
 
  rows.forEach((r,i)=>{
-   const ny=nodeY(i),px=x(i),py=y(power[i]),c=D.colors[r.rarity];
+   const ny=nodeY(i),px=x(i),py=y(power[i]),c=(D.colors[r.rarity]||D.itemTierColors?.[r.rarity]||"#8abcf5");
    const sx=ladderX+ladderW,sy=ny,mx=chartX-50;
 
    const connector=svgEl("path",{
@@ -90,7 +90,7 @@ function renderProgressViz(containerId, rows, systemName){
 
    const p=svgEl("circle",{cx:px,cy:py,r:8,fill:c,class:"point","data-i":i});
    svg.append(p);
-   svg.append(svgEl("text",{x:px,y:bottom+30,"text-anchor":"middle",fill:c,class:"axis-text"},r.rarity.slice(0,4)));
+   svg.append(svgEl("text",{x:px,y:bottom+30,"text-anchor":"middle",fill:c,class:"axis-text"},(r.rarity==="Early-Modern"?"E-Mod":r.rarity==="Interstellar"?"Inter":r.rarity==="Multiverse"?"Multi":r.rarity==="Underworld"?"Under":r.rarity.slice(0,5))));
 
    // MOST IMPORTANT: giant multiplier between rarities.
    if(i>0){
@@ -122,7 +122,7 @@ function renderProgressViz(containerId, rows, systemName){
    p.addEventListener("mousemove",ev=>{
      const i=Number(p.dataset.i),r=rows[i];
      const step=i?rows[i].damage/rows[i-1].damage:null;
-     tip.innerHTML=`<b style="color:${D.colors[r.rarity]}">${r.rarity}</b>
+     tip.innerHTML=`<b style="color:${(D.colors[r.rarity]||D.itemTierColors?.[r.rarity]||"#8abcf5")}">${r.rarity}</b>
        <span>❤️ HP: <strong>${fmt(r.health)}</strong></span>
        <span>⚔️ DMG: <strong>${fmt(r.damage)}</strong></span>
        ${r.hatchSeconds?`<span>🥚 Wyklucie: <strong>${fmtTime(r.hatchSeconds)}</strong></span>`:""}
@@ -157,6 +157,24 @@ function renderPets(){
 function renderMounts(){
  renderProgressViz("#mountViz",D.mounts,"Mounty");
  renderProgressInsights("#mountInsights",D.mounts);
+}
+
+function renderItems(){
+ renderProgressViz("#itemViz",D.itemTiers,"Itemy");
+ renderProgressInsights("#itemInsights",D.itemTiers);
+
+ // Override wording for item-specific insight cards.
+ const box=$("#itemInsights");
+ if(box){
+   const total=D.itemTiers.at(-1).damage/D.itemTiers[0].damage;
+   const steps=D.itemTiers.slice(1).map((r,i)=>({
+     from:D.itemTiers[i].rarity,to:r.rarity,ratio:r.damage/D.itemTiers[i].damage
+   }));
+   box.innerHTML=`
+     <article class="insight primary-insight"><span>PRIMITIVE → DIVINE</span><b>×${total.toLocaleString("pl-PL")}</b><small>Divine ma ${total.toLocaleString("pl-PL")}× większą bazową statystykę niż Primitive.</small></article>
+     <article class="insight primary-insight"><span>KAŻDY KOLEJNY TIER</span><b>×4</b><small>Ten sam skok dotyczy bazowego ❤️ HP i ⚔️ DMG.</small></article>
+     <article class="insight step-strip"><span>WSZYSTKIE SKOKI</span><div>${steps.map(x=>`<span class="mini-step"><b>×4</b><small>${x.from} → ${x.to}</small></span>`).join("")}</div></article>`;
+ }
 }
 
 function renderAscension(){
@@ -210,5 +228,5 @@ $$(".tab").forEach(b=>b.onclick=()=>{
  $$(".view").forEach(v=>v.classList.toggle("active",v.id===b.dataset.tab));
 });
 
-renderPets();renderMounts();renderAscension();
+renderPets();renderMounts();renderItems();renderAscension();
 })();

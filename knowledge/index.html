@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Forge Knowledge Lab</title>
-<link rel="stylesheet" href="knowledge.css?v=170">
+<link rel="stylesheet" href="knowledge.css?v=180">
 </head>
 <body>
 <div class="app">
@@ -32,7 +32,7 @@
     </nav>
 
     <div class="side-status">
-      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.17</span></div>
+      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.18</span></div>
       <div>Moduł ukryty • brak linku w INPPL</div>
       <div>Dane config: 2026-07-15</div>
     </div>
@@ -276,18 +276,90 @@
         </div>
       </article>
 
+      
+      <section class="income-calc-card">
+        <div class="income-head">
+          <div>
+            <div class="card-kicker">KIEDY ZACZĄĆ OSZCZĘDZAĆ?</div>
+            <h3>Realny tygodniowy dopływ zasobów</h3>
+            <p>Nie używam już starej „średniej INPPL”. Kalkulator składa wynik ze źródeł, które da się policzyć z configów gry. Wszystkie założenia są widoczne i edytowalne.</p>
+          </div>
+          <div class="income-source-badge">CONFIG MODEL • 2026-07-15</div>
+        </div>
+
+        <div class="income-input-grid">
+          <article class="income-panel">
+            <div class="income-panel-title">🎯 Misje</div>
+            <label>Mission Level <input id="incMissionLevel" type="number" min="1" max="60" value="60"></label>
+            <label>Energy / misje dziennie <input id="incMissionsDay" type="number" min="0" max="20" step="1" value="3"></label>
+            <label>Udział rewardów <select id="incMissionShare">
+              <option value="0.6666667" selected>4 z 6 • model 66,7%</option>
+              <option value="0.5">Ostrożnie • 50%</option>
+              <option value="1">Wszystkie z listy • 100%</option>
+            </select></label>
+            <small>Config mówi: DailyEnergy = 3 i OwnerRewardsCount = 4. Nie zakładam po cichu, że zawsze dostajesz wszystkie 6 walut.</small>
+          </article>
+
+          <article class="income-panel">
+            <div class="income-panel-title">🗝️ Dungeony</div>
+            <label>Skill Dungeon <div class="dual-input"><input id="incSkillWorld" type="number" min="1" max="99" value="8"><span>-</span><input id="incSkillStage" type="number" min="1" max="10" value="1"></div></label>
+            <label>Runów / tydzień <input id="incSkillRuns" type="number" min="0" max="100" value="7"></label>
+            <label>Pet Dungeon <div class="dual-input"><input id="incPetWorld" type="number" min="1" max="99" value="8"><span>-</span><input id="incPetStage" type="number" min="1" max="10" value="1"></div></label>
+            <label>Runów / tydzień <input id="incPetRuns" type="number" min="0" max="100" value="7"></label>
+          </article>
+
+          <article class="income-panel">
+            <div class="income-panel-title">⚔️ Wojna klanowa</div>
+            <label>Tier <select id="incWarTier">
+              <option>E</option><option>D</option><option>C</option><option>B</option><option>A</option><option selected>S</option><option>SS</option><option>SSS</option>
+            </select></label>
+            <label>Wynik <select id="incWarResult"><option value="win" selected>Wygrana</option><option value="lose">Przegrana</option></select></label>
+            <small>Dokładne rewardy z GuildTierConfig. Jedna wojna na tydzień.</small>
+          </article>
+
+          <article class="income-panel">
+            <div class="income-panel-title">🌙 Offline + inne</div>
+            <label>Offline godzin / dzień <input id="incOfflineHours" type="number" min="0" max="24" step=".5" value="4"></label>
+            <label>Mnożnik Coins profilu <input id="incOfflineCoinMult" type="number" min="0" max="1000000" step=".1" value="1"></label>
+            <label>Dodatkowe Coins / tydz. <input id="incExtraCoins" type="number" min="0" step="1000" value="0"></label>
+            <label>Dodatkowe Eggshells / tydz. <input id="incExtraEggs" type="number" min="0" step="100" value="0"></label>
+            <label>Dodatkowe Clockwinders / tydz. <input id="incExtraWinders" type="number" min="0" step="100" value="0"></label>
+            <small>Arena/eventy/bonusy wpisujesz jako „inne”, dopóki nie mamy ich pewnie zmapowanych do tygodnia.</small>
+          </article>
+        </div>
+
+        <div class="income-weekly" id="incomeWeekly"></div>
+
+        <div class="saving-inputs">
+          <div class="saving-input-title">Twoja sytuacja</div>
+          <label>Max Tech kosztów <input id="saveMaxTech" type="checkbox"></label>
+          <label>🥚 Eggshells teraz <input id="saveEggs" type="number" min="0" value="0"></label>
+          <label>🐾 Pet Lv <input id="savePetLv" type="number" min="1" max="100" value="80"></label>
+          <label>Lv / tydzień <input id="savePetSpeed" type="number" min=".1" step=".1" value="5"></label>
+          <label>⏱️ Clockwinders teraz <input id="saveWinders" type="number" min="0" value="0"></label>
+          <label>🐎 Mount Lv <input id="saveMountLv" type="number" min="1" max="100" value="80"></label>
+          <label>Lv / tydzień <input id="saveMountSpeed" type="number" min=".1" step=".1" value="5"></label>
+          <label>🪙 Gold teraz <input id="saveCoins" type="number" min="0" value="0"></label>
+          <label>🔨 Forge Lv <input id="saveForgeLv" type="number" min="1" max="35" value="25"></label>
+          <label>Lv / tydzień <input id="saveForgeSpeed" type="number" min=".1" step=".1" value="1"></label>
+        </div>
+
+        <div class="saving-results" id="savingResults"></div>
+        <div class="income-method-note">Wynik jest modelem, nie magiczną „średnią gracza”. Największa niepewność: wybór rewardów misji, profile/Tech offline oraz ręczne źródła typu Arena/eventy.</div>
+      </section>
+
       <div class="asc-source-notes" id="ascSourceNotes"></div>
       <div class="source-credit" id="ascAttribution"></div>
     </section>
 
     <footer>
-      <span>Forge Knowledge Lab 0.17</span>
+      <span>Forge Knowledge Lab 0.18</span>
       <span>Ten moduł nie jest podlinkowany z głównej strony.</span>
     </footer>
   </main>
 </div>
 
-<script src="knowledge-data.js?v=170"></script>
-<script src="knowledge.js?v=170"></script>
+<script src="knowledge-data.js?v=180"></script>
+<script src="knowledge.js?v=180"></script>
 </body>
 </html>

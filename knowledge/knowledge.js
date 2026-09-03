@@ -495,6 +495,123 @@ function renderAllAscensionPaths(){
  });
 }
 
+
+function incNum(id, fallback=0){
+ const v=Number($(id)?.value);
+ return Number.isFinite(v)?v:fallback;
+}
+function missionReward(level,type){
+ const M=D.weeklyIncomeModel.mission;
+ const base=M.base[type]||0;
+ return Math.round(base*Math.pow(M.rewardGrowth,Math.max(0,level-1)));
+}
+function dungeonIndex(world,stage){
+ return Math.max(0,(Math.max(1,world)-1)*10+(Math.max(1,stage)-1));
+}
+function fmt1(n){
+ return Number(n||0).toLocaleString("pl-PL",{maximumFractionDigits:1});
+}
+function calcWeeklyIncome(){
+ const M=D.weeklyIncomeModel;
+ const missionLv=Math.max(1,Math.min(60,incNum("#incMissionLevel",60)));
+ const missionsDay=Math.max(0,incNum("#incMissionsDay",3));
+ const share=Math.max(0,Math.min(1,incNum("#incMissionShare",2/3)));
+ const missionFactor=missionsDay*7*share;
+
+ const mission={
+   Coins:missionReward(missionLv,"Coins")*missionFactor,
+   SkillSummonTickets:missionReward(missionLv,"SkillSummonTickets")*missionFactor,
+   Eggshells:missionReward(missionLv,"Eggshells")*missionFactor,
+   ClockWinders:missionReward(missionLv,"ClockWinders")*missionFactor
+ };
+
+ const skillIdx=dungeonIndex(incNum("#incSkillWorld",8),incNum("#incSkillStage",1));
+ const petIdx=dungeonIndex(incNum("#incPetWorld",8),incNum("#incPetStage",1));
+ const skillRunReward=Math.floor(M.dungeon.Skill.base+M.dungeon.Skill.increase*skillIdx);
+ const petRunReward=Math.floor(M.dungeon.Pet.base+M.dungeon.Pet.increase*petIdx);
+ const dungeon={
+   SkillSummonTickets:skillRunReward*Math.max(0,incNum("#incSkillRuns",7)),
+   Eggshells:petRunReward*Math.max(0,incNum("#incPetRuns",7))
+ };
+
+ const tier=$("#incWarTier")?.value||"S";
+ const result=$("#incWarResult")?.value||"win";
+ const war=M.warTiers[tier]?.[result]||{};
+
+ const offlineHours=Math.max(0,incNum("#incOfflineHours",4));
+ const offlineCoinMult=Math.max(0,incNum("#incOfflineCoinMult",1));
+ const idleCoins=offlineHours*3600*M.idle.coinsPerSecond*offlineCoinMult*7;
+
+ const total={
+   Coins:mission.Coins+idleCoins+(war.Coins||0)+Math.max(0,incNum("#incExtraCoins",0)),
+   Eggshells:mission.Eggshells+dungeon.Eggshells+(war.Eggshells||0)+Math.max(0,incNum("#incExtraEggs",0)),
+   ClockWinders:mission.ClockWinders+(war.ClockWinders||0)+Math.max(0,incNum("#incExtraWinders",0)),
+   SkillSummonTickets:mission.SkillSummonTickets+dungeon.SkillSummonTickets+(war.SkillSummonTickets||0)
+ };
+
+ const weekly=$("#incomeWeekly");
+ if(weekly){
+   weekly.innerHTML=`
+    <article><span>🪙 COINS / TYDZIEŃ</span><b>${fmt(total.Coins)}</b><small>Misje ${fmt(mission.Coins)} • Offline ${fmt(idleCoins)} • Inne ${fmt(incNum("#incExtraCoins",0))}</small></article>
+    <article><span>🥚 EGGSHELLS / TYDZIEŃ</span><b>${fmt(total.Eggshells)}</b><small>Misje ${fmt(mission.Eggshells)} • Dungeon ${fmt(dungeon.Eggshells)} • Wojna ${fmt(war.Eggshells||0)}</small></article>
+    <article><span>⏱️ CLOCKWINDERS / TYDZIEŃ</span><b>${fmt(total.ClockWinders)}</b><small>Misje ${fmt(mission.ClockWinders)} • Wojna ${fmt(war.ClockWinders||0)} • Inne ${fmt(incNum("#incExtraWinders",0))}</small></article>
+    <article><span>🎟️ TICKETS / TYDZIEŃ</span><b>${fmt(total.SkillSummonTickets)}</b><small>Misje ${fmt(mission.SkillSummonTickets)} • Dungeon ${fmt(dungeon.SkillSummonTickets)} • Wojna ${fmt(war.SkillSummonTickets||0)}</small></article>`;
+ }
+
+ calcSavingStatus(total);
+ return total;
+}
+function savingCard(system,total,stock,level,speed){
+ const useMax=$("#saveMaxTech")?.checked;
+ const T=D.weeklyIncomeModel.savingTargets[system];
+ const target=useMax?T.maxTech:T.normal;
+ const weekly=total[T.currency]||0;
+ const missing=Math.max(0,target-stock);
+ const weeksNeed=missing<=0?0:(weekly>0?missing/weekly:Infinity);
+ const weeksCap=Math.max(0,(T.maxLevel-level)/Math.max(.01,speed));
+
+ let state="ok",title="MOŻESZ JESZCZE WYDAWAĆ";
+ if(missing<=0){state="ready";title="ZAPAS GOTOWY";}
+ else if(!Number.isFinite(weeksNeed)){state="danger";title="BRAK DOPŁYWU — OSZCZĘDZAJ";}
+ else if(weeksCap<=weeksNeed){state="danger";title="OSZCZĘDZAJ TERAZ";}
+ else if(weeksCap<=weeksNeed*1.5){state="warn";title="ZACZNIJ ODKŁADAĆ";}
+ const needText=Number.isFinite(weeksNeed)?`${weeksNeed.toLocaleString("pl-PL",{maximumFractionDigits:1})} tyg.`:"∞";
+ return `<article class="saving-card ${state}">
+   <div class="saving-state">${title}</div>
+   <h4>${T.icon} ${T.label}</h4>
+   <div class="saving-kpis">
+     <div><span>Cel zapasu</span><b>${fmt(target)}</b></div>
+     <div><span>Masz</span><b>${fmt(stock)}</b></div>
+     <div><span>Wpada / tydz.</span><b>${fmt(weekly)}</b></div>
+   </div>
+   <div class="saving-bar"><i style="width:${Math.min(100,target?stock/target*100:100)}%"></i></div>
+   <p>Brakuje <b>${fmt(missing)}</b> • potrzebujesz około <b>${needText}</b> oszczędzania. Do ${T.maxLevel===35?"Forge 35":"Lv100"} przy podanym tempie: <b>${weeksCap.toLocaleString("pl-PL",{maximumFractionDigits:1})} tyg.</b></p>
+   ${T.note?`<small>${T.note}</small>`:""}
+ </article>`;
+}
+function calcSavingStatus(total){
+ const host=$("#savingResults");if(!host)return;
+ host.innerHTML=[
+   savingCard("pets",total,incNum("#saveEggs",0),incNum("#savePetLv",80),incNum("#savePetSpeed",5)),
+   savingCard("mounts",total,incNum("#saveWinders",0),incNum("#saveMountLv",80),incNum("#saveMountSpeed",5)),
+   savingCard("items",total,incNum("#saveCoins",0),incNum("#saveForgeLv",25),incNum("#saveForgeSpeed",1))
+ ].join("");
+}
+function bindIncomeCalc(){
+ const ids=[
+ "#incMissionLevel","#incMissionsDay","#incMissionShare","#incSkillWorld","#incSkillStage","#incSkillRuns",
+ "#incPetWorld","#incPetStage","#incPetRuns","#incWarTier","#incWarResult","#incOfflineHours","#incOfflineCoinMult",
+ "#incExtraCoins","#incExtraEggs","#incExtraWinders","#saveMaxTech","#saveEggs","#savePetLv","#savePetSpeed",
+ "#saveWinders","#saveMountLv","#saveMountSpeed","#saveCoins","#saveForgeLv","#saveForgeSpeed"
+ ];
+ ids.forEach(id=>{
+   const el=$(id); if(!el)return;
+   el.addEventListener("input",calcWeeklyIncome);
+   el.addEventListener("change",calcWeeklyIncome);
+ });
+ calcWeeklyIncome();
+}
+
 function renderAscension(){
  const A=D.ascension;
  const labels={gold:"Gold",tickets:"Tickets",eggshells:"Eggshells",clockwinders:"Clockwinders"};
@@ -565,4 +682,5 @@ $$(".tab").forEach(b=>b.onclick=()=>{
 });
 
 renderPets();renderMounts();renderItems();renderAllAscensionPaths();renderAscension();
+bindIncomeCalc();
 })();

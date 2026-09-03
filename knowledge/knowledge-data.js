@@ -52,6 +52,53 @@ window.FORGE_KNOWLEDGE = {
   },
 
 
+
+  weeklyIncomeModel: {
+    mission: {
+      maxLevel:60,
+      dailyEnergy:3,
+      ownerRewardsCount:4,
+      listedCurrencyCount:6,
+      rewardGrowth:1.01,
+      base: {
+        Coins:5500,
+        SkillSummonTickets:184,
+        Eggshells:91,
+        TechPotions:92,
+        ClockWinders:69
+      },
+      note:"MissionBaseConfig: DailyEnergy=3, MissionOwnerRewardsCount=4. MissionRewardLibrary lists 6 currencies. The default 4/6 share is an estimate unless reward selection distribution is confirmed."
+    },
+    dungeon: {
+      Hammer:{HammersBase:60,HammersIncrease:1,CoinsBase:4000,CoinsIncrease:100},
+      Skill:{base:200,increase:2,currency:"SkillSummonTickets"},
+      Pet:{base:200,increase:0.65,currency:"Eggshells"},
+      note:"Reward index = (world-1)*10 + (stage-1). Example 8-1 -> index 70 -> Skill 340, Pet floor(245.5)=245, Hammer 130 + 11,000 Coins."
+    },
+    idle: {
+      minSeconds:600,
+      maxSeconds:14400,
+      coinsPerSecond:1,
+      hammersPerMinute:1,
+      note:"IdleConfig base rates only. Profile/Tech multipliers are player-specific, so the calculator leaves them editable."
+    },
+    warTiers: {
+      E:{win:{Hammers:265,SkillSummonTickets:260,Eggshells:170,TechPotions:200,ClockWinders:125},lose:{Hammers:130,SkillSummonTickets:130,Eggshells:85,TechPotions:100,ClockWinders:65}},
+      D:{win:{Hammers:530,SkillSummonTickets:520,Eggshells:350,TechPotions:400,ClockWinders:250},lose:{Hammers:265,SkillSummonTickets:260,Eggshells:175,TechPotions:200,ClockWinders:125}},
+      C:{win:{Hammers:1060,SkillSummonTickets:1050,Eggshells:700,TechPotions:800,ClockWinders:525},lose:{Hammers:530,SkillSummonTickets:525,Eggshells:350,TechPotions:400,ClockWinders:260}},
+      B:{win:{Hammers:2135,SkillSummonTickets:2100,Eggshells:1400,TechPotions:1580,ClockWinders:1000},lose:{Hammers:1060,SkillSummonTickets:1050,Eggshells:700,TechPotions:790,ClockWinders:500}},
+      A:{win:{Hammers:3750,SkillSummonTickets:3600,Eggshells:2500,TechPotions:2800,ClockWinders:1900},lose:{Hammers:1870,SkillSummonTickets:1800,Eggshells:1250,TechPotions:1400,ClockWinders:1000}},
+      S:{win:{Hammers:5300,SkillSummonTickets:7800,Eggshells:5200,TechPotions:5900,ClockWinders:4000},lose:{Hammers:2650,SkillSummonTickets:3900,Eggshells:2600,TechPotions:2900,ClockWinders:2000}},
+      SS:{win:{Hammers:5500,SkillSummonTickets:8200,Eggshells:5500,TechPotions:6200,ClockWinders:4200},lose:{Hammers:2650,SkillSummonTickets:3900,Eggshells:2600,TechPotions:2900,ClockWinders:2000}},
+      SSS:{win:{Hammers:5800,SkillSummonTickets:8600,Eggshells:5700,TechPotions:6500,ClockWinders:4400},lose:{Hammers:2650,SkillSummonTickets:3900,Eggshells:2600,TechPotions:2900,ClockWinders:2000}}
+    },
+    savingTargets: {
+      pets:{label:"Pety",icon:"🥚",currency:"Eggshells",normal:48600,maxTech:32400,maxLevel:100},
+      mounts:{label:"Mounty",icon:"⏱️",currency:"ClockWinders",normal:46000,maxTech:23308.2,maxLevel:100},
+      items:{label:"Forge",icon:"🪙",currency:"Coins",normal:14466000,maxTech:11599500,maxLevel:35,
+        note:"Total before Ascension = 11.466m recovery reserve + 3m Ascension fee; Max Tech = 8.5995m + 3m fee."}
+    }
+  },
   recoveryResources: {
     items: {
       resource:"Gold",

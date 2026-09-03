@@ -222,171 +222,172 @@ function getRarityRow(section, rarity){
 
 
 
+
 function renderAscensionPath(section, hostId){
  const cfg=D.ascensionPaths[section];
- const baseRows = section==="items" ? D.itemTiers : section==="pets" ? D.pets : D.mounts;
+ const rows=section==="items" ? D.itemTiers : section==="pets" ? D.pets : D.mounts;
  const host=$(hostId); if(!host)return;
  host.innerHTML="";
 
- const W=1700;
- const cycleCount=4;
- const cycleW=390;
- // Compact dashboard geometry: enough vertical contrast without wasting half a screen.
- const left=70,right=30,top=60,bottom=340,H=420;
- const chartH=bottom-top;
+ // One continuous, absolute power series. No per-cycle normalization:
+ // Common A1 > Common A0, Mythic A1 > Mythic A0, etc.
+ const series=[];
+ for(let a=0;a<=3;a++){
+   const mult=ascMultiplier(a);
+   rows.forEach((r,i)=>{
+     series.push({
+       asc:a,
+       rarity:r.rarity,
+       rawDamage:r.damage*mult,
+       rawHealth:r.health*mult,
+       isStart:i===0,
+       isEnd:i===rows.length-1,
+       isRecovery:a>0 && r.rarity===cfg.recoveryRarity
+     });
+   });
+ }
 
- // Each Ascension cycle uses its own local 0→100% power scale.
- // This preserves the real ordering inside a cycle:
- // Common < ... < Mythic/Divine.
- // A0/A1/A2/A3 differ in their absolute raw values, shown in labels/tooltips.
- const endRow=baseRows.at(-1);
- const recoveryIndex=baseRows.findIndex(r=>r.rarity===cfg.recoveryRarity);
- const recoveryRow=baseRows[recoveryIndex];
-
- const localPower = r => r.damage/endRow.damage;
- const y = rel => bottom - Math.max(0,Math.min(1,rel))*chartH;
+ const W=1760,H=560,left=92,right=36,top=64,bottom=472;
+ const innerW=W-left-right;
+ const values=series.map(p=>p.rawDamage);
+ const min=Math.min(...values), max=Math.max(...values);
+ const logMin=Math.log10(min), logMax=Math.log10(max);
+ const x=i=>left+(i/(series.length-1))*innerW;
+ const y=v=>bottom-((Math.log10(v)-logMin)/(logMax-logMin||1))*(bottom-top);
 
  const svg=svgEl("svg",{
    viewBox:`0 0 ${W} ${H}`,
-   class:"asc-path-svg corrected-asc-svg",
+   class:"asc-path-svg absolute-asc-svg",
    role:"img",
-   "aria-label":`${cfg.system}: rarity rośnie do końca cyklu, Ascension dopiero przy ${cfg.eligibilityLabel}`
+   "aria-label":`${cfg.system}: absolutna moc A0 do A3, wspólna skala logarytmiczna`
  });
 
+ // Reset arrow marker.
  const defs=svgEl("defs");
- const markerId=`ascResetArrow-${section}`;
+ const markerId=`absResetArrow-${section}`;
  const marker=svgEl("marker",{id:markerId,markerWidth:"8",markerHeight:"8",refX:"7",refY:"3",orient:"auto"});
- marker.append(svgEl("path",{d:"M0,0 L0,6 L8,3 z",class:"reset-arrow-head"}));
+ marker.append(svgEl("path",{d:"M0,0 L0,6 L8,3 z",class:"abs-reset-head"}));
  defs.append(marker);
  svg.append(defs);
 
- // Reference grid.
- [0,.25,.5,.75,1].forEach(v=>{
-   const yy=y(v);
-   svg.append(svgEl("line",{x1:left,y1:yy,x2:W-right,y2:yy,class:v===1?"power-ref old":"power-ref"}));
-   svg.append(svgEl("text",{x:left-12,y:yy+4,"text-anchor":"end",class:v===1?"power-axis old":"power-axis"},
-     v===1?"100% = szczyt cyklu":`${Math.round(v*100)}%`));
+ // Logarithmic grid. Labels show true absolute multiplier vs Common A0.
+ const base=rows[0].damage;
+ const totalRatio=max/base;
+ const decades=[];
+ for(let p=0;p<=Math.ceil(Math.log10(totalRatio));p++) decades.push(10**p);
+ decades.filter(m=>base*m<=max*1.001).forEach(m=>{
+   const yy=y(base*m);
+   svg.append(svgEl("line",{x1:left,y1:yy,x2:W-right,y2:yy,class:"abs-grid"}));
+   svg.append(svgEl("text",{x:left-14,y:yy+4,"text-anchor":"end",class:"abs-axis"},`×${fmt(m)}`));
  });
 
- // Render each A cycle with every rarity/tier in correct order.
- for(let a=0;a<cycleCount;a++){
-   const ascMul=ascMultiplier(a);
-   const cx0=left+a*cycleW;
-   const cx1=cx0+cycleW-70;
-   const stepX=(cx1-cx0)/(baseRows.length-1);
+ svg.append(svgEl("text",{x:left,y:28,class:"abs-title"},"ABSOLUTNA MOC • WSPÓLNA SKALA A0 → A3"));
+ svg.append(svgEl("text",{x:left,y:45,class:"abs-subtitle"},"Wysokość każdego punktu wynika z prawdziwej wartości statystyki. Oś Y jest logarytmiczna, żeby A0 nie zniknęło przy A3."));
 
-   svg.append(svgEl("rect",{
-     x:cx0-20,y:top-22,width:(cx1-cx0)+40,height:chartH+36,rx:12,class:"cycle-band"
-   }));
-   svg.append(svgEl("text",{
-     x:(cx0+cx1)/2,y:top-7,"text-anchor":"middle",class:"cycle-label"
-   },`A${a} • ${cfg.eligibilityLabel}`));
+ // Cycle bands and labels.
+ const n=rows.length;
+ for(let a=0;a<=3;a++){
+   const firstIndex=a*n;
+   const lastIndex=firstIndex+n-1;
+   const sx=x(firstIndex), ex=x(lastIndex);
+   svg.append(svgEl("rect",{x:sx-15,y:top-10,width:(ex-sx)+30,height:bottom-top+26,rx:12,class:"abs-cycle-band"}));
+   svg.append(svgEl("text",{x:(sx+ex)/2,y:top+13,"text-anchor":"middle",class:"abs-cycle-label"},
+     `A${a} • ${cfg.eligibilityLabel}`));
+ }
 
-   const pts=baseRows.map((r,i)=>[
-     cx0+i*stepX,
-     y(localPower(r))
-   ]);
+ // Draw each cycle's rising line separately, then red reset arrow between them.
+ for(let a=0;a<=3;a++){
+   const first=a*n, last=first+n-1;
+   const pts=series.slice(first,last+1).map((p,j)=>[x(first+j),y(p.rawDamage)]);
    const path=pts.map((p,i)=>(i?"L":"M")+p[0]+","+p[1]).join(" ");
-   svg.append(svgEl("path",{d:path,class:"cycle-power-line"}));
+   svg.append(svgEl("path",{d:path,class:"abs-cycle-line"}));
 
-   baseRows.forEach((r,i)=>{
-     const [px,py]=pts[i];
-     const isEnd=i===baseRows.length-1;
-     const isRecovery=i===recoveryIndex && a>0;
-     let cls="cycle-power-point";
-     if(isEnd)cls+=" end";
-     if(isRecovery)cls+=" recovery";
-
-     const point=svgEl("circle",{cx:px,cy:py,r:isEnd?7:5,class:cls});
-     const pointTitle=svgEl("title",{},`${r.rarity} • A${a}\n❤️ HP ${fmt(r.health*ascMul)}\n⚔ DMG ${fmt(r.damage*ascMul)}`);
-     point.appendChild(pointTitle);
-     svg.append(point);
-
-     // Reduce label clutter for item tiers.
-     const showLabel = baseRows.length<=6 || i===0 || isEnd || isRecovery || i%2===0;
-     if(showLabel){
-       const short=r.rarity
-         .replace("Early-Modern","E-Mod")
-         .replace("Interstellar","Inter")
-         .replace("Multiverse","Multi")
-         .replace("Underworld","Under");
-       svg.append(svgEl("text",{
-         x:px,y:bottom+18,"text-anchor":"middle",class:isRecovery?"cycle-rarity recovery":"cycle-rarity"
-       },short));
-     }
-
-     if(isRecovery){
-       // Compare recovery rarity after Ascension with previous cycle end.
-       const previousPeak=endRow.damage*ascMultiplier(a-1);
-       const recoveryValue=r.damage*ascMul;
-       const pct=recoveryValue/previousPeak*100;
-
-       const gy=py-37;
-       const recoveryBadge=svgEl("g",{class:"recovery-marker"});
-       recoveryBadge.append(svgEl("rect",{x:px-59,y:gy-16,width:118,height:32,rx:8}));
-       recoveryBadge.append(svgEl("text",{x:px,y:gy-2,"text-anchor":"middle",class:"recovery-marker-title"},"ODZYSK STAREJ MOCY"));
-       recoveryBadge.append(svgEl("text",{x:px,y:gy+10,"text-anchor":"middle",class:"recovery-marker-sub"},
-         `${cfg.recoveryRarity} • ~${pct.toLocaleString("pl-PL",{maximumFractionDigits:0})}%`));
-       svg.append(recoveryBadge);
-
-       // Horizontal old-power guide from previous peak to recovery point.
-       const prevEndX=left+(a-1)*cycleW+(cycleW-70);
-       svg.append(svgEl("line",{x1:prevEndX,y1:y(1),x2:px,y2:py,class:"recovery-guide"}));
-     }
-
-     if(isEnd){
-       const gateY=py-35;
-       const gate=svgEl("g",{class:"eligibility-gate"});
-       gate.append(svgEl("rect",{x:px-54,y:gateY-16,width:108,height:32,rx:8}));
-       gate.append(svgEl("text",{x:px,y:gateY-2,"text-anchor":"middle",class:"eligibility-title"},
-         a<3?"ASCENSION GOTOWA":"KONIEC A3"));
-       gate.append(svgEl("text",{x:px,y:gateY+10,"text-anchor":"middle",class:"eligibility-sub"},
-         cfg.eligibilityLabel));
-       svg.append(gate);
-     }
-   });
-
-   // Between cycles: show reset from previous peak to next Common.
-   if(a<cycleCount-1){
-     const endX=cx1;
-     const endY=y(1);
-     const nextCommonX=left+(a+1)*cycleW;
-     const nextCommonRel=baseRows[0].damage/endRow.damage;
-     const nextCommonY=y(nextCommonRel);
-
+   if(a<3){
+     const peak=series[last];
+     const next=series[last+1];
+     const x1=x(last), y1=y(peak.rawDamage), x2=x(last+1), y2=y(next.rawDamage);
      svg.append(svgEl("path",{
-       d:`M${endX},${endY} C${endX+35},${endY+35} ${nextCommonX-35},${nextCommonY-35} ${nextCommonX},${nextCommonY}`,
-       class:"asc-reset-arrow",
+       d:`M${x1},${y1} C${x1+18},${y1+22} ${x2-18},${y2-22} ${x2},${y2}`,
+       class:"abs-reset-line",
        "marker-end":`url(#${markerId})`
      }));
 
-     // Real raw drop ratio: peak A -> Common A+1.
-     const peakRaw=endRow.damage*ascMultiplier(a);
-     const resetRaw=baseRows[0].damage*ascMultiplier(a+1);
-     const factor=peakRaw/resetRaw;
-     const pctLoss=(1-resetRaw/peakRaw)*100;
-     const bx=(endX+nextCommonX)/2;
-     const by=(endY+nextCommonY)/2;
-
-     const resetBadge=svgEl("g",{class:"reset-badge"});
-     resetBadge.append(svgEl("rect",{x:bx-68,y:by-23,width:136,height:46,rx:9}));
-     resetBadge.append(svgEl("text",{x:bx,y:by-7,"text-anchor":"middle",class:"reset-title"},"ASCEND / RESET"));
-     resetBadge.append(svgEl("text",{x:bx,y:by+8,"text-anchor":"middle",class:"reset-factor"},
-       factor>=1?`↓ ×${factor.toLocaleString("pl-PL",{maximumFractionDigits:1})}`:`↑ ×${(1/factor).toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
-     resetBadge.append(svgEl("text",{x:bx,y:by+18,"text-anchor":"middle",class:"reset-pct"},
-       pctLoss>=0?`−${pctLoss.toLocaleString("pl-PL",{maximumFractionDigits:1})}%`:`+${(-pctLoss).toLocaleString("pl-PL",{maximumFractionDigits:1})}%`));
-     svg.append(resetBadge);
+     const factor=peak.rawDamage/next.rawDamage;
+     const loss=(1-next.rawDamage/peak.rawDamage)*100;
+     const bx=(x1+x2)/2, by=(y1+y2)/2;
+     const badge=svgEl("g",{class:"abs-reset-badge"});
+     badge.append(svgEl("rect",{x:bx-62,y:by-22,width:124,height:44,rx:8}));
+     badge.append(svgEl("text",{x:bx,y:by-6,"text-anchor":"middle",class:"abs-reset-title"},"ASCEND / RESET"));
+     badge.append(svgEl("text",{x:bx,y:by+11,"text-anchor":"middle",class:"abs-reset-value"},
+       `↓ ×${factor.toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
+     badge.append(svgEl("text",{x:bx,y:by+21,"text-anchor":"middle",class:"abs-reset-loss"},
+       `−${loss.toLocaleString("pl-PL",{maximumFractionDigits:1})}%`));
+     svg.append(badge);
    }
  }
 
- svg.append(svgEl("text",{x:left,y:H-18,class:"power-path-foot"},
-   `Rarity/tier zawsze rośnie w cyklu. Ascension odblokowuje dopiero ${cfg.eligibilityLabel}. ${cfg.recoveryRarity} = próg odzyskania starej mocy z poradnika.`));
+ // Points, end-of-cycle gates, recovery markers.
+ series.forEach((p,i)=>{
+   const px=x(i),py=y(p.rawDamage);
+   let cls="abs-point";
+   if(p.isEnd) cls+=" end";
+   if(p.isStart) cls+=" start";
+   if(p.isRecovery) cls+=" recovery";
+
+   const point=svgEl("circle",{cx:px,cy:py,r:p.isEnd?6.5:4.2,class:cls});
+   point.append(svgEl("title",{},
+     `${p.rarity} • A${p.asc}\n❤️ HP ${fmt(p.rawHealth)}\n⚔ DMG ${fmt(p.rawDamage)}`));
+   svg.append(point);
+
+   // X label: always show starts, ends, recovery; for short systems show all rarity.
+   const rowIndex=i%n;
+   const showLabel = rows.length<=6 || p.isStart || p.isEnd || p.isRecovery || rowIndex%2===0;
+   if(showLabel){
+     const short=p.rarity
+       .replace("Early-Modern","E-Mod")
+       .replace("Interstellar","Inter")
+       .replace("Multiverse","Multi")
+       .replace("Underworld","Under");
+     svg.append(svgEl("text",{x:px,y:bottom+20,"text-anchor":"middle",class:p.isRecovery?"abs-rarity recovery":"abs-rarity"},short));
+   }
+
+   if(p.isEnd){
+     const gate=svgEl("g",{class:"abs-end-badge"});
+     const gy=py-29;
+     gate.append(svgEl("rect",{x:px-53,y:gy-15,width:106,height:30,rx:7}));
+     gate.append(svgEl("text",{x:px,y:gy-1,"text-anchor":"middle",class:"abs-end-title"},
+       p.asc<3?"ASCENSION GOTOWA":"KONIEC A3"));
+     gate.append(svgEl("text",{x:px,y:gy+10,"text-anchor":"middle",class:"abs-end-sub"},cfg.eligibilityLabel));
+     svg.append(gate);
+   }
+
+   if(p.isRecovery){
+     const prevPeak=rows.at(-1).damage*ascMultiplier(p.asc-1);
+     const pct=p.rawDamage/prevPeak*100;
+     const rb=svgEl("g",{class:"abs-recovery-badge"});
+     const ry=py-31;
+     rb.append(svgEl("rect",{x:px-61,y:ry-15,width:122,height:30,rx:7}));
+     rb.append(svgEl("text",{x:px,y:ry-1,"text-anchor":"middle",class:"abs-recovery-title"},"ODZYSK STAREJ MOCY"));
+     rb.append(svgEl("text",{x:px,y:ry+10,"text-anchor":"middle",class:"abs-recovery-sub"},
+       `${cfg.recoveryRarity} • ~${pct.toLocaleString("pl-PL",{maximumFractionDigits:0})}%`));
+     svg.append(rb);
+
+     // Horizontal reference to previous cycle peak, preserving absolute y.
+     const prevPeakIndex=(p.asc-1)*n+(n-1);
+     svg.append(svgEl("line",{x1:x(prevPeakIndex),y1:y(prevPeak),x2:px,y2:y(prevPeak),class:"abs-old-power-line"}));
+   }
+ });
+
+ // Important cross-cycle labels: same rarity, different Ascension.
+ const commonRatios=D.ascensionMultipliers.map(a=>a.multiplier);
+ svg.append(svgEl("text",{x:left,y:H-32,class:"abs-foot"},
+   `Przykład: Common A1 = ×50 Common A0 • Common A2 = ×2 500 • Common A3 = ×125 000. Tak samo Mythic/Divine rośnie ×50 na każdej kolejnej Ascension.`));
 
  host.append(svg);
 
  const copy=document.querySelector(`[data-path-copy="${section}"]`);
  if(copy){
-   copy.innerHTML=`W każdym cyklu rarity/tier rośnie normalnie aż do <b>${cfg.endRarity}</b>. <b>Ascension nie zależy od rarity</b> — można ją zrobić dopiero przy <b>${cfg.eligibilityLabel}</b>. Po resecie poradnik wskazuje <b>${cfg.recoveryRarity}</b> jako około-próg odzyskania poprzedniej mocy.`;
+   copy.innerHTML=`To jest <b>jedna wspólna skala mocy</b>. Common A1 nie jest równy Common A0, a ${cfg.endRarity} A1 jest <b>×50</b> mocniejszy od ${cfg.endRarity} A0. Ascension jest dostępna przy <b>${cfg.eligibilityLabel}</b>; po resecie poradnik wskazuje <b>${cfg.recoveryRarity}</b> jako około-próg odzyskania starej mocy.`;
  }
 }
 

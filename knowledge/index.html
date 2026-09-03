@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07090d">
+<title>INPPL • Forge Knowledge Lab</title>
+<link rel="stylesheet" href="knowledge.css?v=1">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">IP</div>
+      <div><div class="brand-name">INPPL <span>Stats</span></div><div class="brand-desc">Forge Master</div></div>
+    </div>
+
+    <div class="nav-label">Nawigacja</div>
+    <nav class="nav">
+      <a class="nav-btn" href="../#overview"><span class="nav-ico">◈</span>Przegląd</a>
+      <a class="nav-btn" href="../#warsView"><span class="nav-ico">⚔</span>Wojny</a>
+      <a class="nav-btn" href="../#playersView"><span class="nav-ico">♟</span>Gracze</a>
+      <a class="nav-btn" href="../#power"><span class="nav-ico">◆</span>Power</a>
+      <a class="nav-btn" href="../#compare"><span class="nav-ico">⇄</span>Porównaj</a>
+
+      <div class="nav-label nav-section-label">Narzędzia</div>
+      <a class="nav-btn" href="../share/"><span class="nav-ico">☷</span>Podsumowanie</a>
+      <a class="nav-btn" href="../planner/"><span class="nav-ico">⌁</span>Planner</a>
+
+      <div class="nav-label nav-section-label nav-addon-label">Dodatek</div>
+      <a class="nav-btn nav-addon" href="../#outcastsView"><span class="nav-ico">↪</span>Wyrzutki</a>
+    </nav>
+
+    <div class="side-status">
+      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.1</span></div>
+      <div>Moduł ukryty • brak linku w INPPL</div>
+      <div>Dane config: 2026-07-15</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">UKRYTY MODUŁ • PROTOTYP</div>
+        <h1>Mapa progresji <span>Forge Master</span></h1>
+        <p>Nie tabela. Drabinka pokazuje kolejne progi, a każda strzałka kończy się dokładnie na odpowiadającym punkcie wykresu.</p>
+      </div>
+      <div class="source-pill">
+        <span>ŹRÓDŁA</span>
+        <b>Discord Excel + config gry</b>
+        <small>1vcian/fm • parsed_configs</small>
+      </div>
+    </section>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="pets">🐾 Pety</button>
+      <button class="tab" data-tab="mounts">🐎 Mounty</button>
+      <button class="tab" data-tab="ascension">↗ Ascension</button>
+    </div>
+
+    <section class="view active" id="pets">
+      <div class="view-head">
+        <div>
+          <div class="eyebrow">PETS • BASE STATS</div>
+          <h2>Jak naprawdę rośnie siła peta?</h2>
+          <p>Wartości bazowe z <b>PetUpgradeLibrary</b>, poziom config Lv 0. Skala wykresu jest logarytmiczna, żeby Common i Mythic były jednocześnie czytelne.</p>
+        </div>
+        <div class="controls">
+          <label>Metryka
+            <select id="petMetric">
+              <option value="health">HP</option>
+              <option value="damage">Damage</option>
+              <option value="hatchSeconds">Czas wyklucia</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="viz-shell" id="petViz"></div>
+      <div class="insights" id="petInsights"></div>
+    </section>
+
+    <section class="view" id="mounts">
+      <div class="view-head">
+        <div>
+          <div class="eyebrow">MOUNTS • BASE STATS</div>
+          <h2>Drabinka bazowej mocy mountów</h2>
+          <p>Wartości bazowe z <b>MountUpgradeLibrary</b>, poziom config Lv 0. Każdy próg rarity jest połączony z dokładnym punktem wykresu.</p>
+        </div>
+        <div class="controls">
+          <label>Metryka
+            <select id="mountMetric">
+              <option value="health">HP</option>
+              <option value="damage">Damage</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="viz-shell" id="mountViz"></div>
+      <div class="insights" id="mountInsights"></div>
+    </section>
+
+    <section class="view" id="ascension">
+      <div class="view-head">
+        <div>
+          <div class="eyebrow">ASCENSION • PRZYGOTOWANIE</div>
+          <h2>Co przygotować przed Ascension?</h2>
+          <p>Ta część korzysta z poradnika i kosztów w przesłanym zbiorze wiedzy. Nie zastępuje mechaniki gry — pokazuje źródłowe minimum w czytelnej formie.</p>
+        </div>
+      </div>
+
+      <div class="asc-grid">
+        <article class="priority-card">
+          <div class="card-kicker">ZALECANA KOLEJNOŚĆ ZE ŹRÓDŁA</div>
+          <div class="priority-ladder" id="priorityLadder"></div>
+        </article>
+
+        <article class="cost-card">
+          <div class="card-kicker">ZASOBY DO PEŁNEGO PROGRESU</div>
+          <h3>Wpływ maksymalnego Tech</h3>
+          <div class="cost-bars" id="costBars"></div>
+          <div class="cost-note">Porównanie wartości bazowej i kosztu z maksymalnymi bonusami Tech zapisanymi w źródłowym arkuszu.</div>
+        </article>
+      </div>
+
+      <div class="asc-notes" id="ascNotes"></div>
+    </section>
+
+    <footer>
+      <span>Forge Knowledge Lab 0.1</span>
+      <span>Ten moduł nie jest podlinkowany z głównej strony.</span>
+    </footer>
+  </main>
+</div>
+
+<script src="knowledge-data.js?v=1"></script>
+<script src="knowledge.js?v=1"></script>
+</body>
+</html>

@@ -503,3 +503,17 @@ body.war-page-loss .main{box-shadow:inset 0 0 120px rgba(218,63,76,.03)}
   background:rgba(135,147,164,.075)!important;
   box-shadow:none!important;
 }
+
+
+/* INPPL Stats 1.1 — Wyrzutki + narzędzia */
+.nav-section-label{margin-top:18px!important}
+.nav-link-btn{display:flex!important;text-decoration:none!important}
+.outcast-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:11px}
+.outcast-kpi{padding:13px 14px;border:1px solid #1c2531;background:#0b1017;border-radius:11px;display:grid;gap:4px}
+.outcast-kpi span{font-size:8px;color:#657286;font-weight:900;letter-spacing:.075em;text-transform:uppercase}
+.outcast-kpi b{font-size:19px;color:#e9eef5}.outcast-kpi small{font-size:9px;color:#6e7b8e}
+.outcast-toolbar{margin-bottom:10px}.outcast-note{font-size:9px;color:#657286}
+.out-badge{display:inline-flex;margin-left:8px;padding:3px 6px;border-radius:999px;border:1px solid rgba(220,87,99,.16);background:rgba(220,87,99,.07);color:#d97882;font-size:7px;font-weight:900;vertical-align:middle}
+.outcast-row{opacity:.92}.cell-sub{display:block;margin-top:3px;color:#657286;font-size:8px;font-weight:600}
+@media(max-width:950px){.outcast-summary{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.outcast-summary{grid-template-columns:1fr}.outcast-note{display:none}}

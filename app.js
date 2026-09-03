@@ -90,6 +90,7 @@ function setView(id, push=true){
   if(id==='overview') requestAnimationFrame(renderOverviewCharts);
   if(id==='warsView') requestAnimationFrame(renderWarView);
   if(id==='power') requestAnimationFrame(()=>{renderPower();renderPowerCharts();});
+  if(id==='outcastsView') requestAnimationFrame(renderOutcasts);
   if(id==='compare') requestAnimationFrame(renderCompare);
 }
 $$('.nav-btn').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
@@ -334,6 +335,51 @@ function renderPlayers(){
 $('#playerSearch').oninput=renderPlayers;$('#rankFilter').onchange=renderPlayers;
 $$('#playersView th.sortable').forEach(th=>th.onclick=()=>{let k=th.dataset.sort; if(playerSort.key===k)playerSort.dir*=-1;else{playerSort.key=k;playerSort.dir=1}renderPlayers()});
 
+
+let outcastSearch='';
+let outcastSort='lastWeek';
+function weekNumber(week){
+ const m=String(week||'').match(/\d+/);return m?Number(m[0]):-1;
+}
+function renderOutcasts(){
+ const all=D.players.filter(p=>p.active===false);
+ const q=(outcastSearch||'').trim().toLowerCase();
+ let arr=all.filter(p=>!q||p.nick.toLowerCase().includes(q));
+ arr.sort((a,b)=>{
+   if(outcastSort==='avg')return (b.avg??-Infinity)-(a.avg??-Infinity);
+   if(outcastSort==='best')return (b.best??-Infinity)-(a.best??-Infinity);
+   if(outcastSort==='power')return (b.powerM??-Infinity)-(a.powerM??-Infinity);
+   if(outcastSort==='wars')return (b.warCount??0)-(a.warCount??0);
+   if(outcastSort==='nick')return a.nick.localeCompare(b.nick,'pl');
+   return weekNumber(b.history?.at(-1)?.week)-weekNumber(a.history?.at(-1)?.week);
+ });
+ const wars=all.reduce((s,p)=>s+(p.warCount||0),0);
+ const best=[...all].sort((a,b)=>(b.best??0)-(a.best??0))[0];
+ const strongest=[...all].filter(p=>p.powerM!=null).sort((a,b)=>b.powerM-a.powerM)[0];
+ $('#outcastsCount').textContent=`${all.length} byłych graczy`;
+ $('#outcastSummary').innerHTML=[
+   ['Archiwum',all.length,'zachowanych profili'],
+   ['Łącznie wojen',wars,'wpisów graczy'],
+   ['Najwyższy rekord',best?compact(best.best):'—',best?best.nick:'—'],
+   ['Najwyższy zapisany Power',strongest?power(strongest.powerM):'—',strongest?strongest.nick:'—']
+ ].map(x=>`<div class="outcast-kpi"><span>${x[0]}</span><b>${x[1]}</b><small>${escapeHtml(String(x[2]))}</small></div>`).join('');
+ $('#outcastsTable').innerHTML=arr.map(p=>{
+   const last=p.history?.at(-1)||null;
+   const pct=p.powerChangePct??powerPct(p.powerChangeM,p.powerM);
+   return `<tr class="outcast-row">
+     <td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button><span class="out-badge">POZA KLANEM</span></td>
+     <td><span class="rank-tag">${escapeHtml(p.rank||'—')}</span></td>
+     <td>${last?`${escapeHtml(last.week)} • ${escapeHtml(last.date||'')}`:'—'}</td>
+     <td class="num">${fmt(p.latestPoints)}</td>
+     <td class="num">${fmt(p.avg)}</td>
+     <td class="num"><b>${fmt(p.best)}</b>${p.bestWeek?`<small class="cell-sub">${escapeHtml(p.bestWeek)}</small>`:''}</td>
+     <td class="num">${p.warCount||0}</td>
+     <td class="num">${power(p.powerM)}</td>
+     <td class="num ${p.powerChangeM>0?'positive':p.powerChangeM<0?'negative':''}">${p.powerChangeM==null?'—':`${formatDelta(p.powerChangeM,power)}<small class="cell-sub">${fmtPct1(pct)}</small>`}</td>
+   </tr>`;
+ }).join('') || '<tr><td colspan="9" class="empty">Brak wyników</td></tr>';
+}
+
 function getPowerPlayerRows(){
   let rows=D.players.filter(p=>p.active!==false).map(p=>{
     const latest=p.powers?.at(-1)||null;
@@ -558,7 +604,9 @@ function init(){
  $('#overviewPlayerSelect').value=selectedOverviewPlayer;
  $('#overviewPowerPlayerSelect').value=selectedPowerPlayer;
  $('#powerPagePlayerSelect').value=selectedPowerPlayer;
- renderPlayers(); renderPower(); fillCompareSelectors();
+ renderPlayers(); renderOutcasts(); renderPower(); fillCompareSelectors();
+ const os=$('#outcastSearch');if(os){os.oninput=()=>{outcastSearch=os.value;renderOutcasts();};}
+ const oso=$('#outcastSort');if(oso){oso.value=outcastSort;oso.onchange=()=>{outcastSort=oso.value;renderOutcasts();};}
  const ps=$('#powerSearch');
  if(ps){ps.value=powerSearch;ps.oninput=()=>{powerSearch=ps.value;renderPowerSnapshot();};}
  const prf=$('#powerRankFilter');
@@ -571,7 +619,7 @@ function init(){
  const pso=$('#powerSort');
  if(pso){pso.value=powerSort;pso.onchange=()=>{powerSort=pso.value;const pill=$('.power-default-pill');if(pill)pill.textContent=powerSort==='growthPct'?'SORTOWANIE: Δ %':`SORTOWANIE: ${pso.options[pso.selectedIndex].text}`;renderPowerSnapshot();};}
 
- const hash=location.hash.replace('#',''); const allowed=['overview','warsView','playersView','power','compare'];
+ const hash=location.hash.replace('#',''); const allowed=['overview','warsView','playersView','outcastsView','power','compare'];
  setView(allowed.includes(hash)?hash:'overview',false);
  requestAnimationFrame(()=>{renderOverviewCharts();renderPowerCharts();});
 }

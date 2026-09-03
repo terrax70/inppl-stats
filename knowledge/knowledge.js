@@ -321,12 +321,12 @@ function renderAscensionPath(section, hostId){
        const pct=recoveryValue/previousPeak*100;
 
        const gy=py-52;
-       const g=svgEl("g",{class:"recovery-marker"});
-       g.append(svgEl("rect",{x:px-66,y:gy-19,width:132,height:39,rx:8}));
-       g.append(svgEl("text",{x:px,y:gy-3,"text-anchor":"middle",class:"recovery-marker-title"},"ODZYSK STAREJ MOCY"));
-       g.append(svgEl("text",{x:px,y:gy+12,"text-anchor":"middle",class:"recovery-marker-sub"},
+       const recoveryBadge=svgEl("g",{class:"recovery-marker"});
+       recoveryBadge.append(svgEl("rect",{x:px-66,y:gy-19,width:132,height:39,rx:8}));
+       recoveryBadge.append(svgEl("text",{x:px,y:gy-3,"text-anchor":"middle",class:"recovery-marker-title"},"ODZYSK STAREJ MOCY"));
+       recoveryBadge.append(svgEl("text",{x:px,y:gy+12,"text-anchor":"middle",class:"recovery-marker-sub"},
          `${cfg.recoveryRarity} • ~${pct.toLocaleString("pl-PL",{maximumFractionDigits:0})}%`));
-       svg.append(g);
+       svg.append(recoveryBadge);
 
        // Horizontal old-power guide from previous peak to recovery point.
        const prevEndX=left+(a-1)*cycleW+(cycleW-70);
@@ -341,7 +341,7 @@ function renderAscensionPath(section, hostId){
          a<3?"ASCENSION GOTOWA":"KONIEC A3"));
        gate.append(svgEl("text",{x:px,y:gateY+12,"text-anchor":"middle",class:"eligibility-sub"},
          cfg.eligibilityLabel));
-       svg.append(g);
+       svg.append(gate);
      }
    });
 
@@ -367,14 +367,14 @@ function renderAscensionPath(section, hostId){
      const bx=(endX+nextCommonX)/2;
      const by=(endY+nextCommonY)/2;
 
-     const g=svgEl("g",{class:"reset-badge"});
-     g.append(svgEl("rect",{x:bx-78,y:by-28,width:156,height:56,rx:10}));
-     g.append(svgEl("text",{x:bx,y:by-10,"text-anchor":"middle",class:"reset-title"},"ASCEND / RESET"));
-     g.append(svgEl("text",{x:bx,y:by+8,"text-anchor":"middle",class:"reset-factor"},
+     const resetBadge=svgEl("g",{class:"reset-badge"});
+     resetBadge.append(svgEl("rect",{x:bx-78,y:by-28,width:156,height:56,rx:10}));
+     resetBadge.append(svgEl("text",{x:bx,y:by-10,"text-anchor":"middle",class:"reset-title"},"ASCEND / RESET"));
+     resetBadge.append(svgEl("text",{x:bx,y:by+8,"text-anchor":"middle",class:"reset-factor"},
        factor>=1?`↓ ×${factor.toLocaleString("pl-PL",{maximumFractionDigits:1})}`:`↑ ×${(1/factor).toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
-     g.append(svgEl("text",{x:bx,y:by+21,"text-anchor":"middle",class:"reset-pct"},
+     resetBadge.append(svgEl("text",{x:bx,y:by+21,"text-anchor":"middle",class:"reset-pct"},
        pctLoss>=0?`−${pctLoss.toLocaleString("pl-PL",{maximumFractionDigits:1})}%`:`+${(-pctLoss).toLocaleString("pl-PL",{maximumFractionDigits:1})}%`));
-     svg.append(g);
+     svg.append(resetBadge);
    }
  }
 

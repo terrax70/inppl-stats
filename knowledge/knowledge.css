@@ -254,3 +254,125 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
 .ratio-caption{
   display:none;
 }
+
+/* Forge Knowledge 0.8 — Ascension per category */
+.asc-controls{
+  display:grid;
+  gap:5px;
+  min-width:245px;
+}
+.asc-control-label{
+  color:#657489;
+  font-size:9px;
+  font-weight:950;
+  letter-spacing:.1em;
+  text-align:right;
+}
+.asc-switch{
+  display:flex;
+  gap:4px;
+  padding:4px;
+  border:1px solid #263442;
+  background:#090e14;
+  border-radius:9px;
+}
+.asc-btn{
+  flex:1;
+  border:0;
+  border-radius:6px;
+  padding:8px 10px;
+  background:transparent;
+  color:#6f7e91;
+  font-size:10px;
+  font-weight:950;
+  cursor:pointer;
+}
+.asc-btn:hover{color:#dbe4ef;background:#101722}
+.asc-btn.active{
+  color:#ffd27f;
+  background:#1a140b;
+  box-shadow:inset 0 0 0 1px rgba(240,183,91,.28);
+}
+.asc-power-strip{
+  border:1px solid #1b2632;
+  background:linear-gradient(90deg,rgba(241,178,77,.045),#0a0f15 45%);
+  border-radius:11px;
+  padding:10px 13px;
+  margin-bottom:10px;
+}
+.asc-power-title{
+  color:#627085;
+  font-size:9px;
+  font-weight:950;
+  letter-spacing:.1em;
+  margin-bottom:8px;
+}
+.asc-power-steps{
+  display:flex;
+  align-items:stretch;
+  gap:7px;
+}
+.asc-power-step{
+  min-width:112px;
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:2px 8px;
+  align-items:center;
+  padding:8px 10px;
+  border:1px solid #25313f;
+  background:#0c1219;
+  border-radius:8px;
+  opacity:.7;
+}
+.asc-power-step span{
+  grid-row:1 / span 2;
+  color:#718095;
+  font-size:10px;
+  font-weight:950;
+}
+.asc-power-step b{
+  color:#d9e1ea;
+  font-size:15px;
+  line-height:1;
+}
+.asc-power-step small{
+  color:#58677a;
+  font-size:8px;
+  font-weight:800;
+}
+.asc-power-step.active{
+  opacity:1;
+  border-color:rgba(240,183,91,.55);
+  background:#17130c;
+  box-shadow:0 0 0 1px rgba(240,183,91,.08),0 8px 22px rgba(0,0,0,.18);
+}
+.asc-power-step.active b{color:#ffd27f}
+.asc-power-step.active span{color:#f2bd65}
+.asc-power-arrow{
+  min-width:58px;
+  display:grid;
+  place-items:center;
+  align-content:center;
+  gap:1px;
+}
+.asc-power-arrow b{
+  color:#ffd27f;
+  font-size:16px;
+  font-weight:1000;
+}
+.asc-power-arrow span{
+  color:#566679;
+  font-size:17px;
+}
+.tooltip .tip-base{
+  color:#5f6d80;
+  border-top:1px solid #1b2632;
+  margin-top:6px;
+  padding-top:5px;
+}
+@media(max-width:900px){
+  .asc-controls{width:100%;min-width:0}
+  .asc-control-label{text-align:left}
+  .asc-power-steps{overflow:auto}
+  .asc-power-step{min-width:105px}
+}

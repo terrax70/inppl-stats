@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Forge Knowledge Lab</title>
-<link rel="stylesheet" href="knowledge.css?v=7">
+<link rel="stylesheet" href="knowledge.css?v=8">
 </head>
 <body>
 <div class="app">
@@ -32,7 +32,7 @@
     </nav>
 
     <div class="side-status">
-      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.7</span></div>
+      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.8</span></div>
       <div>Moduł ukryty • brak linku w INPPL</div>
       <div>Dane config: 2026-07-15</div>
     </div>
@@ -64,7 +64,28 @@
         <div>
           <div class="eyebrow">PETS • PROGRESJA RARITY</div>
           <h2>O ile mocniejszy jest kolejny rarity?</h2>
-          <p>Jeden wykres pokazuje progresję całego systemu. HP i Damage mają ten sam mnożnik między rarity, więc nie ma sensu dublować wykresu. Przy każdym progu pokazane są też konkretne ❤️ HP, ⚔️ DMG i 🥚 czas wykluwania.</p>
+          <p>Jeden wykres pokazuje progresję całego systemu. Wybierz A0–A3, aby zobaczyć rzeczywiste ❤️ HP i ⚔️ DMG po kolejnych Ascension. Przy każdym progu pokazane są też konkretne ❤️ HP, ⚔️ DMG i 🥚 czas wykluwania.</p>
+        </div>
+        <div class="asc-controls">
+          <div class="asc-control-label">ASCENSION</div>
+          <div class="asc-switch" data-asc-switch="pets">
+            <button class="asc-btn active" data-asc="0">A0</button>
+            <button class="asc-btn" data-asc="1">A1</button>
+            <button class="asc-btn" data-asc="2">A2</button>
+            <button class="asc-btn" data-asc="3">A3</button>
+          </div>
+        </div>
+      </div>
+      <div class="asc-power-strip" data-asc-strip="pets">
+        <div class="asc-power-title">ASCENSION • PETY</div>
+        <div class="asc-power-steps">
+          <div class="asc-power-step active" data-asc-step="0"><span>A0</span><b>×1</b><small>Base</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="1"><span>A1</span><b>×50</b><small>vs A0</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="2"><span>A2</span><b>×2 500</b><small>vs A0</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="3"><span>A3</span><b>×125 000</b><small>vs A0</small></div>
         </div>
       </div>
       <div class="viz-shell" id="petViz"></div>
@@ -76,7 +97,28 @@
         <div>
           <div class="eyebrow">MOUNTS • PROGRESJA RARITY</div>
           <h2>O ile mocniejszy jest kolejny rarity?</h2>
-          <p>Jeden wykres dla całej progresji mountów. HP i Damage są pokazane przy każdym punkcie, a główny nacisk jest na mnożniku siły między kolejnymi rarity.</p>
+          <p>Jeden wykres dla całej progresji mountów. Wybierz A0–A3, aby przeliczyć ❤️ HP i ⚔️ DMG dla konkretnej Ascension.</p>
+        </div>
+        <div class="asc-controls">
+          <div class="asc-control-label">ASCENSION</div>
+          <div class="asc-switch" data-asc-switch="mounts">
+            <button class="asc-btn active" data-asc="0">A0</button>
+            <button class="asc-btn" data-asc="1">A1</button>
+            <button class="asc-btn" data-asc="2">A2</button>
+            <button class="asc-btn" data-asc="3">A3</button>
+          </div>
+        </div>
+      </div>
+      <div class="asc-power-strip" data-asc-strip="mounts">
+        <div class="asc-power-title">ASCENSION • MOUNTY</div>
+        <div class="asc-power-steps">
+          <div class="asc-power-step active" data-asc-step="0"><span>A0</span><b>×1</b><small>Base</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="1"><span>A1</span><b>×50</b><small>vs A0</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="2"><span>A2</span><b>×2 500</b><small>vs A0</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="3"><span>A3</span><b>×125 000</b><small>vs A0</small></div>
         </div>
       </div>
       <div class="viz-shell" id="mountViz"></div>
@@ -89,7 +131,16 @@
         <div>
           <div class="eyebrow">ITEMY • TIER / AGE</div>
           <h2>O ile mocniejszy jest kolejny tier itemu?</h2>
-          <p>W bazowych statystykach itemów każdy kolejny tier daje dokładnie <b>×4</b>. Jedna krzywa wystarcza, bo bazowe ❤️ HP i ⚔️ DMG rosną tym samym mnożnikiem.</p>
+          <p>Każdy kolejny tier itemu daje bazowo <b>×4</b>. Wybierz A0–A3, aby zobaczyć te same tiery po kolejnych Ascension.</p>
+        </div>
+        <div class="asc-controls">
+          <div class="asc-control-label">ASCENSION</div>
+          <div class="asc-switch" data-asc-switch="items">
+            <button class="asc-btn active" data-asc="0">A0</button>
+            <button class="asc-btn" data-asc="1">A1</button>
+            <button class="asc-btn" data-asc="2">A2</button>
+            <button class="asc-btn" data-asc="3">A3</button>
+          </div>
         </div>
       </div>
 
@@ -98,6 +149,18 @@
         <div><span>⚔️ DMG</span><b>Weapon • Gloves • Necklace • Ring</b></div>
       </div>
 
+      <div class="asc-power-strip" data-asc-strip="items">
+        <div class="asc-power-title">ASCENSION • ITEMY</div>
+        <div class="asc-power-steps">
+          <div class="asc-power-step active" data-asc-step="0"><span>A0</span><b>×1</b><small>Base</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="1"><span>A1</span><b>×50</b><small>vs A0</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="2"><span>A2</span><b>×2 500</b><small>vs A0</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="3"><span>A3</span><b>×125 000</b><small>vs A0</small></div>
+        </div>
+      </div>
       <div class="viz-shell item-viz-shell" id="itemViz"></div>
       <div class="insights" id="itemInsights"></div>
     </section>
@@ -176,13 +239,13 @@
     </section>
 
     <footer>
-      <span>Forge Knowledge Lab 0.7</span>
+      <span>Forge Knowledge Lab 0.8</span>
       <span>Ten moduł nie jest podlinkowany z głównej strony.</span>
     </footer>
   </main>
 </div>
 
-<script src="knowledge-data.js?v=7"></script>
-<script src="knowledge.js?v=7"></script>
+<script src="knowledge-data.js?v=8"></script>
+<script src="knowledge.js?v=8"></script>
 </body>
 </html>

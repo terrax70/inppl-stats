@@ -2,6 +2,15 @@
 const D=window.FORGE_KNOWLEDGE;
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const NS="http://www.w3.org/2000/svg";
+const ascState={pets:0,mounts:0,items:0};
+const ascMultiplier=level=>D.ascensionMultipliers.find(x=>x.level===Number(level))?.multiplier||1;
+const scaledRows=(rows,level)=>rows.map(r=>({
+  ...r,
+  baseHealth:r.health,
+  baseDamage:r.damage,
+  health:r.health*ascMultiplier(level),
+  damage:r.damage*ascMultiplier(level)
+}));
 
 const fmt=n=>{
   if(n>=1e9)return (n/1e9).toLocaleString("pl-PL",{maximumFractionDigits:2})+" mld";
@@ -25,7 +34,7 @@ function svgEl(tag, attrs={}, text=null){
 }
 
 
-function renderProgressViz(containerId, rows, systemName){
+function renderProgressViz(containerId, rows, systemName, ascLevel=0){
  const host=$(containerId); host.innerHTML="";
  const W=1400;
  const rowGap = rows.length >= 9 ? 76 : 88;
@@ -62,8 +71,8 @@ function renderProgressViz(containerId, rows, systemName){
    const yy=y(Math.min(v,max));
    svg.append(svgEl("line",{x1:chartX,y1:yy,x2:chartX+chartW,y2:yy,class:"grid-line"}));
  });
- svg.append(svgEl("text",{x:chartX,y:30,class:"chart-title"},`${systemName.toUpperCase()} • COMMON = ×1`));
- svg.append(svgEl("text",{x:chartX,y:48,class:"chart-note"},"Złote × wartości pokazują wyłącznie skok między kolejnymi rarity"));
+ svg.append(svgEl("text",{x:chartX,y:30,class:"chart-title"},`${systemName.toUpperCase()} • A${ascLevel} • COMMON = ×1`));
+ svg.append(svgEl("text",{x:chartX,y:48,class:"chart-note"},`Ascension A${ascLevel}: staty bazowe ×${ascMultiplier(ascLevel).toLocaleString("pl-PL")} • złote × = skok rarity`));
 
  svg.append(svgEl("line",{x1:ladderX+22,y1:top,x2:ladderX+22,y2:bottom,class:"ladder-spine"}));
 
@@ -140,8 +149,10 @@ function renderProgressViz(containerId, rows, systemName){
      const i=Number(p.dataset.i),r=rows[i];
      const step=i?rows[i].damage/rows[i-1].damage:null;
      tip.innerHTML=`<b style="color:${(D.colors[r.rarity]||D.itemTierColors?.[r.rarity]||"#8abcf5")}">${r.rarity}</b>
+       <span>Ascension: <strong>A${ascLevel} • ×${ascMultiplier(ascLevel).toLocaleString("pl-PL")}</strong></span>
        <span>❤️ HP: <strong>${fmt(r.health)}</strong></span>
        <span>⚔️ DMG: <strong>${fmt(r.damage)}</strong></span>
+       ${ascLevel>0?`<span class="tip-base">A0: ❤️ ${fmt(r.baseHealth)} • ⚔️ ${fmt(r.baseDamage)}</span>`:""}
        ${r.hatchSeconds?`<span>🥚 Wyklucie: <strong>${fmtTime(r.hatchSeconds)}</strong></span>`:""}
        <span>vs Common: <strong>×${power[i].toLocaleString("pl-PL",{maximumFractionDigits:1})}</strong></span>
        ${step?`<span>vs ${rows[i-1].rarity}: <strong>×${step.toLocaleString("pl-PL",{maximumFractionDigits:1})}</strong></span>`:""}`;
@@ -168,28 +179,37 @@ function renderProgressInsights(target,rows){
 }
 
 function renderPets(){
- renderProgressViz("#petViz",D.pets,"Pety");
- renderProgressInsights("#petInsights",D.pets);
+ const level=ascState.pets;
+ const rows=scaledRows(D.pets,level);
+ renderProgressViz("#petViz",rows,"Pety",level);
+ renderProgressInsights("#petInsights",rows);
+ updateAscUI("pets",level);
 }
 function renderMounts(){
- renderProgressViz("#mountViz",D.mounts,"Mounty");
- renderProgressInsights("#mountInsights",D.mounts);
+ const level=ascState.mounts;
+ const rows=scaledRows(D.mounts,level);
+ renderProgressViz("#mountViz",rows,"Mounty",level);
+ renderProgressInsights("#mountInsights",rows);
+ updateAscUI("mounts",level);
 }
 
 function renderItems(){
- renderProgressViz("#itemViz",D.itemTiers,"Itemy");
- renderProgressInsights("#itemInsights",D.itemTiers);
+ const level=ascState.items;
+ const itemRows=scaledRows(D.itemTiers,level);
+ renderProgressViz("#itemViz",itemRows,"Itemy",level);
+ renderProgressInsights("#itemInsights",itemRows);
+ updateAscUI("items",level);
 
  // Override wording for item-specific insight cards.
  const box=$("#itemInsights");
  if(box){
-   const total=D.itemTiers.at(-1).damage/D.itemTiers[0].damage;
-   const steps=D.itemTiers.slice(1).map((r,i)=>({
-     from:D.itemTiers[i].rarity,to:r.rarity,ratio:r.damage/D.itemTiers[i].damage
+   const total=itemRows.at(-1).damage/itemRows[0].damage;
+   const steps=itemRows.slice(1).map((r,i)=>({
+     from:itemRows[i].rarity,to:r.rarity,ratio:r.damage/itemRows[i].damage
    }));
    box.innerHTML=`
      <article class="insight primary-insight"><span>PRIMITIVE → DIVINE</span><b>×${total.toLocaleString("pl-PL")}</b><small>Divine ma ${total.toLocaleString("pl-PL")}× większą bazową statystykę niż Primitive.</small></article>
-     <article class="insight primary-insight"><span>KAŻDY KOLEJNY TIER</span><b>×4</b><small>Ten sam skok dotyczy bazowego ❤️ HP i ⚔️ DMG.</small></article>
+     <article class="insight primary-insight"><span>A${level} • ASCENSION</span><b>×${ascMultiplier(level).toLocaleString("pl-PL")}</b><small>Mnożnik wszystkich ❤️ HP i ⚔️ DMG względem A0. Każdy kolejny tier nadal = ×4.</small></article>
      <article class="insight step-strip"><span>WSZYSTKIE SKOKI</span><div>${steps.map(x=>`<span class="mini-step"><b>×4</b><small>${x.from} → ${x.to}</small></span>`).join("")}</div></article>`;
  }
 }
@@ -239,6 +259,24 @@ function renderAscension(){
  $("#ascSourceNotes").innerHTML=A.notes.map(n=>`<div class="source-note">${n}</div>`).join("");
  $("#ascAttribution").textContent=A.attribution;
 }
+
+
+function updateAscUI(section,level){
+ $$(`[data-asc-switch="${section}"] .asc-btn`).forEach(b=>b.classList.toggle("active",Number(b.dataset.asc)===level));
+ $$(`[data-asc-strip="${section}"] [data-asc-step]`).forEach(x=>x.classList.toggle("active",Number(x.dataset.ascStep)===level));
+}
+
+$$("[data-asc-switch]").forEach(sw=>{
+ sw.addEventListener("click",e=>{
+   const btn=e.target.closest(".asc-btn");
+   if(!btn)return;
+   const section=sw.dataset.ascSwitch;
+   ascState[section]=Number(btn.dataset.asc);
+   if(section==="pets")renderPets();
+   if(section==="mounts")renderMounts();
+   if(section==="items")renderItems();
+ });
+});
 
 $$(".tab").forEach(b=>b.onclick=()=>{
  $$(".tab").forEach(x=>x.classList.toggle("active",x===b));

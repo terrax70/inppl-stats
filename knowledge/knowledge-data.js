@@ -1,5 +1,11 @@
 window.FORGE_KNOWLEDGE = {
   sourceVersion: "2026_07_15_12_09",
+  ascensionMultipliers: [
+    {level:0,label:"A0",multiplier:1,      stepMultiplier:null},
+    {level:1,label:"A1",multiplier:50,     stepMultiplier:50},
+    {level:2,label:"A2",multiplier:2500,   stepMultiplier:50},
+    {level:3,label:"A3",multiplier:125000, stepMultiplier:50}
+  ],
   rarities: ["Common","Rare","Epic","Legendary","Ultimate","Mythic"],
   colors: {
     Common:"#aeb8c6", Rare:"#5ba7ff", Epic:"#bb6cff",

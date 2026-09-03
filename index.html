@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#07090d">
 <title>INPPL Stats — Forge Master</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="stylesheet" href="styles.css?v=110">
+<link rel="stylesheet" href="styles.css?v=120">
 </head>
 <body>
 <div class="app">
@@ -28,7 +28,7 @@
       <a class="nav-btn nav-link-btn" href="planner/"><span class="nav-ico">⌁</span>Planner</a>
     </nav>
     <div class="side-status">
-      <div class="release-row"><strong>InPost [INPPL]</strong><span class="release-badge">v1.1</span></div>
+      <div class="release-row"><strong>InPost [INPPL]</strong><span class="release-badge">v1.2</span></div>
       <div id="sideDataRange">Dane —</div>
       <div class="data-updated" id="dataUpdated">Aktualizacja —</div>
     </div>
@@ -133,7 +133,7 @@
         <div class="panel-head"><div><div class="panel-title">Rozkład punktów — Top 15</div><div class="panel-desc" id="warDeltaNote"></div></div></div>
         <div class="chart-box small-chart"><canvas id="warDistribution"></canvas></div>
       </div>
-      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>#</th><th>Gracz</th><th>Ranga</th><th class="num">Punkty</th><th class="num">Pozycja źródłowa</th></tr></thead><tbody id="warTable"></tbody></table></div>
+      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th class="sortable" data-sort="place">#</th><th class="sortable" data-sort="nick">Gracz</th><th class="sortable" data-sort="rank">Ranga</th><th class="sortable num" data-sort="points">Punkty</th><th class="sortable num" data-sort="position">Pozycja źródłowa</th></tr></thead><tbody id="warTable"></tbody></table></div>
     </section>
 
     <!-- PLAYERS -->
@@ -175,9 +175,9 @@
       <div class="table-shell">
         <table>
           <thead><tr>
-            <th>Gracz</th><th>Ostatnia ranga</th><th>Ostatnia wojna</th>
-            <th class="num">Ostatni wynik</th><th class="num">Średnia</th><th class="num">Rekord</th>
-            <th class="num">Wojny</th><th class="num">Power</th><th class="num">Ostatni wzrost</th>
+            <th class="sortable" data-sort="nick">Gracz</th><th class="sortable" data-sort="rank">Ostatnia ranga</th><th class="sortable" data-sort="lastWeek">Ostatnia wojna</th>
+            <th class="sortable num" data-sort="latestPoints">Ostatni wynik</th><th class="sortable num" data-sort="avg">Średnia</th><th class="sortable num" data-sort="best">Rekord</th>
+            <th class="sortable num" data-sort="warCount">Wojny</th><th class="sortable num" data-sort="powerM">Power</th><th class="sortable num" data-sort="powerChangeM">Ostatni wzrost</th>
           </tr></thead>
           <tbody id="outcastsTable"></tbody>
         </table>
@@ -215,7 +215,7 @@
         </div>
         <div style="padding:12px 14px 0"><div class="snapshot-bar" id="powerSnapshotBar"></div></div>
         <div class="war-summary" id="powerSnapshotSummary" style="padding:12px 14px 0;margin-bottom:0"></div>
-        <div class="table-shell" style="margin:12px 14px 14px"><table><thead><tr><th># wzrostu</th><th>Gracz</th><th>Ranga</th><th class="num">Δ %</th><th class="num">Δ Power</th><th class="num">Power</th></tr></thead><tbody id="powerSnapshotTable"></tbody></table></div>
+        <div class="table-shell" style="margin:12px 14px 14px"><table><thead><tr><th class="sortable" data-sort="growthRank"># wzrostu</th><th class="sortable" data-sort="nick">Gracz</th><th class="sortable" data-sort="rank">Ranga</th><th class="sortable num" data-sort="pct">Δ %</th><th class="sortable num" data-sort="deltaM">Δ Power</th><th class="sortable num" data-sort="powerM">Power</th></tr></thead><tbody id="powerSnapshotTable"></tbody></table></div>
       </div>
       <div class="grid-main">
         <div class="panel">
@@ -280,7 +280,7 @@
         </div>
         <div class="panel"><div class="panel-head"><div><div class="panel-title">Pozycja w rankingu</div><div class="panel-desc">im wyżej na wykresie, tym lepiej</div></div></div><div class="chart-box small-chart"><canvas id="profilePositionChart"></canvas></div></div>
       </div>
-      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th>Tydzień</th><th>Tier</th><th>Data</th><th class="num">Punkty</th><th class="num">Pozycja</th></tr></thead><tbody id="profileHistory"></tbody></table></div>
+      <div class="table-shell" style="margin-top:11px"><table><thead><tr><th class="sortable" data-sort="week">Tydzień</th><th class="sortable" data-sort="tier">Tier</th><th class="sortable" data-sort="date">Data</th><th class="sortable num" data-sort="points">Punkty</th><th class="sortable num" data-sort="position">Pozycja</th></tr></thead><tbody id="profileHistory"></tbody></table></div>
     </section>
 
     <div class="footer">INPPL Stats • pełny redesign • dane lokalne z INPPL_Ranking_source.xlsx</div>
@@ -288,7 +288,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="data.js?v=110"></script>
-<script src="app.js?v=110"></script>
+<script src="data.js?v=120"></script>
+<script src="app.js?v=120"></script>
 </body>
 </html>

@@ -1,6 +1,19 @@
 
 const D = window.INPPL_DATA;
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+function cmpVal(a,b,dir=1){
+ if(a==null)a=dir>0?Infinity:-Infinity;
+ if(b==null)b=dir>0?Infinity:-Infinity;
+ if(typeof a==='string'||typeof b==='string')return String(a??'').localeCompare(String(b??''),'pl',{numeric:true})*dir;
+ return (Number(a)-Number(b))*dir;
+}
+function paintSortHeaders(root,state){
+ $$(root+' th.sortable').forEach(th=>{
+   th.classList.remove('sort-asc','sort-desc');
+   if(th.dataset.sort===state.key)th.classList.add(state.dir>0?'sort-asc':'sort-desc');
+ });
+}
+
 const fmt=n=>n==null?'—':Math.round(n).toLocaleString('pl-PL');
 const compact=n=>{
   if(n==null)return'—'; const a=Math.abs(n);
@@ -270,6 +283,7 @@ let selectedPowerSnapshot=D.powerWeeks.at(-1)?.week || '';
 let powerSearch='';
 let powerRankFilter='';
 let powerSort='growthPct';
+let powerSortDir=-1;
 let powerAnalyticsMode='growthPct';
 
 let selectedWeek=D.latest.week;
@@ -285,6 +299,7 @@ function getWarDeltas(w){
  const prev=D.weeks[idx-1]; const pm=Object.fromEntries(prev.entries.map(e=>[e.nick,e.points]));
  return w.entries.filter(e=>pm[e.nick]!=null).map(e=>({...e,delta:e.points-pm[e.nick]}));
 }
+let warSort={key:'points',dir:-1};
 function renderWarView(){
  const w=D.weeks.find(x=>x.week===selectedWeek); const deltas=getWarDeltas(w);
  const best=[...deltas].sort((a,b)=>b.delta-a.delta)[0], worst=[...deltas].sort((a,b)=>a.delta-b.delta)[0];
@@ -305,9 +320,20 @@ function renderWarView(){
    ['Suma punktów',compact(w.total)],['Średnia',compact(w.avg)],['Gracze',w.count],['Lider punktów',escapeHtml(w.winner)]
  ].map((x,i)=>`<div class="mini-stat ${i===0?'war-result-stat':''}"><div class="l">${x[0]}</div><div class="v">${x[1]}</div></div>`).join('');
  $('#warDeltaNote').innerHTML=best?`Największy wzrost: <b class="positive">${escapeHtml(best.nick)} +${compact(best.delta)}</b> &nbsp;•&nbsp; Największy spadek: <b class="negative">${escapeHtml(worst.nick)} ${compact(worst.delta)}</b>`:'Brak poprzedniego tygodnia do porównania.';
- $('#warTable').innerHTML=w.entries.map(e=>`<tr class="${placeClass(e.place)}"><td>${placeBadge(e.place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')">${escapeHtml(e.nick)}</button></td><td><span class="rank-tag">${escapeHtml(e.rank)}</span></td><td class="num"><b>${fmt(e.points)}</b></td><td class="num">${e.position??'—'}</td></tr>`).join('');
+ let warEntries=w.entries.slice().sort((a,b)=>{
+   const key=warSort.key;
+   return cmpVal(a[key],b[key],warSort.dir);
+ });
+ paintSortHeaders('#warsView',warSort);
+ $('#warTable').innerHTML=warEntries.map(e=>`<tr class="${placeClass(e.place)}"><td>${placeBadge(e.place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')">${escapeHtml(e.nick)}</button></td><td><span class="rank-tag">${escapeHtml(e.rank)}</span></td><td class="num"><b>${fmt(e.points)}</b></td><td class="num">${e.position??'—'}</td></tr>`).join('');
  requestAnimationFrame(()=>barChart('warDistribution',w.entries.slice(0,15).map(e=>e.nick),w.entries.slice(0,15).map(e=>e.points),compact,true));
 }
+
+$$('#warsView th.sortable').forEach(th=>th.onclick=()=>{
+ const k=th.dataset.sort;
+ if(warSort.key===k)warSort.dir*=-1;else{warSort.key=k;warSort.dir=(k==='nick'||k==='rank')?1:-1}
+ renderWarView();
+});
 
 let playerSort={key:'latestPlace',dir:1};
 function formTag(v){
@@ -326,6 +352,7 @@ function renderPlayers(){
    if(typeof av==='string')return av.localeCompare(bv)*playerSort.dir;
    return (av-bv)*playerSort.dir;
  });
+ paintSortHeaders('#playersView',playerSort);
  $('#playersCount').textContent=`${arr.length} graczy`;
  $('#playersTable').innerHTML=arr.map(p=>`<tr class="${p.latestPlace?placeClass(p.latestPlace):''}">
  <td>${p.latestPlace?placeBadge(p.latestPlace):'—'}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td>
@@ -338,6 +365,7 @@ $$('#playersView th.sortable').forEach(th=>th.onclick=()=>{let k=th.dataset.sort
 
 let outcastSearch='';
 let outcastSort='lastWeek';
+let outcastSortDir=-1;
 function weekNumber(week){
  const m=String(week||'').match(/\d+/);return m?Number(m[0]):-1;
 }
@@ -346,13 +374,11 @@ function renderOutcasts(){
  const q=(outcastSearch||'').trim().toLowerCase();
  let arr=all.filter(p=>!q||p.nick.toLowerCase().includes(q));
  arr.sort((a,b)=>{
-   if(outcastSort==='avg')return (b.avg??-Infinity)-(a.avg??-Infinity);
-   if(outcastSort==='best')return (b.best??-Infinity)-(a.best??-Infinity);
-   if(outcastSort==='power')return (b.powerM??-Infinity)-(a.powerM??-Infinity);
-   if(outcastSort==='wars')return (b.warCount??0)-(a.warCount??0);
-   if(outcastSort==='nick')return a.nick.localeCompare(b.nick,'pl');
-   return weekNumber(b.history?.at(-1)?.week)-weekNumber(a.history?.at(-1)?.week);
+   const va=outcastSort==='lastWeek'?weekNumber(a.history?.at(-1)?.week):a[outcastSort];
+   const vb=outcastSort==='lastWeek'?weekNumber(b.history?.at(-1)?.week):b[outcastSort];
+   return cmpVal(va,vb,outcastSortDir);
  });
+ paintSortHeaders('#outcastsView',{key:outcastSort,dir:outcastSortDir});
  const wars=all.reduce((s,p)=>s+(p.warCount||0),0);
  const best=[...all].sort((a,b)=>(b.best??0)-(a.best??0))[0];
  const strongest=[...all].filter(p=>p.powerM!=null).sort((a,b)=>b.powerM-a.powerM)[0];
@@ -379,6 +405,12 @@ function renderOutcasts(){
    </tr>`;
  }).join('') || '<tr><td colspan="9" class="empty">Brak wyników</td></tr>';
 }
+
+$$('#outcastsView th.sortable').forEach(th=>th.onclick=()=>{
+ const k=th.dataset.sort;
+ if(outcastSort===k)outcastSortDir*=-1;else{outcastSort=k;outcastSortDir=(k==='nick'||k==='rank')?1:-1}
+ renderOutcasts();
+});
 
 function getPowerPlayerRows(){
   let rows=D.players.filter(p=>p.active!==false).map(p=>{
@@ -450,12 +482,9 @@ function renderPowerSnapshot(){
  if(q)arr=arr.filter(x=>x.nick.toLowerCase().includes(q));
  if(powerRankFilter)arr=arr.filter(x=>x.rank===powerRankFilter);
 
- arr.sort((a,b)=>{
-   if(powerSort==='power')return (b.powerM??-Infinity)-(a.powerM??-Infinity);
-   if(powerSort==='growthAbs')return (b.deltaM??-Infinity)-(a.deltaM??-Infinity);
-   if(powerSort==='nick')return a.nick.localeCompare(b.nick,'pl');
-   return (b.pct??-Infinity)-(a.pct??-Infinity);
- });
+ const powerKey=({power:'powerM',growthAbs:'deltaM',growthPct:'pct'}[powerSort]||powerSort);
+ arr.sort((a,b)=>cmpVal(a[powerKey],b[powerKey],powerSortDir));
+ paintSortHeaders('#power',{key:powerKey,dir:powerSortDir});
 
  if($('#powerFilterCount'))$('#powerFilterCount').textContent=`${arr.length} aktywnych graczy • ${selectedPowerSnapshot}`;
 
@@ -469,6 +498,16 @@ function renderPowerSnapshot(){
  </tr>`).join('');
 }
 
+$$('#power th.sortable').forEach(th=>th.onclick=()=>{
+ if(!th.closest('#powerSnapshotTable') && th.closest('table')?.querySelector('#powerSnapshotTable')===null)return;
+ const map={growthRank:'growthPct',pct:'growthPct',deltaM:'growthAbs',powerM:'power'};
+ const k=map[th.dataset.sort]||th.dataset.sort;
+ if(powerSort===k)powerSortDir*=-1;else{powerSort=k;powerSortDir=(k==='nick'||k==='rank')?1:-1}
+ const pso=$('#powerSort');if(pso&&[...pso.options].some(o=>o.value===powerSort))pso.value=powerSort;
+ renderPowerSnapshot();
+});
+
+let powerAnalyticsSort={key:null,dir:-1};
 function renderPowerAnalytics(){
  $$('[data-power-analytics]').forEach(b=>b.classList.toggle('active',b.dataset.powerAnalytics===powerAnalyticsMode));
  const head=$('#powerAnalyticsHead'), body=$('#powerAnalyticsBody');
@@ -477,22 +516,32 @@ function renderPowerAnalytics(){
  else if(mode==='spikeAbs')source=D.powerSpikesTopAbs;
  else if(mode==='growthPct')source=D.fastestGrowthPct;
  else source=D.fastestGrowthAbs;
+ if(powerAnalyticsSort.key){
+   source=source.slice().sort((a,b)=>cmpVal(a[powerAnalyticsSort.key],b[powerAnalyticsSort.key],powerAnalyticsSort.dir));
+ }
  const lim=expandedLists.powerAnalytics?source.length:15;
  const shown=source.slice(0,lim); let rows=[];
  if(mode==='spikePct'||mode==='spikeAbs'){
-   head.innerHTML='<tr><th>#</th><th>Gracz</th><th>Okres</th><th class="num">Przed</th><th class="num">Po</th><th class="num">Spike</th><th class="num">Spike %</th></tr>';
+   head.innerHTML='<tr><th>#</th><th class="sortable" data-sort="nick">Gracz</th><th>Okres</th><th class="sortable num" data-sort="fromM">Przed</th><th class="sortable num" data-sort="toM">Po</th><th class="sortable num" data-sort="deltaM">Spike</th><th class="sortable num" data-sort="pct">Spike %</th></tr>';
    rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td>${x.fromWeek} → ${x.toWeek}</td><td class="num">${power(x.fromM)}</td><td class="num">${power(x.toM)}</td><td class="num positive">+${power(x.deltaM)}</td><td class="num positive"><b>${fmtPct1(x.pct)}</b></td></tr>`);
  }else if(mode==='growthPct'){
-   head.innerHTML='<tr><th>#</th><th>Gracz</th><th class="num">Śr. wzrost / snapshot</th><th class="num">Łączny wzrost</th><th class="num">Łącznie %</th></tr>';
+   head.innerHTML='<tr><th>#</th><th class="sortable" data-sort="nick">Gracz</th><th class="sortable num" data-sort="avgPct">Śr. wzrost / snapshot</th><th class="sortable num" data-sort="totalM">Łączny wzrost</th><th class="sortable num" data-sort="totalPct">Łącznie %</th></tr>';
    rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>${fmtPct1(x.avgPct)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
  }else{
-   head.innerHTML='<tr><th>#</th><th>Gracz</th><th class="num">Śr. wzrost / snapshot</th><th class="num">Łączny wzrost</th><th class="num">Łącznie %</th></tr>';
+   head.innerHTML='<tr><th>#</th><th class="sortable" data-sort="nick">Gracz</th><th class="sortable num" data-sort="avgM">Śr. wzrost / snapshot</th><th class="sortable num" data-sort="totalM">Łączny wzrost</th><th class="sortable num" data-sort="totalPct">Łącznie %</th></tr>';
    rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>+${power(x.avgM)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
  }
- body.innerHTML=rows.join(''); moreButton('powerAnalyticsMore','powerAnalytics',source.length,lim);
+ body.innerHTML=rows.join('');
+ $$('#powerAnalyticsHead th.sortable').forEach(th=>th.onclick=()=>{
+   const k=th.dataset.sort;
+   if(powerAnalyticsSort.key===k)powerAnalyticsSort.dir*=-1;else{powerAnalyticsSort.key=k;powerAnalyticsSort.dir=(k==='nick'?1:-1)}
+   renderPowerAnalytics();
+ });
+ paintSortHeaders('#powerAnalyticsHead',{key:powerAnalyticsSort.key,dir:powerAnalyticsSort.dir});
+ moreButton('powerAnalyticsMore','powerAnalytics',source.length,lim);
 }
 $$('[data-power-analytics]').forEach(b=>b.onclick=()=>{
- powerAnalyticsMode=b.dataset.powerAnalytics;
+ powerAnalyticsMode=b.dataset.powerAnalytics;powerAnalyticsSort={key:null,dir:-1};
  $$('[data-power-analytics]').forEach(x=>x.classList.toggle('active',x===b));
  renderPowerAnalytics();
 });
@@ -534,6 +583,8 @@ function renderCompare(){
 ['compare1','compare2','compare3'].forEach(id=>$('#'+id).onchange=renderCompare);
 
 let lastView='playersView';
+let profileSort={key:'week',dir:-1};
+let currentProfileNick=null;
 window.openProfile=function(nick){
  const p=D.players.find(x=>x.nick===nick); if(!p)return;
  lastView=$('.view.active')?.id||'playersView';
@@ -545,7 +596,14 @@ window.openProfile=function(nick){
  $('#profileKpis').innerHTML=[
    ['Ostatni wynik',fmt(p.latestPoints)],['Średnia',fmt(p.avg)],['Rekord',fmt(p.best)],['Najlepszy tydzień',p.bestWeek||'—'],['Wojny',p.warCount]
  ].map(x=>`<div class="mini-stat"><div class="l">${x[0]}</div><div class="v">${x[1]}</div></div>`).join('');
- $('#profileHistory').innerHTML=p.history.slice().reverse().map(h=>`<tr><td>${h.week}</td><td>${escapeHtml(tierLabel(h.tier))}</td><td>${h.date}</td><td class="num">${fmt(h.points)}</td><td class="num">${h.position??'—'}</td></tr>`).join('');
+ currentProfileNick=nick;
+ const profileRows=p.history.slice().sort((a,b)=>{
+   const va=profileSort.key==='week'?weekNumber(a.week):profileSort.key==='tier'?tierLabel(a.tier):a[profileSort.key];
+   const vb=profileSort.key==='week'?weekNumber(b.week):profileSort.key==='tier'?tierLabel(b.tier):b[profileSort.key];
+   return cmpVal(va,vb,profileSort.dir);
+ });
+ paintSortHeaders('#profile',{key:profileSort.key,dir:profileSort.dir});
+ $('#profileHistory').innerHTML=profileRows.map(h=>`<tr><td>${h.week}</td><td>${escapeHtml(tierLabel(h.tier))}</td><td>${h.date}</td><td class="num">${fmt(h.points)}</td><td class="num">${h.position??'—'}</td></tr>`).join('');
  setView('profile',false);
  requestAnimationFrame(()=>{
    const labs=D.weeks.map(w=>w.week);
@@ -606,7 +664,7 @@ function init(){
  $('#powerPagePlayerSelect').value=selectedPowerPlayer;
  renderPlayers(); renderOutcasts(); renderPower(); fillCompareSelectors();
  const os=$('#outcastSearch');if(os){os.oninput=()=>{outcastSearch=os.value;renderOutcasts();};}
- const oso=$('#outcastSort');if(oso){oso.value=outcastSort;oso.onchange=()=>{outcastSort=oso.value;renderOutcasts();};}
+ const oso=$('#outcastSort');if(oso){oso.value=({powerM:'power',warCount:'wars'}[outcastSort]||outcastSort);oso.onchange=()=>{outcastSort=({power:'powerM',wars:'warCount'}[oso.value]||oso.value);outcastSortDir=(outcastSort==='nick'?1:-1);renderOutcasts();};}
  const ps=$('#powerSearch');
  if(ps){ps.value=powerSearch;ps.oninput=()=>{powerSearch=ps.value;renderPowerSnapshot();};}
  const prf=$('#powerRankFilter');
@@ -617,7 +675,7 @@ function init(){
    prf.onchange=()=>{powerRankFilter=prf.value;renderPowerSnapshot();};
  }
  const pso=$('#powerSort');
- if(pso){pso.value=powerSort;pso.onchange=()=>{powerSort=pso.value;const pill=$('.power-default-pill');if(pill)pill.textContent=powerSort==='growthPct'?'SORTOWANIE: Δ %':`SORTOWANIE: ${pso.options[pso.selectedIndex].text}`;renderPowerSnapshot();};}
+ if(pso){pso.value=powerSort;pso.onchange=()=>{powerSort=pso.value;powerSortDir=(powerSort==='nick'?1:-1);const pill=$('.power-default-pill');if(pill)pill.textContent=powerSort==='growthPct'?'SORTOWANIE: Δ %':`SORTOWANIE: ${pso.options[pso.selectedIndex].text}`;renderPowerSnapshot();};}
 
  const hash=location.hash.replace('#',''); const allowed=['overview','warsView','playersView','outcastsView','power','compare'];
  setView(allowed.includes(hash)?hash:'overview',false);
@@ -633,4 +691,10 @@ document.addEventListener('click',(e)=>{
   const a=e.target.closest('a[href^="#"], [data-view], .nav-item, .nav-link');
   if(!a) return;
   requestAnimationFrame(()=>scrollPageTop());
+});
+
+$$('#profile th.sortable').forEach(th=>th.onclick=()=>{
+ const k=th.dataset.sort;
+ if(profileSort.key===k)profileSort.dir*=-1;else{profileSort.key=k;profileSort.dir=(k==='tier'||k==='date')?1:-1}
+ if(currentProfileNick)openProfile(currentProfileNick);
 });

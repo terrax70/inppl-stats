@@ -517,3 +517,10 @@ body.war-page-loss .main{box-shadow:inset 0 0 120px rgba(218,63,76,.03)}
 .outcast-row{opacity:.92}.cell-sub{display:block;margin-top:3px;color:#657286;font-size:8px;font-weight:600}
 @media(max-width:950px){.outcast-summary{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){.outcast-summary{grid-template-columns:1fr}.outcast-note{display:none}}
+
+/* v1.2 — sortowanie wszystkich tabel */
+th.sortable{cursor:pointer;user-select:none;position:relative;padding-right:22px!important}
+th.sortable:after{content:"↕";position:absolute;right:8px;opacity:.28;font-size:9px}
+th.sortable.sort-asc:after{content:"↑";opacity:.95;color:var(--amber2)}
+th.sortable.sort-desc:after{content:"↓";opacity:.95;color:var(--amber2)}
+th.sortable:hover{color:#dce5ef;background:#101823}

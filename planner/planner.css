@@ -1073,3 +1073,21 @@ td{font-size:10.5px!important}
 @media(max-width:700px){
   .score-callout{font-size:8px;padding:4px 6px}
 }
+
+/* INPPL Stats 1.2 — stała nawigacja również w Plannerze */
+.project-nav{
+  min-height:44px;display:flex;align-items:center;gap:4px;padding:6px 16px;
+  border-bottom:1px solid #171e27;background:#0a0e14;
+  position:sticky;top:58px;z-index:29;overflow:auto
+}
+.project-nav a{
+  white-space:nowrap;color:#7f8ca0;text-decoration:none;font-size:10px;font-weight:850;
+  padding:8px 10px;border-radius:7px
+}
+.project-nav a:hover{color:#eef2f7;background:#111821}
+.project-nav a.active{
+  color:#f4c16a;background:rgba(244,182,81,.09);
+  box-shadow:inset 0 0 0 1px rgba(244,182,81,.15)
+}
+.nav-spacer{flex:1;min-width:16px}
+@media(max-width:900px){.nav-spacer{display:none}}

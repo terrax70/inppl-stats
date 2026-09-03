@@ -4,30 +4,70 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
-<title>INPPL — Rankingi do skopiowania</title>
-<link rel="stylesheet" href="share.css?v=1">
+<title>INPPL — Gotowe rankingi</title>
+<link rel="stylesheet" href="share.css?v=12">
 </head>
 <body>
 <header class="topbar">
-  <a href="../" class="brand"><span class="logo">IP</span><span><b>INPPL Stats</b><small>Rankingi do skopiowania</small></span></a>
-  <a class="back" href="../">← Dashboard</a>
+  <a href="../" class="brand"><span class="logo">IP</span><span><b>INPPL Stats</b><small>Forge Master</small></span></a>
+  <div class="top-title">Gotowe rankingi</div>
 </header>
+
+<nav class="project-nav" aria-label="Nawigacja INPPL Stats">
+  <a href="../#overview">Przegląd</a>
+  <a href="../#warsView">Wojny</a>
+  <a href="../#playersView">Gracze</a>
+  <a href="../#outcastsView">Wyrzutki</a>
+  <a href="../#power">Power</a>
+  <a href="../#compare">Porównaj</a>
+  <span></span>
+  <a class="active" href="./">Gotowe rankingi</a>
+  <a href="../planner/">Planner</a>
+</nav>
+
 <main class="shell">
   <section class="hero">
-    <div><div class="kicker">CLAN SHARE</div><h1>Gotowe rankingi</h1><p>Wybierz tydzień. Ranking i tekst do Discorda aktualizują się automatycznie z tego samego pliku danych co INPPL Stats.</p></div>
-    <div class="controls">
-      <label>Wojna<select id="weekSelect"></select></label>
-      <label>Pokaż<select id="limitSelect"><option value="15">Top 15</option><option value="20">Top 20</option><option value="999">Wszystkich</option></select></label>
+    <div>
+      <div class="kicker">CLAN SHARE</div>
+      <h1>Gotowe rankingi</h1>
+      <p>Wybierz wojnę jak w zakładce Wojny. Wszystko poniżej odświeża się natychmiast i jest gotowe do skopiowania.</p>
     </div>
+  </section>
+
+  <section class="week-panel">
+    <div class="section-label">WYBIERZ WOJNĘ</div>
+    <div class="weekbar" id="weekbar"></div>
   </section>
 
   <div class="share-grid">
     <section class="share-card">
       <div class="card-head">
         <div><span class="type war">WOJNA</span><h2>Top punktów</h2><p id="warSub">—</p></div>
-        <button class="copy-btn" id="copyWar">Kopiuj</button>
+        <button class="copy-btn" id="copyWar">Kopiuj tekst</button>
       </div>
-      <div class="threshold"><label>Minimalnie <input id="warThreshold" type="number" value="800" min="0" step="50"><span>k pkt</span></label><button class="ghost" id="toggleWarAll">Pokaż wszystkich</button></div>
+      <div class="filters">
+        <label><span>Próg punktów</span>
+          <select id="warThreshold">
+            <option value="0">Bez progu</option>
+            <option value="100">100k+</option>
+            <option value="250">250k+</option>
+            <option value="500">500k+</option>
+            <option value="800" selected>800k+</option>
+            <option value="1000">1,0m+</option>
+            <option value="1250">1,25m+</option>
+            <option value="1500">1,5m+</option>
+            <option value="2000">2,0m+</option>
+          </select>
+        </label>
+        <label><span>Ile osób</span>
+          <select id="warLimit">
+            <option value="10">Top 10</option>
+            <option value="15" selected>Top 15</option>
+            <option value="20">Top 20</option>
+            <option value="999">Wszyscy</option>
+          </select>
+        </label>
+      </div>
       <div class="rank-list" id="warRank"></div>
       <pre class="copy-preview" id="warPreview"></pre>
     </section>
@@ -35,18 +75,44 @@
     <section class="share-card">
       <div class="card-head">
         <div><span class="type power">POWER</span><h2>Top wzrostu mocy</h2><p id="powerSub">—</p></div>
-        <button class="copy-btn" id="copyPower">Kopiuj</button>
+        <button class="copy-btn" id="copyPower">Kopiuj tekst</button>
       </div>
-      <div class="threshold"><label>Minimalnie <input id="powerThreshold" type="number" value="100" min="-999" step="10"><span>%</span></label><button class="ghost" id="togglePowerAll">Pokaż wszystkich</button></div>
+      <div class="filters">
+        <label><span>Próg wzrostu</span>
+          <select id="powerThreshold">
+            <option value="-999">Bez progu</option>
+            <option value="25">+25%+</option>
+            <option value="50">+50%+</option>
+            <option value="75">+75%+</option>
+            <option value="100" selected>+100%+</option>
+            <option value="125">+125%+</option>
+            <option value="150">+150%+</option>
+            <option value="200">+200%+</option>
+            <option value="300">+300%+</option>
+          </select>
+        </label>
+        <label><span>Ile osób</span>
+          <select id="powerLimit">
+            <option value="10">Top 10</option>
+            <option value="15" selected>Top 15</option>
+            <option value="20">Top 20</option>
+            <option value="999">Wszyscy</option>
+          </select>
+        </label>
+      </div>
       <div class="rank-list" id="powerRank"></div>
       <pre class="copy-preview" id="powerPreview"></pre>
     </section>
   </div>
 
-  <section class="help"><b>Jak działa kopiowanie?</b><span>👑 miejsce 1 • 🥈 miejsce 2 • 🥉 miejsce 3 • ⭐ miejsca 4–9 • 🔥 od miejsca 10. Tekst jest gotowy do wklejenia na Discordzie lub w grze.</span></section>
+  <section class="help">
+    <b>Format gotowy do wklejenia</b>
+    <span>👑 #1 • 🥈 #2 • 🥉 #3 • ⭐ #4–9 • 🔥 #10+. Zmiana wojny, progu lub liczby osób od razu przebudowuje listę i tekst.</span>
+  </section>
 </main>
+
 <div class="toast" id="toast">Skopiowano ✓</div>
 <script src="../data.js"></script>
-<script src="share.js?v=1"></script>
+<script src="share.js?v=12"></script>
 </body>
 </html>

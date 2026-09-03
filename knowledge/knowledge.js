@@ -24,112 +24,134 @@ function svgEl(tag, attrs={}, text=null){
  return e;
 }
 
-function renderViz(containerId, rows, metric){
- const host=$(containerId); host.innerHTML="";
- const W=1400,H=620, ladderX=40, ladderW=300, chartX=510, chartW=810, top=68, bottom=555;
- const plotH=bottom-top;
- const vals=rows.map(r=>r[metric]);
- const positive=vals.filter(v=>v>0);
- const min=Math.min(...positive), max=Math.max(...positive);
- const logMin=Math.log10(min), logMax=Math.log10(max);
- const y=v=> bottom - ((Math.log10(v)-logMin)/(logMax-logMin||1))*plotH;
- const x=i=>chartX + (i/(rows.length-1))*chartW;
- const nodeY=i=>top + (rows.length-1-i)*((bottom-top)/(rows.length-1));
 
- const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,class:"viz-svg",role:"img","aria-label":"Drabinka progresji połączona z wykresem"});
+function renderProgressViz(containerId, rows, systemName){
+ const host=$(containerId); host.innerHTML="";
+ const W=1400,H=620, ladderX=38, ladderW=325, chartX=535, chartW=790, top=72, bottom=535;
+ const plotH=bottom-top;
+
+ // Normalize to Common = 1. HP and Damage have identical rarity multipliers,
+ // so one curve is enough and raw HP/DMG remain visible at each point.
+ const baseDamage=rows[0].damage;
+ const power=rows.map(r=>r.damage/baseDamage);
+ const min=1,max=Math.max(...power);
+ const logMin=0,logMax=Math.log10(max);
+ const y=v=>bottom-((Math.log10(v)-logMin)/(logMax-logMin||1))*plotH;
+ const x=i=>chartX+(i/(rows.length-1))*chartW;
+ const nodeY=i=>top+(rows.length-1-i)*((bottom-top)/(rows.length-1));
+
+ const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,class:"viz-svg",role:"img","aria-label":`${systemName}: progresja rarity i mnożniki siły`});
  const defs=svgEl("defs");
  const grad=svgEl("linearGradient",{id:"areaGrad",x1:"0",y1:"0",x2:"0",y2:"1"});
- grad.append(svgEl("stop",{offset:"0%","stop-color":"#6aaef6","stop-opacity":".55"}),svgEl("stop",{offset:"100%","stop-color":"#6aaef6","stop-opacity":"0"}));
+ grad.append(svgEl("stop",{offset:"0%","stop-color":"#6aaef6","stop-opacity":".50"}),
+             svgEl("stop",{offset:"100%","stop-color":"#6aaef6","stop-opacity":"0"}));
  const marker=svgEl("marker",{id:"arrow",markerWidth:"8",markerHeight:"8",refX:"7",refY:"3",orient:"auto",markerUnits:"strokeWidth"});
  marker.append(svgEl("path",{d:"M0,0 L0,6 L8,3 z",class:"arrow-head"}));
  defs.append(grad,marker); svg.append(defs);
 
- // chart grid: logarithmic decades
- const decades=[];
- for(let p=Math.floor(logMin);p<=Math.ceil(logMax);p++)decades.push(10**p);
- decades.filter(v=>v>=min*.8&&v<=max*1.2).forEach(v=>{
-   const yy=y(Math.max(min,Math.min(max,v)));
+ // ratio grid
+ [1,10,100,1000,10000,100000].filter(v=>v<=max*1.2).forEach(v=>{
+   const yy=y(Math.min(v,max));
    svg.append(svgEl("line",{x1:chartX,y1:yy,x2:chartX+chartW,y2:yy,class:"grid-line"}));
-   svg.append(svgEl("text",{x:chartX-16,y:yy+4,"text-anchor":"end",class:"axis-text"},valueFormat(metric,v)));
+   svg.append(svgEl("text",{x:chartX-18,y:yy+4,"text-anchor":"end",class:"axis-text"},`×${fmt(v)}`));
  });
- svg.append(svgEl("text",{x:chartX,y:30,class:"chart-title"},`${labelMetric(metric).toUpperCase()} • SKALA LOGARYTMICZNA`));
- svg.append(svgEl("text",{x:chartX,y:48,class:"chart-note"},"Punkty są liczone z dokładnych wartości dla każdego rarity"));
+ svg.append(svgEl("text",{x:chartX,y:30,class:"chart-title"},`${systemName.toUpperCase()} • COMMON = ×1`));
+ svg.append(svgEl("text",{x:chartX,y:48,class:"chart-note"},"Jedna krzywa = wspólny mnożnik rarity dla HP i Damage"));
 
- // ladder spine
  svg.append(svgEl("line",{x1:ladderX+22,y1:top,x2:ladderX+22,y2:bottom,class:"ladder-spine"}));
 
- // chart area/line
- const points=rows.map((r,i)=>[x(i),y(r[metric])]);
- const path=points.map((p,i)=>(i?"L":"M")+p[0]+","+p[1]).join(" ");
- const area=path+` L${points.at(-1)[0]},${bottom} L${points[0][0]},${bottom} Z`;
+ const pts=rows.map((r,i)=>[x(i),y(power[i])]);
+ const path=pts.map((p,i)=>(i?"L":"M")+p[0]+","+p[1]).join(" ");
+ const area=path+` L${pts.at(-1)[0]},${bottom} L${pts[0][0]},${bottom} Z`;
  svg.append(svgEl("path",{d:area,class:"plot-area"}));
  svg.append(svgEl("path",{d:path,class:"plot-line"}));
 
  rows.forEach((r,i)=>{
-   const ny=nodeY(i), px=x(i), py=y(r[metric]), c=D.colors[r.rarity];
-   // connector: visually proves arrow lands on exact plotted point
-   const sx=ladderX+ladderW, sy=ny;
-   const mx=chartX-52;
-   const connector=svgEl("path",{d:`M${sx},${sy} C${mx-40},${sy} ${mx-5},${py} ${px-10},${py}`,class:"connector","marker-end":"url(#arrow)"});
+   const ny=nodeY(i),px=x(i),py=y(power[i]),c=D.colors[r.rarity];
+   const sx=ladderX+ladderW,sy=ny,mx=chartX-50;
+
+   const connector=svgEl("path",{
+     d:`M${sx},${sy} C${mx-35},${sy} ${mx-8},${py} ${px-10},${py}`,
+     class:"connector","marker-end":"url(#arrow)"
+   });
    svg.append(connector);
 
-   // node card
    const g=svgEl("g",{class:"ladder-node",tabindex:"0","data-i":i});
-   g.append(svgEl("rect",{x:ladderX+42,y:ny-28,width:ladderW-42,height:56,rx:8,class:"node-bg"}));
+   g.append(svgEl("rect",{x:ladderX+42,y:ny-30,width:ladderW-42,height:60,rx:8,class:"node-bg"}));
    g.append(svgEl("circle",{cx:ladderX+22,cy:ny,r:8,fill:c,stroke:"#0a1017","stroke-width":"4"}));
-   g.append(svgEl("text",{x:ladderX+58,y:ny-7,fill:c,class:"node-rarity"},r.rarity.toUpperCase()));
-   g.append(svgEl("text",{x:ladderX+58,y:ny+14,class:"node-value"},valueFormat(metric,r[metric])));
-   g.append(svgEl("text",{x:ladderX+210,y:ny+13,class:"node-sub"},i===0?"BAZA":`×${ratio(rows[i-1][metric],r[metric]).toLocaleString("pl-PL",{maximumFractionDigits:1})} od poprzedniego`));
+   g.append(svgEl("text",{x:ladderX+58,y:ny-10,fill:c,class:"node-rarity"},r.rarity.toUpperCase()));
+   g.append(svgEl("text",{x:ladderX+58,y:ny+10,class:"node-value"},`HP ${fmt(r.health)} • DMG ${fmt(r.damage)}`));
+   g.append(svgEl("text",{x:ladderX+58,y:ny+25,class:"node-sub"},`Łącznie względem Common: ×${power[i].toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
    svg.append(g);
 
-   // point on graph
-   const p=svgEl("circle",{cx:px,cy:py,r:7,fill:c,class:"point","data-i":i});
+   const p=svgEl("circle",{cx:px,cy:py,r:8,fill:c,class:"point","data-i":i});
    svg.append(p);
-   svg.append(svgEl("text",{x:px,y:bottom+28,"text-anchor":"middle",fill:c,class:"axis-text"},r.rarity.slice(0,4)));
+   svg.append(svgEl("text",{x:px,y:bottom+30,"text-anchor":"middle",fill:c,class:"axis-text"},r.rarity.slice(0,4)));
+
+   // MOST IMPORTANT: giant multiplier between rarities.
+   if(i>0){
+     const step=rows[i].damage/rows[i-1].damage;
+     const mxp=(pts[i-1][0]+px)/2;
+     const myp=Math.min(pts[i-1][1],py)-32;
+     const tag=svgEl("g",{class:"mega-ratio"});
+     tag.append(svgEl("rect",{x:mxp-54,y:myp-22,width:108,height:44,rx:10}));
+     tag.append(svgEl("text",{x:mxp,y:myp+7,"text-anchor":"middle"},`×${step.toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
+     svg.append(tag);
+
+     // smaller caption under the large ratio
+     svg.append(svgEl("text",{x:mxp,y:myp+35,"text-anchor":"middle",class:"ratio-caption"},
+       `${rows[i-1].rarity} → ${r.rarity}`));
+   }
 
    const activate=()=>{
      svg.querySelectorAll(".ladder-node").forEach(x=>x.classList.remove("active"));
      svg.querySelectorAll(".connector").forEach(x=>x.classList.remove("active"));
-     g.classList.add("active"); connector.classList.add("active");
+     g.classList.add("active");connector.classList.add("active");
    };
-   g.addEventListener("mouseenter",activate); p.addEventListener("mouseenter",activate);
+   g.addEventListener("mouseenter",activate);p.addEventListener("mouseenter",activate);
  });
 
  host.append(svg);
+
  const tip=document.createElement("div");tip.className="tooltip";host.append(tip);
  svg.querySelectorAll(".point").forEach(p=>{
    p.addEventListener("mousemove",ev=>{
-     const r=rows[Number(p.dataset.i)];
-     tip.innerHTML=`<b style="color:${D.colors[r.rarity]}">${r.rarity}</b><span>${labelMetric(metric)}: <strong>${valueFormat(metric,r[metric])}</strong></span>${metric!=="hatchSeconds"?`<span>HP: ${fmt(r.health)} • DMG: ${fmt(r.damage)}</span>`:""}`;
+     const i=Number(p.dataset.i),r=rows[i];
+     const step=i?rows[i].damage/rows[i-1].damage:null;
+     tip.innerHTML=`<b style="color:${D.colors[r.rarity]}">${r.rarity}</b>
+       <span>HP: <strong>${fmt(r.health)}</strong></span>
+       <span>Damage: <strong>${fmt(r.damage)}</strong></span>
+       <span>vs Common: <strong>×${power[i].toLocaleString("pl-PL",{maximumFractionDigits:1})}</strong></span>
+       ${step?`<span>vs ${rows[i-1].rarity}: <strong>×${step.toLocaleString("pl-PL",{maximumFractionDigits:1})}</strong></span>`:""}`;
      tip.style.display="block";
      const rect=host.getBoundingClientRect();
-     tip.style.left=Math.min(ev.clientX-rect.left+14,rect.width-215)+"px";
+     tip.style.left=Math.min(ev.clientX-rect.left+14,rect.width-220)+"px";
      tip.style.top=Math.max(10,ev.clientY-rect.top-18)+"px";
    });
    p.addEventListener("mouseleave",()=>tip.style.display="none");
  });
-
- return {min,max};
 }
 
-function renderInsights(target,rows,metric){
- const first=rows[0][metric],last=rows.at(-1)[metric];
- const jumps=rows.slice(1).map((r,i)=>({from:rows[i],to:r,ratio:r[metric]/rows[i][metric]})).sort((a,b)=>b.ratio-a.ratio);
- const biggest=jumps[0];
- const mid=rows.find(x=>x.rarity==="Legendary");
+function renderProgressInsights(target,rows){
+ const steps=rows.slice(1).map((r,i)=>({
+   from:rows[i].rarity,to:r.rarity,ratio:r.damage/rows[i].damage
+ }));
+ const biggest=[...steps].sort((a,b)=>b.ratio-a.ratio)[0];
+ const total=rows.at(-1).damage/rows[0].damage;
+ const htmlSteps=steps.map(x=>`<span class="mini-step"><b>×${x.ratio.toLocaleString("pl-PL",{maximumFractionDigits:1})}</b><small>${x.from} → ${x.to}</small></span>`).join("");
  $(target).innerHTML=`
-   <article class="insight"><span>Common → Mythic</span><b>×${(last/first).toLocaleString("pl-PL",{maximumFractionDigits:1})}</b><small>${labelMetric(metric)} między skrajnymi rarity.</small></article>
-   <article class="insight"><span>Największy pojedynczy skok</span><b>${biggest.from.rarity} → ${biggest.to.rarity}</b><small>×${biggest.ratio.toLocaleString("pl-PL",{maximumFractionDigits:1})} dla ${labelMetric(metric)}.</small></article>
-   <article class="insight"><span>Próg Legendary</span><b>${valueFormat(metric,mid[metric])}</b><small>Wartość dokładnie z punktu oznaczonego Legendary na wykresie.</small></article>`;
+   <article class="insight primary-insight"><span>PEŁNA PROGRESJA</span><b>×${total.toLocaleString("pl-PL",{maximumFractionDigits:1})}</b><small>Mythic względem Common.</small></article>
+   <article class="insight primary-insight"><span>NAJWIĘKSZY SKOK</span><b>×${biggest.ratio.toLocaleString("pl-PL",{maximumFractionDigits:1})}</b><small>${biggest.from} → ${biggest.to}</small></article>
+   <article class="insight step-strip"><span>WSZYSTKIE SKOKI</span><div>${htmlSteps}</div></article>`;
 }
 
 function renderPets(){
- const m=$("#petMetric").value;
- renderViz("#petViz",D.pets,m);renderInsights("#petInsights",D.pets,m);
+ renderProgressViz("#petViz",D.pets,"Pety");
+ renderProgressInsights("#petInsights",D.pets);
 }
 function renderMounts(){
- const m=$("#mountMetric").value;
- renderViz("#mountViz",D.mounts,m);renderInsights("#mountInsights",D.mounts,m);
+ renderProgressViz("#mountViz",D.mounts,"Mounty");
+ renderProgressInsights("#mountInsights",D.mounts);
 }
 
 function renderAscension(){
@@ -182,8 +204,6 @@ $$(".tab").forEach(b=>b.onclick=()=>{
  $$(".tab").forEach(x=>x.classList.toggle("active",x===b));
  $$(".view").forEach(v=>v.classList.toggle("active",v.id===b.dataset.tab));
 });
-$("#petMetric").addEventListener("change",renderPets);
-$("#mountMetric").addEventListener("change",renderMounts);
 
 renderPets();renderMounts();renderAscension();
 })();

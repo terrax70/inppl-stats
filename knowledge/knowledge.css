@@ -113,3 +113,60 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
 .source-note{border:1px solid #18232e;background:#090e14;border-radius:8px;padding:9px 10px;color:#66758a;font-size:9px;line-height:1.5}
 .source-credit{margin-top:8px;color:#4f5e71;font-size:9px;text-align:right}
 @media(max-width:950px){.asc-summary-grid,.asc-grid-v2{grid-template-columns:1fr}.target-head{flex-direction:column}.rule-pill{max-width:none}.asc-source-notes{grid-template-columns:1fr}}
+
+/* Forge Knowledge 0.3 — multipliers first */
+.mega-ratio rect{
+  fill:#17130c;
+  stroke:#f0b75b;
+  stroke-width:2;
+  filter:drop-shadow(0 4px 14px rgba(240,183,91,.16));
+}
+.mega-ratio text{
+  fill:#ffd27f;
+  font-size:22px;
+  font-weight:1000;
+  letter-spacing:-.02em;
+}
+.ratio-caption{
+  fill:#8b98a9;
+  font-size:9px;
+  font-weight:900;
+  letter-spacing:.05em;
+}
+.primary-insight{
+  background:linear-gradient(135deg,rgba(241,178,77,.08),#0b1017 60%);
+  border-color:rgba(241,178,77,.18);
+}
+.primary-insight>b{
+  color:#ffd27f;
+  font-size:24px;
+}
+.step-strip>div{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+  margin-top:7px;
+}
+.mini-step{
+  display:grid;
+  gap:2px;
+  min-width:78px;
+  padding:6px 8px;
+  border:1px solid #263341;
+  background:#0a0f15;
+  border-radius:7px;
+}
+.mini-step b{
+  color:#f5bf64;
+  font-size:14px;
+}
+.mini-step small{
+  color:#647287;
+  font-size:8px;
+}
+.insights{
+  grid-template-columns:.7fr .8fr 1.5fr;
+}
+@media(max-width:900px){
+  .insights{grid-template-columns:1fr}
+}

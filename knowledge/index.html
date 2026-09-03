@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Forge Knowledge Lab</title>
-<link rel="stylesheet" href="knowledge.css?v=2">
+<link rel="stylesheet" href="knowledge.css?v=3">
 </head>
 <body>
 <div class="app">
@@ -32,7 +32,7 @@
     </nav>
 
     <div class="side-status">
-      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.2</span></div>
+      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.3</span></div>
       <div>Moduł ukryty • brak linku w INPPL</div>
       <div>Dane config: 2026-07-15</div>
     </div>
@@ -61,18 +61,9 @@
     <section class="view active" id="pets">
       <div class="view-head">
         <div>
-          <div class="eyebrow">PETS • BASE STATS</div>
-          <h2>Jak naprawdę rośnie siła peta?</h2>
-          <p>Wartości bazowe z <b>PetUpgradeLibrary</b>, poziom config Lv 0. Skala wykresu jest logarytmiczna, żeby Common i Mythic były jednocześnie czytelne.</p>
-        </div>
-        <div class="controls">
-          <label>Metryka
-            <select id="petMetric">
-              <option value="health">HP</option>
-              <option value="damage">Damage</option>
-              <option value="hatchSeconds">Czas wyklucia</option>
-            </select>
-          </label>
+          <div class="eyebrow">PETS • PROGRESJA RARITY</div>
+          <h2>O ile mocniejszy jest kolejny rarity?</h2>
+          <p>Jeden wykres pokazuje progresję całego systemu. HP i Damage mają ten sam mnożnik między rarity, więc nie ma sensu dublować wykresu. Najważniejsze są duże mnożniki między progami.</p>
         </div>
       </div>
       <div class="viz-shell" id="petViz"></div>
@@ -82,17 +73,9 @@
     <section class="view" id="mounts">
       <div class="view-head">
         <div>
-          <div class="eyebrow">MOUNTS • BASE STATS</div>
-          <h2>Drabinka bazowej mocy mountów</h2>
-          <p>Wartości bazowe z <b>MountUpgradeLibrary</b>, poziom config Lv 0. Każdy próg rarity jest połączony z dokładnym punktem wykresu.</p>
-        </div>
-        <div class="controls">
-          <label>Metryka
-            <select id="mountMetric">
-              <option value="health">HP</option>
-              <option value="damage">Damage</option>
-            </select>
-          </label>
+          <div class="eyebrow">MOUNTS • PROGRESJA RARITY</div>
+          <h2>O ile mocniejszy jest kolejny rarity?</h2>
+          <p>Jeden wykres dla całej progresji mountów. HP i Damage są pokazane przy każdym punkcie, a główny nacisk jest na mnożniku siły między kolejnymi rarity.</p>
         </div>
       </div>
       <div class="viz-shell" id="mountViz"></div>
@@ -173,13 +156,13 @@
     </section>
 
     <footer>
-      <span>Forge Knowledge Lab 0.2</span>
+      <span>Forge Knowledge Lab 0.3</span>
       <span>Ten moduł nie jest podlinkowany z głównej strony.</span>
     </footer>
   </main>
 </div>
 
-<script src="knowledge-data.js?v=2"></script>
-<script src="knowledge.js?v=2"></script>
+<script src="knowledge-data.js?v=3"></script>
+<script src="knowledge.js?v=3"></script>
 </body>
 </html>

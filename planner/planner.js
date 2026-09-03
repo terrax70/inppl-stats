@@ -2,7 +2,7 @@
 const D=window.FM_PLANNER_DATA,$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const DAY=86400000,HOUR=3600000,MIN=60000;
 const DEFAULT_SLEEP_START='23:00',DEFAULT_SLEEP_END='08:00';
-const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizon:14,reactionMinutes:30,sleepStart:DEFAULT_SLEEP_START,sleepEnd:DEFAULT_SLEEP_END,forgeMode:'hybrid',forgeOngoing:false,remainingDays:0,remainingHours:0,remainingMinutes:0,techQueue:[],techCount:10};
+const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizon:56,reactionMinutes:30,sleepStart:DEFAULT_SLEEP_START,sleepEnd:DEFAULT_SLEEP_END,forgeMode:'points',forgeOngoing:false,remainingDays:0,remainingHours:0,remainingMinutes:0,techQueue:[],techCount:10};
 let state=load(),results={tech:[],forge:[]};
 
 function load(){try{return {...defaults,...JSON.parse(localStorage.getItem('fmPlannerV2')||'{}')}}catch{return {...defaults}}}

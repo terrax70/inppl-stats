@@ -51,6 +51,49 @@ window.FORGE_KNOWLEDGE = {
     "Multiverse":"#ff9f5b","Quantum":"#f7c95b","Underworld":"#7be09d","Divine":"#65e6d0"
   },
 
+
+  recoveryResources: {
+    items: {
+      resource:"Gold",
+      icon:"🪙",
+      target:"Multiverse",
+      base:11466000,
+      maxTech:8599500,
+      baseLabel:"11,5 mln",
+      maxTechLabel:"8,6 mln",
+      sourceScope:"Base Maxed → A1 Multiverse"
+    },
+    pets: {
+      resource:"Eggshells",
+      icon:"🥚",
+      target:"Legendary",
+      base:48600,
+      maxTech:32400,
+      baseLabel:"49k",
+      maxTechLabel:"33k",
+      sourceScope:"Base Maxed → A1 Legendary"
+    },
+    mounts: {
+      resource:"Clockwinders",
+      icon:"⏱️",
+      target:"Epic",
+      base:46000,
+      maxTech:23308.2,
+      baseLabel:"46k",
+      maxTechLabel:"24k",
+      sourceScope:"Base Maxed → A1 recovery baseline"
+    },
+    skills: {
+      resource:"Tickets",
+      icon:"🎟️",
+      target:"Legendary",
+      base:62200,
+      maxTech:46650,
+      baseLabel:"63k",
+      maxTechLabel:"47k",
+      sourceScope:"Base Maxed → A1 Legendary"
+    }
+  },
   ascensionPaths: {
     pets: {
       system:"Pety",

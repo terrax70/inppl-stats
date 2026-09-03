@@ -346,6 +346,23 @@ function renderAscensionPath(section, hostId){
      badge.append(svgEl("text",{x:bx,y:by+21,"text-anchor":"middle",class:"abs-reset-loss"},
        `−${loss.toLocaleString("pl-PL",{maximumFractionDigits:1})}%`));
      svg.append(badge);
+
+     // Source-grounded resource requirement from the Discord Ascension Priority guide.
+     // The source explicitly covers Base Maxed -> Ascended 1. For later cycles we show
+     // the same value only as an A0->A1 baseline, not as an asserted A2/A3 cost.
+     const rr=D.recoveryResources?.[section];
+     if(rr){
+       const resourceY=by+61;
+       const resourceCard=svgEl("g",{class:a===0?"reset-resource-card first":"reset-resource-card baseline"});
+       resourceCard.append(svgEl("rect",{x:bx-86,y:resourceY-24,width:172,height:49,rx:9}));
+       resourceCard.append(svgEl("text",{x:bx,y:resourceY-8,"text-anchor":"middle",class:"resource-card-title"},
+         a===0?`${rr.icon} ZAPAS PRZED ASCENSION`:`${rr.icon} BASELINE A0→A1`));
+       resourceCard.append(svgEl("text",{x:bx,y:resourceY+7,"text-anchor":"middle",class:"resource-card-value"},
+         `${rr.baseLabel} ${rr.resource}`));
+       resourceCard.append(svgEl("text",{x:bx,y:resourceY+19,"text-anchor":"middle",class:"resource-card-tech"},
+         `Max Tech: ${rr.maxTechLabel} • cel: ${rr.target}`));
+       svg.append(resourceCard);
+     }
    }
  }
 
@@ -415,7 +432,8 @@ function renderAscensionPath(section, hostId){
 
  const copy=document.querySelector(`[data-path-copy="${section}"]`);
  if(copy){
-   copy.innerHTML=`Wizualizacja jest skalowana <b>dokładnie według poradnika</b>: <b>${cfg.recoveryRarity} A1 = ${cfg.endRarity} A0</b>, ${cfg.recoveryRarity} A2 = ${cfg.endRarity} A1 itd. Dzięki temu zielona linia zawsze łączy dwa punkty o identycznej mocy. Ascension jest dostępna przy <b>${cfg.eligibilityLabel}</b>.`;
+   const rr=D.recoveryResources?.[section];
+   copy.innerHTML=`Wizualizacja jest skalowana <b>dokładnie według poradnika</b>: <b>${cfg.recoveryRarity} A1 = ${cfg.endRarity} A0</b>, ${cfg.recoveryRarity} A2 = ${cfg.endRarity} A1 itd. Ascension jest dostępna przy <b>${cfg.eligibilityLabel}</b>. ${rr?`Poradnik podaje dla pierwszego manewru Base→A1 zapas około <b>${rr.baseLabel} ${rr.resource}</b> lub <b>${rr.maxTechLabel}</b> z Maxed Tech, aby dojść do ${rr.target}.`:""}`;
  }
 }
 

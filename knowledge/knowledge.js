@@ -231,7 +231,8 @@ function renderAscensionPath(section, hostId){
  const W=1700;
  const cycleCount=4;
  const cycleW=390;
- const left=70,right=30,top=78,bottom=590,H=680;
+ // Compact dashboard geometry: enough vertical contrast without wasting half a screen.
+ const left=70,right=30,top=60,bottom=340,H=420;
  const chartH=bottom-top;
 
  // Each Ascension cycle uses its own local 0→100% power scale.
@@ -264,7 +265,7 @@ function renderAscensionPath(section, hostId){
    const yy=y(v);
    svg.append(svgEl("line",{x1:left,y1:yy,x2:W-right,y2:yy,class:v===1?"power-ref old":"power-ref"}));
    svg.append(svgEl("text",{x:left-12,y:yy+4,"text-anchor":"end",class:v===1?"power-axis old":"power-axis"},
-     v===1?"100% końca cyklu":`${Math.round(v*100)}%`));
+     v===1?"100% = szczyt cyklu":`${Math.round(v*100)}%`));
  });
 
  // Render each A cycle with every rarity/tier in correct order.
@@ -275,10 +276,10 @@ function renderAscensionPath(section, hostId){
    const stepX=(cx1-cx0)/(baseRows.length-1);
 
    svg.append(svgEl("rect",{
-     x:cx0-24,y:top-34,width:(cx1-cx0)+48,height:chartH+58,rx:14,class:"cycle-band"
+     x:cx0-20,y:top-22,width:(cx1-cx0)+40,height:chartH+36,rx:12,class:"cycle-band"
    }));
    svg.append(svgEl("text",{
-     x:(cx0+cx1)/2,y:top-12,"text-anchor":"middle",class:"cycle-label"
+     x:(cx0+cx1)/2,y:top-7,"text-anchor":"middle",class:"cycle-label"
    },`A${a} • ${cfg.eligibilityLabel}`));
 
    const pts=baseRows.map((r,i)=>[
@@ -310,7 +311,7 @@ function renderAscensionPath(section, hostId){
          .replace("Multiverse","Multi")
          .replace("Underworld","Under");
        svg.append(svgEl("text",{
-         x:px,y:bottom+22,"text-anchor":"middle",class:isRecovery?"cycle-rarity recovery":"cycle-rarity"
+         x:px,y:bottom+18,"text-anchor":"middle",class:isRecovery?"cycle-rarity recovery":"cycle-rarity"
        },short));
      }
 
@@ -320,11 +321,11 @@ function renderAscensionPath(section, hostId){
        const recoveryValue=r.damage*ascMul;
        const pct=recoveryValue/previousPeak*100;
 
-       const gy=py-52;
+       const gy=py-37;
        const recoveryBadge=svgEl("g",{class:"recovery-marker"});
-       recoveryBadge.append(svgEl("rect",{x:px-66,y:gy-19,width:132,height:39,rx:8}));
-       recoveryBadge.append(svgEl("text",{x:px,y:gy-3,"text-anchor":"middle",class:"recovery-marker-title"},"ODZYSK STAREJ MOCY"));
-       recoveryBadge.append(svgEl("text",{x:px,y:gy+12,"text-anchor":"middle",class:"recovery-marker-sub"},
+       recoveryBadge.append(svgEl("rect",{x:px-59,y:gy-16,width:118,height:32,rx:8}));
+       recoveryBadge.append(svgEl("text",{x:px,y:gy-2,"text-anchor":"middle",class:"recovery-marker-title"},"ODZYSK STAREJ MOCY"));
+       recoveryBadge.append(svgEl("text",{x:px,y:gy+10,"text-anchor":"middle",class:"recovery-marker-sub"},
          `${cfg.recoveryRarity} • ~${pct.toLocaleString("pl-PL",{maximumFractionDigits:0})}%`));
        svg.append(recoveryBadge);
 
@@ -334,12 +335,12 @@ function renderAscensionPath(section, hostId){
      }
 
      if(isEnd){
-       const gateY=py-48;
+       const gateY=py-35;
        const gate=svgEl("g",{class:"eligibility-gate"});
-       gate.append(svgEl("rect",{x:px-61,y:gateY-19,width:122,height:39,rx:9}));
-       gate.append(svgEl("text",{x:px,y:gateY-3,"text-anchor":"middle",class:"eligibility-title"},
+       gate.append(svgEl("rect",{x:px-54,y:gateY-16,width:108,height:32,rx:8}));
+       gate.append(svgEl("text",{x:px,y:gateY-2,"text-anchor":"middle",class:"eligibility-title"},
          a<3?"ASCENSION GOTOWA":"KONIEC A3"));
-       gate.append(svgEl("text",{x:px,y:gateY+12,"text-anchor":"middle",class:"eligibility-sub"},
+       gate.append(svgEl("text",{x:px,y:gateY+10,"text-anchor":"middle",class:"eligibility-sub"},
          cfg.eligibilityLabel));
        svg.append(gate);
      }
@@ -368,17 +369,17 @@ function renderAscensionPath(section, hostId){
      const by=(endY+nextCommonY)/2;
 
      const resetBadge=svgEl("g",{class:"reset-badge"});
-     resetBadge.append(svgEl("rect",{x:bx-78,y:by-28,width:156,height:56,rx:10}));
-     resetBadge.append(svgEl("text",{x:bx,y:by-10,"text-anchor":"middle",class:"reset-title"},"ASCEND / RESET"));
+     resetBadge.append(svgEl("rect",{x:bx-68,y:by-23,width:136,height:46,rx:9}));
+     resetBadge.append(svgEl("text",{x:bx,y:by-7,"text-anchor":"middle",class:"reset-title"},"ASCEND / RESET"));
      resetBadge.append(svgEl("text",{x:bx,y:by+8,"text-anchor":"middle",class:"reset-factor"},
        factor>=1?`↓ ×${factor.toLocaleString("pl-PL",{maximumFractionDigits:1})}`:`↑ ×${(1/factor).toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
-     resetBadge.append(svgEl("text",{x:bx,y:by+21,"text-anchor":"middle",class:"reset-pct"},
+     resetBadge.append(svgEl("text",{x:bx,y:by+18,"text-anchor":"middle",class:"reset-pct"},
        pctLoss>=0?`−${pctLoss.toLocaleString("pl-PL",{maximumFractionDigits:1})}%`:`+${(-pctLoss).toLocaleString("pl-PL",{maximumFractionDigits:1})}%`));
      svg.append(resetBadge);
    }
  }
 
- svg.append(svgEl("text",{x:left,y:H-28,class:"power-path-foot"},
+ svg.append(svgEl("text",{x:left,y:H-18,class:"power-path-foot"},
    `Rarity/tier zawsze rośnie w cyklu. Ascension odblokowuje dopiero ${cfg.eligibilityLabel}. ${cfg.recoveryRarity} = próg odzyskania starej mocy z poradnika.`));
 
  host.append(svg);

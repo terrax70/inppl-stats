@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07090d">
+<title>INPPL — Rankingi do skopiowania</title>
+<link rel="stylesheet" href="share.css?v=1">
+</head>
+<body>
+<header class="topbar">
+  <a href="../" class="brand"><span class="logo">IP</span><span><b>INPPL Stats</b><small>Rankingi do skopiowania</small></span></a>
+  <a class="back" href="../">← Dashboard</a>
+</header>
+<main class="shell">
+  <section class="hero">
+    <div><div class="kicker">CLAN SHARE</div><h1>Gotowe rankingi</h1><p>Wybierz tydzień. Ranking i tekst do Discorda aktualizują się automatycznie z tego samego pliku danych co INPPL Stats.</p></div>
+    <div class="controls">
+      <label>Wojna<select id="weekSelect"></select></label>
+      <label>Pokaż<select id="limitSelect"><option value="15">Top 15</option><option value="20">Top 20</option><option value="999">Wszystkich</option></select></label>
+    </div>
+  </section>
+
+  <div class="share-grid">
+    <section class="share-card">
+      <div class="card-head">
+        <div><span class="type war">WOJNA</span><h2>Top punktów</h2><p id="warSub">—</p></div>
+        <button class="copy-btn" id="copyWar">Kopiuj</button>
+      </div>
+      <div class="threshold"><label>Minimalnie <input id="warThreshold" type="number" value="800" min="0" step="50"><span>k pkt</span></label><button class="ghost" id="toggleWarAll">Pokaż wszystkich</button></div>
+      <div class="rank-list" id="warRank"></div>
+      <pre class="copy-preview" id="warPreview"></pre>
+    </section>
+
+    <section class="share-card">
+      <div class="card-head">
+        <div><span class="type power">POWER</span><h2>Top wzrostu mocy</h2><p id="powerSub">—</p></div>
+        <button class="copy-btn" id="copyPower">Kopiuj</button>
+      </div>
+      <div class="threshold"><label>Minimalnie <input id="powerThreshold" type="number" value="100" min="-999" step="10"><span>%</span></label><button class="ghost" id="togglePowerAll">Pokaż wszystkich</button></div>
+      <div class="rank-list" id="powerRank"></div>
+      <pre class="copy-preview" id="powerPreview"></pre>
+    </section>
+  </div>
+
+  <section class="help"><b>Jak działa kopiowanie?</b><span>👑 miejsce 1 • 🥈 miejsce 2 • 🥉 miejsce 3 • ⭐ miejsca 4–9 • 🔥 od miejsca 10. Tekst jest gotowy do wklejenia na Discordzie lub w grze.</span></section>
+</main>
+<div class="toast" id="toast">Skopiowano ✓</div>
+<script src="../data.js"></script>
+<script src="share.js?v=1"></script>
+</body>
+</html>

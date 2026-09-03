@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Forge Knowledge Lab</title>
-<link rel="stylesheet" href="knowledge.css?v=1">
+<link rel="stylesheet" href="knowledge.css?v=2">
 </head>
 <body>
 <div class="app">
@@ -32,7 +32,7 @@
     </nav>
 
     <div class="side-status">
-      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.1</span></div>
+      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.2</span></div>
       <div>Moduł ukryty • brak linku w INPPL</div>
       <div>Dane config: 2026-07-15</div>
     </div>
@@ -102,37 +102,84 @@
     <section class="view" id="ascension">
       <div class="view-head">
         <div>
-          <div class="eyebrow">ASCENSION • PRZYGOTOWANIE</div>
-          <h2>Co przygotować przed Ascension?</h2>
-          <p>Ta część korzysta z poradnika i kosztów w przesłanym zbiorze wiedzy. Nie zastępuje mechaniki gry — pokazuje źródłowe minimum w czytelnej formie.</p>
+          <div class="eyebrow">ASCENSION GUIDE • DANE ZE ŹRÓDŁOWEGO ARKUSZA</div>
+          <h2>Co naprawdę trzeba wiedzieć przed Ascension?</h2>
+          <p>Bez wymyślonej kolejności pillarów. Poniżej są wyłącznie informacje i liczby zapisane w arkuszu <b>Ascension Guide</b>.</p>
         </div>
       </div>
 
-      <div class="asc-grid">
-        <article class="priority-card">
-          <div class="card-kicker">ZALECANA KOLEJNOŚĆ ZE ŹRÓDŁA</div>
-          <div class="priority-ladder" id="priorityLadder"></div>
+      <div class="asc-summary-grid">
+        <article class="asc-info-card danger">
+          <div class="card-kicker">PO ASCENSION</div>
+          <h3>Reset do poziomu 1</h3>
+          <div class="keep-lose">
+            <div class="lose-box">
+              <span>TRACISZ</span>
+              <b>Pets • Eggs • Skills • Mounts • Gear</b>
+            </div>
+            <div class="keep-box">
+              <span>ZACHOWUJESZ</span>
+              <b>Resources</b>
+            </div>
+          </div>
         </article>
 
-        <article class="cost-card">
-          <div class="card-kicker">ZASOBY DO PEŁNEGO PROGRESU</div>
-          <h3>Wpływ maksymalnego Tech</h3>
-          <div class="cost-bars" id="costBars"></div>
-          <div class="cost-note">Porównanie wartości bazowej i kosztu z maksymalnymi bonusami Tech zapisanymi w źródłowym arkuszu.</div>
+        <article class="asc-info-card">
+          <div class="card-kicker">PRZED ASCENSION</div>
+          <h3>Cel przygotowania</h3>
+          <p class="asc-lead">Poradnik zaleca uzbierać tyle zasobów, aby po resecie odbudować co najmniej <strong>Legendary</strong>.</p>
+          <div class="legendary-reason">
+            <span>DLACZEGO LEGENDARY?</span>
+            <b>2 substaty dla Pets/Mounts + Tickets na Morale</b>
+          </div>
         </article>
       </div>
 
-      <div class="asc-notes" id="ascNotes"></div>
+      <div class="asc-grid-v2">
+        <article class="cost-card">
+          <div class="card-kicker">ŁĄCZNY KOSZT Z ARKUSZA</div>
+          <h3>Base vs Maxed Tech</h3>
+          <div class="cost-bars" id="costBars"></div>
+          <div class="cost-note" id="costFootnote"></div>
+        </article>
+
+        <article class="check-card">
+          <div class="card-kicker">CHECKLISTA PRZED ASCENSION</div>
+          <h3>Zanim klikniesz Ascend</h3>
+          <div class="asc-checklist" id="ascChecklist"></div>
+        </article>
+      </div>
+
+      <article class="target-card">
+        <div class="target-head">
+          <div>
+            <div class="card-kicker">LEGENDARY PULL • PROGI ZE ŹRÓDŁA</div>
+            <h3>Koszt dojścia do wskazanych progów</h3>
+          </div>
+          <div class="rule-pill" id="legendaryRule"></div>
+        </div>
+        <div class="target-table-wrap">
+          <table class="target-table">
+            <thead>
+              <tr><th>Level</th><th>Legendary Pull Chance</th><th>Total Cost</th><th>With Maxed Tech</th><th>Oszczędność</th></tr>
+            </thead>
+            <tbody id="legendaryTargets"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <div class="asc-source-notes" id="ascSourceNotes"></div>
+      <div class="source-credit" id="ascAttribution"></div>
     </section>
 
     <footer>
-      <span>Forge Knowledge Lab 0.1</span>
+      <span>Forge Knowledge Lab 0.2</span>
       <span>Ten moduł nie jest podlinkowany z głównej strony.</span>
     </footer>
   </main>
 </div>
 
-<script src="knowledge-data.js?v=1"></script>
-<script src="knowledge.js?v=1"></script>
+<script src="knowledge-data.js?v=2"></script>
+<script src="knowledge.js?v=2"></script>
 </body>
 </html>

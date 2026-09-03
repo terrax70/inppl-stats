@@ -34,7 +34,7 @@ function renderViz(containerId, rows, metric){
  const logMin=Math.log10(min), logMax=Math.log10(max);
  const y=v=> bottom - ((Math.log10(v)-logMin)/(logMax-logMin||1))*plotH;
  const x=i=>chartX + (i/(rows.length-1))*chartW;
- const nodeY=i=>top + i*((bottom-top)/(rows.length-1));
+ const nodeY=i=>top + (rows.length-1-i)*((bottom-top)/(rows.length-1));
 
  const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,class:"viz-svg",role:"img","aria-label":"Drabinka progresji połączona z wykresem"});
  const defs=svgEl("defs");
@@ -133,26 +133,49 @@ function renderMounts(){
 }
 
 function renderAscension(){
- const descriptions={
-   Skills:"Najpierw odbuduj podstawową siłę skilli.",
-   Mounts:"Jeden slot — odzysk siły jest natychmiastowy po założeniu.",
-   Pets:"Źródło zaleca po mouncie, aby łatwiej przeżyć czas wykluwania.",
-   Forge:"Najbardziej zależna od gotowości pozostałych systemów."
- };
- $("#priorityLadder").innerHTML=D.ascension.priority.map((x,i)=>`
-   <div class="priority-step"><div class="priority-num">${i+1}</div><div><b>${x}</b><span>${descriptions[x]}</span></div></div>`).join("");
-
+ const A=D.ascension;
  const labels={gold:"Gold",tickets:"Tickets",eggshells:"Eggshells",clockwinders:"Clockwinders"};
- const pretty={gold:v=>fmt(v),tickets:v=>fmt(v),eggshells:v=>fmt(v),clockwinders:v=>fmt(v)};
- $("#costBars").innerHTML=Object.keys(D.ascension.baseCost).map(k=>{
-   const b=D.ascension.baseCost[k],t=D.ascension.maxTechCost[k],pct=t/b*100,save=(1-t/b)*100;
+ const order=["gold","tickets","eggshells","clockwinders"];
+
+ $("#costBars").innerHTML=order.map(k=>{
+   const b=A.totalCost.base[k],t=A.totalCost.maxTech[k];
+   const pct=t/b*100,save=(1-t/b)*100;
    return `<div class="cost-row">
-     <div class="cost-label">${labels[k]}</div>
-     <div class="bar-track"><div class="bar-base" style="width:100%"></div><div class="bar-tech" style="width:${pct}%"></div></div>
-     <div class="cost-values"><b>${pretty[k](t)}</b><small>zamiast ${pretty[k](b)} • −${save.toLocaleString("pl-PL",{maximumFractionDigits:1})}%</small></div>
+     <div class="cost-label">${labels[k]}<small>${A.discounts[k]}</small></div>
+     <div class="bar-track">
+       <div class="bar-base" style="width:100%"></div>
+       <div class="bar-tech" style="width:${pct}%"></div>
+     </div>
+     <div class="cost-values">
+       <b>${A.rounded.maxTech[k]}</b>
+       <small>Base: ${A.rounded.base[k]} • −${save.toLocaleString("pl-PL",{maximumFractionDigits:1})}%</small>
+     </div>
    </div>`;
  }).join("");
- $("#ascNotes").innerHTML=D.ascension.notes.map((n,i)=>`<article class="asc-note"><b>${i+1}. ${D.ascension.priority[i]}</b><p>${n}</p></article>`).join("");
+
+ $("#costFootnote").innerHTML=`Żółty pasek = koszt z Maxed Tech. Szary = koszt bazowy. Wartości i zaokrąglenia są przepisane z arkusza.`;
+
+ $("#ascChecklist").innerHTML=A.checklist.map((x,i)=>`
+   <div class="check-row">
+     <div class="check-num">${String(i+1).padStart(2,"0")}</div>
+     <div>${x}</div>
+   </div>`).join("");
+
+ $("#legendaryRule").textContent=A.legendaryRule;
+
+ $("#legendaryTargets").innerHTML=A.legendaryTargets.map(x=>{
+   const save=(1-x.maxTechCost/x.totalCost)*100;
+   return `<tr>
+     <td><b>${x.level}</b></td>
+     <td><strong>${x.legendaryChance.toLocaleString("pl-PL",{maximumFractionDigits:1})}%</strong></td>
+     <td>${fmt(x.totalCost)}</td>
+     <td class="tech-cost">${fmt(x.maxTechCost)}</td>
+     <td class="saving">−${save.toLocaleString("pl-PL",{maximumFractionDigits:1})}%</td>
+   </tr>`;
+ }).join("");
+
+ $("#ascSourceNotes").innerHTML=A.notes.map(n=>`<div class="source-note">${n}</div>`).join("");
+ $("#ascAttribution").textContent=A.attribution;
 }
 
 $$(".tab").forEach(b=>b.onclick=()=>{

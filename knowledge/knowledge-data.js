@@ -27,18 +27,60 @@ window.FORGE_KNOWLEDGE = {
     {type:"Health",   damageMultiplier:0.5, healthMultiplier:1.5}
   ],
   ascension: {
-    priority:["Skills","Mounts","Pets","Forge"],
-    baseCost: {
-      gold:41886000, tickets:396600, eggshells:193500, clockwinders:99000
+    totalCost: {
+      base: {
+        gold: 41891100,
+        tickets: 384000,
+        eggshells: 193500,
+        clockwinders: 99000
+      },
+      maxTech: {
+        gold: 31418325,
+        tickets: 288000,
+        eggshells: 129000,
+        clockwinders: 49500
+      }
     },
-    maxTechCost: {
-      gold:31414500, tickets:297450, eggshells:129000, clockwinders:49500
+    rounded: {
+      base: {
+        gold: "41.9m gold",
+        tickets: "384k tickets",
+        eggshells: "194k eggshells",
+        clockwinders: "99k clockwinders"
+      },
+      maxTech: {
+        gold: "31.5m gold*",
+        tickets: "288k tickets",
+        eggshells: "129k eggshells",
+        clockwinders: "50k clockwinders"
+      }
     },
-    notes:[
-      "Skills: zalecane jako pierwsze; źródłowy poradnik wskazuje, że A1 Legendary odpowiada Base Divine.",
-      "Mount: zalecany jako drugi — jest jeden slot i można założyć go od razu.",
-      "Pets: zalecane jako trzecie, po odbudowaniu siły mounta podczas czasu wykluwania.",
-      "Forge: źródłowy poradnik traktuje jako ostatni i zależny od siły pozostałych systemów."
-    ]
+    discounts: {
+      gold: "25%",
+      tickets: "25%",
+      eggshells: "50%*",
+      clockwinders: "25% / 50%*"
+    },
+    checklist: [
+      "Przed Ascension progresuj Dungeon tak daleko, jak możesz — poradnik wskazuje zakres 19-6 → 20-1.",
+      "Po Ascension wracasz do poziomu 1 i tracisz materiały: pets, eggs, skills, mounts i gear.",
+      "Resources zostają — poradnik wprost zaznacza, że ich nie tracisz.",
+      "Przed Ascension przygotuj tyle zasobów, aby po resecie dojść co najmniej do poziomu Legendary.",
+      "Według poradnika Legendary zapewnia 2 substaty dla pets/mounts oraz wystarczającą liczbę tickets dla skilla Morale.",
+      "Dla wybranego pillar poradnik mocno zaleca rozwinięcie odpowiedniego Tech tak wysoko, jak się da, aby obniżyć koszty kolejnych Ascension."
+    ],
+    legendaryTargets: [
+      {level:30, legendaryChance:2.0, totalCost:62200, maxTechCost:46650},
+      {level:37, legendaryChance:7.2, totalCost:48600, maxTechCost:32400},
+      {level:47, legendaryChance:7.2, totalCost:46000, maxTechCost:23308.2}
+    ],
+    legendaryRule: "Skill wymaga co najmniej 2% Legendary Pull Chance. Pets i Mounts wymagają co najmniej 5%, aby ograniczyć ryzyko RNG.",
+    notes: [
+      "* Arkusz zaznacza, że koszt Ascension 3,000,000 gold jest stały i jest wyłączony z oznaczonej wartości kosztu.",
+      "* Dla eggshells arkusz zaznacza zaokrąglenie wartości 37.5 do 38.",
+      "Koszty mogą wyjść wyższe lub niższe zależnie od RNG pull.",
+      "Final Discount w arkuszu jest opisany jako wartość szacunkowa, a nie gwarantowana."
+    ],
+    attribution: "Ascension Guide: Xyph1c; reviewed by Unagi, Spectre, Kayzee and AimAndSayer. Data: Forge Master Official Moderator Team."
   }
 };

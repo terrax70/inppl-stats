@@ -27,7 +27,13 @@ function svgEl(tag, attrs={}, text=null){
 
 function renderProgressViz(containerId, rows, systemName){
  const host=$(containerId); host.innerHTML="";
- const W=1400,H=620, ladderX=38, ladderW=325, chartX=535, chartW=790, top=72, bottom=535;
+ const W=1400;
+ const rowGap = rows.length >= 9 ? 76 : 88;
+ const top = 86;
+ const bottomPad = 72;
+ const H = Math.max(620, top + (rows.length-1)*rowGap + bottomPad);
+ const bottom = H-bottomPad;
+ const ladderX=38, ladderW=325, chartX=535, chartW=790;
  const plotH=bottom-top;
 
  // Normalize to Common = 1. HP and Damage have identical rarity multipliers,
@@ -38,9 +44,11 @@ function renderProgressViz(containerId, rows, systemName){
  const logMin=0,logMax=Math.log10(max);
  const y=v=>bottom-((Math.log10(v)-logMin)/(logMax-logMin||1))*plotH;
  const x=i=>chartX+(i/(rows.length-1))*chartW;
- const nodeY=i=>top+(rows.length-1-i)*((bottom-top)/(rows.length-1));
+ const nodeY=i=>top+(rows.length-1-i)*rowGap;
 
  const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,class:"viz-svg",role:"img","aria-label":`${systemName}: progresja rarity i mnożniki siły`});
+ svg.style.height = H+"px";
+ host.style.minHeight = H+"px";
  const defs=svgEl("defs");
  const grad=svgEl("linearGradient",{id:"areaGrad",x1:"0",y1:"0",x2:"0",y2:"1"});
  grad.append(svgEl("stop",{offset:"0%","stop-color":"#6aaef6","stop-opacity":".50"}),
@@ -92,19 +100,28 @@ function renderProgressViz(containerId, rows, systemName){
    svg.append(p);
    svg.append(svgEl("text",{x:px,y:bottom+30,"text-anchor":"middle",fill:c,class:"axis-text"},(r.rarity==="Early-Modern"?"E-Mod":r.rarity==="Interstellar"?"Inter":r.rarity==="Multiverse"?"Multi":r.rarity==="Underworld"?"Under":r.rarity.slice(0,5))));
 
-   // MOST IMPORTANT: giant multiplier between rarities.
+   // MOST IMPORTANT: one self-contained multiplier card between points.
+   // Its position is based on the actual segment midpoint and shifted away from the curve.
    if(i>0){
      const step=rows[i].damage/rows[i-1].damage;
-     const mxp=(pts[i-1][0]+px)/2;
-     const myp=Math.min(pts[i-1][1],py)-32;
-     const tag=svgEl("g",{class:"mega-ratio"});
-     tag.append(svgEl("rect",{x:mxp-54,y:myp-22,width:108,height:44,rx:10}));
-     tag.append(svgEl("text",{x:mxp,y:myp+7,"text-anchor":"middle"},`×${step.toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
-     svg.append(tag);
+     const prev=pts[i-1];
+     const mxp=(prev[0]+px)/2;
+     const lineMidY=(prev[1]+py)/2;
 
-     // smaller caption under the large ratio
-     svg.append(svgEl("text",{x:mxp,y:myp+35,"text-anchor":"middle",class:"ratio-caption"},
-       `${rows[i-1].rarity} → ${r.rarity}`));
+     const boxW = rows.length >= 9 ? 126 : 136;
+     const boxH = 54;
+     const desiredY = lineMidY - 48;
+     const myp = Math.max(52, Math.min(bottom-92, desiredY));
+
+     const fromLabel = rows[i-1].rarity;
+     const toLabel = r.rarity;
+     const transition = `${fromLabel} → ${toLabel}`;
+
+     const tag=svgEl("g",{class:"mega-ratio"});
+     tag.append(svgEl("rect",{x:mxp-boxW/2,y:myp-boxH/2,width:boxW,height:boxH,rx:10}));
+     tag.append(svgEl("text",{x:mxp,y:myp-7,"text-anchor":"middle",class:"ratio-transition"},transition));
+     tag.append(svgEl("text",{x:mxp,y:myp+15,"text-anchor":"middle",class:"ratio-number"},`×${step.toLocaleString("pl-PL",{maximumFractionDigits:1})}`));
+     svg.append(tag);
    }
 
    const activate=()=>{

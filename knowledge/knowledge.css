@@ -212,12 +212,45 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
   font-size:10px;
   font-weight:800;
 }
-.item-viz-shell .viz-svg{
-  height:720px;
-}
-.item-viz-shell{
-  min-height:720px;
-}
 @media(max-width:700px){
   .item-type-note{grid-template-columns:1fr}
+}
+
+/* Forge Knowledge 0.7 — collision-safe chart geometry */
+.viz-shell{
+  overflow:hidden;
+}
+.viz-svg{
+  display:block;
+  width:100%;
+  max-width:none;
+}
+.item-viz-shell,
+.item-viz-shell .viz-svg{
+  min-height:0;
+  height:auto;
+}
+.mega-ratio{
+  pointer-events:none;
+}
+.mega-ratio rect{
+  fill:#17130c;
+  stroke:#f0b75b;
+  stroke-width:1.8;
+  filter:drop-shadow(0 5px 16px rgba(0,0,0,.40));
+}
+.mega-ratio .ratio-transition{
+  fill:#8f9caf;
+  font-size:8.5px;
+  font-weight:900;
+  letter-spacing:.015em;
+}
+.mega-ratio .ratio-number{
+  fill:#ffd27f;
+  font-size:20px;
+  font-weight:1000;
+  letter-spacing:-.025em;
+}
+.ratio-caption{
+  display:none;
 }

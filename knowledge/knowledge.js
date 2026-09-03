@@ -270,7 +270,7 @@ function renderAscensionPath(section, hostId){
    });
  }
 
- const W=1760,H=570,left=96,right=36,top=70,bottom=478;
+ const W=1760,H=690,left=96,right=36,top=70,bottom=430;
  const innerW=W-left-right;
  const values=series.map(p=>p.rawDamage);
  const min=Math.min(...values),max=Math.max(...values);
@@ -346,23 +346,6 @@ function renderAscensionPath(section, hostId){
      badge.append(svgEl("text",{x:bx,y:by+21,"text-anchor":"middle",class:"abs-reset-loss"},
        `−${loss.toLocaleString("pl-PL",{maximumFractionDigits:1})}%`));
      svg.append(badge);
-
-     // Source-grounded resource requirement from the Discord Ascension Priority guide.
-     // The source explicitly covers Base Maxed -> Ascended 1. For later cycles we show
-     // the same value only as an A0->A1 baseline, not as an asserted A2/A3 cost.
-     const rr=D.recoveryResources?.[section];
-     if(rr){
-       const resourceY=by+61;
-       const resourceCard=svgEl("g",{class:a===0?"reset-resource-card first":"reset-resource-card baseline"});
-       resourceCard.append(svgEl("rect",{x:bx-86,y:resourceY-24,width:172,height:49,rx:9}));
-       resourceCard.append(svgEl("text",{x:bx,y:resourceY-8,"text-anchor":"middle",class:"resource-card-title"},
-         a===0?`${rr.icon} ZAPAS PRZED ASCENSION`:`${rr.icon} BASELINE A0→A1`));
-       resourceCard.append(svgEl("text",{x:bx,y:resourceY+7,"text-anchor":"middle",class:"resource-card-value"},
-         `${rr.baseLabel} ${rr.resource}`));
-       resourceCard.append(svgEl("text",{x:bx,y:resourceY+19,"text-anchor":"middle",class:"resource-card-tech"},
-         `Max Tech: ${rr.maxTechLabel} • cel: ${rr.target}`));
-       svg.append(resourceCard);
-     }
    }
  }
 
@@ -386,7 +369,7 @@ function renderAscensionPath(section, hostId){
        .replace("Interstellar","Inter")
        .replace("Multiverse","Multi")
        .replace("Underworld","Under");
-     svg.append(svgEl("text",{x:px,y:bottom+21,"text-anchor":"middle",class:p.isRecovery?"abs-rarity recovery":"abs-rarity"},short));
+     svg.append(svgEl("text",{x:px,y:bottom+20,"text-anchor":"middle",class:p.isRecovery?"abs-rarity recovery":"abs-rarity"},short));
    }
 
    if(p.isEnd){
@@ -425,7 +408,50 @@ function renderAscensionPath(section, hostId){
    }
  });
 
- svg.append(svgEl("text",{x:left,y:H-30,class:"abs-foot"},
+
+ // Dedicated resource lane: cards are never placed over the plotted data.
+ const rr=D.recoveryResources?.[section];
+ if(rr){
+   const laneTop=488;
+   svg.append(svgEl("line",{x1:left,y1:laneTop-18,x2:W-right,y2:laneTop-18,class:"resource-lane-line"}));
+   svg.append(svgEl("text",{x:left,y:laneTop-26,class:"resource-lane-title"},"ZAPAS PRZED ASCENSION"));
+
+   for(let a=0;a<3;a++){
+     const peakIndex=a*n+(n-1);
+     const nextCommonIndex=(a+1)*n;
+     const centerX=(x(peakIndex)+x(nextCommonIndex))/2;
+     const cardW=250, cardH=92;
+     const cardY=laneTop+12;
+
+     const card=svgEl("g",{class:a===0?"resource-lane-card primary":"resource-lane-card baseline"});
+     card.append(svgEl("rect",{x:centerX-cardW/2,y:cardY,width:cardW,height:cardH,rx:12}));
+
+     card.append(svgEl("text",{x:centerX,y:cardY+20,"text-anchor":"middle",class:"resource-lane-kicker"},
+       a===0?`${rr.icon} ZAPAS NA TEN MANEWR`:`${rr.icon} BASELINE Z PORADNIKA A0→A1`));
+
+     card.append(svgEl("text",{x:centerX,y:cardY+47,"text-anchor":"middle",class:"resource-lane-value"},
+       `${rr.baseLabel} ${rr.resource}`));
+
+     card.append(svgEl("text",{x:centerX,y:cardY+66,"text-anchor":"middle",class:"resource-lane-tech"},
+       `Max Tech: ${rr.maxTechLabel}`));
+
+     card.append(svgEl("text",{x:centerX,y:cardY+82,"text-anchor":"middle",class:"resource-lane-target"},
+       `Cel odbudowy: ${rr.target}`));
+
+     svg.append(card);
+
+     // A subtle connector from the reset midpoint down to its resource card.
+     const px1=x(peakIndex), py1=y(series[peakIndex].rawDamage);
+     const px2=x(nextCommonIndex), py2=y(series[nextCommonIndex].rawDamage);
+     const resetMidX=(px1+px2)/2;
+     const resetMidY=(py1+py2)/2;
+     svg.append(svgEl("line",{
+       x1:resetMidX,y1:resetMidY+28,x2:centerX,y2:cardY-8,class:"resource-lane-connector"
+     }));
+   }
+ }
+
+ svg.append(svgEl("text",{x:left,y:H-18,class:"abs-foot"},
    `Kalibracja poradnika: ${cfg.recoveryRarity} A1 = ${cfg.endRarity} A0 • każdy kolejny cykl zachowuje tę samą relację. Krok Ascension tej ścieżki: ×${guideStep.toLocaleString("pl-PL",{maximumFractionDigits:2})}.`));
 
  host.append(svg);

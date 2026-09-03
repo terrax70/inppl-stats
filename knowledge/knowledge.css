@@ -730,3 +730,18 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
   stroke-dasharray:5 5;
   opacity:.65;
 }
+
+/* Forge Knowledge 0.11.1 — runtime-safe Ascension charts */
+.chart-error{
+  min-height:180px;
+  display:grid;
+  place-items:center;
+  align-content:center;
+  gap:6px;
+  border:1px dashed rgba(239,100,100,.35);
+  border-radius:10px;
+  background:rgba(100,20,20,.08);
+  text-align:center;
+}
+.chart-error b{color:#ef9a9a;font-size:12px}
+.chart-error span{color:#7f6970;font-size:10px}

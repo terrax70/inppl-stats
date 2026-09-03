@@ -252,6 +252,13 @@ function renderAscensionPath(section, hostId){
    "aria-label":`${cfg.system}: rarity rośnie do końca cyklu, Ascension dopiero przy ${cfg.eligibilityLabel}`
  });
 
+ const defs=svgEl("defs");
+ const markerId=`ascResetArrow-${section}`;
+ const marker=svgEl("marker",{id:markerId,markerWidth:"8",markerHeight:"8",refX:"7",refY:"3",orient:"auto"});
+ marker.append(svgEl("path",{d:"M0,0 L0,6 L8,3 z",class:"reset-arrow-head"}));
+ defs.append(marker);
+ svg.append(defs);
+
  // Reference grid.
  [0,.25,.5,.75,1].forEach(v=>{
    const yy=y(v);
@@ -289,7 +296,10 @@ function renderAscensionPath(section, hostId){
      if(isEnd)cls+=" end";
      if(isRecovery)cls+=" recovery";
 
-     svg.append(svgEl("circle",{cx:px,cy:py,r:isEnd?7:5,class:cls}));
+     const point=svgEl("circle",{cx:px,cy:py,r:isEnd?7:5,class:cls});
+     const pointTitle=svgEl("title",{},`${r.rarity} • A${a}\n❤️ HP ${fmt(r.health*ascMul)}\n⚔ DMG ${fmt(r.damage*ascMul)}`);
+     point.appendChild(pointTitle);
+     svg.append(point);
 
      // Reduce label clutter for item tiers.
      const showLabel = baseRows.length<=6 || i===0 || isEnd || isRecovery || i%2===0;
@@ -303,10 +313,6 @@ function renderAscensionPath(section, hostId){
          x:px,y:bottom+22,"text-anchor":"middle",class:isRecovery?"cycle-rarity recovery":"cycle-rarity"
        },short));
      }
-
-     // tooltip title data encoded as SVG <title>
-     const t=svgEl("title",{},`${r.rarity} • A${a}\n❤️ HP ${fmt(r.health*ascMul)}\n⚔ DMG ${fmt(r.damage*ascMul)}`);
-     svg.lastChild.append?.(t);
 
      if(isRecovery){
        // Compare recovery rarity after Ascension with previous cycle end.
@@ -350,7 +356,7 @@ function renderAscensionPath(section, hostId){
      svg.append(svgEl("path",{
        d:`M${endX},${endY} C${endX+35},${endY+35} ${nextCommonX-35},${nextCommonY-35} ${nextCommonX},${nextCommonY}`,
        class:"asc-reset-arrow",
-       "marker-end":"url(#ascResetArrow)"
+       "marker-end":`url(#${markerId})`
      }));
 
      // Real raw drop ratio: peak A -> Common A+1.
@@ -372,13 +378,6 @@ function renderAscensionPath(section, hostId){
    }
  }
 
- // Arrow marker for reset transitions.
- const defs=svgEl("defs");
- const marker=svgEl("marker",{id:"ascResetArrow",markerWidth:"8",markerHeight:"8",refX:"7",refY:"3",orient:"auto"});
- marker.append(svgEl("path",{d:"M0,0 L0,6 L8,3 z",class:"reset-arrow-head"}));
- defs.append(marker);
- svg.insertBefore(defs,svg.firstChild);
-
  svg.append(svgEl("text",{x:left,y:H-28,class:"power-path-foot"},
    `Rarity/tier zawsze rośnie w cyklu. Ascension odblokowuje dopiero ${cfg.eligibilityLabel}. ${cfg.recoveryRarity} = próg odzyskania starej mocy z poradnika.`));
 
@@ -391,9 +390,22 @@ function renderAscensionPath(section, hostId){
 }
 
 function renderAllAscensionPaths(){
- renderAscensionPath("pets","#petsAscPath");
- renderAscensionPath("mounts","#mountsAscPath");
- renderAscensionPath("items","#itemsAscPath");
+ const jobs=[
+   ["pets","#petsAscPath"],
+   ["mounts","#mountsAscPath"],
+   ["items","#itemsAscPath"]
+ ];
+ jobs.forEach(([section,host])=>{
+   try{
+     renderAscensionPath(section,host);
+   }catch(err){
+     console.error("Ascension path render failed:",section,err);
+     const el=$(host);
+     if(el){
+       el.innerHTML=`<div class="chart-error"><b>Nie udało się wyrenderować wykresu ${section}.</b><span>${err?.message||err}</span></div>`;
+     }
+   }
+ });
 }
 
 function renderAscension(){
@@ -465,5 +477,5 @@ $$(".tab").forEach(b=>b.onclick=()=>{
  $$(".view").forEach(v=>v.classList.toggle("active",v.id===b.dataset.tab));
 });
 
-renderPets();renderMounts();renderItems();renderAscension();renderAllAscensionPaths();
+renderPets();renderMounts();renderItems();renderAllAscensionPaths();renderAscension();
 })();

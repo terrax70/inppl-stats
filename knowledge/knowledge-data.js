@@ -53,108 +53,166 @@ window.FORGE_KNOWLEDGE = {
 
 
 
-  weeklyIncomeModel: {
-    mission: {
-      maxLevel:60,
-      dailyEnergy:3,
-      ownerRewardsCount:4,
-      listedCurrencyCount:6,
-      rewardGrowth:1.01,
-      base: {
-        Coins:5500,
-        SkillSummonTickets:184,
-        Eggshells:91,
-        TechPotions:92,
-        ClockWinders:69
+
+  techRoadmap: {
+    tierUpgrade: {
+      0:{name:"Tier I",costs:[40,56,78,110,154],durations:[300,600,1200,2400,4800]},
+      1:{name:"Tier II",costs:[215,301,422,590,826],durations:[9600,19200,38400,76800,86016]},
+      2:{name:"Tier III",costs:[1157,1319,1504,1714,1954],durations:[96338,107898,120846,135348,151590]},
+      3:{name:"Tier IV",costs:[2228,2540,2895,3300,3763],durations:[169780,190154,212972,238529,267153]},
+      4:{name:"Tier V",costs:[4289,4890,5574,6355,7244],durations:[299211,335116,375330,420370,470814]}
+    },
+    trees: {
+      Forge: {
+        label:"Forge",
+        icon:"🔨",
+        nodes:[
+          {type:"ForgeTimerSpeed",effect:"+4% Forge speed / rank",priority:"max",why:"Przyspiesza każdy kolejny poziom Forge. Największa wartość, jeśli celem jest Forge 35."},
+          {type:"ForgeUpgradeCost",effect:"-2% Forge cost / rank",priority:"max",why:"Zmniejsza koszt wszystkich kolejnych upgrade'ów Forge."},
+          {type:"EquipmentSellPrice",effect:"+2% sell price / rank",priority:"high",why:"Więcej Gold z itemów; pomaga finansować dalszy Forge."},
+          {type:"HammerThiefHammerReward",effect:"+2% Hammer reward / rank",priority:"medium",why:"Więcej młotków z Hammer Thief."},
+          {type:"HammerThiefCoinReward",effect:"+2% Coin reward / rank",priority:"medium",why:"Więcej Gold z Hammer Thief."},
+          {type:"AutoForge",effect:"+1 Auto Forge",priority:"one",why:"MaxLevel = 1. Bierzesz i idziesz dalej."},
+          {type:"FreeForgeChance",effect:"+1% free forge / rank",priority:"high",why:"Stała oszczędność młotków przy całym progresie."},
+          {type:"MaxOfflineReward",effect:"+16% max offline / rank",priority:"high",why:"Bardzo duży wzrost długości/limitu offline."},
+          {type:"CoinOfflineReward",effect:"+2% offline Coins / rank",priority:"medium",why:"Więcej Gold pasywnie."},
+          {type:"HammerOfflineReward",effect:"+2% offline Hammers / rank",priority:"medium",why:"Więcej Hammers pasywnie."}
+        ],
+        recommendation:"Przed Forge Ascension priorytet: ForgeTimerSpeed → ForgeUpgradeCost → FreeForgeChance → EquipmentSellPrice. Resztę możesz przechodzić 1 rankiem, żeby szybciej otworzyć kolejny Tier."
       },
-      note:"MissionBaseConfig: DailyEnergy=3, MissionOwnerRewardsCount=4. MissionRewardLibrary lists 6 currencies. The default 4/6 share is an estimate unless reward selection distribution is confirmed."
-    },
-    dungeon: {
-      Hammer:{HammersBase:60,HammersIncrease:1,CoinsBase:4000,CoinsIncrease:100},
-      Skill:{base:200,increase:2,currency:"SkillSummonTickets"},
-      Pet:{base:200,increase:0.65,currency:"Eggshells"},
-      note:"Reward index = (world-1)*10 + (stage-1). Example 8-1 -> index 70 -> Skill 340, Pet floor(245.5)=245, Hammer 130 + 11,000 Coins."
-    },
-    idle: {
-      minSeconds:600,
-      maxSeconds:14400,
-      coinsPerSecond:1,
-      hammersPerMinute:1,
-      note:"IdleConfig base rates only. Profile/Tech multipliers are player-specific, so the calculator leaves them editable."
-    },
-    warTiers: {
-      E:{win:{Hammers:265,SkillSummonTickets:260,Eggshells:170,TechPotions:200,ClockWinders:125},lose:{Hammers:130,SkillSummonTickets:130,Eggshells:85,TechPotions:100,ClockWinders:65}},
-      D:{win:{Hammers:530,SkillSummonTickets:520,Eggshells:350,TechPotions:400,ClockWinders:250},lose:{Hammers:265,SkillSummonTickets:260,Eggshells:175,TechPotions:200,ClockWinders:125}},
-      C:{win:{Hammers:1060,SkillSummonTickets:1050,Eggshells:700,TechPotions:800,ClockWinders:525},lose:{Hammers:530,SkillSummonTickets:525,Eggshells:350,TechPotions:400,ClockWinders:260}},
-      B:{win:{Hammers:2135,SkillSummonTickets:2100,Eggshells:1400,TechPotions:1580,ClockWinders:1000},lose:{Hammers:1060,SkillSummonTickets:1050,Eggshells:700,TechPotions:790,ClockWinders:500}},
-      A:{win:{Hammers:3750,SkillSummonTickets:3600,Eggshells:2500,TechPotions:2800,ClockWinders:1900},lose:{Hammers:1870,SkillSummonTickets:1800,Eggshells:1250,TechPotions:1400,ClockWinders:1000}},
-      S:{win:{Hammers:5300,SkillSummonTickets:7800,Eggshells:5200,TechPotions:5900,ClockWinders:4000},lose:{Hammers:2650,SkillSummonTickets:3900,Eggshells:2600,TechPotions:2900,ClockWinders:2000}},
-      SS:{win:{Hammers:5500,SkillSummonTickets:8200,Eggshells:5500,TechPotions:6200,ClockWinders:4200},lose:{Hammers:2650,SkillSummonTickets:3900,Eggshells:2600,TechPotions:2900,ClockWinders:2000}},
-      SSS:{win:{Hammers:5800,SkillSummonTickets:8600,Eggshells:5700,TechPotions:6500,ClockWinders:4400},lose:{Hammers:2650,SkillSummonTickets:3900,Eggshells:2600,TechPotions:2900,ClockWinders:2000}}
-    },
-    savingTargets: {
-      pets:{label:"Pety",icon:"🥚",currency:"Eggshells",normal:48600,maxTech:32400,maxLevel:100},
-      mounts:{label:"Mounty",icon:"⏱️",currency:"ClockWinders",normal:46000,maxTech:23308.2,maxLevel:100},
-      items:{label:"Forge",icon:"🪙",currency:"Coins",normal:14466000,maxTech:11599500,maxLevel:35,
-        note:"Total before Ascension = 11.466m recovery reserve + 3m Ascension fee; Max Tech = 8.5995m + 3m fee."}
+      Power: {
+        label:"Power + Mounts",
+        icon:"⚔️",
+        nodes:[
+          {type:"WeaponBonus",effect:"+2% Weapon DMG/HP / rank",priority:"high"},
+          {type:"HelmetBonus",effect:"+2% Helmet HP / rank",priority:"medium"},
+          {type:"GloveBonus",effect:"+2% Gloves DMG / rank",priority:"high"},
+          {type:"BodyBonus",effect:"+2% Armour HP / rank",priority:"medium"},
+          {type:"NecklaceBonus",effect:"+2% Necklace DMG / rank",priority:"high"},
+          {type:"ShoeBonus",effect:"+2% Shoes HP / rank",priority:"medium"},
+          {type:"RingBonus",effect:"+2% Ring DMG / rank",priority:"high"},
+          {type:"BeltBonus",effect:"+2% Belt HP / rank",priority:"medium"},
+          {type:"MountDamage",effect:"+2% Mount DMG / rank",priority:"high"},
+          {type:"MountHealth",effect:"+2% Mount HP / rank",priority:"high"},
+          {type:"WeaponLevelUp",effect:"+2 max Weapon level / rank",priority:"high"},
+          {type:"HelmetLevelUp",effect:"+2 max Helmet level / rank",priority:"medium"},
+          {type:"GloveLevelUp",effect:"+2 max Gloves level / rank",priority:"high"},
+          {type:"BodyLevelUp",effect:"+2 max Armour level / rank",priority:"medium"},
+          {type:"NecklaceLevelUp",effect:"+2 max Necklace level / rank",priority:"high"},
+          {type:"ShoeLevelUp",effect:"+2 max Shoes level / rank",priority:"medium"},
+          {type:"RingLevelUp",effect:"+2 max Ring level / rank",priority:"high"},
+          {type:"BeltLevelUp",effect:"+2 max Belt level / rank",priority:"medium"},
+          {type:"MountSummonCost",effect:"-1% Mount summon cost / rank",priority:"max",why:"Bezpośrednio zmniejsza Clockwinders potrzebne do summonów."},
+          {type:"ExtraMountChance",effect:"+2% extra Mount chance / rank",priority:"max",why:"Najlepszy długoterminowy node Mountów; więcej summonów z tego samego zasobu."}
+        ],
+        recommendation:"Jeśli zbliża się Mount Ascension: przechodź Tier 1-rankowo do MountSummonCost i ExtraMountChance, a te dwa maxuj. DMG/HP i level cap backfilluj potem."
+      },
+      SkillsPetTech: {
+        label:"Skills + Pets + Research",
+        icon:"🧪",
+        nodes:[
+          {type:"TechResearchTimer",effect:"+4% Research speed / rank",priority:"rush",why:"Najważniejszy długoterminowy node całego Player Tech Tree. Skraca każdy następny research."},
+          {type:"SkillDamage",effect:"+2% Skill DMG/HP / rank",priority:"medium"},
+          {type:"SkillPassiveDamage",effect:"+2% passive DMG / rank",priority:"medium"},
+          {type:"SkillPassiveHealth",effect:"+2% passive HP / rank",priority:"low"},
+          {type:"TechNodeUpgradeCost",effect:"-2% Tech cost / rank",priority:"rush",why:"Obniża koszt wszystkich kolejnych node'ów Tech."},
+          {type:"PetBonusDamage",effect:"+2% Pet DMG / rank",priority:"high"},
+          {type:"PetBonusHealth",effect:"+2% Pet HP / rank",priority:"high"},
+          {type:"SkillSummonCost",effect:"-1% Skill summon cost / rank",priority:"high"},
+          {type:"CommonEggTimer",effect:"+10% Common hatch speed / rank",priority:"medium"},
+          {type:"RareEggTimer",effect:"+10% Rare hatch speed / rank",priority:"medium"},
+          {type:"EpicEggTimer",effect:"+10% Epic hatch speed / rank",priority:"high"},
+          {type:"LegendaryEggTimer",effect:"+10% Legendary hatch speed / rank",priority:"high"},
+          {type:"UltimateEggTimer",effect:"+10% Ultimate hatch speed / rank",priority:"high"},
+          {type:"MythicEggTimer",effect:"+10% Mythic hatch speed / rank",priority:"high"},
+          {type:"ExtraEggChance",effect:"+4% extra Egg chance / rank",priority:"max",why:"Długoterminowo zwiększa liczbę eggów z dungeonowego źródła."},
+          {type:"GhostTownSkillBonus",effect:"+1% Ghost Town Skill reward / rank",priority:"medium"},
+          {type:"ZombieRushTechPotions",effect:"+2% Tech Potion reward / rank",priority:"high",why:"Pomaga finansować dalszy Player Tech Tree."}
+        ],
+        recommendation:"GLOBALNY RUSH: max TechResearchTimer, potem max TechNodeUpgradeCost, następnie 1 rank reszty aż do kolejnego Tieru. W nowym Tierze znowu Research Timer → Cost. To daje największy efekt składany."
+      }
+    }
+  },
+
+  officialAscensionGuide: {
+    baseStats:[
+      ["Critical Chance","50%"],
+      ["Critical Damage","350%"],
+      ["Lifesteal","30%"],
+      ["Double Chance","30%"],
+      ["Attack Speed","150%"]
+    ],
+    global:[
+      "Są 4 filary Ascension: Forge, Skills, Pets i Mounts.",
+      "Wszystkie ascended pillars poza Skills mają zawsze 2 substaty, niezależnie od rarity.",
+      "Przepchnij dungeony tak daleko jak możesz — poradnik wskazuje zakres 19-1 do 20-1.",
+      "Przed Ascension 1 miej CO NAJMNIEJ Tier 3 Tech maxed na discount i drop chance. Tier 4 jest mocno rekomendowany.",
+      "Wbij możliwie wysoką rangę w Ranked League przed Ascension."
+    ],
+    pillars:{
+      Forge:{
+        priority:"VERY HIGH",
+        reset:"Gear zostaje usunięty i Forge resetuje się do Lv1.",
+        keep:"Zachowujesz waluty/zasoby do forge'owania nowych enhanced gears.",
+        recovery:"Multiverse daje mniej więcej moc non-ascended Divine.",
+        safe:"Quantum jest bezpieczniejszym celem; A1 Quantum ≈ ×2 non-ascended Divine.",
+        advice:"Forge jest najbardziej czasochłonnym filarem. Nie warto jednak siedzieć bardzo długo na Forge 35. Dobrze ascendować drugi filar równolegle, zależnie od zasobów."
+      },
+      Skills:{
+        priority:"HIGH",
+        reset:"Skille znikają i resetują się do Lv1.",
+        keep:"Zachowujesz Skill Tickets.",
+        recovery:"Legendary daje mniej więcej moc non-ascended Mythic.",
+        advice:"Najłatwiejszy pillar do Ascension. Po zdobyciu kompletu Legendary wracasz na właściwy tor; poradnik poleca go też jako dobrego partnera do Forge Ascension."
+      },
+      Pets:{
+        priority:"MEDIUM",
+        reset:"Pety są tracone i resetują się do Lv1.",
+        keep:"Zachowujesz Eggshells.",
+        recovery:"Legendary daje mniej więcej moc non-ascended Mythic.",
+        alternative:"Jeśli Twoje non-ascended Mythic pets mają słabe staty, można celować tylko w Epic; A1 Epic ≈ non-ascended Ultimate.",
+        advice:"Wczesny Pet Ascension ma sens szczególnie, jeśli inne filary już niosą Twoją moc."
+      },
+      Mounts:{
+        priority:"LOW",
+        reset:"Mounty są scrapped i resetują się do Lv1.",
+        keep:"Zachowujesz Clockwinders.",
+        recovery:"Epic daje mniej więcej moc non-ascended Mythic.",
+        advice:"Najbardziej wymagający Techowo pillar, bo poradnik chce discount + extra drop. Powinien być ostatni; co najmniej T3, T4 jako sweet spot dla Stage 1 Ascension."
+      }
     }
   },
   recoveryResources: {
     items: {
-      resource:"Gold",
-      icon:"🪙",
-      target:"Multiverse",
-      targetLevel:"Forge 35",
-      base:11466000,
-      maxTech:8599500,
-      baseLabel:"11,466 mln",
-      maxTechLabel:"8,5995 mln",
-      ascensionCost:3000000,
-      ascensionCostLabel:"3 mln",
-      cumulativeSummons:null,
-      sourceScope:"Base Maxed → A1 Multiverse"
-    },
-    pets: {
-      resource:"Eggshells",
-      icon:"🥚",
-      target:"Legendary",
-      targetLevel:"Summon Lv 37",
-      pullChance:"7,2% Legendary",
-      base:48600,
-      maxTech:32400,
-      baseLabel:"48,6k",
-      maxTechLabel:"32,4k",
-      ascensionCost:null,
-      cumulativeSummons:509,
-      sourceScope:"Base Maxed → A1 Legendary"
-    },
-    mounts: {
-      resource:"Clockwinders",
-      icon:"⏱️",
-      target:"Epic",
-      targetLevel:"Summon Lv 47",
-      pullChance:"7,2%",
-      base:46000,
-      maxTech:23308.2,
-      baseLabel:"46k",
-      maxTechLabel:"23,3k",
-      ascensionCost:null,
-      cumulativeSummons:940,
-      sourceScope:"Base Maxed → A1 recovery baseline"
+      resource:"Gold", icon:"🪙", target:"Multiverse", targetLevel:"Forge Lv22",
+      base:11471100, discount:8603325, baseLabel:"11 471 100", discountLabel:"8 603 325",
+      discountText:"25% discount", ascensionCost:3000000, ascensionCostLabel:"3 mln",
+      chance:"4% Multiverse drop", unlock:"Multiverse zaczyna dropić od Forge Lv17 przy 0,05%",
+      alternative:{target:"Quantum",targetLevel:"Forge Lv25",base:16841100,discount:12630825,baseLabel:"16 841 100",discountLabel:"12 630 825",chance:"4% Quantum drop",unlock:"Quantum zaczyna dropić od Forge Lv20 przy 0,05%",note:"A1 Quantum ≈ ×2 non-ascended Divine"},
+      priority:"VERY HIGH", sourceScope:"Official Discord Comprehensive Ascension Guide"
     },
     skills: {
-      resource:"Tickets",
-      icon:"🎟️",
-      target:"Legendary",
-      targetLevel:"Summon Lv 30",
-      pullChance:"2% Legendary",
-      base:62200,
-      maxTech:46650,
-      baseLabel:"62,2k",
-      maxTechLabel:"46,65k",
-      ascensionCost:null,
-      cumulativeSummons:null,
-      sourceScope:"Base Maxed → A1 Legendary"
+      resource:"Tickets", icon:"🎟️", target:"Legendary", targetLevel:"Skill Lv24",
+      base:49600, discount:37200, baseLabel:"49 600", discountLabel:"37 200",
+      discountText:"25% discount", chance:"2% Legendary drop",
+      unlock:"Legendary zaczyna dropić od Skill Lv18 przy 0,03%",
+      priority:"HIGH", sourceScope:"Official Discord Comprehensive Ascension Guide"
+    },
+    pets: {
+      resource:"Eggshells", icon:"🥚", target:"Legendary", targetLevel:"Pet Lv37",
+      base:48600, discount:32400, baseLabel:"48 600", discountLabel:"32 400",
+      discountText:"+50% Extra Drop ≈ 33,33% estimated discount", chance:"7,2% Legendary drop",
+      unlock:"Legendary zaczyna dropić od Pet Lv28 przy 0,07%",
+      alternative:{target:"Epic",targetLevel:"Pet Lv15",base:7100,discount:4733,baseLabel:"7 100",discountLabel:"4 733",chance:"20% Epic drop",note:"Opcja dla słabych statów non-ascended Mythic pets; A1 Epic ≈ non-ascended Ultimate."},
+      priority:"MEDIUM", sourceScope:"Official Discord Comprehensive Ascension Guide"
+    },
+    mounts: {
+      resource:"Clockwinders", icon:"⏱️", target:"Epic", targetLevel:"Mount Lv31",
+      base:30000, discount:15000, baseLabel:"30 000", discountLabel:"15 000",
+      discountText:"25% discount + 50% Extra Drop ≈ 50% estimated discount",
+      chance:"7,2% Epic drop", unlock:"Epic zaczyna dropić od Mount Lv22 przy 0,07%",
+      note:"Poradnik zakłada summonowanie paczkami ×50, nie pojedynczo.",
+      priority:"LOW", sourceScope:"Official Discord Comprehensive Ascension Guide"
     }
   },
   ascensionPaths: {

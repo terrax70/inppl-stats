@@ -433,7 +433,7 @@ function renderAscensionPath(section, hostId){
        `${rr.baseLabel} ${rr.resource}`));
 
      card.append(svgEl("text",{x:centerX,y:cardY+62,"text-anchor":"middle",class:"resource-lane-tech"},
-       `Max Tech: ${rr.maxTechLabel}`));
+       `${rr.discountText}: ${rr.discountLabel}`));
 
      card.append(svgEl("text",{x:centerX,y:cardY+81,"text-anchor":"middle",class:"resource-lane-target"},
        `${rr.targetLevel} • cel: ${rr.target}`));
@@ -472,7 +472,7 @@ function renderAscensionPath(section, hostId){
  const copy=document.querySelector(`[data-path-copy="${section}"]`);
  if(copy){
    const rr=D.recoveryResources?.[section];
-   copy.innerHTML=`Wizualizacja jest skalowana <b>dokładnie według poradnika</b>: <b>${cfg.recoveryRarity} A1 = ${cfg.endRarity} A0</b>, ${cfg.recoveryRarity} A2 = ${cfg.endRarity} A1 itd. Ascension jest dostępna przy <b>${cfg.eligibilityLabel}</b>. ${rr?`Dla pierwszego manewru Base→A1 poradnik podaje <b>${rr.baseLabel} ${rr.resource}</b> lub <b>${rr.maxTechLabel}</b> z Maxed Tech, aby dojść do <b>${rr.targetLevel}</b> / ${rr.target}.${rr.cumulativeSummons?` To odpowiada około <b>${rr.cumulativeSummons.toLocaleString("pl-PL")} cumulative summons</b>.`:""}${rr.ascensionCost?` Samo Ascension kosztuje dodatkowo <b>${rr.ascensionCostLabel} Gold</b>.`:""}`:""}`;
+   copy.innerHTML=`Wizualizacja jest skalowana <b>dokładnie według poradnika</b>: <b>${cfg.recoveryRarity} A1 = ${cfg.endRarity} A0</b>, ${cfg.recoveryRarity} A2 = ${cfg.endRarity} A1 itd. Ascension jest dostępna przy <b>${cfg.eligibilityLabel}</b>. ${rr?`Oficjalny poradnik podaje dla Base→A1 <b>${rr.baseLabel} ${rr.resource}</b> albo <b>${rr.discountLabel}</b> (${rr.discountText}), aby dojść do <b>${rr.targetLevel}</b> / ${rr.target}.${rr.ascensionCost?` Samo Ascension kosztuje dodatkowo <b>${rr.ascensionCostLabel} Gold</b>.`:""}`:""}`;
  }
 }
 
@@ -496,120 +496,190 @@ function renderAllAscensionPaths(){
 }
 
 
-function incNum(id, fallback=0){
- const v=Number($(id)?.value);
- return Number.isFinite(v)?v:fallback;
-}
-function missionReward(level,type){
- const M=D.weeklyIncomeModel.mission;
- const base=M.base[type]||0;
- return Math.round(base*Math.pow(M.rewardGrowth,Math.max(0,level-1)));
-}
-function dungeonIndex(world,stage){
- return Math.max(0,(Math.max(1,world)-1)*10+(Math.max(1,stage)-1));
-}
-function fmt1(n){
- return Number(n||0).toLocaleString("pl-PL",{maximumFractionDigits:1});
-}
-function calcWeeklyIncome(){
- const M=D.weeklyIncomeModel;
- const missionLv=Math.max(1,Math.min(60,incNum("#incMissionLevel",60)));
- const missionsDay=Math.max(0,incNum("#incMissionsDay",3));
- const share=Math.max(0,Math.min(1,incNum("#incMissionShare",2/3)));
- const missionFactor=missionsDay*7*share;
 
- const mission={
-   Coins:missionReward(missionLv,"Coins")*missionFactor,
-   SkillSummonTickets:missionReward(missionLv,"SkillSummonTickets")*missionFactor,
-   Eggshells:missionReward(missionLv,"Eggshells")*missionFactor,
-   ClockWinders:missionReward(missionLv,"ClockWinders")*missionFactor
+
+function officialPriorityClass(p){return (p||"").toLowerCase().replace(/\s+/g,"-");}
+function renderOfficialAscensionGuide(pillar="Forge"){
+ const G=D.officialAscensionGuide;
+ const stats=$("#officialBaseStats"),rules=$("#officialGlobalRules"),host=$("#officialPillarDetail");
+ if(stats)stats.innerHTML=`<div class="official-section-title">BAZOWE STATY PRZED ASCENSION</div>`+G.baseStats.map(([n,v])=>`<article><span>${n}</span><b>${v}</b></article>`).join("");
+ if(rules)rules.innerHTML=`<div class="official-section-title">PRZED PIERWSZYM ASCENSION</div>`+G.global.map((x,i)=>`<div class="official-rule"><b>${i+1}</b><span>${x}</span></div>`).join("");
+ if(!host)return;
+ const key=pillar==="Forge"?"items":pillar.toLowerCase();
+ const P=G.pillars[pillar],R=D.recoveryResources[key]; if(!P||!R)return;
+ const alt=R.alternative?`
+   <div class="official-alt-card">
+    <div class="official-alt-kicker">ALTERNATYWNY CEL</div>
+    <h4>${R.alternative.target} • ${R.alternative.targetLevel}</h4>
+    <div class="official-cost-grid">
+      <div><span>Base</span><b>${R.alternative.baseLabel} ${R.resource}</b></div>
+      <div><span>${R.discountText}</span><b>${R.alternative.discountLabel} ${R.resource}</b></div>
+    </div>
+    <p>${R.alternative.chance||""}${R.alternative.unlock?` • ${R.alternative.unlock}`:""}</p>
+    ${R.alternative.note?`<small>${R.alternative.note}</small>`:""}
+   </div>`:"";
+ host.innerHTML=`
+  <div class="official-detail-top">
+    <div><div class="official-priority ${officialPriorityClass(P.priority)}">PRIORYTET • ${P.priority}</div><h4>${pillar==="Forge"?"🔨":pillar==="Skills"?"🌀":pillar==="Pets"?"🐾":"🐎"} ${pillar}</h4></div>
+    <div class="official-recovery">${R.target}<span>${R.targetLevel}</span></div>
+  </div>
+  <div class="official-reset-grid">
+    <article><span>RESET</span><p>${P.reset}</p></article>
+    <article><span>ZOSTAJE</span><p>${P.keep}</p></article>
+    <article><span>ODZYSKANIE MOCY</span><p>${P.recovery}</p></article>
+  </div>
+  <div class="official-main-cost">
+    <div class="official-main-cost-head">
+      <div><span>GŁÓWNY CEL PO A1</span><b>${R.target} • ${R.targetLevel}</b></div>
+      <div><span>DROP</span><b>${R.chance||"—"}</b></div>
+    </div>
+    ${R.unlock?`<p>${R.unlock}</p>`:""}
+    <div class="official-cost-grid">
+      <div><span>Base</span><b>${R.baseLabel} ${R.resource}</b></div>
+      <div><span>${R.discountText}</span><b>${R.discountLabel} ${R.resource}</b></div>
+      ${R.ascensionCost?`<div class="asc-cost"><span>Samo Ascension</span><b>+ ${R.ascensionCostLabel} Gold</b></div>`:""}
+    </div>
+    ${R.note?`<small>${R.note}</small>`:""}
+  </div>
+  ${alt}
+  <div class="official-advice"><b>CO ROBIĆ?</b><p>${P.advice}</p>${P.alternative?`<p>${P.alternative}</p>`:""}</div>`;
+}
+function bindOfficialAscensionGuide(){
+ document.querySelectorAll(".official-pillar-tab").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+   document.querySelectorAll(".official-pillar-tab").forEach(x=>x.classList.remove("active"));
+   btn.classList.add("active");
+   renderOfficialAscensionGuide(btn.dataset.officialPillar);
+  });
+ });
+ renderOfficialAscensionGuide("Forge");
+}
+function techFmtTime(sec){
+ if(sec<3600)return `${Math.round(sec/60)} min`;
+ if(sec<86400)return `${(sec/3600).toLocaleString("pl-PL",{maximumFractionDigits:1})} h`;
+ return `${(sec/86400).toLocaleString("pl-PL",{maximumFractionDigits:1})} d`;
+}
+function techPriorityMeta(p){
+ const map={
+   rush:{label:"RUSH • MAX",cls:"rush"},
+   max:{label:"MAX WCZEŚNIE",cls:"rush"},
+   high:{label:"WYSOKI",cls:"high"},
+   medium:{label:"ŚREDNI",cls:"medium"},
+   low:{label:"BACKFILL",cls:"backfill"},
+   one:{label:"1 RANK",cls:"one"}
  };
-
- const skillIdx=dungeonIndex(incNum("#incSkillWorld",8),incNum("#incSkillStage",1));
- const petIdx=dungeonIndex(incNum("#incPetWorld",8),incNum("#incPetStage",1));
- const skillRunReward=Math.floor(M.dungeon.Skill.base+M.dungeon.Skill.increase*skillIdx);
- const petRunReward=Math.floor(M.dungeon.Pet.base+M.dungeon.Pet.increase*petIdx);
- const dungeon={
-   SkillSummonTickets:skillRunReward*Math.max(0,incNum("#incSkillRuns",7)),
-   Eggshells:petRunReward*Math.max(0,incNum("#incPetRuns",7))
+ return map[p]||map.medium;
+}
+function tierNodeBase(tier,maxLevel=5){
+ const U=D.techRoadmap.tierUpgrade[tier];
+ const lv=Math.min(maxLevel,U.durations.length);
+ return {
+   sec:U.durations.slice(0,lv).reduce((a,b)=>a+b,0),
+   cost:U.costs.slice(0,lv).reduce((a,b)=>a+b,0)
  };
+}
+function renderTierTimeStrip(){
+ const host=$("#tierTimeStrip");if(!host)return;
+ const speed=Number($("#roadmapResearchSpeed")?.value||0);
+ const div=1+speed;
+ host.innerHTML=Object.entries(D.techRoadmap.tierUpgrade).map(([k,t])=>{
+   const full=t.durations.reduce((a,b)=>a+b,0);
+   const first=t.durations[0];
+   return `<article>
+     <span>${t.name}</span>
+     <b>${techFmtTime(full/div)}</b>
+     <small>1 node 1→5 • pierwszy rank: ${techFmtTime(first/div)} • koszt 1→5: ${fmt(t.costs.reduce((a,b)=>a+b,0))}</small>
+   </article>`;
+ }).join("");
+}
+function renderTechRoadmap(treeKey="SkillsPetTech"){
+ const cfg=D.techRoadmap.trees[treeKey];
+ const host=$("#roadmapTiers"),sum=$("#roadmapSummary");
+ if(!cfg||!host)return;
+ const speed=Number($("#roadmapResearchSpeed")?.value||0);
+ const div=1+speed;
+ const maxDefault=5;
 
- const tier=$("#incWarTier")?.value||"S";
- const result=$("#incWarResult")?.value||"win";
- const war=M.warTiers[tier]?.[result]||{};
-
- const offlineHours=Math.max(0,incNum("#incOfflineHours",4));
- const offlineCoinMult=Math.max(0,incNum("#incOfflineCoinMult",1));
- const idleCoins=offlineHours*3600*M.idle.coinsPerSecond*offlineCoinMult*7;
-
- const total={
-   Coins:mission.Coins+idleCoins+(war.Coins||0)+Math.max(0,incNum("#incExtraCoins",0)),
-   Eggshells:mission.Eggshells+dungeon.Eggshells+(war.Eggshells||0)+Math.max(0,incNum("#incExtraEggs",0)),
-   ClockWinders:mission.ClockWinders+(war.ClockWinders||0)+Math.max(0,incNum("#incExtraWinders",0)),
-   SkillSummonTickets:mission.SkillSummonTickets+dungeon.SkillSummonTickets+(war.SkillSummonTickets||0)
- };
-
- const weekly=$("#incomeWeekly");
- if(weekly){
-   weekly.innerHTML=`
-    <article><span>🪙 COINS / TYDZIEŃ</span><b>${fmt(total.Coins)}</b><small>Misje ${fmt(mission.Coins)} • Offline ${fmt(idleCoins)} • Inne ${fmt(incNum("#incExtraCoins",0))}</small></article>
-    <article><span>🥚 EGGSHELLS / TYDZIEŃ</span><b>${fmt(total.Eggshells)}</b><small>Misje ${fmt(mission.Eggshells)} • Dungeon ${fmt(dungeon.Eggshells)} • Wojna ${fmt(war.Eggshells||0)}</small></article>
-    <article><span>⏱️ CLOCKWINDERS / TYDZIEŃ</span><b>${fmt(total.ClockWinders)}</b><small>Misje ${fmt(mission.ClockWinders)} • Wojna ${fmt(war.ClockWinders||0)} • Inne ${fmt(incNum("#incExtraWinders",0))}</small></article>
-    <article><span>🎟️ TICKETS / TYDZIEŃ</span><b>${fmt(total.SkillSummonTickets)}</b><small>Misje ${fmt(mission.SkillSummonTickets)} • Dungeon ${fmt(dungeon.SkillSummonTickets)} • Wojna ${fmt(war.SkillSummonTickets||0)}</small></article>`;
+ // Base total to max the whole tree, source structure + MaxLevel.
+ let totalSec=0,totalCost=0;
+ for(let tier=0;tier<5;tier++){
+   cfg.nodes.forEach(n=>{
+     const max=n.type==="AutoForge"?1:maxDefault;
+     const x=tierNodeBase(tier,max);
+     totalSec+=x.sec/div; totalCost+=x.cost;
+   });
  }
 
- calcSavingStatus(total);
- return total;
-}
-function savingCard(system,total,stock,level,speed){
- const useMax=$("#saveMaxTech")?.checked;
- const T=D.weeklyIncomeModel.savingTargets[system];
- const target=useMax?T.maxTech:T.normal;
- const weekly=total[T.currency]||0;
- const missing=Math.max(0,target-stock);
- const weeksNeed=missing<=0?0:(weekly>0?missing/weekly:Infinity);
- const weeksCap=Math.max(0,(T.maxLevel-level)/Math.max(.01,speed));
+ // Rush-through time: 1 rank every node, but selected compounding nodes maxed.
+ const rushTypes=treeKey==="SkillsPetTech"
+   ? new Set(["TechResearchTimer","TechNodeUpgradeCost"])
+   : treeKey==="Forge"
+     ? new Set(["ForgeTimerSpeed","ForgeUpgradeCost"])
+     : new Set(["MountSummonCost","ExtraMountChance"]);
+ let rushSec=0,rushCost=0;
+ for(let tier=0;tier<5;tier++){
+   cfg.nodes.forEach(n=>{
+     const max=n.type==="AutoForge"?1:(rushTypes.has(n.type)?5:1);
+     const x=tierNodeBase(tier,max);
+     rushSec+=x.sec/div; rushCost+=x.cost;
+   });
+ }
 
- let state="ok",title="MOŻESZ JESZCZE WYDAWAĆ";
- if(missing<=0){state="ready";title="ZAPAS GOTOWY";}
- else if(!Number.isFinite(weeksNeed)){state="danger";title="BRAK DOPŁYWU — OSZCZĘDZAJ";}
- else if(weeksCap<=weeksNeed){state="danger";title="OSZCZĘDZAJ TERAZ";}
- else if(weeksCap<=weeksNeed*1.5){state="warn";title="ZACZNIJ ODKŁADAĆ";}
- const needText=Number.isFinite(weeksNeed)?`${weeksNeed.toLocaleString("pl-PL",{maximumFractionDigits:1})} tyg.`:"∞";
- return `<article class="saving-card ${state}">
-   <div class="saving-state">${title}</div>
-   <h4>${T.icon} ${T.label}</h4>
-   <div class="saving-kpis">
-     <div><span>Cel zapasu</span><b>${fmt(target)}</b></div>
-     <div><span>Masz</span><b>${fmt(stock)}</b></div>
-     <div><span>Wpada / tydz.</span><b>${fmt(weekly)}</b></div>
-   </div>
-   <div class="saving-bar"><i style="width:${Math.min(100,target?stock/target*100:100)}%"></i></div>
-   <p>Brakuje <b>${fmt(missing)}</b> • potrzebujesz około <b>${needText}</b> oszczędzania. Do ${T.maxLevel===35?"Forge 35":"Lv100"} przy podanym tempie: <b>${weeksCap.toLocaleString("pl-PL",{maximumFractionDigits:1})} tyg.</b></p>
-   ${T.note?`<small>${T.note}</small>`:""}
- </article>`;
+ if(sum){
+   sum.innerHTML=`<div><span>${cfg.icon} DRZEWKO</span><b>${cfg.label}</b></div>
+     <div><span>MAX CAŁEGO DRZEWA</span><b>${techFmtTime(totalSec)}</b><small>bez przerw • przy Research Speed ${Math.round(speed*100)}%</small></div>
+     <div><span>MODEL RUSH</span><b>${techFmtTime(rushSec)}</b><small>max kluczowe node'y + 1 rank przez resztę</small></div>
+     <div><span>TECH POTIONS • MAX</span><b>${fmt(totalCost)}</b><small>przed redukcją TechNodeUpgradeCost</small></div>
+     <p>${cfg.recommendation}</p>`;
+ }
+
+ host.innerHTML=[0,1,2,3,4].map(tier=>{
+   const U=D.techRoadmap.tierUpgrade[tier];
+   const firstSec=U.durations[0]/div;
+   const fullSec=U.durations.reduce((a,b)=>a+b,0)/div;
+   const cards=cfg.nodes.map((n,i)=>{
+     const pm=techPriorityMeta(n.priority);
+     const max=n.type==="AutoForge"?1:5;
+     const rank1=U.costs[0];
+     const full=U.costs.slice(0,max).reduce((a,b)=>a+b,0);
+     const nodeId=tier*cfg.nodes.length+i;
+     return `<article class="roadmap-node ${pm.cls}">
+       <div class="roadmap-node-top">
+         <span class="node-order">#${nodeId}</span>
+         <span class="node-priority">${pm.label}</span>
+       </div>
+       <h5>${n.type}</h5>
+       <strong>${n.effect||""}</strong>
+       <div class="node-cost-row"><span>Rank 1</span><b>${fmt(rank1)} 🧪</b><span>${techFmtTime(firstSec)}</span></div>
+       <div class="node-cost-row muted"><span>Do max</span><b>${fmt(full)} 🧪</b><span>${techFmtTime(max===1?firstSec:fullSec)}</span></div>
+       ${n.why?`<p>${n.why}</p>`:""}
+     </article>`;
+   }).join("");
+   return `<section class="roadmap-tier">
+      <div class="roadmap-tier-head">
+        <div><span>${U.name}</span><b>${cfg.label}</b></div>
+        <div><span>1 rank node'a</span><b>${techFmtTime(firstSec)}</b></div>
+        <div><span>1→5 node'a</span><b>${techFmtTime(fullSec)}</b></div>
+        <div><span>koszt 1→5</span><b>${fmt(U.costs.reduce((a,b)=>a+b,0))} 🧪</b></div>
+      </div>
+      <div class="roadmap-node-grid">${cards}</div>
+    </section>`;
+ }).join("");
+ renderTierTimeStrip();
 }
-function calcSavingStatus(total){
- const host=$("#savingResults");if(!host)return;
- host.innerHTML=[
-   savingCard("pets",total,incNum("#saveEggs",0),incNum("#savePetLv",80),incNum("#savePetSpeed",5)),
-   savingCard("mounts",total,incNum("#saveWinders",0),incNum("#saveMountLv",80),incNum("#saveMountSpeed",5)),
-   savingCard("items",total,incNum("#saveCoins",0),incNum("#saveForgeLv",25),incNum("#saveForgeSpeed",1))
- ].join("");
-}
-function bindIncomeCalc(){
- const ids=[
- "#incMissionLevel","#incMissionsDay","#incMissionShare","#incSkillWorld","#incSkillStage","#incSkillRuns",
- "#incPetWorld","#incPetStage","#incPetRuns","#incWarTier","#incWarResult","#incOfflineHours","#incOfflineCoinMult",
- "#incExtraCoins","#incExtraEggs","#incExtraWinders","#saveMaxTech","#saveEggs","#savePetLv","#savePetSpeed",
- "#saveWinders","#saveMountLv","#saveMountSpeed","#saveCoins","#saveForgeLv","#saveForgeSpeed"
- ];
- ids.forEach(id=>{
-   const el=$(id); if(!el)return;
-   el.addEventListener("input",calcWeeklyIncome);
-   el.addEventListener("change",calcWeeklyIncome);
+function bindTechRoadmap(){
+ document.querySelectorAll(".roadmap-tab").forEach(btn=>{
+   btn.addEventListener("click",()=>{
+     document.querySelectorAll(".roadmap-tab").forEach(x=>x.classList.remove("active"));
+     btn.classList.add("active");
+     renderTechRoadmap(btn.dataset.roadmapTree);
+   });
  });
- calcWeeklyIncome();
+ $("#roadmapResearchSpeed")?.addEventListener("change",()=>{
+   const active=document.querySelector(".roadmap-tab.active")?.dataset.roadmapTree||"SkillsPetTech";
+   renderTechRoadmap(active);
+ });
+ renderTechRoadmap("SkillsPetTech");
 }
 
 function renderAscension(){
@@ -682,5 +752,7 @@ $$(".tab").forEach(b=>b.onclick=()=>{
 });
 
 renderPets();renderMounts();renderItems();renderAllAscensionPaths();renderAscension();
-bindIncomeCalc();
+
+bindTechRoadmap();
+bindOfficialAscensionGuide();
 })();

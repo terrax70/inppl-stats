@@ -5,6 +5,96 @@ const D=window.FM_SOURCE_DATA;
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const ascState={pets:0,mounts:0,skills:0,items:0};
+const chartSelection={pets:null,mounts:null,skills:null,items:null};
+
+function safeRarityKey(name){
+ return String(name).replace(/[^a-z0-9_-]+/gi,"-").toLowerCase();
+}
+function getSystemRoot(id){
+ return document.querySelector(`.system-root[data-system="${id}"]`);
+}
+function clearChartHover(root){
+ root?.querySelectorAll(".chart-point.hovered,.rarity-assets article.hovered").forEach(x=>x.classList.remove("hovered"));
+}
+function syncRarityHighlight(id,rarity,{sticky=true,scrollCard=false}={}){
+ const root=getSystemRoot(id); if(!root)return;
+ if(sticky)chartSelection[id]=rarity;
+ root.querySelectorAll("[data-rarity]").forEach(el=>{
+   el.classList.toggle("selected-rarity",el.dataset.rarity===rarity);
+ });
+ const card=root.querySelector(`.rarity-assets article[data-rarity="${CSS.escape(rarity)}"]`);
+ if(card&&scrollCard)card.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"});
+}
+function showChartTooltip(host,evt,html){
+ let tip=host.querySelector(".chart-hover-tip");
+ if(!tip){
+   tip=document.createElement("div");
+   tip.className="chart-hover-tip";
+   host.appendChild(tip);
+ }
+ tip.innerHTML=html;
+ tip.classList.add("show");
+ const rect=host.getBoundingClientRect();
+ const x=Math.max(8,Math.min(rect.width-tip.offsetWidth-8,evt.clientX-rect.left+12));
+ const y=Math.max(8,Math.min(rect.height-tip.offsetHeight-8,evt.clientY-rect.top+12));
+ tip.style.left=x+"px"; tip.style.top=y+"px";
+}
+function hideChartTooltip(host){
+ host.querySelector(".chart-hover-tip")?.classList.remove("show");
+}
+function bindChartInteractions(host,id){
+ const root=getSystemRoot(id); if(!host||!root)return;
+ host.querySelectorAll(".chart-point").forEach(point=>{
+   const rarity=point.dataset.rarity;
+   point.addEventListener("mouseenter",e=>{
+     clearChartHover(root);
+     point.classList.add("hovered");
+     root.querySelector(`.rarity-assets article[data-rarity="${CSS.escape(rarity)}"]`)?.classList.add("hovered");
+     showChartTooltip(host,e,point.dataset.tip||`<b>${rarity}</b>`);
+   });
+   point.addEventListener("mousemove",e=>{
+     if(point.dataset.tip)showChartTooltip(host,e,point.dataset.tip);
+   });
+   point.addEventListener("mouseleave",()=>{
+     clearChartHover(root);
+     hideChartTooltip(host);
+     if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});
+   });
+   point.addEventListener("click",()=>{
+     const targetAsc=point.dataset.asc!==undefined&&point.dataset.asc!==""?Number(point.dataset.asc):ascState[id];
+     if(Number.isFinite(targetAsc)&&targetAsc!==ascState[id]){
+       ascState[id]=targetAsc;
+       chartSelection[id]=rarity;
+       renderSystem(id);
+       requestAnimationFrame(()=>syncRarityHighlight(id,rarity,{sticky:false,scrollCard:true}));
+     }else{
+       syncRarityHighlight(id,rarity,{sticky:true,scrollCard:true});
+     }
+   });
+ });
+}
+function bindAssetInteractions(id){
+ const root=getSystemRoot(id); if(!root)return;
+ root.querySelectorAll(".rarity-assets article[data-rarity]").forEach(card=>{
+   const rarity=card.dataset.rarity;
+   card.tabIndex=0;
+   card.setAttribute("role","button");
+   card.setAttribute("aria-label",`Podświetl ${rarity} na wykresach`);
+   const choose=()=>syncRarityHighlight(id,rarity,{sticky:true});
+   card.addEventListener("click",choose);
+   card.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();choose();}});
+   card.addEventListener("mouseenter",()=>{
+     clearChartHover(root);
+     card.classList.add("hovered");
+     root.querySelectorAll(`.chart-point[data-rarity="${CSS.escape(rarity)}"]`).forEach(p=>p.classList.add("hovered"));
+   });
+   card.addEventListener("mouseleave",()=>{
+     clearChartHover(root);
+     if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});
+   });
+ });
+}
+
 const COLORS={Common:"#95a4b7",Rare:"#56a7e8",Epic:"#61d291",Legendary:"#e6c24c",Ultimate:"#ed923d",Mythic:"#c95be8",
 Primitive:"#95a4b7",Medieval:"#72a7d8","Early-Modern":"#59bf9a",Modern:"#89c76a",Space:"#d8bd4e",Interstellar:"#e29147",Multiverse:"#ca6bce",Quantum:"#9a77ed",Underworld:"#e46067",Divine:"#f1cb58"};
 const fmt=n=>{
@@ -79,7 +169,7 @@ function renderSystem(id){
  </div>
  <section class="visual-card">
    <div class="card-headline"><div><span>1 • WYGLĄD + STATY</span><h3>${isItems?"Tier po tierze":"Rarity po rarity"}</h3></div><small>autentyczne assety z repo</small></div>
-   <div class="rarity-assets">${rows.map(r=>`<article style="--c:${COLORS[r.name]||"#889"}">${isItems?itemImage(r.name):spriteHTML(id,r.name,asc)}<b>${r.name}</b><div><span>⚔️ ${fmt(r.damage)}</span><span>❤️ ${fmt(r.health)}</span>${r.hatch?`<span>🥚 ${fmtTime(r.hatch)}</span>`:""}</div></article>`).join("")}</div>
+   <div class="rarity-assets">${rows.map(r=>`<article data-rarity="${r.name}" style="--c:${COLORS[r.name]||"#889"}">${isItems?itemImage(r.name):spriteHTML(id,r.name,asc)}<b>${r.name}</b><div><span>⚔️ ${fmt(r.damage)}</span><span>❤️ ${fmt(r.health)}</span>${r.hatch?`<span>🥚 ${fmtTime(r.hatch)}</span>`:""}</div></article>`).join("")}</div>
  </section>
  <section class="visual-card">
    <div class="card-headline"><div><span>2 • WYKRES PROGRESJI</span><h3>Jedna wspólna skala mocy</h3></div><small>oś Y jest logarytmiczna</small></div>
@@ -94,7 +184,9 @@ function renderSystem(id){
  <section class="source-mini"><b>Źródła tej zakładki:</b> ${sourceText(id)}</section>`;
  $$(`button[data-sys="${id}"]`,root).forEach(b=>b.addEventListener("click",()=>{ascState[id]=Number(b.dataset.a);renderSystem(id)}));
  renderRarityChart($('[data-chart="rarity"]',root),rows,id);
- renderAscChart($('[data-chart="asc"]',root),S);
+ renderAscChart($('[data-chart="asc"]',root),S,id);
+ bindAssetInteractions(id);
+ if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});
 }
 function sourceText(id){
  return id==="pets"?"PetUpgradeLibrary.json + EggLibrary.json + AscensionConfigsLibrary.json":
@@ -104,7 +196,7 @@ function sourceText(id){
 }
 
 function renderRarityChart(host,rows,id){
- const W=1360,H=470,L=105,R=45,T=72,B=92;
+ const W=1360,H=470,L=105,R=45,T=72,B=70;
  const base=rows[0].damage;
  const mults=rows.map(r=>r.damage/base);
  const hi=Math.log10(Math.max(...mults)),lo=0;
@@ -114,9 +206,8 @@ function renderRarityChart(host,rows,id){
  const ratios=calcRatios(rows);
 
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg rarity-svg">`;
- svg+=`<text x="${L}" y="30" class="chart-kicker">PROGRESJA MOCY • ${rows[0].name.toUpperCase()} = ×1</text>`;
+ svg+=`<text x="${L}" y="30" class="chart-kicker">PROGRESJA MOCY • KLIKNIJ RARITY, ŻEBY JE PODŚWIETLIĆ</text>`;
 
- // useful log ticks only, sorted visually from bottom to top
  const expMax=Math.ceil(hi);
  const exps=[];
  for(let p=0;p<=expMax;p+=Math.max(1,Math.ceil(expMax/5)))exps.push(p);
@@ -130,44 +221,58 @@ function renderRarityChart(host,rows,id){
  });
 
  svg+=`<polyline points="${pts.map(p=>p.join(",")).join(" ")}" class="power-line"/>`;
+
  rows.forEach((r,i)=>{
    const [px,py]=pts[i],c=COLORS[r.name]||"#88a";
-   svg+=`<circle cx="${px}" cy="${py}" r="8" fill="${c}" class="dot"/>
-         <text x="${px}" y="${H-B+34}" text-anchor="middle" class="label">${r.name}</text>
-         <text x="${px}" y="${py-17}" text-anchor="middle" class="value">${fmtAxis(r.damage/base)}</text>`;
+   // Labels alternate above/below the point. This avoids collisions and makes the dot self-describing.
+   let dy=(i%2===0?-31:34);
+   if(py+dy<T+18)dy=34;
+   if(py+dy>H-B-8)dy=-31;
+   const labelY=py+dy;
+   const width=Math.max(58,Math.min(92,r.name.length*7.4+22));
+   const labelX=Math.max(L+width/2,Math.min(W-R-width/2,px));
+
+   const tip=`<b>${r.name} • A${ascState[id]}</b><span>⚔️ DMG: ${fmt(r.damage)}</span><span>❤️ HP: ${fmt(r.health)}</span>${r.hatch?`<span>🥚 Hatch: ${fmtTime(r.hatch)}</span>`:""}<small>Moc vs ${rows[0].name}: ${fmtAxis(r.damage/base)}</small>`;
+
+   svg+=`<g class="chart-point" tabindex="0" data-rarity="${r.name}" data-tip="${esc(tip)}">
+           <circle cx="${px}" cy="${py}" r="9" fill="${c}" class="dot hit-dot"/>
+           <circle cx="${px}" cy="${py}" r="18" class="dot-hit-area"/>
+           <line x1="${px}" y1="${py+(dy<0?-10:10)}" x2="${labelX}" y2="${labelY+(dy<0?10:-10)}" class="point-label-link"/>
+           <g class="point-rarity-label" transform="translate(${labelX},${labelY})">
+             <rect x="${-width/2}" y="-13" width="${width}" height="26" rx="8"/>
+             <text x="0" y="4" text-anchor="middle">${r.name}</text>
+           </g>
+         </g>`;
+
+   // The multiplier belongs to the transition, not to the dot.
    if(i>0){
       const a=pts[i-1],mx=(a[0]+px)/2,my=Math.max(T+20,(a[1]+py)/2-4);
-      svg+=`<g class="ratio"><rect x="${mx-38}" y="${my-18}" width="76" height="34" rx="9"/>
+      svg+=`<g class="ratio transition-ratio"><rect x="${mx-38}" y="${my-18}" width="76" height="34" rx="9"/>
             <text x="${mx}" y="${my+5}" text-anchor="middle">×${fmt(ratios[i-1].value)}</text></g>`;
    }
  });
- svg+=`<text x="${L}" y="${H-24}" class="caption">Konkretne ❤️ HP i ⚔️ DMG są w kartach powyżej • tutaj liczy się czytelny mnożnik progresji</text></svg>`;
+ svg+=`<text x="${L}" y="${H-20}" class="caption">Nazwa jest przy kropce • mnożnik pomiędzy kropkami pokazuje skok do następnego rarity • klik = podświetlenie</text></svg>`;
  host.innerHTML=svg;
+ bindChartInteractions(host,id);
 }
-
-function renderAscChart(host,S){
+function renderAscChart(host,S,id){
  const cycles=[0,1,2,3],rows=S.rows,n=rows.length;
  const baseValue=rows[0].damage;
-
  const maxMultiple=(rows.at(-1).damage*D.ascMultipliers.at(-1))/baseValue;
  const hi=Math.log10(maxMultiple),lo=0;
 
- // Designed for the 1540 px content shell.
- // Bigger inter-cycle gaps prevent rarity labels and reset badges from colliding.
- const W=1480,H=600,L=112,R=42,T=82,B=112;
+ const W=1480,H=620,L=112,R=42,T=82,B=70;
  const usable=W-L-R;
  const cycleGap=82;
  const cycleW=(usable-cycleGap*3)/4;
-
  const cycleStart=a=>L+a*(cycleW+cycleGap);
  const xInCycle=(a,j)=>cycleStart(a)+j*cycleW/(n-1);
  const y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
 
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg asc-svg continuous-asc">`;
- svg+=`<text x="${L}" y="32" class="chart-kicker">ABSOLUTNA MOC • A0 COMMON = ×1</text>`;
+ svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • KAŻDA KROPKA MA SWÓJ RARITY • KLIKNIJ, ABY ZOBACZYĆ GO NA KARTACH</text>`;
  svg+=`<text x="${W-R}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
 
- // readable logarithmic axis
  const expMax=Math.ceil(hi),step=Math.max(1,Math.ceil(expMax/6));
  const exps=[];
  for(let p=0;p<=expMax;p+=step)exps.push(p);
@@ -179,57 +284,67 @@ function renderAscChart(host,S){
          <text x="${L-18}" y="${yy+5}" text-anchor="end" class="axis">${fmtAxis(v)}</text>`;
  });
 
- // soft cycle bands
  cycles.forEach(a=>{
    const x0=cycleStart(a);
-   svg+=`<rect x="${x0-14}" y="${T-24}" width="${cycleW+28}" height="${H-T-B+54}" rx="15" class="cycle-band-soft"/>
+   svg+=`<rect x="${x0-14}" y="${T-24}" width="${cycleW+28}" height="${H-T-B+35}" rx="15" class="cycle-band-soft"/>
          <text x="${x0+cycleW/2}" y="${T+1}" text-anchor="middle" class="cycle-title">A${a} • ${fmtMultExact(D.ascMultipliers[a])}</text>`;
  });
-
- // separators live exactly in the middle of the reserved cycle gap
  cycles.slice(1).forEach(a=>{
    const sep=cycleStart(a)-cycleGap/2;
-   svg+=`<line x1="${sep}" y1="${T-6}" x2="${sep}" y2="${H-B+25}" class="cycle-separator"/>`;
+   svg+=`<line x1="${sep}" y1="${T-6}" x2="${sep}" y2="${H-B+12}" class="cycle-separator"/>`;
  });
 
  cycles.forEach(a=>{
    const local=rows.map((r,j)=>({
-      name:r.name,
-      j,
-      multiple:(r.damage*D.ascMultipliers[a])/baseValue
+      name:r.name,j,
+      multiple:(r.damage*D.ascMultipliers[a])/baseValue,
+      damage:r.damage*D.ascMultipliers[a],
+      health:r.health*D.ascMultipliers[a]
    }));
 
    svg+=`<polyline points="${local.map(p=>`${xInCycle(a,p.j)},${y(p.multiple)}`).join(" ")}" class="power-line"/>`;
 
    local.forEach(p=>{
      const px=xInCycle(a,p.j),py=y(p.multiple),c=COLORS[p.name]||"#88a";
-     svg+=`<circle cx="${px}" cy="${py}" r="${p.j===n-1?8:6}" fill="${c}" class="dot"/>`;
 
-     // edge rarity labels are nudged inside their own cycle so Mythic/Common never collide
-     let lx=px,anchor="middle";
-     if(p.j===0){ lx=px+3; anchor="start"; }
-     if(p.j===n-1){ lx=px-3; anchor="end"; }
-     svg+=`<text x="${lx}" y="${H-B+31}" text-anchor="${anchor}" class="small-label">${p.name}</text>`;
+     // Stagger labels around points. Edge labels point inward.
+     let dx=0,dy=(p.j%2===0?-27:29);
+     if(p.j===0)dx=18;
+     if(p.j===n-1)dx=-18;
+     if(py+dy<T+18)dy=29;
+     if(py+dy>H-B-8)dy=-27;
+     const width=Math.max(48,Math.min(74,p.name.length*5.9+16));
+     const lx=Math.max(cycleStart(a)+width/2-2,Math.min(cycleStart(a)+cycleW-width/2+2,px+dx));
+     const ly=py+dy;
+
+     const tip=`<b>${p.name} • A${a}</b><span>⚔️ DMG: ${fmt(p.damage)}</span><span>❤️ HP: ${fmt(p.health)}</span><small>Moc vs A0 Common: ${fmtAxis(p.multiple)}</small>`;
+
+     svg+=`<g class="chart-point asc-chart-point" tabindex="0" data-rarity="${p.name}" data-asc="${a}" data-tip="${esc(tip)}">
+             <circle cx="${px}" cy="${py}" r="${p.j===n-1?9:7}" fill="${c}" class="dot hit-dot"/>
+             <circle cx="${px}" cy="${py}" r="16" class="dot-hit-area"/>
+             <line x1="${px}" y1="${py+(dy<0?-8:8)}" x2="${lx}" y2="${ly+(dy<0?9:-9)}" class="point-label-link"/>
+             <g class="point-rarity-label compact" transform="translate(${lx},${ly})">
+               <rect x="${-width/2}" y="-11" width="${width}" height="22" rx="7"/>
+               <text x="0" y="3.5" text-anchor="middle">${p.name}</text>
+             </g>
+           </g>`;
    });
 
    const peak=local.at(-1);
    const px=xInCycle(a,n-1),py=y(peak.multiple);
-
-   svg+=`<circle cx="${px}" cy="${py}" r="12" class="asc-peak-ring"/>
-         <g class="peak-label">
-           <rect x="${px-50}" y="${py-43}" width="100" height="28" rx="8"/>
-           <text x="${px}" y="${py-24}" text-anchor="middle">${a<3?"ASCENSION":"KONIEC A3"}</text>
+   svg+=`<circle cx="${px}" cy="${py}" r="12" class="asc-peak-ring pointer-events-none"/>
+         <g class="peak-label pointer-events-none">
+           <rect x="${px-50}" y="${py-48}" width="100" height="27" rx="8"/>
+           <text x="${px}" y="${py-30}" text-anchor="middle">${a<3?"ASCENSION":"KONIEC A3"}</text>
          </g>`;
 
    if(a<3){
      const nx=xInCycle(a+1,0);
      const nextCommon=(rows[0].damage*D.ascMultipliers[a+1])/baseValue;
      const ny=y(nextCommon);
-
-     // reset transition uses the full 82px reserved gap
      const gapCenter=(px+nx)/2;
-     svg+=`<path d="M${px+8},${py+5} C${px+28},${py+30} ${nx-28},${ny-30} ${nx-8},${ny-5}" class="reset-curve"/>
-           <g class="reset-badge-clean">
+     svg+=`<path d="M${px+8},${py+5} C${px+28},${py+30} ${nx-28},${ny-30} ${nx-8},${ny-5}" class="reset-curve pointer-events-none"/>
+           <g class="reset-badge-clean pointer-events-none">
              <rect x="${gapCenter-35}" y="${(py+ny)/2-16}" width="70" height="32" rx="9"/>
              <text x="${gapCenter}" y="${(py+ny)/2+4}" text-anchor="middle">RESET</text>
            </g>`;
@@ -238,14 +353,12 @@ function renderAscChart(host,S){
      if(recoveryIndex>=0){
        const rm=(rows[recoveryIndex].damage*D.ascMultipliers[a+1])/baseValue;
        const rx=xInCycle(a+1,recoveryIndex),ry=y(rm);
-
-       // Recovery guide spans the whole remaining chart so the player can compare old power with later cycles at a glance.
        const lineEndX=W-R-16;
-       svg+=`<line x1="${px}" y1="${py}" x2="${lineEndX}" y2="${py}" class="recovery-guide-clean"/>
-             <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot"/>`;
+       svg+=`<line x1="${px}" y1="${py}" x2="${lineEndX}" y2="${py}" class="recovery-guide-clean pointer-events-none"/>
+             <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot pointer-events-none"/>`;
 
        const badgeY=Math.max(T+15,Math.min(H-B-45,ry-45));
-       svg+=`<g class="recovery-badge-clean">
+       svg+=`<g class="recovery-badge-clean pointer-events-none">
                <rect x="${rx-68}" y="${badgeY}" width="136" height="30" rx="9"/>
                <text x="${rx}" y="${badgeY+20}" text-anchor="middle">${S.recovery} • recovery</text>
              </g>`;
@@ -253,10 +366,10 @@ function renderAscChart(host,S){
    }
  });
 
- svg+=`<text x="${L}" y="${H-23}" class="caption">A0 → A3 na jednej skali • zielona linia recovery idzie przez cały wykres • łatwo porównać starą moc z późniejszymi cyklami</text></svg>`;
+ svg+=`<text x="${L}" y="${H-19}" class="caption">Kliknięcie punktu A1/A2/A3 przełącza karty na tę Ascension i podświetla wybrane rarity</text></svg>`;
  host.innerHTML=svg;
+ bindChartInteractions(host,id);
 }
-
 function renderAscensionGuide(){
  const host=$("#ascGuideCards"); if(!host)return;
  host.innerHTML=`<div class="guide-cards">${["pets","mounts","skills","items"].map(k=>{const g=D.guide.pillars[k];return `<article><div class="guide-top"><span>${g.label}</span><b>${g.eligibility}</b></div><div class="guide-three"><div><small>RESET</small><b>${g.reset}</b></div><div><small>ZOSTAJE</small><b>${g.keep}</b></div><div><small>ODZYSKANIE MOCY</small><b>${g.recovery}</b></div></div><div class="guide-target"><span>${g.targetLevel}</span><b>${g.base}</b><small>${g.discount}</small><small>${g.chance}</small>${g.alternative?`<p>${g.alternative}</p>`:""}</div></article>`}).join("")}</div>`;

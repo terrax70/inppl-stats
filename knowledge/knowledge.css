@@ -1080,3 +1080,150 @@ stroke-dasharray:6 6;}
   .pillars-visual-grid{grid-template-columns:1fr}
   .asc-advanced-toggle summary{font-size:14px}
 }
+
+/* =========================================================
+   Rozwój 1.6 — INTERACTIVE CHARTS
+   ========================================================= */
+.svg-host{
+  position:relative;
+}
+.chart-point{
+  cursor:pointer;
+  outline:none;
+}
+.chart-point .dot-hit-area{
+  fill:transparent;
+  stroke:transparent;
+  pointer-events:all;
+}
+.chart-point .hit-dot{
+  transition:r .16s ease,filter .16s ease,stroke-width .16s ease,opacity .16s ease;
+}
+.chart-point:hover .hit-dot,
+.chart-point.hovered .hit-dot,
+.chart-point.selected-rarity .hit-dot{
+  r:11px;
+  stroke:#f7fbff;
+  stroke-width:3.5;
+  filter:drop-shadow(0 0 8px rgba(126,190,255,.55));
+}
+.asc-chart-point:hover .hit-dot,
+.asc-chart-point.hovered .hit-dot,
+.asc-chart-point.selected-rarity .hit-dot{
+  r:9.5px;
+}
+.point-label-link{
+  stroke:#536477;
+  stroke-width:1;
+  opacity:.65;
+  pointer-events:none;
+}
+.point-rarity-label{
+  pointer-events:none;
+}
+.point-rarity-label rect{
+  fill:#0d151e;
+  stroke:#304255;
+  stroke-width:1;
+  filter:drop-shadow(0 3px 7px rgba(0,0,0,.32));
+}
+.point-rarity-label text{
+  fill:#dce6ef;
+  font-size:11px;
+  font-weight:1000;
+}
+.point-rarity-label.compact text{
+  font-size:8.5px;
+}
+.chart-point:hover .point-rarity-label rect,
+.chart-point.hovered .point-rarity-label rect,
+.chart-point.selected-rarity .point-rarity-label rect{
+  stroke:#8fc8f6;
+  stroke-width:1.6;
+  fill:#101c27;
+}
+.chart-point:hover .point-rarity-label text,
+.chart-point.hovered .point-rarity-label text,
+.chart-point.selected-rarity .point-rarity-label text{
+  fill:#fff;
+}
+.transition-ratio{
+  pointer-events:none;
+}
+.pointer-events-none{
+  pointer-events:none;
+}
+
+/* Cards and points are two views of the same rarity. */
+.rarity-assets article{
+  cursor:pointer;
+  transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease,opacity .16s ease;
+  outline:none;
+}
+.rarity-assets article:hover,
+.rarity-assets article.hovered{
+  transform:translateY(-3px);
+  border-color:#5c7690;
+  box-shadow:0 8px 22px rgba(0,0,0,.28);
+}
+.rarity-assets article.selected-rarity{
+  transform:translateY(-3px);
+  border-color:var(--c) !important;
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--c) 42%,transparent),0 10px 28px rgba(0,0,0,.36);
+}
+.rarity-assets:has(article.selected-rarity) article:not(.selected-rarity){
+  opacity:.52;
+}
+.svg-host:has(.chart-point.selected-rarity) .chart-point:not(.selected-rarity){
+  opacity:.42;
+}
+.svg-host .chart-point{
+  transition:opacity .16s ease;
+}
+
+.chart-hover-tip{
+  display:none;
+  position:absolute;
+  z-index:20;
+  min-width:165px;
+  max-width:240px;
+  pointer-events:none;
+  padding:9px 10px;
+  border:1px solid #3a5066;
+  border-radius:9px;
+  background:rgba(8,13,19,.96);
+  box-shadow:0 12px 32px rgba(0,0,0,.42);
+  color:#e9f0f6;
+  font-size:10px;
+  line-height:1.35;
+}
+.chart-hover-tip.show{display:block}
+.chart-hover-tip b{
+  display:block;
+  color:#fff;
+  font-size:11px;
+  margin-bottom:5px;
+}
+.chart-hover-tip span{
+  display:block;
+  color:#aab8c7;
+  margin-top:2px;
+}
+.chart-hover-tip small{
+  display:block;
+  margin-top:6px;
+  padding-top:5px;
+  border-top:1px solid #1f2d3a;
+  color:#728398;
+}
+
+.rarity-svg{
+  min-width:980px;
+}
+.continuous-asc{
+  min-width:1200px;
+}
+@media(max-width:760px){
+  .point-rarity-label text{font-size:10px}
+  .point-rarity-label.compact text{font-size:8px}
+}

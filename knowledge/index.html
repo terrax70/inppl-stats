@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="inppl-build" content="150">
+<meta name="inppl-build" content="151">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Rozwój Forge Master</title>
-<link rel="stylesheet" href="knowledge.css?v=1000-150">
-<link rel="stylesheet" href="../ui-shell.css?v=150">
+<link rel="stylesheet" href="knowledge.css?v=1100-151">
+<link rel="stylesheet" href="../ui-shell.css?v=151">
 </head>
 <body>
 <div class="app">
@@ -27,7 +27,7 @@
       <div class="nav-label nav-section-label nav-addon-label">Dodatek</div>
       <a class="nav-btn nav-link-btn nav-addon" href="../#outcastsView"><span class="nav-ico">↪</span>Wyrzutki</a>
     </nav>
-    <div class="side-status"><div class="release-row"><strong>INPPL • Rozwój</strong><span class="release-badge">v1.0</span></div><div>Source Pack • config 2026-09-02</div><div>Bez zgadywanych danych</div></div>
+    <div class="side-status"><div class="release-row"><strong>INPPL • Rozwój</strong><span class="release-badge">v1.1</span></div><div>Source Pack • config 2026-09-02</div><div>Bez zgadywanych danych</div></div>
   </aside>
 <main class="main">
   <section class="hero hero-v1">
@@ -82,6 +82,14 @@
   <section class="view" id="items"><div class="system-root" data-system="items"></div></section>
 
   <section class="view" id="ascension">
+
+  <section class="official-pl-intro">
+    <div class="official-pl-badge">OFICJALNY OPIS • PO POLSKU</div>
+    <p><b>Ascension</b> pozwala zresetować <b>jeden z czterech filarów</b> — Forge, Skills, Pets albo Mounts — żeby na stałe stał się mocniejszy. <b>Nie resetujesz całego konta.</b> Ascendujesz tylko wybrany filar, a pozostałe zostają bez zmian.</p>
+    <p>Po Ascension tracisz rzeczy należące do tego filaru i zaczynasz zdobywać je od nowa. <b>Zachowujesz jednak podstawowe zasoby</b>: Gold/Hammers, Eggshells, Skill Tickets i walutę Mountów. Twoja moc na chwilę spadnie — to normalne. Podczas odbudowy szybko odzyskasz starą moc, a potem ją przebijesz.</p>
+    <div class="official-pl-tip"><span>TIP</span><b>Jeżeli nie chcesz długo być słabszy, przed Ascension odłóż tyle zasobów, żeby od razu odbudować zalecany rarity/tier.</b></div>
+  </section>
+
     <div class="asc-simple-hero">
       <div class="eyebrow">ASCENSION • NAJPIERW TO ZROZUM</div>
       <h2>Nie resetujesz całej gry.</h2>
@@ -117,11 +125,11 @@
     <div id="techBranch"></div>
   </section>
 
-  <footer class="footer-v1">INPPL • Rozwój v1.0 • source pack 2026-09-02 • 1vcian/fm</footer>
+  <footer class="footer-v1">INPPL • Rozwój v1.1 • source pack 2026-09-02 • 1vcian/fm</footer>
 </main>
 </div>
-<script src="knowledge-data.js?v=1000-150"></script>
-<script src="knowledge.js?v=1000-150"></script>
+<script src="knowledge-data.js?v=1100-151"></script>
+<script src="knowledge.js?v=1100-151"></script>
 <script>
 (()=>{const m=document.querySelector('meta[name="inppl-build"]');const b=m?.content||"";fetch("../version.json?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():null).then(v=>{if(!v?.build||String(v.build)===b)return;const k="inppl_last_reloaded_build";if(sessionStorage.getItem(k)===String(v.build))return;sessionStorage.setItem(k,String(v.build));const u=new URL(location.href);u.searchParams.set("_v",String(v.build));location.replace(u)}).catch(()=>{})})();
 </script>

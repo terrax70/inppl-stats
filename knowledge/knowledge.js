@@ -91,56 +91,104 @@ function sourceText(id){
 }
 
 function renderRarityChart(host,rows,id){
- const W=1180,H=430,L=88,R=30,T=38,B=82;
- const vals=rows.map(r=>r.damage),min=Math.min(...vals),max=Math.max(...vals),lo=Math.log10(min),hi=Math.log10(max);
- const x=i=>L+i*(W-L-R)/(rows.length-1), y=v=>T+(hi-Math.log10(v))/(hi-lo||1)*(H-T-B);
- const pts=rows.map((r,i)=>[x(i),y(r.damage)]);
+ const W=1180,H=500,L=92,R=34,T=54,B=96;
+ const base=rows[0].damage;
+ const mults=rows.map(r=>r.damage/base);
+ const logs=mults.map(v=>Math.log10(v)),lo=0,hi=Math.max(...logs);
+ const x=i=>L+i*(W-L-R)/(rows.length-1);
+ const y=v=>T+(hi-Math.log10(v))/(hi-lo||1)*(H-T-B);
+ const pts=rows.map((r,i)=>[x(i),y(r.damage/base)]);
  const ratios=calcRatios(rows);
+
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg">`;
- for(let i=0;i<5;i++){const yy=T+i*(H-T-B)/4;const val=10**(hi-i*(hi-lo)/4);svg+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" class="grid"/><text x="${L-12}" y="${yy+4}" text-anchor="end" class="axis">${fmt(val)}</text>`}
+
+ // clean multiplier grid
+ const maxPow=Math.ceil(hi);
+ for(let p=0;p<=maxPow;p++){
+   const vv=10**p,yy=y(vv);
+   if(yy<T-1||yy>H-B+1)continue;
+   svg+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" class="grid"/>
+         <text x="${L-14}" y="${yy+4}" text-anchor="end" class="axis">×${fmt(vv)}</text>`;
+ }
+
+ svg+=`<text x="${L}" y="${T-24}" class="chart-title-main">MOC WZGLĘDEM ${rows[0].name.toUpperCase()}</text>`;
  svg+=`<polyline points="${pts.map(p=>p.join(",")).join(" ")}" class="power-line"/>`;
+
  rows.forEach((r,i)=>{
    const [px,py]=pts[i],c=COLORS[r.name]||"#88a";
-   svg+=`<circle cx="${px}" cy="${py}" r="7" fill="${c}" class="dot"/><text x="${px}" y="${H-B+28}" text-anchor="middle" class="label">${r.name}</text><text x="${px}" y="${py-14}" text-anchor="middle" class="value">${fmt(r.damage)}</text>`;
-   if(i>0){const prev=pts[i-1],mx=(prev[0]+px)/2,my=(prev[1]+py)/2-10;svg+=`<g class="ratio"><rect x="${mx-31}" y="${my-15}" width="62" height="28" rx="8"/><text x="${mx}" y="${my+4}" text-anchor="middle">×${fmt(ratios[i-1].value)}</text></g>`}
+   svg+=`<circle cx="${px}" cy="${py}" r="8" fill="${c}" class="dot"/>
+         <text x="${px}" y="${H-B+33}" text-anchor="middle" class="label">${r.name}</text>
+         <text x="${px}" y="${py-18}" text-anchor="middle" class="value">×${fmt(r.damage/base)}</text>`;
+   if(i>0){
+     const prev=pts[i-1],mx=(prev[0]+px)/2,my=(prev[1]+py)/2-7;
+     svg+=`<g class="ratio"><rect x="${mx-36}" y="${my-17}" width="72" height="32" rx="9"/>
+           <text x="${mx}" y="${my+5}" text-anchor="middle">×${fmt(ratios[i-1].value)}</text></g>`;
+   }
  });
- svg+=`<text x="${L}" y="${H-20}" class="caption">⚔️ Damage • ❤️ Health ma identyczny mnożnik rarity w tym systemie</text></svg>`;
+ svg+=`<text x="${L}" y="${H-26}" class="caption">⚔️ DMG i ❤️ HP mają ten sam mnożnik rarity • konkretne wartości są w kartach powyżej</text></svg>`;
  host.innerHTML=svg;
 }
 
 function renderAscChart(host,S){
- const cycles=[0,1,2,3],base=S.rows,n=base.length;
+ const cycles=[0,1,2,3],baseRows=S.rows,n=baseRows.length;
+ const baseValue=baseRows[0].damage;
  const pts=[];
- cycles.forEach(a=>base.forEach(r=>pts.push({a,name:r.name,value:r.damage*D.ascMultipliers[a]})));
- const logs=pts.map(p=>Math.log10(p.value)),lo=Math.min(...logs),hi=Math.max(...logs);
- const W=1640,H=610,L=90,R=35,T=55,B=105;
- const x=i=>L+i*(W-L-R)/(pts.length-1),y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
+ cycles.forEach(a=>baseRows.forEach(r=>pts.push({a,name:r.name,value:r.damage*D.ascMultipliers[a],multiple:(r.damage*D.ascMultipliers[a])/baseValue})));
+
+ const maxMult=Math.max(...pts.map(p=>p.multiple));
+ const hi=Math.log10(maxMult),lo=0;
+ const W=1660,H=690,L=106,R=40,T=76,B=116;
+ const x=i=>L+i*(W-L-R)/(pts.length-1);
+ const y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
+
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg asc-svg">`;
- for(let i=0;i<6;i++){const yy=T+i*(H-T-B)/5;const val=10**(hi-i*(hi-lo)/5);svg+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" class="grid"/><text x="${L-12}" y="${yy+4}" text-anchor="end" class="axis">${fmt(val)}</text>`}
+
+ const maxPow=Math.ceil(hi);
+ for(let p=0;p<=maxPow;p++){
+   const vv=10**p,yy=y(vv);
+   if(yy<T-1||yy>H-B+1)continue;
+   svg+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" class="grid"/>
+         <text x="${L-14}" y="${yy+4}" text-anchor="end" class="axis">×${fmt(vv)}</text>`;
+ }
+ svg+=`<text x="${L}" y="${T-34}" class="chart-title-main">ABSOLUTNA MOC • A0 COMMON = ×1</text>`;
+
  cycles.forEach(a=>{
    const start=a*n,end=start+n-1;
-   const x1=x(start)-22,x2=x(end)+22;
-   svg+=`<rect x="${x1}" y="${T-20}" width="${x2-x1}" height="${H-T-B+50}" rx="14" class="cycle-bg"/><text x="${(x1+x2)/2}" y="${T-2}" text-anchor="middle" class="cycle-title">A${a} • ×${fmt(D.ascMultipliers[a])}</text>`;
+   const x1=x(start)-25,x2=x(end)+25;
+   svg+=`<rect x="${x1}" y="${T-22}" width="${x2-x1}" height="${H-T-B+58}" rx="15" class="cycle-bg"/>
+         <text x="${(x1+x2)/2}" y="${T+2}" text-anchor="middle" class="cycle-title">A${a} • ×${fmt(D.ascMultipliers[a])}</text>`;
+
    const local=pts.slice(start,end+1);
-   svg+=`<polyline points="${local.map((p,j)=>`${x(start+j)},${y(p.value)}`).join(" ")}" class="power-line"/>`;
+   svg+=`<polyline points="${local.map((p,j)=>`${x(start+j)},${y(p.multiple)}`).join(" ")}" class="power-line"/>`;
+
    local.forEach((p,j)=>{
-      const ix=start+j,px=x(ix),py=y(p.value),c=COLORS[p.name]||"#88a";
-      svg+=`<circle cx="${px}" cy="${py}" r="5.5" fill="${c}" class="dot"/><text x="${px}" y="${H-B+25}" text-anchor="middle" class="small-label">${p.name}</text>`;
+      const ix=start+j,px=x(ix),py=y(p.multiple),c=COLORS[p.name]||"#88a";
+      svg+=`<circle cx="${px}" cy="${py}" r="7" fill="${c}" class="dot"/>
+            <text x="${px}" y="${H-B+31}" text-anchor="middle" class="small-label">${p.name}</text>`;
    });
-   const peak=pts[end],px=x(end),py=y(peak.value);
-   svg+=`<g class="peak"><circle cx="${px}" cy="${py}" r="9"/><text x="${px}" y="${py-18}" text-anchor="middle">ASCENSION</text></g>`;
+
+   const peak=pts[end],px=x(end),py=y(peak.multiple);
+   svg+=`<g class="peak"><circle cx="${px}" cy="${py}" r="11"/>
+         <text x="${px}" y="${py-22}" text-anchor="middle">ASCENSION</text></g>`;
+
    if(a<3){
-      const nx=x(end+1),ny=y(pts[end+1].value);
-      svg+=`<line x1="${px}" y1="${py}" x2="${nx}" y2="${ny}" class="reset-line"/><text x="${(px+nx)/2}" y="${(py+ny)/2-8}" text-anchor="middle" class="reset-text">RESET</text>`;
-      const nextRows=base.map(r=>({name:r.name,value:r.damage*D.ascMultipliers[a+1]}));
+      const next=pts[end+1],nx=x(end+1),ny=y(next.multiple);
+      svg+=`<line x1="${px}" y1="${py}" x2="${nx}" y2="${ny}" class="reset-line"/>
+            <g class="reset-badge"><rect x="${(px+nx)/2-27}" y="${(py+ny)/2-17}" width="54" height="28" rx="8"/>
+            <text x="${(px+nx)/2}" y="${(py+ny)/2+2}" text-anchor="middle">RESET</text></g>`;
+
+      const nextRows=baseRows.map(r=>({name:r.name,multiple:(r.damage*D.ascMultipliers[a+1])/baseValue}));
       const recoveryIdx=nextRows.findIndex(r=>r.name===S.recovery);
       if(recoveryIdx>=0){
-        const rx=x((a+1)*n+recoveryIdx),ry=y(nextRows[recoveryIdx].value);
-        svg+=`<line x1="${px}" y1="${py}" x2="${rx}" y2="${py}" class="recovery-line"/><circle cx="${rx}" cy="${ry}" r="7" class="recover-dot"/><text x="${rx}" y="${ry-16}" text-anchor="middle" class="recover-text">${S.recovery} • próg z poradnika</text>`;
+        const rx=x((a+1)*n+recoveryIdx),ry=y(nextRows[recoveryIdx].multiple);
+        svg+=`<line x1="${px}" y1="${py}" x2="${rx}" y2="${py}" class="recovery-line"/>
+              <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot"/>
+              <g class="recovery-badge"><rect x="${rx-76}" y="${ry-42}" width="152" height="30" rx="9"/>
+              <text x="${rx}" y="${ry-22}" text-anchor="middle">${S.recovery} • próg odzyskania</text></g>`;
       }
    }
  });
- svg+=`<text x="${L}" y="${H-22}" class="caption">Ta sama absolutna skala statów dla A0–A3. Po Ascension A1 Common jest ×50 mocniejszy od A0 Common.</text></svg>`;
+ svg+=`<text x="${L}" y="${H-26}" class="caption">Jedna skala dla A0–A3 • Common A1 = ×50 Common A0 • marker recovery pochodzi z poradnika</text></svg>`;
  host.innerHTML=svg;
 }
 

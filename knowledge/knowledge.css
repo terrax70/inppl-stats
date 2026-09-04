@@ -1235,3 +1235,100 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
  .tech-first-rule{grid-template-columns:1fr}
  .official-base-stats{grid-template-columns:1fr !important}
 }
+
+/* Forge Knowledge 0.22 — authentic Helper assets */
+.asset-strip{
+  margin:12px 0 10px;
+  border:1px solid #1f2c39;
+  border-radius:12px;
+  background:linear-gradient(180deg,#0c131b,#090e14);
+  padding:11px 12px 12px;
+  overflow-x:auto;
+}
+.asset-strip-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin-bottom:9px;
+}
+.asset-strip-head span{
+  color:#aab7c7;
+  font-size:10px;
+  font-weight:1000;
+  letter-spacing:.08em;
+}
+.asset-strip-head small{
+  color:#5f6f82;
+  font-size:9px;
+}
+.asset-strip-row{
+  display:grid;
+  grid-auto-flow:column;
+  grid-auto-columns:minmax(118px,1fr);
+  gap:8px;
+  min-width:max-content;
+}
+.asset-card{
+  width:126px;
+  border:1px solid #243342;
+  background:#0b1118;
+  border-radius:10px;
+  padding:9px;
+  position:relative;
+  overflow:hidden;
+}
+.asset-card::before{
+  content:"";
+  position:absolute;
+  inset:0 auto 0 0;
+  width:3px;
+  background:var(--rarity-color);
+}
+.asset-picture{
+  height:82px;
+  display:grid;
+  place-items:center;
+  border-radius:8px;
+  background:radial-gradient(circle at 50% 45%,rgba(255,255,255,.055),rgba(255,255,255,.01) 65%);
+  overflow:hidden;
+}
+.sprite-picture{
+  overflow:visible;
+}
+.item-picture img{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  image-rendering:auto;
+  filter:drop-shadow(0 5px 10px rgba(0,0,0,.4));
+  transition:transform .16s ease;
+}
+.asset-card:hover .item-picture img{transform:scale(1.18)}
+.asset-error::after{
+  content:"asset";
+  color:#59687a;
+  font-size:9px;
+  font-weight:900;
+}
+.asset-error img{display:none}
+.asset-copy{
+  display:grid;
+  gap:2px;
+  margin-top:7px;
+  text-align:center;
+}
+.asset-copy b{
+  color:var(--rarity-color);
+  font-size:11px;
+}
+.asset-copy span{
+  color:#78889b;
+  font-size:8.5px;
+  font-weight:800;
+}
+@media(max-width:760px){
+  .asset-strip-head{align-items:flex-start;flex-direction:column}
+  .asset-card{width:116px}
+  .asset-picture{height:76px}
+}

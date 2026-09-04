@@ -4,6 +4,92 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const NS="http://www.w3.org/2000/svg";
 const ascState={pets:0,mounts:0,items:0};
 const ascMultiplier=level=>D.ascensionMultipliers.find(x=>x.level===Number(level))?.multiplier||1;
+
+const FM_HELPER_CSS="https://cdn.jsdelivr.net/gh/1vcian/ForgeMasterCalculator@main/styles.css";
+const FM_ASSET_ROOT="https://cdn.jsdelivr.net/gh/1vcian/ForgeMasterCalculator@main/Texture2D/";
+
+const visualAssets={
+ pets:[
+   {rarity:"Common",name:"Snail",kind:"pet",cls:"snail"},
+   {rarity:"Rare",name:"Hedgehog",kind:"pet",cls:"hedgehog"},
+   {rarity:"Epic",name:"Panda",kind:"pet",cls:"panda"},
+   {rarity:"Legendary",name:"Cerberus",kind:"pet",cls:"cerberus"},
+   {rarity:"Ultimate",name:"Treant",kind:"pet",cls:"treant"},
+   {rarity:"Mythic",name:"Genie",kind:"pet",cls:"genie"}
+ ],
+ mounts:[
+   {rarity:"Common",name:"Lily Pad",kind:"mount",cls:"lily-pad"},
+   {rarity:"Rare",name:"Brown Horse",kind:"mount",cls:"horse"},
+   {rarity:"Epic",name:"Pig",kind:"mount",cls:"pig"},
+   {rarity:"Legendary",name:"Giant Bee",kind:"mount",cls:"bee"},
+   {rarity:"Ultimate",name:"Mini Dragon",kind:"mount",cls:"mini-dragon"},
+   {rarity:"Mythic",name:"Hover Board",kind:"mount",cls:"hover-board"}
+ ],
+ items:[
+   ["Primitive","PrimitiveAgeItems.png"],
+   ["Medieval","MedievalAgeItems.png"],
+   ["Early-Modern","EarlyModernAgeItems.png"],
+   ["Modern","ModernAgeItems.png"],
+   ["Space","SpaceAgeItems.png"],
+   ["Interstellar","InterstellarAgeItems.png"],
+   ["Multiverse","MultiverseAgeItems.png"],
+   ["Quantum","QuantumAgeItems.png"],
+   ["Underworld","UnderworldAgeItems.png"],
+   ["Divine","DivineAgeItems.png"]
+ ].map(([rarity,file])=>({rarity,name:rarity,kind:"item",file}))
+};
+
+class FmSprite extends HTMLElement{
+ connectedCallback(){
+   if(this.shadowRoot)return;
+   const shadow=this.attachShadow({mode:"open"});
+   const kind=this.dataset.kind;
+   const cls=this.dataset.cls;
+   const style=document.createElement("style");
+   style.textContent=`
+    @import url("${FM_HELPER_CSS}");
+    :host{display:grid;place-items:center;width:76px;height:76px;overflow:visible}
+    .sprite-scale{width:30px;height:30px;display:grid;place-items:center;transform:scale(2.15);transform-origin:center}
+    .pet-icon,.mount-icon{margin:0!important;vertical-align:middle!important}
+   `;
+   const box=document.createElement("span");
+   box.className="sprite-scale";
+   const sprite=document.createElement("span");
+   sprite.className=`${kind}-icon small ${cls}`;
+   box.append(sprite);
+   shadow.append(style,box);
+ }
+}
+if(!customElements.get("fm-sprite"))customElements.define("fm-sprite",FmSprite);
+
+function renderAssetStrip(section){
+ const map={pets:"#petViz",mounts:"#mountViz",items:"#itemViz"};
+ const viz=$(map[section]); if(!viz)return;
+ let strip=document.querySelector(`.asset-strip[data-section="${section}"]`);
+ if(!strip){
+   strip=document.createElement("div");
+   strip.className="asset-strip";
+   strip.dataset.section=section;
+   viz.parentElement.insertBefore(strip,viz);
+ }
+ const assets=visualAssets[section];
+ strip.innerHTML=`<div class="asset-strip-head"><span>WYGLĄD W GRZE</span><small>autentyczne assety ForgeMaster Helper</small></div><div class="asset-strip-row"></div>`;
+ const row=strip.querySelector(".asset-strip-row");
+
+ assets.forEach(a=>{
+   const c=document.createElement("article");
+   c.className="asset-card";
+   c.style.setProperty("--rarity-color",(D.colors?.[a.rarity]||D.itemTierColors?.[a.rarity]||"#8abcf5"));
+   let visual="";
+   if(a.kind==="item"){
+     visual=`<div class="asset-picture item-picture"><img src="${FM_ASSET_ROOT}${a.file}" alt="${a.rarity} items" loading="lazy" onerror="this.closest('.asset-picture').classList.add('asset-error')"></div>`;
+   }else{
+     visual=`<div class="asset-picture sprite-picture"><fm-sprite data-kind="${a.kind}" data-cls="${a.cls}"></fm-sprite></div>`;
+   }
+   c.innerHTML=`${visual}<div class="asset-copy"><b>${a.rarity}</b><span>${a.name}</span></div>`;
+   row.append(c);
+ });
+}
 const scaledRows=(rows,level)=>rows.map(r=>({
   ...r,
   baseHealth:r.health,
@@ -179,6 +265,7 @@ function renderProgressInsights(target,rows){
 }
 
 function renderPets(){
+ renderAssetStrip("pets");
  const level=ascState.pets;
  const rows=scaledRows(D.pets,level);
  renderProgressViz("#petViz",rows,"Pety",level);
@@ -186,6 +273,7 @@ function renderPets(){
  updateAscUI("pets",level);
 }
 function renderMounts(){
+ renderAssetStrip("mounts");
  const level=ascState.mounts;
  const rows=scaledRows(D.mounts,level);
  renderProgressViz("#mountViz",rows,"Mounty",level);
@@ -194,6 +282,7 @@ function renderMounts(){
 }
 
 function renderItems(){
+ renderAssetStrip("items");
  const level=ascState.items;
  const itemRows=scaledRows(D.itemTiers,level);
  renderProgressViz("#itemViz",itemRows,"Itemy",level);

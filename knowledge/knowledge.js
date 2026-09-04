@@ -222,11 +222,11 @@ function chartProfile(host,rowCount,cycles=1,mode="default"){
  let intrinsic;
  if(cycles===4){
    if(isItemsAsc){
-     intrinsic=Math.max(7200,Math.round(viewport*4.85));
+     intrinsic=Math.max(4000,Math.round(viewport*2.55));
    }else{
      intrinsic=dense
-       ? Math.max(4600,Math.round(viewport*3.05))
-       : Math.max(2300,Math.round(viewport*1.55));
+       ? Math.max(3400,Math.round(viewport*2.25))
+       : Math.max(2050,Math.round(viewport*1.38));
    }
  }else{
    intrinsic=dense
@@ -305,6 +305,29 @@ function itemImage(name){const f=D.itemAssets[name];return f?`<img class="item-a
 function calcRatios(rows){
  return rows.slice(1).map((r,i)=>({from:rows[i].name,to:r.name,value:r.damage/rows[i].damage}));
 }
+function applyAscChartZoom(root,id,zoom){
+ const host=$('[data-chart="asc"]',root); if(!host)return;
+ const svg=host.querySelector('svg'); if(!svg)return;
+ const naturalW=Number(svg.dataset.naturalWidth||svg.getAttribute('width')||0);
+ const naturalH=Number(svg.dataset.naturalHeight||svg.getAttribute('height')||0);
+ if(!naturalW||!naturalH)return;
+ const z=Number(zoom)||1;
+ host.dataset.zoom=String(z);
+ svg.style.width=(naturalW*z)+'px';
+ svg.style.height=(naturalH*z)+'px';
+ svg.style.minWidth=(naturalW*z)+'px';
+ svg.style.maxWidth='none';
+ root.querySelectorAll('[data-chart-zoom]').forEach(b=>b.classList.toggle('active',Number(b.dataset.chartZoom)===z));
+}
+function bindAscChartZoom(root,id){
+ const defaultZoom=1;
+ const host=$('[data-chart="asc"]',root); if(!host)return;
+ const z=Number(host.dataset.zoom||defaultZoom);
+ applyAscChartZoom(root,id,z);
+ root.querySelectorAll('[data-chart-zoom]').forEach(b=>b.addEventListener('click',()=>{
+   applyAscChartZoom(root,id,Number(b.dataset.chartZoom));
+ }));
+}
 function renderSystem(id){
  const root=$(`.system-root[data-system="${id}"]`); if(!root)return;
  const S=D.systems[id],asc=ascState[id],m=D.ascMultipliers[asc],rows=S.rows.map(r=>({...r,damage:r.damage*m,health:r.health*m}));
@@ -334,12 +357,22 @@ function renderSystem(id){
  <section class="visual-card asc-full">
    <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>Common A1 ≠ Common A0</small></div>
    <div class="recovery-note"><b>Według oficjalnego poradnika:</b> stara moc jest odzyskiwana mniej więcej przy <strong>${S.recovery}</strong> po Ascension. Wykres pokazuje jednak prawdziwe surowe staty — nie wymusza sztucznej równości.</div>
-   <div class="svg-host wide ${id==="items"?"item-asc-chart":""}" data-chart="asc"></div>
+   <div class="asc-chart-tools" data-asc-tools>
+     <span>POWIĘKSZENIE WYKRESU</span>
+     <button type="button" data-chart-zoom="0.9">90%</button>
+     <button type="button" data-chart-zoom="1" class="active">100%</button>
+     <button type="button" data-chart-zoom="1.15">115%</button>
+     <button type="button" data-chart-zoom="1.3">130%</button>
+     <button type="button" data-chart-zoom="1.5">150%</button>
+     <small>To powiększa tylko wykres — niezależnie od zoomu przeglądarki.</small>
+   </div>
+   <div class="svg-host wide asc-chart-viewport ${id==="items"?"item-asc-chart":""}" data-chart="asc"></div>
  </section>
  <section class="source-mini"><b>Źródła tej zakładki:</b> ${sourceText(id)}</section>`;
  $$(`button[data-sys="${id}"]`,root).forEach(b=>b.addEventListener("click",()=>{ascState[id]=Number(b.dataset.a);renderSystem(id)}));
  renderRarityChart($('[data-chart="rarity"]',root),rows,id);
  renderAscChart($('[data-chart="asc"]',root),S,id);
+ bindAscChartZoom(root,id);
  bindAssetInteractions(id);
  if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});
 }
@@ -427,21 +460,21 @@ function renderAscChart(host,S,id){
  const hi=Math.log10(maxMultiple),lo=0;
 
  // Wider only here. Dense item ascension charts need real space.
- const recoveryGutter=profile.isItemsAsc?420:(profile.dense?360:230);
- const W=profile.intrinsic,H=profile.isItemsAsc?980:760,L=118,R=recoveryGutter,T=88,B=58;
+ const recoveryGutter=profile.isItemsAsc?330:(profile.dense?320:220);
+ const W=profile.intrinsic,H=profile.isItemsAsc?860:720,L=118,R=recoveryGutter,T=88,B=54;
  const usable=W-L-R;
- const cycleGap=profile.isItemsAsc?240:(profile.dense?156:112);
+ const cycleGap=profile.isItemsAsc?180:(profile.dense?145:105);
  const cycleW=(usable-cycleGap*3)/4;
  const cycleStart=a=>L+a*(cycleW+cycleGap);
  const xInCycle=(a,j)=>cycleStart(a)+j*cycleW/(n-1);
  const y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
- const ascLabelFont=profile.isItemsAsc?(profile.narrow?14.2:16.5):(profile.dense?(profile.narrow?13.2:14.2):(profile.narrow?11.8:12.6));
- const ascLabelHeight=profile.isItemsAsc?36:(profile.dense?32:29);
- const ascLabelPad=profile.isItemsAsc?12:(profile.dense?10.5:9);
+ const ascLabelFont=profile.isItemsAsc?(profile.narrow?13.2:14.6):(profile.dense?(profile.narrow?12.2:13.2):(profile.narrow?11.3:12.1));
+ const ascLabelHeight=profile.isItemsAsc?32:(profile.dense?30:28);
+ const ascLabelPad=profile.isItemsAsc?10:(profile.dense?9.5:8.5);
 
  host.style.setProperty('--chart-intrinsic-width',W+'px');
 
- let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg asc-svg continuous-asc">`;
+ let svg=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" data-natural-width="${W}" data-natural-height="${H}" class="chart-svg asc-svg continuous-asc" style="width:${W}px;height:${H}px;min-width:${W}px;max-width:none">`;
  svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • PEŁNA ŚCIEŻKA ASCENSION • A0 CAŁE ZIELONE • PO ASCENDZIE SZARY = DO RECOVERY • ZIELONY = PO RECOVERY</text>`;
  svg+=`<text x="${W-20}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
 

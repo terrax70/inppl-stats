@@ -212,18 +212,22 @@ function labelLeaderTarget(p){
  }
  return {x:cx,y:dy>0?b.y+b.h:b.y};
 }
-function chartProfile(host,rowCount,cycles=1){
+function chartProfile(host,rowCount,cycles=1,mode="default"){
  const viewport=Math.max(320,Math.round(host?.getBoundingClientRect?.().width||1200));
  const dense=rowCount>6;
  const narrow=viewport<900;
  const medium=viewport>=900&&viewport<1250;
+ const isItemsAsc=(mode==="items-asc");
 
- // Only chart 3 should become truly huge for dense item timelines.
  let intrinsic;
  if(cycles===4){
-   intrinsic=dense
-     ? Math.max(4600,Math.round(viewport*3.05))
-     : Math.max(2300,Math.round(viewport*1.55));
+   if(isItemsAsc){
+     intrinsic=Math.max(7200,Math.round(viewport*4.85));
+   }else{
+     intrinsic=dense
+       ? Math.max(4600,Math.round(viewport*3.05))
+       : Math.max(2300,Math.round(viewport*1.55));
+   }
  }else{
    intrinsic=dense
      ? Math.max(1450,Math.round(viewport*1.04))
@@ -231,11 +235,11 @@ function chartProfile(host,rowCount,cycles=1){
  }
 
  return {
-   viewport,dense,narrow,medium,intrinsic,
-   labelFont:dense?(narrow?10.0:10.8):(narrow?10.4:11.3),
-   labelHeight:dense?25:27,
-   labelPadX:dense?7:8.5,
-   labelGap:dense?10:11
+   viewport,dense,narrow,medium,intrinsic,isItemsAsc,
+   labelFont:isItemsAsc ? (narrow?12.8:14.2) : (dense?(narrow?10.0:10.8):(narrow?10.4:11.3)),
+   labelHeight:isItemsAsc ? 31 : (dense?25:27),
+   labelPadX:isItemsAsc ? 10.5 : (dense?7:8.5),
+   labelGap:isItemsAsc ? 14 : (dense?10:11)
  };
 }
 let responsiveRenderTimer=0;
@@ -330,7 +334,7 @@ function renderSystem(id){
  <section class="visual-card asc-full">
    <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>Common A1 ≠ Common A0</small></div>
    <div class="recovery-note"><b>Według oficjalnego poradnika:</b> stara moc jest odzyskiwana mniej więcej przy <strong>${S.recovery}</strong> po Ascension. Wykres pokazuje jednak prawdziwe surowe staty — nie wymusza sztucznej równości.</div>
-   <div class="svg-host wide" data-chart="asc"></div>
+   <div class="svg-host wide ${id==="items"?"item-asc-chart":""}" data-chart="asc"></div>
  </section>
  <section class="source-mini"><b>Źródła tej zakładki:</b> ${sourceText(id)}</section>`;
  $$(`button[data-sys="${id}"]`,root).forEach(b=>b.addEventListener("click",()=>{ascState[id]=Number(b.dataset.a);renderSystem(id)}));
@@ -417,23 +421,23 @@ function renderRarityChart(host,rows,id){
 }
 function renderAscChart(host,S,id){
  const cycles=[0,1,2,3],rows=S.rows,n=rows.length;
- const profile=chartProfile(host,rows.length,4);
+ const profile=chartProfile(host,rows.length,4,id==="items"?"items-asc":"default");
  const baseValue=rows[0].damage;
  const maxMultiple=(rows.at(-1).damage*D.ascMultipliers.at(-1))/baseValue;
  const hi=Math.log10(maxMultiple),lo=0;
 
  // Wider only here. Dense item ascension charts need real space.
- const recoveryGutter=profile.dense?360:230;
- const W=profile.intrinsic,H=760,L=118,R=recoveryGutter,T=88,B=46;
+ const recoveryGutter=profile.isItemsAsc?420:(profile.dense?360:230);
+ const W=profile.intrinsic,H=profile.isItemsAsc?980:760,L=118,R=recoveryGutter,T=88,B=58;
  const usable=W-L-R;
- const cycleGap=profile.dense?156:112;
+ const cycleGap=profile.isItemsAsc?240:(profile.dense?156:112);
  const cycleW=(usable-cycleGap*3)/4;
  const cycleStart=a=>L+a*(cycleW+cycleGap);
  const xInCycle=(a,j)=>cycleStart(a)+j*cycleW/(n-1);
  const y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
- const ascLabelFont=profile.dense?(profile.narrow?13.2:14.2):(profile.narrow?11.8:12.6);
- const ascLabelHeight=profile.dense?32:29;
- const ascLabelPad=profile.dense?10.5:9;
+ const ascLabelFont=profile.isItemsAsc?(profile.narrow?14.2:16.5):(profile.dense?(profile.narrow?13.2:14.2):(profile.narrow?11.8:12.6));
+ const ascLabelHeight=profile.isItemsAsc?36:(profile.dense?32:29);
+ const ascLabelPad=profile.isItemsAsc?12:(profile.dense?10.5:9);
 
  host.style.setProperty('--chart-intrinsic-width',W+'px');
 

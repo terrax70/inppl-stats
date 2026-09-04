@@ -1455,3 +1455,17 @@ stroke-dasharray:6 6;}
 }
 
 .asc-svg.continuous-asc{min-width:var(--chart-intrinsic-width,2400px) !important;}
+
+
+/* 1.4.14 — item asc chart readability */
+.svg-host.item-asc-chart{overflow-x:auto !important; overflow-y:hidden !important; min-height:980px;}
+.svg-host.item-asc-chart .chart-svg{min-width:7200px !important; width:max(100%,7200px) !important;}
+.svg-host.item-asc-chart .chart-kicker{font-size:15px !important;}
+.svg-host.item-asc-chart .chart-subtitle{font-size:14px !important;}
+.svg-host.item-asc-chart .axis{font-size:13px !important;}
+.svg-host.item-asc-chart .caption{font-size:12px !important;}
+.svg-host.item-asc-chart .cycle-title{font-size:15px !important;}
+.svg-host.item-asc-chart .point-rarity-label.compact text{font-size:16px !important;}
+.svg-host.item-asc-chart .recovery-side-label text{font-size:14px !important;}
+.svg-host.item-asc-chart .peak-label text{font-size:12px !important;}
+.svg-host.item-asc-chart .peak-label rect{height:30px;}

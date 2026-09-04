@@ -16,6 +16,11 @@ const fmt=n=>{
  return n.toLocaleString("pl-PL",{maximumFractionDigits:1});
 };
 const fmtTime=s=>{s=Number(s);if(s>=86400)return (s/86400).toLocaleString("pl-PL",{maximumFractionDigits:1})+" d";if(s>=3600)return (s/3600).toLocaleString("pl-PL",{maximumFractionDigits:1})+" h";return Math.round(s/60)+" min"};
+const fmtMultExact=n=>{
+ n=Number(n);
+ if(n===1)return "×1";
+ return "×"+Math.round(n).toLocaleString("pl-PL");
+};
 const fmtAxis=n=>{
  n=Number(n);
  if(n>=1e12)return "×"+(n/1e12).toLocaleString("pl-PL",{maximumFractionDigits:0})+"T";
@@ -143,91 +148,111 @@ function renderRarityChart(host,rows,id){
 function renderAscChart(host,S){
  const cycles=[0,1,2,3],rows=S.rows,n=rows.length;
  const baseValue=rows[0].damage;
- const pts=[];
- cycles.forEach(a=>rows.forEach(r=>pts.push({
-   a,name:r.name,
-   multiple:(r.damage*D.ascMultipliers[a])/baseValue
- })));
 
- const maxMult=Math.max(...pts.map(p=>p.multiple));
- const hi=Math.log10(maxMult),lo=0;
+ const maxMultiple=(rows.at(-1).damage*D.ascMultipliers.at(-1))/baseValue;
+ const hi=Math.log10(maxMultiple),lo=0;
 
- // Fits the 1540px INPPL desktop shell. No forced desktop horizontal overflow.
- const W=1480,H=590,L=105,R=35,T=80,B=105;
+ // Designed for the 1540 px content shell.
+ // Bigger inter-cycle gaps prevent rarity labels and reset badges from colliding.
+ const W=1480,H=600,L=112,R=42,T=82,B=112;
  const usable=W-L-R;
- const cycleGap=28;
+ const cycleGap=82;
  const cycleW=(usable-cycleGap*3)/4;
- const xInCycle=(a,j)=>L+a*(cycleW+cycleGap)+j*cycleW/(n-1);
+
+ const cycleStart=a=>L+a*(cycleW+cycleGap);
+ const xInCycle=(a,j)=>cycleStart(a)+j*cycleW/(n-1);
  const y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
 
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg asc-svg continuous-asc">`;
  svg+=`<text x="${L}" y="32" class="chart-kicker">ABSOLUTNA MOC • A0 COMMON = ×1</text>`;
  svg+=`<text x="${W-R}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
 
- // clean axis: about 6 readable ticks
+ // readable logarithmic axis
  const expMax=Math.ceil(hi),step=Math.max(1,Math.ceil(expMax/6));
  const exps=[];
  for(let p=0;p<=expMax;p+=step)exps.push(p);
  if(exps.at(-1)!==expMax)exps.push(expMax);
  [...new Set(exps)].forEach(p=>{
-    const v=10**p,yy=y(v);
-    if(yy<T-1||yy>H-B+1)return;
-    svg+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" class="grid"/>
-          <text x="${L-17}" y="${yy+5}" text-anchor="end" class="axis">${fmtAxis(v)}</text>`;
+   const v=10**p,yy=y(v);
+   if(yy<T-1||yy>H-B+1)return;
+   svg+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" class="grid"/>
+         <text x="${L-18}" y="${yy+5}" text-anchor="end" class="axis">${fmtAxis(v)}</text>`;
  });
 
- // cycle bands are background only: no hard boxes, no clipping illusion
+ // soft cycle bands
  cycles.forEach(a=>{
-   const x0=L+a*(cycleW+cycleGap);
-   svg+=`<rect x="${x0-12}" y="${T-22}" width="${cycleW+24}" height="${H-T-B+48}" rx="14" class="cycle-band-soft"/>
-         <text x="${x0+cycleW/2}" y="${T-2}" text-anchor="middle" class="cycle-title">A${a} • ${fmtAxis(D.ascMultipliers[a])}</text>`;
-   if(a>0){
-      const sep=x0-cycleGap/2;
-      svg+=`<line x1="${sep}" y1="${T-5}" x2="${sep}" y2="${H-B+24}" class="cycle-separator"/>`;
-   }
+   const x0=cycleStart(a);
+   svg+=`<rect x="${x0-14}" y="${T-24}" width="${cycleW+28}" height="${H-T-B+54}" rx="15" class="cycle-band-soft"/>
+         <text x="${x0+cycleW/2}" y="${T+1}" text-anchor="middle" class="cycle-title">A${a} • ${fmtMultExact(D.ascMultipliers[a])}</text>`;
  });
 
- // each cycle line
+ // separators live exactly in the middle of the reserved cycle gap
+ cycles.slice(1).forEach(a=>{
+   const sep=cycleStart(a)-cycleGap/2;
+   svg+=`<line x1="${sep}" y1="${T-6}" x2="${sep}" y2="${H-B+25}" class="cycle-separator"/>`;
+ });
+
  cycles.forEach(a=>{
-   const local=rows.map((r,j)=>({name:r.name,multiple:(r.damage*D.ascMultipliers[a])/baseValue,j}));
+   const local=rows.map((r,j)=>({
+      name:r.name,
+      j,
+      multiple:(r.damage*D.ascMultipliers[a])/baseValue
+   }));
+
    svg+=`<polyline points="${local.map(p=>`${xInCycle(a,p.j)},${y(p.multiple)}`).join(" ")}" class="power-line"/>`;
 
    local.forEach(p=>{
-      const px=xInCycle(a,p.j),py=y(p.multiple),c=COLORS[p.name]||"#88a";
-      svg+=`<circle cx="${px}" cy="${py}" r="${p.j===n-1?8:6}" fill="${c}" class="dot"/>
-            <text x="${px}" y="${H-B+30}" text-anchor="middle" class="small-label">${p.name}</text>`;
+     const px=xInCycle(a,p.j),py=y(p.multiple),c=COLORS[p.name]||"#88a";
+     svg+=`<circle cx="${px}" cy="${py}" r="${p.j===n-1?8:6}" fill="${c}" class="dot"/>`;
+
+     // edge rarity labels are nudged inside their own cycle so Mythic/Common never collide
+     let lx=px,anchor="middle";
+     if(p.j===0){ lx=px+3; anchor="start"; }
+     if(p.j===n-1){ lx=px-3; anchor="end"; }
+     svg+=`<text x="${lx}" y="${H-B+31}" text-anchor="${anchor}" class="small-label">${p.name}</text>`;
    });
 
-   const peak=local.at(-1),px=xInCycle(a,n-1),py=y(peak.multiple);
+   const peak=local.at(-1);
+   const px=xInCycle(a,n-1),py=y(peak.multiple);
+
    svg+=`<circle cx="${px}" cy="${py}" r="12" class="asc-peak-ring"/>
-         <g class="peak-label"><rect x="${px-48}" y="${py-42}" width="96" height="27" rx="8"/>
-         <text x="${px}" y="${py-24}" text-anchor="middle">${a<3?"ASCENSION":"KONIEC A3"}</text></g>`;
+         <g class="peak-label">
+           <rect x="${px-50}" y="${py-43}" width="100" height="28" rx="8"/>
+           <text x="${px}" y="${py-24}" text-anchor="middle">${a<3?"ASCENSION":"KONIEC A3"}</text>
+         </g>`;
 
    if(a<3){
-      const nextCommon=(rows[0].damage*D.ascMultipliers[a+1])/baseValue;
-      const nx=xInCycle(a+1,0),ny=y(nextCommon);
+     const nx=xInCycle(a+1,0);
+     const nextCommon=(rows[0].damage*D.ascMultipliers[a+1])/baseValue;
+     const ny=y(nextCommon);
 
-      // reset transition in the gap between cycles
-      svg+=`<path d="M${px+7},${py+4} C${px+26},${py+28} ${nx-26},${ny-28} ${nx-7},${ny-4}" class="reset-curve"/>`;
+     // reset transition uses the full 82px reserved gap
+     const gapCenter=(px+nx)/2;
+     svg+=`<path d="M${px+8},${py+5} C${px+28},${py+30} ${nx-28},${ny-30} ${nx-8},${ny-5}" class="reset-curve"/>
+           <g class="reset-badge-clean">
+             <rect x="${gapCenter-35}" y="${(py+ny)/2-16}" width="70" height="32" rx="9"/>
+             <text x="${gapCenter}" y="${(py+ny)/2+4}" text-anchor="middle">RESET</text>
+           </g>`;
 
-      const bx=(px+nx)/2,by=(py+ny)/2;
-      svg+=`<g class="reset-badge-clean"><rect x="${bx-42}" y="${by-16}" width="84" height="32" rx="9"/>
-            <text x="${bx}" y="${by+4}" text-anchor="middle">RESET</text></g>`;
+     const recoveryIndex=rows.findIndex(r=>r.name===S.recovery);
+     if(recoveryIndex>=0){
+       const rm=(rows[recoveryIndex].damage*D.ascMultipliers[a+1])/baseValue;
+       const rx=xInCycle(a+1,recoveryIndex),ry=y(rm);
 
-      // Official guide recovery marker: point + guide, but no fake equality
-      const recoveryIndex=rows.findIndex(r=>r.name===S.recovery);
-      if(recoveryIndex>=0){
-        const rm=(rows[recoveryIndex].damage*D.ascMultipliers[a+1])/baseValue;
-        const rx=xInCycle(a+1,recoveryIndex),ry=y(rm);
-        svg+=`<line x1="${px}" y1="${py}" x2="${rx}" y2="${py}" class="recovery-guide-clean"/>
-              <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot"/>
-              <g class="recovery-badge-clean"><rect x="${rx-70}" y="${Math.max(T+14,ry-43)}" width="140" height="30" rx="9"/>
-              <text x="${rx}" y="${Math.max(T+34,ry-23)}" text-anchor="middle">${S.recovery} • recovery</text></g>`;
-      }
+       // Guide line stays horizontal from the old peak; point remains at real raw value.
+       svg+=`<line x1="${px}" y1="${py}" x2="${rx}" y2="${py}" class="recovery-guide-clean"/>
+             <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot"/>`;
+
+       const badgeY=Math.max(T+15,Math.min(H-B-45,ry-45));
+       svg+=`<g class="recovery-badge-clean">
+               <rect x="${rx-68}" y="${badgeY}" width="136" height="30" rx="9"/>
+               <text x="${rx}" y="${badgeY+20}" text-anchor="middle">${S.recovery} • recovery</text>
+             </g>`;
+     }
    }
  });
 
- svg+=`<text x="${L}" y="${H-23}" class="caption">Jedna ciągła historia A0 → A3 • pionowe pasy tylko rozdzielają cykle • RESET nie jest osobnym panelem</text></svg>`;
+ svg+=`<text x="${L}" y="${H-23}" class="caption">A0 → A3 na jednej skali • przerwy między cyklami są celowe • RESET i recovery nie nachodzą na rarity</text></svg>`;
  host.innerHTML=svg;
 }
 

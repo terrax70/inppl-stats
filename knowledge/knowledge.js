@@ -154,6 +154,56 @@ function smartLabelLayout(points,bounds,{fontSize=9,height=22,gap=8,padX=7,obsta
    return {...p,box:best,fontSize};
  });
 }
+function laneLabelLayout(points,bounds,{fontSize=10,height=24,padX=8,obstacles=[],dense=false}={}){
+ const placed=[];
+ const lanes=dense?[-52,-24,24,52]:[-38,34,-62,58];
+ return points.map((p,index)=>{
+   const w=labelTextWidth(p.name,fontSize,padX);
+   const h=height;
+   const candidates=[];
+
+   // First use predictable lanes so labels form readable rows, not random clouds.
+   lanes.forEach((dy,li)=>{
+     candidates.push({
+       x:p.px-w/2,
+       y:p.py+dy-h/2,
+       w,h,side:dy<0?"above":"below",
+       lanePenalty:li*4
+     });
+   });
+
+   // Then side fallbacks.
+   candidates.push({x:p.px+14,y:p.py-h/2,w,h,side:"right",lanePenalty:24});
+   candidates.push({x:p.px-14-w,y:p.py-h/2,w,h,side:"left",lanePenalty:26});
+   candidates.push({x:p.px-w/2,y:p.py-82-h/2,w,h,side:"far-above",lanePenalty:30});
+   candidates.push({x:p.px-w/2,y:p.py+82-h/2,w,h,side:"far-below",lanePenalty:32});
+
+   let best=null,bestScore=Infinity;
+   for(const raw of candidates){
+     const c={...raw};
+     c.x=clamp(c.x,bounds.x,bounds.x+bounds.w-c.w);
+     c.y=clamp(c.y,bounds.y,bounds.y+bounds.h-c.h);
+
+     let score=c.lanePenalty||0;
+     for(const r of placed)score+=rectOverlapArea(c,r,8)*260;
+     for(const r of obstacles)score+=rectOverlapArea(c,r,8)*420;
+
+     // Penalize covering any point.
+     for(const q of points){
+       const pr={x:q.px-11,y:q.py-11,w:22,h:22};
+       score+=rectOverlapArea(c,pr,4)*120;
+     }
+
+     const cx=c.x+c.w/2,cy=c.y+c.h/2;
+     score+=Math.hypot(cx-p.px,cy-p.py)*0.12;
+
+     if(score<bestScore){bestScore=score;best=c}
+     if(score===0)break;
+   }
+   placed.push(best);
+   return {...p,box:best,fontSize};
+ });
+}
 function labelLeaderTarget(p){
  const b=p.box,cx=b.x+b.w/2,cy=b.y+b.h/2;
  const dx=p.px-cx,dy=p.py-cy;
@@ -168,17 +218,24 @@ function chartProfile(host,rowCount,cycles=1){
  const narrow=viewport<900;
  const medium=viewport>=900&&viewport<1250;
 
- // Dense item charts deliberately become wider instead of crushing text.
- const intrinsic=cycles===4
-   ? (dense?Math.max(1700,Math.min(1940,Math.round(viewport*1.18))):Math.max(1480,viewport))
-   : (dense?Math.max(1460,Math.min(1740,Math.round(viewport*1.08))):Math.max(1240,viewport));
+ // Never crush labels. Dense item charts are intentionally wide and scrollable.
+ let intrinsic;
+ if(cycles===4){
+   intrinsic=dense
+     ? Math.max(2550,Math.round(viewport*1.55))
+     : Math.max(1580,Math.round(viewport*1.02));
+ }else{
+   intrinsic=dense
+     ? Math.max(1850,Math.round(viewport*1.22))
+     : Math.max(1320,viewport);
+ }
 
  return {
    viewport,dense,narrow,medium,intrinsic,
-   labelFont:dense?(narrow?7.5:8.3):(narrow?8.7:9.7),
-   labelHeight:dense?20:23,
-   labelPadX:dense?5.5:7.5,
-   labelGap:dense?7:9
+   labelFont:dense?(narrow?9.6:10.4):(narrow?10.4:11.3),
+   labelHeight:dense?25:27,
+   labelPadX:dense?7:8.5,
+   labelGap:dense?10:11
  };
 }
 let responsiveRenderTimer=0;
@@ -325,10 +382,10 @@ function renderRarityChart(host,rows,id){
    const a=pts[i-1],b=pts[i],mx=(a.px+b.px)/2,my=Math.max(T+24,(a.py+b.py)/2-3);
    ratioObstacles.push({x:mx-40,y:my-20,w:80,h:38});
  }
- const labels=smartLabelLayout(
+ const labels=laneLabelLayout(
    pts,
    {x:L+2,y:T+8,w:W-L-R-4,h:H-T-B-18},
-   {fontSize:profile.labelFont,height:profile.labelHeight,gap:profile.labelGap,padX:profile.labelPadX,obstacles:ratioObstacles}
+   {fontSize:profile.labelFont,height:profile.labelHeight,padX:profile.labelPadX,obstacles:ratioObstacles,dense:profile.dense}
  );
 
  labels.forEach(p=>{
@@ -365,9 +422,11 @@ function renderAscChart(host,S,id){
  const maxMultiple=(rows.at(-1).damage*D.ascMultipliers.at(-1))/baseValue;
  const hi=Math.log10(maxMultiple),lo=0;
 
- const W=profile.intrinsic,H=650,L=114,R=44,T=84,B=42;
+ // Dedicated right gutter for recovery labels. This keeps them away from rarity beans.
+ const recoveryGutter=profile.dense?210:175;
+ const W=profile.intrinsic,H=680,L=118,R=recoveryGutter,T=88,B=42;
  const usable=W-L-R;
- const cycleGap=profile.dense?94:84;
+ const cycleGap=profile.dense?112:92;
  const cycleW=(usable-cycleGap*3)/4;
  const cycleStart=a=>L+a*(cycleW+cycleGap);
  const xInCycle=(a,j)=>cycleStart(a)+j*cycleW/(n-1);
@@ -376,8 +435,8 @@ function renderAscChart(host,S,id){
  host.style.setProperty("--chart-intrinsic-width",W+"px");
 
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg asc-svg continuous-asc">`;
- svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • KOLOR + NAZWA PRZY KROPCE • SMART LAYOUT</text>`;
- svg+=`<text x="${W-R}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
+ svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • WIĘCEJ MIEJSCA • WIĘKSZE ETYKIETY • MNIEJ KOLORÓW</text>`;
+ svg+=`<text x="${W-20}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
 
  const expMax=Math.ceil(hi),step=Math.max(1,Math.ceil(expMax/6));
  const exps=[];
@@ -386,7 +445,7 @@ function renderAscChart(host,S,id){
  [...new Set(exps)].forEach(p=>{
    const v=10**p,yy=y(v);
    if(yy<T-1||yy>H-B+1)return;
-   svg+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" class="grid"/>
+   svg+=`<line x1="${L}" y1="${yy}" x2="${W-R+32}" y2="${yy}" class="grid"/>
          <text x="${L-18}" y="${yy+5}" text-anchor="end" class="axis">${fmtAxis(v)}</text>`;
  });
 
@@ -401,45 +460,32 @@ function renderAscChart(host,S,id){
  });
 
  const recoveryIndex=rows.findIndex(r=>r.name===S.recovery);
- const cycleMeta=cycles.map(a=>{
-   const local=rows.map((r,j)=>({
-     name:r.name,j,row:r,color:COLORS[r.name]||"#88a",
-     multiple:(r.damage*D.ascMultipliers[a])/baseValue,
-     damage:r.damage*D.ascMultipliers[a],
-     health:r.health*D.ascMultipliers[a],
-     px:xInCycle(a,j),
-     py:y((r.damage*D.ascMultipliers[a])/baseValue)
-   }));
-   const peak=local.at(-1);
-   let incomingRecoveryBadge=null;
-   if(a>0 && recoveryIndex>=0){
-     const rp=local[recoveryIndex];
-     const badgeY=Math.max(T+15,Math.min(H-B-45,rp.py-48));
-     incomingRecoveryBadge={x:rp.px-68,y:badgeY,w:136,h:30};
-   }
-   return {a,local,peak,incomingRecoveryBadge};
- });
+ const recoveryRows=[];
 
  cycles.forEach(a=>{
-   const meta=cycleMeta[a];
-   const local=meta.local;
-   const peak=meta.peak;
+   const local=rows.map((r,j)=>({
+      name:r.name,j,row:r,color:COLORS[r.name]||"#88a",
+      multiple:(r.damage*D.ascMultipliers[a])/baseValue,
+      damage:r.damage*D.ascMultipliers[a],
+      health:r.health*D.ascMultipliers[a],
+      px:xInCycle(a,j),
+      py:y((r.damage*D.ascMultipliers[a])/baseValue)
+   }));
 
    svg+=`<polyline points="${local.map(p=>`${p.px},${p.py}`).join(" ")}" class="power-line"/>`;
 
-   const peakObstacle={x:peak.px-54,y:peak.py-54,w:108,h:38};
-   const obstacles=[peakObstacle];
-   if(meta.incomingRecoveryBadge)obstacles.push(meta.incomingRecoveryBadge);
+   const peak=local.at(-1);
+   const peakObstacle={x:peak.px-56,y:peak.py-56,w:112,h:40};
 
-   const labels=smartLabelLayout(
+   const labels=laneLabelLayout(
       local,
-      {x:cycleStart(a)+3,y:T+16,w:cycleW-6,h:H-T-B-26},
+      {x:cycleStart(a)+4,y:T+18,w:cycleW-8,h:H-T-B-28},
       {
         fontSize:profile.labelFont,
         height:profile.labelHeight,
-        gap:profile.labelGap,
         padX:profile.labelPadX,
-        obstacles
+        obstacles:[peakObstacle],
+        dense:profile.dense
       }
    );
 
@@ -448,11 +494,12 @@ function renderAscChart(host,S,id){
      const tip=`<b>${p.name} • A${a}</b><span>⚔️ DMG: ${fmt(p.damage)}</span><span>❤️ HP: ${fmt(p.health)}</span><small>Moc vs A0 Common: ${fmtAxis(p.multiple)}</small>`;
      svg+=`<g class="chart-point asc-chart-point" tabindex="0" data-rarity="${p.name}" data-asc="${a}" data-tip="${esc(tip)}" style="--rarity:${c};color:${c}">
              <circle cx="${p.px}" cy="${p.py}" r="${p.j===n-1?9:7}" fill="${c}" class="dot hit-dot"/>
-             <circle cx="${p.px}" cy="${p.py}" r="17" class="dot-hit-area"/>
-             <line x1="${p.px}" y1="${p.py}" x2="${t.x}" y2="${t.y}" class="point-label-link" stroke="${c}"/>
+             <circle cx="${p.px}" cy="${p.py}" r="18" class="dot-hit-area"/>
+             <line x1="${p.px}" y1="${p.py}" x2="${t.x}" y2="${t.y}" class="point-label-link"/>
              <g class="point-rarity-label compact" transform="translate(${b.x+b.w/2},${b.y+b.h/2})">
-               <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(8,b.h/2)}"/>
-               <text x="0" y="${profile.labelFont*.34}" text-anchor="middle" style="font-size:${profile.labelFont}px">${p.name}</text>
+               <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(9,b.h/2)}"/>
+               <circle cx="${-b.w/2+9}" cy="0" r="3.5" fill="${c}" class="rarity-accent-dot"/>
+               <text x="${profile.dense?3:2}" y="${profile.labelFont*.34}" text-anchor="middle" style="font-size:${profile.labelFont}px">${p.name}</text>
              </g>
            </g>`;
    });
@@ -460,7 +507,7 @@ function renderAscChart(host,S,id){
    const px=peak.px,py=peak.py;
    svg+=`<circle cx="${px}" cy="${py}" r="12" class="asc-peak-ring pointer-events-none"/>
          <g class="peak-label pointer-events-none">
-           <rect x="${px-50}" y="${py-49}" width="100" height="27" rx="8"/>
+           <rect x="${px-50}" y="${py-50}" width="100" height="28" rx="8"/>
            <text x="${px}" y="${py-31}" text-anchor="middle">${a<3?"ASCENSION":"KONIEC A3"}</text>
          </g>`;
 
@@ -469,30 +516,49 @@ function renderAscChart(host,S,id){
      const nextCommon=(rows[0].damage*D.ascMultipliers[a+1])/baseValue;
      const ny=y(nextCommon);
      const gapCenter=(px+nx)/2;
-     svg+=`<path d="M${px+8},${py+5} C${px+30},${py+30} ${nx-30},${ny-30} ${nx-8},${ny-5}" class="reset-curve pointer-events-none"/>
+
+     svg+=`<path d="M${px+8},${py+5} C${px+32},${py+32} ${nx-32},${ny-32} ${nx-8},${ny-5}" class="reset-curve pointer-events-none"/>
            <g class="reset-badge-clean pointer-events-none">
              <rect x="${gapCenter-35}" y="${(py+ny)/2-16}" width="70" height="32" rx="9"/>
              <text x="${gapCenter}" y="${(py+ny)/2+4}" text-anchor="middle">RESET</text>
            </g>`;
 
      if(recoveryIndex>=0){
-       const rm=(rows[recoveryIndex].damage*D.ascMultipliers[a+1])/baseValue;
+       const target=rows[recoveryIndex];
+       const rm=(target.damage*D.ascMultipliers[a+1])/baseValue;
        const rx=xInCycle(a+1,recoveryIndex),ry=y(rm);
-       const lineEndX=W-R-16;
+       const lineEndX=W-R+30;
+
        svg+=`<line x1="${px}" y1="${py}" x2="${lineEndX}" y2="${py}" class="recovery-guide-clean pointer-events-none"/>
              <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot pointer-events-none"/>`;
 
-       const badgeY=Math.max(T+15,Math.min(H-B-45,ry-48));
-       const recoveryColor=COLORS[S.recovery]||"#63d09a";
-       svg+=`<g class="recovery-badge-clean pointer-events-none" style="--recovery:${recoveryColor};color:${recoveryColor}">
-               <rect x="${rx-68}" y="${badgeY}" width="136" height="30" rx="9"/>
-               <text x="${rx}" y="${badgeY+20}" text-anchor="middle">${S.recovery} • recovery</text>
-             </g>`;
+       recoveryRows.push({
+         label:`A${a} peak ≈ ${S.recovery} A${a+1}`,
+         y:py,
+         color:COLORS[S.recovery]||"#63d09a"
+       });
      }
    }
  });
 
- svg+=`<text x="${L}" y="${H-15}" class="caption">Smart layout: etykiety wykrywają kolizje, zmieniają stronę/odległość i zachowują kolor rarity • na małym ekranie wykres dostaje własną szerokość i scroll</text></svg>`;
+ // Recovery labels live in a clean, dedicated gutter instead of on top of item rarity labels.
+ recoveryRows.sort((a,b)=>a.y-b.y);
+ const minGap=34;
+ for(let i=1;i<recoveryRows.length;i++){
+   if(recoveryRows[i].y-recoveryRows[i-1].y<minGap){
+     recoveryRows[i].y=recoveryRows[i-1].y+minGap;
+   }
+ }
+ recoveryRows.forEach(r=>{
+   const x0=W-R+42,w=R-58;
+   svg+=`<g class="recovery-side-label pointer-events-none" style="--recovery:${r.color}">
+           <rect x="${x0}" y="${r.y-13}" width="${w}" height="26" rx="8"/>
+           <circle cx="${x0+10}" cy="${r.y}" r="3.5"/>
+           <text x="${x0+19}" y="${r.y+3.5}">${r.label}</text>
+         </g>`;
+ });
+
+ svg+=`<text x="${L}" y="${H-15}" class="caption">Itemy dostają szerszy wykres i scroll zamiast ściskania • recovery ma osobną kolumnę po prawej • kolor rarity jest tylko akcentem</text></svg>`;
  host.innerHTML=svg;
  bindChartInteractions(host,id);
 }

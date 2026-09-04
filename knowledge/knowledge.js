@@ -438,7 +438,7 @@ function renderAscChart(host,S,id){
  host.style.setProperty('--chart-intrinsic-width',W+'px');
 
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg asc-svg continuous-asc">`;
- svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • PEŁNA ŚCIEŻKA ASCENSION • PO ASCENDZIE ZIELONY ODCINEK = ODBUDOWA DO RECOVERY</text>`;
+ svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • PEŁNA ŚCIEŻKA ASCENSION • PO ASCENDZIE SZARY = DO RECOVERY • ZIELONY = PO RECOVERY</text>`;
  svg+=`<text x="${W-20}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
 
  const expMax=Math.ceil(hi),step=Math.max(1,Math.ceil(expMax/6));
@@ -477,12 +477,35 @@ function renderAscChart(host,S,id){
 
    svg+=`<polyline points="${local.map(p=>`${p.px},${p.py}`).join(' ')}" class="power-line asc-base-line"/>`;
 
-   // After each ascension: green until recovery point, gray afterwards.
-   if(a>0 && recoveryIndex>=0){
-     const pre=local.slice(0,recoveryIndex+1);
-     const post=local.slice(recoveryIndex);
-     if(pre.length>1)svg+=`<polyline points="${pre.map(p=>`${p.px},${p.py}`).join(' ')}" class="rebuild-line-pre"/>`;
-     if(post.length>1)svg+=`<polyline points="${post.map(p=>`${p.px},${p.py}`).join(' ')}" class="rebuild-line-post"/>`;
+   // After each ascension split the line exactly at the horizontal recovery crossing:
+   // gray = still below old peak, green = already above old peak.
+   let recoveryCross=null;
+   if(a>0){
+     const prevPeakY=y((rows.at(-1).damage*D.ascMultipliers[a-1])/baseValue);
+     for(let k=0;k<local.length-1;k++){
+       const p1=local[k],p2=local[k+1];
+       const dy1=p1.py-prevPeakY,dy2=p2.py-prevPeakY;
+       if(dy1===0){
+         recoveryCross={x:p1.px,y:prevPeakY,index:k,t:0};
+         break;
+       }
+       if(dy1*dy2<=0){
+         const t=(prevPeakY-p1.py)/(p2.py-p1.py||1);
+         recoveryCross={x:p1.px+(p2.px-p1.px)*t,y:prevPeakY,index:k,t};
+         break;
+       }
+     }
+     if(recoveryCross){
+       const prePts=[];
+       for(let i=0;i<=recoveryCross.index;i++) prePts.push(local[i]);
+       prePts.push({px:recoveryCross.x,py:recoveryCross.y});
+
+       const postPts=[{px:recoveryCross.x,py:recoveryCross.y}];
+       for(let i=recoveryCross.index+1;i<local.length;i++) postPts.push(local[i]);
+
+       if(prePts.length>1)svg+=`<polyline points="${prePts.map(p=>`${p.px},${p.py}`).join(' ')}" class="rebuild-line-pre"/>`;
+       if(postPts.length>1)svg+=`<polyline points="${postPts.map(p=>`${p.px},${p.py}`).join(' ')}" class="rebuild-line-post"/>`;
+     }
    }
 
    const peak=local.at(-1);
@@ -535,13 +558,27 @@ function renderAscChart(host,S,id){
            </g>`;
 
      if(recoveryIndex>=0){
-       const target=rows[recoveryIndex];
-       const rm=(target.damage*D.ascMultipliers[a+1])/baseValue;
-       const rx=xInCycle(a+1,recoveryIndex),ry=y(rm);
        const lineEndX=W-R+28;
+       const nextLocal=rows.map((r,j)=>({
+         name:r.name,j,
+         px:xInCycle(a+1,j),
+         py:y((r.damage*D.ascMultipliers[a+1])/baseValue)
+       }));
+       let crossX=xInCycle(a+1,recoveryIndex), crossY=py;
+       for(let k=0;k<nextLocal.length-1;k++){
+         const p1=nextLocal[k],p2=nextLocal[k+1];
+         const dy1=p1.py-py,dy2=p2.py-py;
+         if(dy1===0){ crossX=p1.px; crossY=py; break; }
+         if(dy1*dy2<=0){
+           const t=(py-p1.py)/(p2.py-p1.py||1);
+           crossX=p1.px+(p2.px-p1.px)*t;
+           crossY=py;
+           break;
+         }
+       }
 
        svg+=`<line x1="${px}" y1="${py}" x2="${lineEndX}" y2="${py}" class="recovery-guide-clean pointer-events-none"/>
-             <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot pointer-events-none"/>`;
+             <circle cx="${crossX}" cy="${crossY}" r="8" class="recover-dot pointer-events-none"/>`;
 
        recoveryRows.push({
          label:`A${a} peak ≈ ${S.recovery} A${a+1}`,
@@ -568,7 +605,7 @@ function renderAscChart(host,S,id){
          </g>`;
  });
 
- svg+=`<text x="${L}" y="${H-15}" class="caption">Po ascension: zielony odcinek = odbudowa do recovery • szary odcinek = moc już ponad recovery • tylko wykres 3 jest mocno poszerzony dla Itemów</text></svg>`;
+ svg+=`<text x="${L}" y="${H-15}" class="caption">Po ascension: szary odcinek = jeszcze dochodzisz do recovery • zielony odcinek = już jesteś ponad recovery • zmiana koloru następuje dokładnie w miejscu przecięcia z linią recovery</text></svg>`;
  host.innerHTML=svg;
  bindChartInteractions(host,id);
 }

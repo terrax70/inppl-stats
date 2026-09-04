@@ -400,23 +400,37 @@ function renderAscChart(host,S,id){
    svg+=`<line x1="${sep}" y1="${T-6}" x2="${sep}" y2="${H-B-2}" class="cycle-separator"/>`;
  });
 
- cycles.forEach(a=>{
+ const recoveryIndex=rows.findIndex(r=>r.name===S.recovery);
+ const cycleMeta=cycles.map(a=>{
    const local=rows.map((r,j)=>({
-      name:r.name,j,row:r,color:COLORS[r.name]||"#88a",
-      multiple:(r.damage*D.ascMultipliers[a])/baseValue,
-      damage:r.damage*D.ascMultipliers[a],
-      health:r.health*D.ascMultipliers[a],
-      px:xInCycle(a,j),
-      py:y((r.damage*D.ascMultipliers[a])/baseValue)
+     name:r.name,j,row:r,color:COLORS[r.name]||"#88a",
+     multiple:(r.damage*D.ascMultipliers[a])/baseValue,
+     damage:r.damage*D.ascMultipliers[a],
+     health:r.health*D.ascMultipliers[a],
+     px:xInCycle(a,j),
+     py:y((r.damage*D.ascMultipliers[a])/baseValue)
    }));
+   const peak=local.at(-1);
+   let incomingRecoveryBadge=null;
+   if(a>0 && recoveryIndex>=0){
+     const rp=local[recoveryIndex];
+     const badgeY=Math.max(T+15,Math.min(H-B-45,rp.py-48));
+     incomingRecoveryBadge={x:rp.px-68,y:badgeY,w:136,h:30};
+   }
+   return {a,local,peak,incomingRecoveryBadge};
+ });
+
+ cycles.forEach(a=>{
+   const meta=cycleMeta[a];
+   const local=meta.local;
+   const peak=meta.peak;
 
    svg+=`<polyline points="${local.map(p=>`${p.px},${p.py}`).join(" ")}" class="power-line"/>`;
 
-   const peak=local.at(-1);
    const peakObstacle={x:peak.px-54,y:peak.py-54,w:108,h:38};
-
-   // Put the recovery badge itself into collision obstacles for the target cycle.
    const obstacles=[peakObstacle];
+   if(meta.incomingRecoveryBadge)obstacles.push(meta.incomingRecoveryBadge);
+
    const labels=smartLabelLayout(
       local,
       {x:cycleStart(a)+3,y:T+16,w:cycleW-6,h:H-T-B-26},
@@ -432,14 +446,13 @@ function renderAscChart(host,S,id){
    labels.forEach(p=>{
      const b=p.box,t=labelLeaderTarget(p),c=p.color;
      const tip=`<b>${p.name} • A${a}</b><span>⚔️ DMG: ${fmt(p.damage)}</span><span>❤️ HP: ${fmt(p.health)}</span><small>Moc vs A0 Common: ${fmtAxis(p.multiple)}</small>`;
-     svg+=`<g class="chart-point asc-chart-point" tabindex="0" data-rarity="${p.name}" data-asc="${a}" data-tip="${esc(tip)}" style="--rarity:${c}">
+     svg+=`<g class="chart-point asc-chart-point" tabindex="0" data-rarity="${p.name}" data-asc="${a}" data-tip="${esc(tip)}" style="--rarity:${c};color:${c}">
              <circle cx="${p.px}" cy="${p.py}" r="${p.j===n-1?9:7}" fill="${c}" class="dot hit-dot"/>
              <circle cx="${p.px}" cy="${p.py}" r="17" class="dot-hit-area"/>
              <line x1="${p.px}" y1="${p.py}" x2="${t.x}" y2="${t.y}" class="point-label-link" stroke="${c}"/>
              <g class="point-rarity-label compact" transform="translate(${b.x+b.w/2},${b.y+b.h/2})">
-               <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(8,b.h/2)}"
-                     fill="${c}" fill-opacity=".14" stroke="${c}"/>
-               <text x="0" y="${profile.labelFont*.34}" text-anchor="middle" fill="${c}" style="font-size:${profile.labelFont}px">${p.name}</text>
+               <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(8,b.h/2)}"/>
+               <text x="0" y="${profile.labelFont*.34}" text-anchor="middle" style="font-size:${profile.labelFont}px">${p.name}</text>
              </g>
            </g>`;
    });
@@ -462,7 +475,6 @@ function renderAscChart(host,S,id){
              <text x="${gapCenter}" y="${(py+ny)/2+4}" text-anchor="middle">RESET</text>
            </g>`;
 
-     const recoveryIndex=rows.findIndex(r=>r.name===S.recovery);
      if(recoveryIndex>=0){
        const rm=(rows[recoveryIndex].damage*D.ascMultipliers[a+1])/baseValue;
        const rx=xInCycle(a+1,recoveryIndex),ry=y(rm);
@@ -471,7 +483,8 @@ function renderAscChart(host,S,id){
              <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot pointer-events-none"/>`;
 
        const badgeY=Math.max(T+15,Math.min(H-B-45,ry-48));
-       svg+=`<g class="recovery-badge-clean pointer-events-none">
+       const recoveryColor=COLORS[S.recovery]||"#63d09a";
+       svg+=`<g class="recovery-badge-clean pointer-events-none" style="--recovery:${recoveryColor};color:${recoveryColor}">
                <rect x="${rx-68}" y="${badgeY}" width="136" height="30" rx="9"/>
                <text x="${rx}" y="${badgeY+20}" text-anchor="middle">${S.recovery} • recovery</text>
              </g>`;

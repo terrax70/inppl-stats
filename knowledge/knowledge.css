@@ -1599,3 +1599,41 @@ stroke-dasharray:6 6;}
 .item-asc-chart .caption{
   font-size:11.5px !important;
 }
+
+
+/* =========================================================
+   1.4.17 — SMART AUTO WIDTH
+   Kill all historical fixed-width rules for chart 3.
+   ========================================================= */
+.svg-host.asc-chart-viewport{
+  width:100% !important;
+  overflow-x:auto !important;
+  overflow-y:hidden !important;
+  min-height:0 !important;
+  scrollbar-gutter:stable;
+}
+.svg-host.asc-chart-viewport > svg.asc-svg,
+.svg-host.wide.asc-chart-viewport > svg.asc-svg,
+.svg-host.item-asc-chart > svg.asc-svg{
+  width:var(--asc-render-width) !important;
+  min-width:var(--asc-render-width) !important;
+  max-width:none !important;
+  height:var(--asc-render-height) !important;
+  min-height:0 !important;
+  display:block !important;
+}
+.svg-host.item-asc-chart .chart-svg{
+  width:var(--asc-render-width) !important;
+  min-width:var(--asc-render-width) !important;
+}
+.asc-svg.continuous-asc{
+  min-width:var(--asc-render-width) !important;
+}
+.asc-chart-viewport.item-asc-chart{
+  min-height:0 !important;
+}
+.asc-chart-tools button.active{
+  border-color:#c6933f !important;
+  background:#21190d !important;
+  color:#f3c66e !important;
+}

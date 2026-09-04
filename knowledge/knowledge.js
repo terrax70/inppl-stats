@@ -219,27 +219,21 @@ function chartProfile(host,rowCount,cycles=1,mode="default"){
  const medium=viewport>=900&&viewport<1250;
  const isItemsAsc=(mode==="items-asc");
 
+ // SVG viewBox is now a logical coordinate system only.
+ // Actual on-screen width is controlled by AUTO zoom.
  let intrinsic;
  if(cycles===4){
-   if(isItemsAsc){
-     intrinsic=Math.max(4000,Math.round(viewport*2.55));
-   }else{
-     intrinsic=dense
-       ? Math.max(3400,Math.round(viewport*2.25))
-       : Math.max(2050,Math.round(viewport*1.38));
-   }
+   intrinsic=isItemsAsc?2400:1900;
  }else{
-   intrinsic=dense
-     ? Math.max(1450,Math.round(viewport*1.04))
-     : Math.max(1320,viewport);
+   intrinsic=dense?1450:1320;
  }
 
  return {
    viewport,dense,narrow,medium,intrinsic,isItemsAsc,
-   labelFont:isItemsAsc ? (narrow?12.8:14.2) : (dense?(narrow?10.0:10.8):(narrow?10.4:11.3)),
-   labelHeight:isItemsAsc ? 31 : (dense?25:27),
-   labelPadX:isItemsAsc ? 10.5 : (dense?7:8.5),
-   labelGap:isItemsAsc ? 14 : (dense?10:11)
+   labelFont:isItemsAsc ? 13.2 : (dense?(narrow?10.0:10.8):(narrow?10.4:11.3)),
+   labelHeight:isItemsAsc ? 30 : (dense?25:27),
+   labelPadX:isItemsAsc ? 9.5 : (dense?7:8.5),
+   labelGap:isItemsAsc ? 12 : (dense?10:11)
  };
 }
 let responsiveRenderTimer=0;
@@ -305,28 +299,64 @@ function itemImage(name){const f=D.itemAssets[name];return f?`<img class="item-a
 function calcRatios(rows){
  return rows.slice(1).map((r,i)=>({from:rows[i].name,to:r.name,value:r.damage/rows[i].damage}));
 }
+function ascAutoWidth(host,id){
+ const root=getSystemRoot(id);
+ const rowCount=D.systems[id]?.rows?.length||6;
+ const viewport=Math.max(360,Math.round(host?.clientWidth||host?.getBoundingClientRect?.().width||1200));
+ const points=rowCount*4;
+
+ // Human-readable spacing per point. Items get more room, but no fixed 4000/7000px monster.
+ const perPoint=id==="items"?46:55;
+ const cycleGaps=id==="items"?270:240;
+ const recoveryGutter=id==="items"?210:170;
+ const contentNeed=points*perPoint+cycleGaps+recoveryGutter+130;
+
+ // Modest scroll is okay; fitting everything into one screen is not required.
+ const minReadable=id==="items"?2050:Math.max(1500,viewport);
+ const maxUseful=id==="items"?2550:2200;
+ return Math.round(clamp(Math.max(viewport,contentNeed,minReadable),viewport,maxUseful));
+}
 function applyAscChartZoom(root,id,zoom){
  const host=$('[data-chart="asc"]',root); if(!host)return;
  const svg=host.querySelector('svg'); if(!svg)return;
- const naturalW=Number(svg.dataset.naturalWidth||svg.getAttribute('width')||0);
- const naturalH=Number(svg.dataset.naturalHeight||svg.getAttribute('height')||0);
- if(!naturalW||!naturalH)return;
- const z=Number(zoom)||1;
- host.dataset.zoom=String(z);
- svg.style.width=(naturalW*z)+'px';
- svg.style.height=(naturalH*z)+'px';
- svg.style.minWidth=(naturalW*z)+'px';
- svg.style.maxWidth='none';
- root.querySelectorAll('[data-chart-zoom]').forEach(b=>b.classList.toggle('active',Number(b.dataset.chartZoom)===z));
+
+ const autoW=ascAutoWidth(host,id);
+ const naturalW=Number(svg.dataset.naturalWidth||svg.getAttribute('width')||autoW);
+ const naturalH=Number(svg.dataset.naturalHeight||svg.getAttribute('height')||700);
+ const z=zoom==="auto"?1:(Number(zoom)||1);
+
+ // 100% is the smart AUTO width, not the giant SVG viewBox width.
+ const renderW=Math.round(autoW*z);
+ const aspect=naturalH/(naturalW||autoW);
+ const renderH=Math.round(renderW*aspect);
+
+ host.dataset.zoom=String(zoom);
+ host.style.setProperty("--asc-render-width",renderW+"px");
+ host.style.setProperty("--asc-render-height",renderH+"px");
+ svg.style.setProperty("--asc-render-width",renderW+"px");
+ svg.style.setProperty("--asc-render-height",renderH+"px");
+
+ root.querySelectorAll('[data-chart-zoom]').forEach(b=>{
+   const v=b.dataset.chartZoom;
+   b.classList.toggle('active',String(v)===String(zoom));
+ });
 }
 function bindAscChartZoom(root,id){
- const defaultZoom=1;
  const host=$('[data-chart="asc"]',root); if(!host)return;
- const z=Number(host.dataset.zoom||defaultZoom);
- applyAscChartZoom(root,id,z);
+ const current=host.dataset.zoom||"auto";
+ applyAscChartZoom(root,id,current);
+
  root.querySelectorAll('[data-chart-zoom]').forEach(b=>b.addEventListener('click',()=>{
-   applyAscChartZoom(root,id,Number(b.dataset.chartZoom));
+   applyAscChartZoom(root,id,b.dataset.chartZoom);
  }));
+
+ // Re-fit AUTO after container/window size changes.
+ if(!host._ascResizeObserver && "ResizeObserver" in window){
+   host._ascResizeObserver=new ResizeObserver(()=>{
+     if((host.dataset.zoom||"auto")==="auto")applyAscChartZoom(root,id,"auto");
+   });
+   host._ascResizeObserver.observe(host);
+ }
 }
 function renderSystem(id){
  const root=$(`.system-root[data-system="${id}"]`); if(!root)return;
@@ -358,13 +388,13 @@ function renderSystem(id){
    <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>Common A1 ≠ Common A0</small></div>
    <div class="recovery-note"><b>Według oficjalnego poradnika:</b> stara moc jest odzyskiwana mniej więcej przy <strong>${S.recovery}</strong> po Ascension. Wykres pokazuje jednak prawdziwe surowe staty — nie wymusza sztucznej równości.</div>
    <div class="asc-chart-tools" data-asc-tools>
-     <span>POWIĘKSZENIE WYKRESU</span>
-     <button type="button" data-chart-zoom="0.9">90%</button>
-     <button type="button" data-chart-zoom="1" class="active">100%</button>
-     <button type="button" data-chart-zoom="1.15">115%</button>
-     <button type="button" data-chart-zoom="1.3">130%</button>
-     <button type="button" data-chart-zoom="1.5">150%</button>
-     <small>To powiększa tylko wykres — niezależnie od zoomu przeglądarki.</small>
+     <span>ROZMIAR WYKRESU</span>
+     <button type="button" data-chart-zoom="auto" class="active">AUTO</button>
+     <button type="button" data-chart-zoom="0.8">80%</button>
+     <button type="button" data-chart-zoom="1">100%</button>
+     <button type="button" data-chart-zoom="1.2">120%</button>
+     <button type="button" data-chart-zoom="1.4">140%</button>
+     <small>AUTO dobiera szerokość do panelu i liczby punktów. Itemy dostają tylko tyle scrolla, ile potrzebują.</small>
    </div>
    <div class="svg-host wide asc-chart-viewport ${id==="items"?"item-asc-chart":""}" data-chart="asc"></div>
  </section>
@@ -460,17 +490,17 @@ function renderAscChart(host,S,id){
  const hi=Math.log10(maxMultiple),lo=0;
 
  // Wider only here. Dense item ascension charts need real space.
- const recoveryGutter=profile.isItemsAsc?330:(profile.dense?320:220);
- const W=profile.intrinsic,H=profile.isItemsAsc?860:720,L=118,R=recoveryGutter,T=88,B=54;
+ const recoveryGutter=profile.isItemsAsc?235:(profile.dense?220:190);
+ const W=profile.intrinsic,H=profile.isItemsAsc?720:680,L=118,R=recoveryGutter,T=88,B=54;
  const usable=W-L-R;
- const cycleGap=profile.isItemsAsc?180:(profile.dense?145:105);
+ const cycleGap=profile.isItemsAsc?115:(profile.dense?110:95);
  const cycleW=(usable-cycleGap*3)/4;
  const cycleStart=a=>L+a*(cycleW+cycleGap);
  const xInCycle=(a,j)=>cycleStart(a)+j*cycleW/(n-1);
  const y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
- const ascLabelFont=profile.isItemsAsc?(profile.narrow?13.2:14.6):(profile.dense?(profile.narrow?12.2:13.2):(profile.narrow?11.3:12.1));
- const ascLabelHeight=profile.isItemsAsc?32:(profile.dense?30:28);
- const ascLabelPad=profile.isItemsAsc?10:(profile.dense?9.5:8.5);
+ const ascLabelFont=profile.isItemsAsc?13.2:(profile.dense?(profile.narrow?12.0:12.8):(profile.narrow?11.3:12.1));
+ const ascLabelHeight=profile.isItemsAsc?30:(profile.dense?29:28);
+ const ascLabelPad=profile.isItemsAsc?9.5:(profile.dense?9:8.5);
 
  host.style.setProperty('--chart-intrinsic-width',W+'px');
 

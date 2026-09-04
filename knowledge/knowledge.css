@@ -1443,13 +1443,15 @@ stroke-dasharray:6 6;}
   fill:#101720 !important;
 }
 .asc-svg .point-rarity-label.compact text{
-  font-size:12px !important;
+  font-size:13.5px !important;
   font-weight:950 !important;
 }
 .recovery-side-label text{
-  font-size:11px !important;
+  font-size:12px !important;
   font-weight:900 !important;
 }
 .svg-host.wide .chart-svg{
-  min-width:1800px;
+  min-width:2400px;
 }
+
+.asc-svg.continuous-asc{min-width:var(--chart-intrinsic-width,2400px) !important;}

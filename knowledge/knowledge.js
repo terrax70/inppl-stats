@@ -222,8 +222,8 @@ function chartProfile(host,rowCount,cycles=1){
  let intrinsic;
  if(cycles===4){
    intrinsic=dense
-     ? Math.max(3400,Math.round(viewport*2.1))
-     : Math.max(1680,Math.round(viewport*1.08));
+     ? Math.max(4600,Math.round(viewport*3.05))
+     : Math.max(2300,Math.round(viewport*1.55));
  }else{
    intrinsic=dense
      ? Math.max(1450,Math.round(viewport*1.04))
@@ -423,22 +423,22 @@ function renderAscChart(host,S,id){
  const hi=Math.log10(maxMultiple),lo=0;
 
  // Wider only here. Dense item ascension charts need real space.
- const recoveryGutter=profile.dense?320:210;
- const W=profile.intrinsic,H=700,L=118,R=recoveryGutter,T=88,B=42;
+ const recoveryGutter=profile.dense?360:230;
+ const W=profile.intrinsic,H=760,L=118,R=recoveryGutter,T=88,B=46;
  const usable=W-L-R;
- const cycleGap=profile.dense?132:98;
+ const cycleGap=profile.dense?156:112;
  const cycleW=(usable-cycleGap*3)/4;
  const cycleStart=a=>L+a*(cycleW+cycleGap);
  const xInCycle=(a,j)=>cycleStart(a)+j*cycleW/(n-1);
  const y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
- const ascLabelFont=profile.dense?(profile.narrow?11.2:12.2):(profile.narrow?11:11.6);
- const ascLabelHeight=profile.dense?29:27;
- const ascLabelPad=profile.dense?9:8.5;
+ const ascLabelFont=profile.dense?(profile.narrow?13.2:14.2):(profile.narrow?11.8:12.6);
+ const ascLabelHeight=profile.dense?32:29;
+ const ascLabelPad=profile.dense?10.5:9;
 
  host.style.setProperty('--chart-intrinsic-width',W+'px');
 
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg asc-svg continuous-asc">`;
- svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • PEŁNA ŚCIEŻKA ASCENSION • PO ASCENDZIE SZARY = DO RECOVERY • ZIELONY = PO RECOVERY</text>`;
+ svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • PEŁNA ŚCIEŻKA ASCENSION • A0 CAŁE ZIELONE • PO ASCENDZIE SZARY = DO RECOVERY • ZIELONY = PO RECOVERY</text>`;
  svg+=`<text x="${W-20}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
 
  const expMax=Math.ceil(hi),step=Math.max(1,Math.ceil(expMax/6));
@@ -477,10 +477,13 @@ function renderAscChart(host,S,id){
 
    svg+=`<polyline points="${local.map(p=>`${p.px},${p.py}`).join(' ')}" class="power-line asc-base-line"/>`;
 
-   // After each ascension split the line exactly at the horizontal recovery crossing:
+   // A0 is fully green because there is no previous peak to recover.
+   // For A1–A3 split the line exactly at the recovery crossing:
    // gray = still below old peak, green = already above old peak.
    let recoveryCross=null;
-   if(a>0){
+   if(a===0){
+     svg+=`<polyline points="${local.map(p=>`${p.px},${p.py}`).join(' ')}" class="rebuild-line-post"/>`;
+   }else if(a>0){
      const prevPeakY=y((rows.at(-1).damage*D.ascMultipliers[a-1])/baseValue);
      for(let k=0;k<local.length-1;k++){
        const p1=local[k],p2=local[k+1];
@@ -605,7 +608,7 @@ function renderAscChart(host,S,id){
          </g>`;
  });
 
- svg+=`<text x="${L}" y="${H-15}" class="caption">Po ascension: szary odcinek = jeszcze dochodzisz do recovery • zielony odcinek = już jesteś ponad recovery • zmiana koloru następuje dokładnie w miejscu przecięcia z linią recovery</text></svg>`;
+ svg+=`<text x="${L}" y="${H-15}" class="caption">A0: cały odcinek jest zielony • po ascension: szary odcinek = jeszcze dochodzisz do recovery • zielony odcinek = już jesteś ponad recovery • zmiana koloru następuje dokładnie w miejscu przecięcia z linią recovery</text></svg>`;
  host.innerHTML=svg;
  bindChartInteractions(host,id);
 }

@@ -6,7 +6,7 @@
 <meta name="inppl-build" content="142">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Forge Knowledge Lab</title>
-<link rel="stylesheet" href="knowledge.css?v=280-142">
+<link rel="stylesheet" href="knowledge.css?v=290-142">
 <link rel="stylesheet" href="../ui-shell.css?v=142">
 </head>
 <body>
@@ -35,7 +35,7 @@
     </nav>
 
     <div class="side-status">
-      <div class="release-row"><strong>INPPL • Rozwój</strong><span class="release-badge">v0.28</span></div>
+      <div class="release-row"><strong>INPPL • Rozwój</strong><span class="release-badge">v0.29</span></div>
       <div>Narzędzie INPPL • Rozwój</div>
       <div>Dane config: 2026-07-15</div>
     </div>
@@ -158,52 +158,59 @@
     </section>
 
     
-    <section class="view" id="skills">
-      <div class="view-head">
-        <div>
-          <div class="eyebrow">SKILLS • PROGRESJA RARITY</div>
-          <h2>O ile rośnie kolejny rarity skilla?</h2>
-          <p>Dokładnie ten sam układ jak dla Petów i Mountów. Ponieważ skille nie mają jednej wspólnej bazowej wartości HP/DMG, wykres rarity używa <b>punktów wojny za pojedynczy skill</b> jako wspólnej porównywalnej wartości.</p>
-        </div>
-        <div class="asc-controls">
-          <div class="asc-control-label">ASCENSION</div>
-          <div class="asc-switch" data-asc-switch="skills">
-            <button class="asc-btn active" data-asc="0">A0</button>
-            <button class="asc-btn" data-asc="1">A1</button>
-            <button class="asc-btn" data-asc="2">A2</button>
-            <button class="asc-btn" data-asc="3">A3</button>
-          </div>
-        </div>
+    
+<section class="view" id="skills">
+  <div class="view-head">
+    <div>
+      <div class="eyebrow">SKILLE • REALNE STATYSTYKI Z HELPERA</div>
+      <h2>Skille — statystyki pasywne i siła aktywna</h2>
+      <p>Ten sam schemat co Pety i Mounty: najpierw progresja rarity/statystyk, potem pełna ścieżka Ascension A0→A3. Bez punktów wojny.</p>
+    </div>
+    <div class="asc-switch" data-asc-switch="skills"></div>
+  </div>
+
+  <div class="skills-source-note">
+    <b>Co pokazujemy?</b>
+    <span>Każdy skill daje pasywny ❤️ Health Bonus i ⚔️ Damage Bonus za samo posiadanie. Skille aktywne mają dodatkowo Duration, Cooldown i własny efekt bojowy.</span>
+  </div>
+
+  <div class="asset-strip skills-asset-strip" data-section="skills">
+    <div class="asset-strip-head"><span>PRZYKŁADOWE SKILLE</span><small>statystyki jak w ForgeMaster Helper</small></div>
+    <div class="skills-sample-grid" id="skillsSampleGrid"></div>
+  </div>
+
+  <div class="viz-wrap">
+    <div class="viz-head">
+      <div>
+        <div class="card-kicker">PROGRESJA RARITY</div>
+        <h3>Common → Mythic</h3>
+        <p>Wykres pokazuje bazowy ❤️ HP Bonus i ⚔️ DMG Bonus dla rarity. Obie statystyki rosną razem, więc mnożnik rarity jest wspólny.</p>
       </div>
-      <div class="asc-power-strip" data-asc-strip="skills">
-        <div class="asc-power-title">ASCENSION • SKILLE</div>
-        <div class="asc-power-steps">
-          <div class="asc-power-step active" data-asc-step="0"><span>A0</span><b>×1</b><small>Base</small></div>
-          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
-          <div class="asc-power-step" data-asc-step="1"><span>A1</span><b>×50</b><small>vs A0</small></div>
-          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
-          <div class="asc-power-step" data-asc-step="2"><span>A2</span><b>×2 500</b><small>vs A0</small></div>
-          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
-          <div class="asc-power-step" data-asc-step="3"><span>A3</span><b>×125 000</b><small>vs A0</small></div>
-        </div>
+    </div>
+    <div class="ladder-viz" id="skillViz"></div>
+    <div class="viz-foot-grid">
+      <article><span>PEŁNA PROGRESJA</span><b id="skillFullMultiplier">—</b><small>Mythic względem Common</small></article>
+      <article><span>NAJWIĘKSZY SKOK</span><b id="skillBiggestStep">—</b><small id="skillBiggestStepLabel">—</small></article>
+      <article><span>AUTENTYCZNE STATY</span><b>HP + DMG</b><small>bez używania punktów wojny</small></article>
+    </div>
+  </div>
+
+  <article class="asc-path-card">
+    <div class="asc-path-head">
+      <div>
+        <div class="card-kicker">PEŁNA ŚCIEŻKA ASCENSION • A0 → A3</div>
+        <h3>Pełna progresja mocy • Level 1 → 100 → Ascension</h3>
+        <p data-path-copy="skills"></p>
       </div>
-      <div class="viz-shell" id="skillViz"></div>
-      <div class="insights" id="skillInsights"></div>
-      <section class="asc-path-card">
-        <div class="asc-path-head">
-          <div>
-            <div class="card-kicker">PEŁNA ŚCIEŻKA ASCENSION • A0 → A3</div>
-            <h3>Pełna progresja rarity • Level 1 → 100 → Ascension</h3>
-            <p data-path-copy="skills"></p>
-          </div>
-          <div class="path-legend">
-            <span><i class="legend-peak"></i> moment Ascension</span>
-            <span><i class="legend-recover"></i> odzyskanie starej mocy</span>
-          </div>
-        </div>
-        <div class="asc-path-viz" id="skillsAscPath"></div>
-      </section>
-    </section>
+      <div class="path-legend">
+        <span><i class="legend-dot asc"></i> moment Ascension</span>
+        <span><i class="legend-dot recovery"></i> odzyskanie starej mocy</span>
+      </div>
+    </div>
+    <div class="asc-path-viz" id="skillAscPath"></div>
+  </article>
+</section>
+
 
     <section class="view" id="items">
       <div class="view-head">
@@ -607,8 +614,8 @@
   </main>
 </div>
 
-<script src="knowledge-data.js?v=280-142"></script>
-<script src="knowledge.js?v=280-142"></script>
+<script src="knowledge-data.js?v=290-142"></script>
+<script src="knowledge.js?v=290-142"></script>
 
 <script>
 (() => {

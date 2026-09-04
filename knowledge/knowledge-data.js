@@ -7,13 +7,24 @@ window.FORGE_KNOWLEDGE = {
     {level:3,label:"A3",multiplier:125000, stepMultiplier:50}
   ],
   rarities: ["Common","Rare","Epic","Legendary","Ultimate","Mythic"],
+
   skills: [
-    {rarity:"Common",warPoints:50},
-    {rarity:"Rare",warPoints:75},
-    {rarity:"Epic",warPoints:100},
-    {rarity:"Legendary",warPoints:125},
-    {rarity:"Ultimate",warPoints:150},
-    {rarity:"Mythic",warPoints:175}
+    {rarity:"Common", damage:20, health:160},
+    {rarity:"Rare", damage:160, health:1280},
+    {rarity:"Epic", damage:1280, health:10240},
+    {rarity:"Legendary", damage:10240, health:81920},
+    {rarity:"Ultimate", damage:81920, health:655360},
+    {rarity:"Mythic", damage:655360, health:5242880}
+  ],
+  skillExamples: [
+    {name:"Thorns",rarity:"Epic",duration:0,cooldown:5,damageBonus:1280,healthBonus:10240,activeDamage:27600,activeHealth:null},
+    {name:"Bomb",rarity:"Legendary",duration:0,cooldown:6,damageBonus:10240,healthBonus:81920,activeDamage:1200000,activeHealth:null},
+    {name:"Meteorite",rarity:"Legendary",duration:0,cooldown:9,damageBonus:10240,healthBonus:81920,activeDamage:2000000,activeHealth:null},
+    {name:"Morale",rarity:"Legendary",duration:10,cooldown:8,damageBonus:10240,healthBonus:81920,activeDamage:150000,activeHealth:1200000},
+    {name:"Lightning",rarity:"Ultimate",duration:0,cooldown:3,damageBonus:81920,healthBonus:655360,activeDamage:4000000,activeHealth:null},
+    {name:"Stampede",rarity:"Ultimate",duration:0,cooldown:20,damageBonus:81920,healthBonus:655360,activeDamage:4000000,activeHealth:null},
+    {name:"Worm",rarity:"Ultimate",duration:0,cooldown:8,damageBonus:81920,healthBonus:655360,activeDamage:8000000,activeHealth:null},
+    {name:"Drone",rarity:"Mythic",duration:10,cooldown:8,damageBonus:655360,healthBonus:5242880,activeDamage:30000000,activeHealth:null}
   ],
   colors: {
     Common:"#aeb8c6", Rare:"#5ba7ff", Epic:"#bb6cff",
@@ -232,6 +243,7 @@ window.FORGE_KNOWLEDGE = {
     }
   },
   ascensionPaths: {
+    skills:{system:"Skills",eligibilityLabel:"Level 100",endRarity:"Mythic",recoveryRarity:"Legendary"},
     skills: {
       system:"Skille",
       eligibilityLabel:"Level 100",

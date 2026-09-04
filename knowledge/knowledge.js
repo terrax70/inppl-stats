@@ -325,6 +325,56 @@ function renderSkills(){
    <article class="insight step-strip"><span>WSZYSTKIE SKOKI</span><div>${steps.map(x=>`<span class="mini-step"><b>×${x.ratio.toLocaleString("pl-PL",{maximumFractionDigits:2})}</b><small>${x.from} → ${x.to}</small></span>`).join("")}</div></article>`;
  updateAscUI("skills",level);
 }
+
+function renderSkills(){
+ const level=ascState.skills ?? 0;
+ const rows=D.skills;
+ const mult=ascMultiplier(level);
+
+ // Same ladder component as pets/mounts.
+ renderLadder("#skillViz", rows.map(r=>({
+   ...r,
+   damage:r.damage*mult,
+   health:r.health*mult
+ })), {
+   section:"skills",
+   metric:"damage",
+   valueLabel:"⚔️ DMG Bonus",
+   secondMetric:"health",
+   secondValueLabel:"❤️ HP Bonus"
+ });
+
+ const ratios=[];
+ for(let i=1;i<rows.length;i++){
+   ratios.push({from:rows[i-1].rarity,to:rows[i].rarity,value:rows[i].damage/rows[i-1].damage});
+ }
+ const full=rows.at(-1).damage/rows[0].damage;
+ const biggest=ratios.reduce((a,b)=>b.value>a.value?b:a,ratios[0]);
+ const f=$("#skillFullMultiplier"); if(f)f.textContent=`×${fmt(full)}`;
+ const b=$("#skillBiggestStep"); if(b)b.textContent=`×${fmt(biggest.value)}`;
+ const bl=$("#skillBiggestStepLabel"); if(bl)bl.textContent=`${biggest.from} → ${biggest.to}`;
+
+ const host=$("#skillsSampleGrid");
+ if(host){
+   host.innerHTML=D.skillExamples.map(s=>`
+     <article class="skill-example-card rarity-${s.rarity.toLowerCase()}">
+       <div class="skill-example-top">
+         <div><b>${s.name}</b><span>${s.rarity}</span></div>
+         <div class="skill-time"><small>Duration</small><strong>${s.duration}s</strong><small>Cooldown</small><strong>${s.cooldown}s</strong></div>
+       </div>
+       <div class="skill-passive">
+         <div><span>⚔️ Damage Bonus</span><b>+${fmt(s.damageBonus*mult)}</b></div>
+         <div><span>❤️ Health Bonus</span><b>+${fmt(s.healthBonus*mult)}</b></div>
+       </div>
+       <div class="skill-active">
+         ${s.activeDamage?`<div><span>⚔️ ACTIVE DAMAGE</span><b>+${fmt(s.activeDamage*mult)}</b></div>`:""}
+         ${s.activeHealth?`<div><span>❤️ ACTIVE HEALTH</span><b>+${fmt(s.activeHealth*mult)}</b></div>`:""}
+       </div>
+     </article>`).join("");
+ }
+ renderAscensionPath("skills","#skillAscPath");
+}
+
 function renderPets(){
  renderAssetStrip("pets");
  const level=ascState.pets;

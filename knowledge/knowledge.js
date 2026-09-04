@@ -522,14 +522,14 @@ function renderAscensionPath(section, hostId){
        `${rr.baseLabel} ${rr.resource}`));
 
      card.append(svgEl("text",{x:centerX,y:cardY+62,"text-anchor":"middle",class:"resource-lane-tech"},
-       `${rr.discountText}: ${rr.discountLabel}`));
+       `Po bonusach: ${rr.discountLabel}`));
 
      card.append(svgEl("text",{x:centerX,y:cardY+81,"text-anchor":"middle",class:"resource-lane-target"},
        `${rr.targetLevel} • cel: ${rr.target}`));
 
-     if(rr.pullChance){
+     if(rr.chance){
        card.append(svgEl("text",{x:centerX,y:cardY+97,"text-anchor":"middle",class:"resource-lane-extra"},
-         `${rr.pullChance}`));
+         `${rr.chance}`));
      }
 
      if(rr.cumulativeSummons){
@@ -537,7 +537,7 @@ function renderAscensionPath(section, hostId){
          `${rr.cumulativeSummons.toLocaleString("pl-PL")} cumulative summons`));
      }else if(rr.ascensionCost){
        card.append(svgEl("text",{x:centerX,y:cardY+113,"text-anchor":"middle",class:"resource-lane-extra strong"},
-         `+ ${rr.ascensionCostLabel} Gold • koszt samego Ascension`));
+         `+ ${rr.ascensionCostLabel} Gold • Ascension`));
      }
 
      svg.append(card);

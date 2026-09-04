@@ -530,3 +530,23 @@ th.sortable:hover{color:#dce5ef;background:#101823}
 .nav-addon{opacity:.78}
 .nav-addon:hover,.nav-addon.active{opacity:1}
 .power-snapshot-toolbar .power-filter-row{grid-template-columns:minmax(240px,1fr) minmax(160px,220px)!important}
+
+/* Dashboard 1.3.7 — audit polish */
+.page-head,.panel-head,.toolbar,.profile-header{min-width:0}
+.page-head{flex-wrap:wrap}
+.panel-head{flex-wrap:wrap}
+.panel-head>div:first-child{min-width:0;flex:1 1 220px}
+.panel-title,.panel-desc,.insight-main,.insight-sub,.metric-bottom{overflow-wrap:anywhere}
+.panel-actions,.chart-controls{max-width:100%;flex-wrap:wrap}
+.toolbar{flex-wrap:wrap}
+.metrics>*,
+.grid-main>*,
+.grid-half>*,
+.top-grid>*,
+.insights>*{min-width:0}
+@media(max-width:1180px){
+  .top-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:760px){
+  .top-grid{grid-template-columns:1fr 1fr}
+}

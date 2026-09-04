@@ -1108,3 +1108,48 @@ td{font-size:10.5px!important}
 @media(max-width:900px){.app{grid-template-columns:1fr}.sidebar{height:auto;position:relative;border-right:0;border-bottom:1px solid rgba(255,255,255,.055);padding:14px 18px}.sidebar .brand{padding:0}.sidebar .nav-label,.side-status{display:none}.nav{display:flex;overflow:auto;margin-top:12px}.nav-btn{width:auto;white-space:nowrap;padding:8px 10px}.external-main .shell{width:min(100% - 24px,1420px)}}
 
 .topbar,.project-nav{display:none!important}
+
+/* Planner 1.3.7 — audit polish */
+.setup-title-row,
+.timeline-title,
+.result-head,
+.ongoing-row,
+.tech-choice-head{min-width:0}
+.setup-title-row{flex-wrap:wrap}
+.setup-title-row > div:first-child{flex:1 1 300px;min-width:0}
+.activity-profile{
+  flex:0 1 auto;
+  max-width:100%;
+  flex-wrap:wrap !important;
+}
+.activity-profile label{min-width:0}
+.activity-profile label>span{white-space:normal !important}
+.setup-grid>*,
+.advanced>*,
+.decision-strip>*,
+.detail-grid>*,
+.gap-list>*{min-width:0}
+.field>span,.field small,.switch-row small,.tech-choice-head small{
+  overflow-wrap:anywhere;
+}
+.timeline-title{
+  min-width:0;
+}
+.timeline-title>div:first-child{min-width:0}
+.timeline-title h2,.timeline-title p{overflow-wrap:anywhere}
+.legend{justify-content:flex-end}
+.action-item{min-width:0}
+.action-main{min-width:0}
+.action-main b,.action-main span,.action-when{overflow-wrap:anywhere}
+.details{max-width:100%}
+.table-scroll{max-width:100%}
+@media(max-width:1050px){
+  .setup-grid{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+  .advanced.open{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+}
+@media(max-width:700px){
+  .setup-grid,.advanced.open{grid-template-columns:1fr !important}
+  .activity-profile{width:100%}
+  .timeline-title{padding-right:16px !important}
+  .legend{justify-content:flex-start}
+}

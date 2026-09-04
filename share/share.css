@@ -23,3 +23,16 @@
 .side-status strong{font-size:11px;color:#94a1b4}.side-status div{margin-top:4px;font-size:10px;color:#4f5c6e}.release-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.release-badge{display:inline-flex;padding:3px 6px;border-radius:999px;font-size:8px;font-weight:950;color:#f4b651;background:rgba(244,182,81,.09);border:1px solid rgba(244,182,81,.16)}
 .main{min-width:0;padding:0}.external-main .shell{width:min(1420px,calc(100% - 44px));padding-top:30px}
 @media(max-width:900px){.app{grid-template-columns:1fr}.sidebar{height:auto;position:relative;border-right:0;border-bottom:1px solid rgba(255,255,255,.055);padding:14px 18px}.sidebar .brand{padding:0}.sidebar .nav-label,.side-status{display:none}.nav{display:flex;overflow:auto;margin-top:12px}.nav-btn{width:auto;white-space:nowrap;padding:8px 10px}.external-main .shell{width:min(100% - 24px,1420px)}}
+
+/* Podsumowanie 1.3.7 — audit polish */
+.share-grid>*,
+.card-head>*,
+.filters>*{min-width:0}
+.card-head{flex-wrap:wrap}
+.card-head>div:first-child{flex:1 1 260px}
+.card-head h2,.card-head p{overflow-wrap:anywhere}
+.copy-btn{flex:none}
+.filters{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.filters select{width:100%}
+.help{flex-wrap:wrap}
+.copy-preview{overflow-wrap:anywhere;word-break:break-word}

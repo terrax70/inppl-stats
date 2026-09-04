@@ -595,3 +595,118 @@ button,input,select,textarea,svg text{
 @media(max-width:500px){
   .rarity-assets{grid-template-columns:1fr}
 }
+
+/* Rozwój 1.2 — chart geometry fix */
+.svg-host{
+  overflow:hidden;
+}
+.svg-host.wide{
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-gutter:stable;
+}
+.svg-host.wide .chart-svg{
+  min-width:0 !important;
+}
+.chart-svg{
+  width:100%;
+  min-height:0 !important;
+  display:block;
+}
+.rarity-svg{
+  min-width:900px;
+}
+.continuous-asc{
+  min-width:1180px;
+}
+.cycle-band-soft{
+  fill:rgba(15,22,31,.72);
+  stroke:rgba(46,66,84,.72);
+  stroke-width:1;
+}
+.cycle-separator{
+  stroke:#263746;
+  stroke-width:1;
+  stroke-dasharray:3 6;
+}
+.chart-kicker{
+  fill:#aab8c7;
+  font-size:13px;
+  font-weight:1000;
+  letter-spacing:.07em;
+}
+.chart-subtitle{
+  fill:#708195;
+  font-size:10px;
+  font-weight:900;
+}
+.axis{
+  font-size:11px !important;
+  font-weight:900 !important;
+}
+.label{
+  font-size:12px !important;
+}
+.small-label{
+  font-size:9.5px !important;
+}
+.value{
+  font-size:11px !important;
+}
+.asc-peak-ring{
+  fill:#f0b24c;
+  stroke:#39414a;
+  stroke-width:5;
+}
+.peak-label rect{
+  fill:#18130c;
+  stroke:#765823;
+}
+.peak-label text{
+  fill:#f3bd5d;
+  font-size:9px;
+  font-weight:1000;
+}
+.reset-curve{
+  fill:none;
+  stroke:#df6870;
+  stroke-width:2.1;
+  stroke-dasharray:5 4;
+}
+.reset-badge-clean rect{
+  fill:#241114;
+  stroke:#97454c;
+}
+.reset-badge-clean text{
+  fill:#f08b91;
+  font-size:9px;
+  font-weight:1000;
+}
+.recovery-guide-clean{
+  stroke:#4daf82;
+  stroke-width:1.5;
+  stroke-dasharray:5 5;
+}
+.recovery-badge-clean rect{
+  fill:#0d1b15;
+  stroke:#34775a;
+}
+.recovery-badge-clean text{
+  fill:#77ddb0;
+  font-size:9px;
+  font-weight:1000;
+}
+.ratio rect{
+  stroke-width:1.2;
+}
+.ratio text{
+  font-size:12px !important;
+}
+@media(max-width:1250px){
+  .continuous-asc{min-width:1320px}
+  .svg-host.wide{overflow-x:auto}
+}
+@media(max-width:760px){
+  .rarity-svg{min-width:920px}
+  .continuous-asc{min-width:1320px}
+}

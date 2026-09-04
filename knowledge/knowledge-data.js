@@ -54,6 +54,14 @@ window.FORGE_KNOWLEDGE = {
 
 
 
+
+  officialTechGuideSummary: {
+    early:["Forge Upgrade Cost","Forge Upgrade Time","Tech Research Time","Tech Node Cost","Auto Forge","Max Offline Time","Offline Hammer Reward","Extra Mount Chance"],
+    mid:["Tech Research Time","Tech Node Cost","Pet Damage/Health","Free Forge Chance","Extra Mount Chance"],
+    late:["Tech Research Time","Tech Node Cost","Weapon/Ring/Necklace Mastery","Helmet/Body/Belt/Shoe Mastery","Mount Damage/Health","Extra Mount Chance","Ultimate/Mythic Egg Timers"],
+    rule:"Max Forge Cost + Forge Speed T1, potem Tech Speed + Tech Cost T1, następnie wszystkie pozostałe Tier I do 1/5.",
+    source:"Forge Master Tech Tree Guide"
+  },
   techRoadmap: {
     tierUpgrade: {
       0:{name:"Tier I",costs:[40,56,78,110,154],durations:[300,600,1200,2400,4800]},

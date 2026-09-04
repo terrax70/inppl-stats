@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Forge Knowledge Lab</title>
-<link rel="stylesheet" href="knowledge.css?v=200">
+<link rel="stylesheet" href="knowledge.css?v=210">
 </head>
 <body>
 <div class="app">
@@ -32,7 +32,7 @@
     </nav>
 
     <div class="side-status">
-      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.20</span></div>
+      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.21</span></div>
       <div>Moduł ukryty • brak linku w INPPL</div>
       <div>Dane config: 2026-07-15</div>
     </div>
@@ -299,67 +299,119 @@
         <div class="official-pillar-detail" id="officialPillarDetail"></div>
       </section>
 
-      <section class="tech-roadmap-card" id="techRoadmap">
-        <div class="tech-roadmap-head">
+      
+      <section class="tech-guide-card" id="techRoadmap">
+        <div class="tech-guide-head">
           <div>
-            <div class="card-kicker">PLAYER TECH TREE • PRZED ASCENSION</div>
-            <h3>Nie maxuj wszystkiego po kolei — otwieraj kolejne Tiery</h3>
-            <p>Badania w Tier IV–V trwają po kilka dni na pojedynczy rank. Dlatego roadmapa rozdziela node'y, które warto maxować wcześnie, od tych które wystarczy dotknąć 1 rankiem i wrócić do nich później.</p>
+            <div class="card-kicker">TECH TREE GUIDE • OFFICIAL GUIDE</div>
+            <h3>Co brać z Tech Tree — bez przekopywania 200 node'ów</h3>
+            <p>Najpierw widzisz tylko rekomendowaną kolejność. Pełne drzewka są niżej jako szczegóły.</p>
           </div>
-          <div class="roadmap-rule"><b>PREREQUISITE</b><span>1 rank wystarcza, aby node był aktywny w ścieżce</span></div>
+          <div class="tech-guide-pill">EFFICIENCY → POWER</div>
         </div>
 
-        <div class="tech-global-rule">
-          <b>Najważniejszy rush całego Tech Tree:</b>
-          <span>🧪 TechResearchTimer → 🧪 TechNodeUpgradeCost → 1 rank w wymaganych node'ach → kolejny Tier → znowu TechResearchTimer.</span>
-        </div>
-
-        <div class="tier-time-strip" id="tierTimeStrip"></div>
-
-        <div class="roadmap-tabs">
-          <button class="roadmap-tab active" data-roadmap-tree="SkillsPetTech">🧪 Skills + Pets</button>
-          <button class="roadmap-tab" data-roadmap-tree="Forge">🔨 Forge</button>
-          <button class="roadmap-tab" data-roadmap-tree="Power">⚔️ Power + Mounts</button>
-        </div>
-
-        <div class="roadmap-toolbar">
-          <label>Twój Research Speed
-            <select id="roadmapResearchSpeed">
-              <option value="0">0%</option>
-              <option value=".2">20%</option>
-              <option value=".4">40%</option>
-              <option value=".6" selected>60%</option>
-              <option value=".8">80%</option>
-              <option value="1">100%</option>
-            </select>
-          </label>
-          <div class="roadmap-legend">
-            <span class="rush">RUSH / MAX WCZEŚNIE</span>
-            <span class="high">WYSOKI PRIORYTET</span>
-            <span class="one">1 RANK I DALEJ</span>
-            <span class="backfill">BACKFILL PÓŹNIEJ</span>
+        <div class="tech-first-rule">
+          <div class="tech-first-number">1</div>
+          <div>
+            <b>ZACZNIJ OD TYCH 4 NODE'ÓW</b>
+            <strong>Forge Cost T1 → Forge Speed T1 → Tech Speed T1 → Tech Cost T1</strong>
+            <span>Wymaksuj je jako pierwsze. Potem daj 1/5 we wszystkie pozostałe node'y Tier I.</span>
           </div>
         </div>
 
-        <div class="roadmap-summary" id="roadmapSummary"></div>
-        <div class="roadmap-tiers" id="roadmapTiers"></div>
+        <div class="tech-stage-grid">
+          <article class="tech-stage early">
+            <div class="stage-top"><span>🌱 EARLY GAME</span><b>TIER I–II</b></div>
+            <h4>Najpierw ekonomia i czas</h4>
+            <ol>
+              <li><b>Forge Upgrade Cost</b><span>MAX</span></li>
+              <li><b>Forge Upgrade Time</b><span>MAX</span></li>
+              <li><b>Tech Research Time</b><span>MAX</span></li>
+              <li><b>Tech Node Cost</b><span>MAX</span></li>
+              <li><b>Auto Forge</b><span>WEŹ</span></li>
+              <li><b>Max Offline Time</b><span>WYSOKO</span></li>
+              <li><b>Offline Hammer Reward</b><span>WYSOKO</span></li>
+              <li><b>Extra Mount Chance</b><span>NA KOŃCU</span></li>
+            </ol>
+            <p>Cel: taniej, szybciej i mniej czekania.</p>
+          </article>
 
-        <div class="roadmap-method">
-          <b>Jak czytać roadmapę:</b> każdy Tier powtarza ten sam układ node'ów danego drzewa. Czas i koszt ranków rośnie gwałtownie wraz z Tierem. Wskazania „rush/high/backfill” są rekomendacją progresji wyprowadzoną z efektów node'ów i prerequisites — nie są oficjalnym poradnikiem twórców gry.
+          <article class="tech-stage mid">
+            <div class="stage-top"><span>⚙️ MID GAME</span><b>TIER II–III</b></div>
+            <h4>Utrzymaj przewagę efektywności</h4>
+            <ol>
+              <li><b>Tech Research Time</b><span>TOP 1</span></li>
+              <li><b>Tech Node Cost</b><span>TOP 2</span></li>
+              <li><b>Pet Damage / Health</b><span>WYSOKO</span></li>
+              <li><b>Free Forge Chance</b><span>WYSOKO</span></li>
+              <li><b>Extra Mount Chance</b><span>WYSOKO</span></li>
+              <li><b>Power Tree</b><span>TYLKO TROCHĘ</span></li>
+            </ol>
+            <p>Power Tree nadal jest mniej ważne niż dobrze działający Forge i Tech.</p>
+          </article>
+
+          <article class="tech-stage late">
+            <div class="stage-top"><span>🔥 LATE GAME</span><b>TIER IV–V</b></div>
+            <h4>Dopiero teraz moc</h4>
+            <ol>
+              <li><b>Tech Research Time</b><span>NADAL TOP 1</span></li>
+              <li><b>Tech Node Cost</b><span>NADAL TOP</span></li>
+              <li><b>Weapon / Ring / Necklace</b><span>DMG</span></li>
+              <li><b>Helmet / Body / Belt / Shoe</b><span>HP</span></li>
+              <li><b>Mount Damage / Health</b><span>POWER</span></li>
+              <li><b>Extra Mount Chance</b><span>BARDZO WYSOKO</span></li>
+              <li><b>Ultimate / Mythic Egg Timers</b><span>WAR / QoL</span></li>
+            </ol>
+            <p>Cel: przejście z efektywności w czystą siłę.</p>
+          </article>
         </div>
+
+        <div class="tech-ascension-callout">
+          <div>
+            <span>PRZED ASCENSION</span>
+            <b>Minimum T3 discount + drop chance • T4 mocno rekomendowane</b>
+          </div>
+          <small>Zgodnie z oficjalnym Ascension Guide.</small>
+        </div>
+
+        <details class="tech-details">
+          <summary>Pełne drzewka i wszystkie node'y</summary>
+          <div class="roadmap-tabs">
+            <button class="roadmap-tab active" data-roadmap-tree="SkillsPetTech">🧪 Skills + Pets</button>
+            <button class="roadmap-tab" data-roadmap-tree="Forge">🔨 Forge</button>
+            <button class="roadmap-tab" data-roadmap-tree="Power">⚔️ Power + Mounts</button>
+          </div>
+
+          <div class="roadmap-toolbar">
+            <label>Research Speed
+              <select id="roadmapResearchSpeed">
+                <option value="0">0%</option>
+                <option value=".2">20%</option>
+                <option value=".4">40%</option>
+                <option value=".6" selected>60%</option>
+                <option value=".8">80%</option>
+                <option value="1">100%</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="roadmap-summary" id="roadmapSummary"></div>
+          <div class="roadmap-tiers" id="roadmapTiers"></div>
+        </details>
       </section>
+
 <div class="asc-source-notes" id="ascSourceNotes"></div>
       <div class="source-credit" id="ascAttribution"></div>
     </section>
 
     <footer>
-      <span>Forge Knowledge Lab 0.20</span>
+      <span>Forge Knowledge Lab 0.21</span>
       <span>Ten moduł nie jest podlinkowany z głównej strony.</span>
     </footer>
   </main>
 </div>
 
-<script src="knowledge-data.js?v=200"></script>
-<script src="knowledge.js?v=200"></script>
+<script src="knowledge-data.js?v=210"></script>
+<script src="knowledge.js?v=210"></script>
 </body>
 </html>

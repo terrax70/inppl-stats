@@ -1145,3 +1145,93 @@ footer{display:flex;justify-content:space-between;margin-top:22px;color:#536175;
 .official-cost-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:9px}.official-cost-grid>div{background:#0f1720;border-radius:8px;padding:8px}.official-cost-grid span{display:block;color:#5f7186;font-size:7.5px;font-weight:900}.official-cost-grid b{display:block;color:#f0f4f8;font-size:12px;margin-top:3px}.official-cost-grid .asc-cost{background:#1a120c}.official-cost-grid .asc-cost b{color:#e6b360}
 .official-alt-card h4{margin:5px 0 0;font-size:14px}.official-advice{margin-top:9px;padding:10px 11px;border-left:3px solid #d4a14c;background:#0c1219;border-radius:0 8px 8px 0}.official-advice b{color:#e6b660;font-size:9px}.official-advice p{margin:5px 0 0;color:#a2afbd;font-size:9.5px;line-height:1.5}
 @media(max-width:900px){.official-base-stats{grid-template-columns:1fr 1fr}.official-global-rules,.official-reset-grid{grid-template-columns:1fr}.official-cost-grid{grid-template-columns:1fr}.official-guide-head,.official-detail-top{flex-direction:column;align-items:flex-start}.official-recovery{text-align:left}}
+
+/* Forge Knowledge 0.21 — human-first Tech Tree + larger Ascension text */
+.tech-guide-card{margin-top:14px;border:1px solid #233140;background:#0a1017;border-radius:16px;padding:18px}
+.tech-guide-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
+.tech-guide-head h3{margin:6px 0 5px;font-size:24px;line-height:1.15}
+.tech-guide-head p{margin:0;color:#8694a6;font-size:13px;line-height:1.5}
+.tech-guide-pill{padding:8px 11px;border:1px solid #6d582a;background:#17130d;border-radius:9px;color:#e4b860;font-size:10px;font-weight:1000;white-space:nowrap}
+.tech-first-rule{display:grid;grid-template-columns:54px 1fr;gap:13px;align-items:center;margin-top:16px;padding:15px;border:1px solid #80632d;background:linear-gradient(100deg,rgba(225,174,69,.12),rgba(11,16,23,.35));border-radius:12px}
+.tech-first-number{display:grid;place-items:center;width:48px;height:48px;border-radius:12px;background:#d4a34d;color:#0b0f14;font-size:25px;font-weight:1000}
+.tech-first-rule b{display:block;color:#f1c66f;font-size:11px;letter-spacing:.08em}
+.tech-first-rule strong{display:block;color:#f4f7fa;font-size:18px;line-height:1.35;margin-top:4px}
+.tech-first-rule span{display:block;color:#95a2b2;font-size:12px;line-height:1.45;margin-top:4px}
+
+.tech-stage-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.tech-stage{border:1px solid #253442;background:#0c1219;border-radius:12px;padding:14px}
+.tech-stage.early{border-color:#355f48}.tech-stage.mid{border-color:#66572f}.tech-stage.late{border-color:#623d3f}
+.stage-top{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.stage-top span{font-size:11px;font-weight:1000;letter-spacing:.06em}.stage-top b{font-size:9px;color:#748396}
+.tech-stage h4{font-size:17px;margin:8px 0 10px}
+.tech-stage ol{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.tech-stage li{display:grid;grid-template-columns:24px 1fr auto;gap:7px;align-items:center;padding:8px;background:#0f1720;border-radius:8px}
+.tech-stage li::before{counter-increment:item;content:counter(item);display:grid;place-items:center;width:22px;height:22px;border-radius:6px;background:#18232e;color:#9fb0c3;font-size:9px;font-weight:1000}
+.tech-stage ol{counter-reset:item}
+.tech-stage li b{font-size:11px;color:#e9eef4}
+.tech-stage li span{font-size:8px;font-weight:1000;color:#d3a650}
+.tech-stage p{margin:10px 0 0;color:#7f8da0;font-size:11px;line-height:1.5}
+
+.tech-ascension-callout{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-top:12px;padding:12px 14px;border:1px solid #2c604c;background:#0d1915;border-radius:10px}
+.tech-ascension-callout span{display:block;color:#68c599;font-size:9px;font-weight:1000;letter-spacing:.08em}
+.tech-ascension-callout b{display:block;color:#e5f1eb;font-size:13px;margin-top:3px}
+.tech-ascension-callout small{color:#71867c;font-size:10px}
+
+.tech-details{margin-top:12px;border:1px solid #202e3a;background:#090e14;border-radius:10px;overflow:hidden}
+.tech-details summary{cursor:pointer;padding:13px 14px;color:#b8c4d1;font-size:12px;font-weight:1000;list-style:none}
+.tech-details summary::-webkit-details-marker{display:none}
+.tech-details[open] summary{border-bottom:1px solid #1b2834}
+.tech-details .roadmap-tabs,.tech-details .roadmap-toolbar,.tech-details .roadmap-summary,.tech-details .roadmap-tiers{margin-left:12px;margin-right:12px}
+.tech-details .roadmap-tiers{margin-bottom:12px}
+
+/* Make the official Ascension guide readable and calmer */
+.official-guide-head h3{font-size:25px !important}
+.official-guide-head p{font-size:13px !important;line-height:1.6 !important}
+.official-guide-badge{font-size:10px !important}
+.official-base-stats{grid-template-columns:repeat(5,1fr) !important;gap:9px !important}
+.official-base-stats article{padding:13px !important}
+.official-base-stats span{font-size:10px !important}
+.official-base-stats b{font-size:20px !important}
+.official-global-rules{grid-template-columns:1fr !important;gap:7px !important}
+.official-rule{padding:11px 12px !important}
+.official-rule b{width:30px !important;height:30px !important;font-size:11px !important}
+.official-rule span{font-size:12px !important;line-height:1.5 !important}
+.official-pillar-tab{font-size:12px !important;padding:10px 14px !important}
+.official-pillar-detail{padding:15px !important}
+.official-detail-top h4{font-size:21px !important}
+.official-priority{font-size:9px !important;padding:5px 8px !important}
+.official-recovery{font-size:18px !important}
+.official-recovery span{font-size:11px !important}
+.official-reset-grid{grid-template-columns:repeat(3,1fr) !important;gap:8px !important}
+.official-reset-grid article{padding:11px !important}
+.official-reset-grid span{font-size:9px !important}
+.official-reset-grid p{font-size:11px !important;line-height:1.5 !important}
+.official-main-cost,.official-alt-card{padding:13px !important}
+.official-main-cost-head span,.official-alt-kicker{font-size:9px !important}
+.official-main-cost-head b{font-size:15px !important}
+.official-main-cost>p,.official-alt-card>p{font-size:11px !important;line-height:1.5 !important}
+.official-main-cost>small,.official-alt-card>small{font-size:10px !important}
+.official-cost-grid span{font-size:9px !important}
+.official-cost-grid b{font-size:14px !important}
+.official-alt-card h4{font-size:16px !important}
+.official-advice{padding:12px 13px !important}
+.official-advice b{font-size:10px !important}
+.official-advice p{font-size:11px !important;line-height:1.55 !important}
+
+/* reduce visual density of old roadmap details */
+.tech-details .roadmap-node-grid{grid-template-columns:repeat(3,1fr) !important}
+.tech-details .roadmap-node{min-height:130px !important}
+.tech-details .roadmap-node h5{font-size:12px !important}
+.tech-details .roadmap-node strong{font-size:9px !important}
+.tech-details .roadmap-node p{font-size:8.5px !important}
+
+@media(max-width:1050px){
+ .tech-stage-grid{grid-template-columns:1fr}
+ .official-base-stats{grid-template-columns:1fr 1fr !important}
+ .official-reset-grid{grid-template-columns:1fr !important}
+}
+@media(max-width:700px){
+ .tech-guide-head,.tech-ascension-callout{flex-direction:column;align-items:flex-start}
+ .tech-first-rule{grid-template-columns:1fr}
+ .official-base-stats{grid-template-columns:1fr !important}
+}

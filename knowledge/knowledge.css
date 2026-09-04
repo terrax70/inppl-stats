@@ -1418,3 +1418,38 @@ stroke-dasharray:6 6;}
   .cycle-title{font-size:11px !important}
   .recovery-side-label text{font-size:9px}
 }
+
+
+/* ===== 1.4.10 ASC CHART SPLIT ===== */
+.asc-svg .asc-base-line{
+  opacity:.42 !important;
+  stroke-width:2.5 !important;
+}
+.rebuild-line-pre{
+  fill:none;
+  stroke:#63d09a;
+  stroke-width:4.4;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.rebuild-line-post{
+  fill:none;
+  stroke:#7f8a96;
+  stroke-width:4.2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.asc-svg .point-rarity-label.compact rect{
+  fill:#101720 !important;
+}
+.asc-svg .point-rarity-label.compact text{
+  font-size:12px !important;
+  font-weight:950 !important;
+}
+.recovery-side-label text{
+  font-size:11px !important;
+  font-weight:900 !important;
+}
+.svg-host.wide .chart-svg{
+  min-width:1800px;
+}

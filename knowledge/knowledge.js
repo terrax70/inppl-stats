@@ -218,21 +218,21 @@ function chartProfile(host,rowCount,cycles=1){
  const narrow=viewport<900;
  const medium=viewport>=900&&viewport<1250;
 
- // Never crush labels. Dense item charts are intentionally wide and scrollable.
+ // Only chart 3 should become truly huge for dense item timelines.
  let intrinsic;
  if(cycles===4){
    intrinsic=dense
-     ? Math.max(2550,Math.round(viewport*1.55))
-     : Math.max(1580,Math.round(viewport*1.02));
+     ? Math.max(3400,Math.round(viewport*2.1))
+     : Math.max(1680,Math.round(viewport*1.08));
  }else{
    intrinsic=dense
-     ? Math.max(1850,Math.round(viewport*1.22))
+     ? Math.max(1450,Math.round(viewport*1.04))
      : Math.max(1320,viewport);
  }
 
  return {
    viewport,dense,narrow,medium,intrinsic,
-   labelFont:dense?(narrow?9.6:10.4):(narrow?10.4:11.3),
+   labelFont:dense?(narrow?10.0:10.8):(narrow?10.4:11.3),
    labelHeight:dense?25:27,
    labelPadX:dense?7:8.5,
    labelGap:dense?10:11
@@ -422,20 +422,23 @@ function renderAscChart(host,S,id){
  const maxMultiple=(rows.at(-1).damage*D.ascMultipliers.at(-1))/baseValue;
  const hi=Math.log10(maxMultiple),lo=0;
 
- // Dedicated right gutter for recovery labels. This keeps them away from rarity beans.
- const recoveryGutter=profile.dense?210:175;
- const W=profile.intrinsic,H=680,L=118,R=recoveryGutter,T=88,B=42;
+ // Wider only here. Dense item ascension charts need real space.
+ const recoveryGutter=profile.dense?320:210;
+ const W=profile.intrinsic,H=700,L=118,R=recoveryGutter,T=88,B=42;
  const usable=W-L-R;
- const cycleGap=profile.dense?112:92;
+ const cycleGap=profile.dense?132:98;
  const cycleW=(usable-cycleGap*3)/4;
  const cycleStart=a=>L+a*(cycleW+cycleGap);
  const xInCycle=(a,j)=>cycleStart(a)+j*cycleW/(n-1);
  const y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
+ const ascLabelFont=profile.dense?(profile.narrow?11.2:12.2):(profile.narrow?11:11.6);
+ const ascLabelHeight=profile.dense?29:27;
+ const ascLabelPad=profile.dense?9:8.5;
 
- host.style.setProperty("--chart-intrinsic-width",W+"px");
+ host.style.setProperty('--chart-intrinsic-width',W+'px');
 
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg asc-svg continuous-asc">`;
- svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • WIĘCEJ MIEJSCA • WIĘKSZE ETYKIETY • MNIEJ KOLORÓW</text>`;
+ svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • PEŁNA ŚCIEŻKA ASCENSION • PO ASCENDZIE ZIELONY ODCINEK = ODBUDOWA DO RECOVERY</text>`;
  svg+=`<text x="${W-20}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
 
  const expMax=Math.ceil(hi),step=Math.max(1,Math.ceil(expMax/6));
@@ -464,7 +467,7 @@ function renderAscChart(host,S,id){
 
  cycles.forEach(a=>{
    const local=rows.map((r,j)=>({
-      name:r.name,j,row:r,color:COLORS[r.name]||"#88a",
+      name:r.name,j,row:r,color:COLORS[r.name]||'#88a',
       multiple:(r.damage*D.ascMultipliers[a])/baseValue,
       damage:r.damage*D.ascMultipliers[a],
       health:r.health*D.ascMultipliers[a],
@@ -472,18 +475,26 @@ function renderAscChart(host,S,id){
       py:y((r.damage*D.ascMultipliers[a])/baseValue)
    }));
 
-   svg+=`<polyline points="${local.map(p=>`${p.px},${p.py}`).join(" ")}" class="power-line"/>`;
+   svg+=`<polyline points="${local.map(p=>`${p.px},${p.py}`).join(' ')}" class="power-line asc-base-line"/>`;
+
+   // After each ascension: green until recovery point, gray afterwards.
+   if(a>0 && recoveryIndex>=0){
+     const pre=local.slice(0,recoveryIndex+1);
+     const post=local.slice(recoveryIndex);
+     if(pre.length>1)svg+=`<polyline points="${pre.map(p=>`${p.px},${p.py}`).join(' ')}" class="rebuild-line-pre"/>`;
+     if(post.length>1)svg+=`<polyline points="${post.map(p=>`${p.px},${p.py}`).join(' ')}" class="rebuild-line-post"/>`;
+   }
 
    const peak=local.at(-1);
-   const peakObstacle={x:peak.px-56,y:peak.py-56,w:112,h:40};
+   const peakObstacle={x:peak.px-58,y:peak.py-56,w:116,h:40};
 
    const labels=laneLabelLayout(
       local,
       {x:cycleStart(a)+4,y:T+18,w:cycleW-8,h:H-T-B-28},
       {
-        fontSize:profile.labelFont,
-        height:profile.labelHeight,
-        padX:profile.labelPadX,
+        fontSize:ascLabelFont,
+        height:ascLabelHeight,
+        padX:ascLabelPad,
         obstacles:[peakObstacle],
         dense:profile.dense
       }
@@ -497,9 +508,9 @@ function renderAscChart(host,S,id){
              <circle cx="${p.px}" cy="${p.py}" r="18" class="dot-hit-area"/>
              <line x1="${p.px}" y1="${p.py}" x2="${t.x}" y2="${t.y}" class="point-label-link"/>
              <g class="point-rarity-label compact" transform="translate(${b.x+b.w/2},${b.y+b.h/2})">
-               <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(9,b.h/2)}"/>
+               <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(10,b.h/2)}"/>
                <circle cx="${-b.w/2+9}" cy="0" r="3.5" fill="${c}" class="rarity-accent-dot"/>
-               <text x="${profile.dense?3:2}" y="${profile.labelFont*.34}" text-anchor="middle" style="font-size:${profile.labelFont}px">${p.name}</text>
+               <text x="${profile.dense?3:2}" y="${ascLabelFont*.34}" text-anchor="middle" style="font-size:${ascLabelFont}px">${p.name}</text>
              </g>
            </g>`;
    });
@@ -508,7 +519,7 @@ function renderAscChart(host,S,id){
    svg+=`<circle cx="${px}" cy="${py}" r="12" class="asc-peak-ring pointer-events-none"/>
          <g class="peak-label pointer-events-none">
            <rect x="${px-50}" y="${py-50}" width="100" height="28" rx="8"/>
-           <text x="${px}" y="${py-31}" text-anchor="middle">${a<3?"ASCENSION":"KONIEC A3"}</text>
+           <text x="${px}" y="${py-31}" text-anchor="middle">${a<3?'ASCENSION':'KONIEC A3'}</text>
          </g>`;
 
    if(a<3){
@@ -527,7 +538,7 @@ function renderAscChart(host,S,id){
        const target=rows[recoveryIndex];
        const rm=(target.damage*D.ascMultipliers[a+1])/baseValue;
        const rx=xInCycle(a+1,recoveryIndex),ry=y(rm);
-       const lineEndX=W-R+30;
+       const lineEndX=W-R+28;
 
        svg+=`<line x1="${px}" y1="${py}" x2="${lineEndX}" y2="${py}" class="recovery-guide-clean pointer-events-none"/>
              <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot pointer-events-none"/>`;
@@ -535,30 +546,29 @@ function renderAscChart(host,S,id){
        recoveryRows.push({
          label:`A${a} peak ≈ ${S.recovery} A${a+1}`,
          y:py,
-         color:COLORS[S.recovery]||"#63d09a"
+         color:COLORS[S.recovery]||'#63d09a'
        });
      }
    }
  });
 
- // Recovery labels live in a clean, dedicated gutter instead of on top of item rarity labels.
  recoveryRows.sort((a,b)=>a.y-b.y);
- const minGap=34;
+ const minGap=38;
  for(let i=1;i<recoveryRows.length;i++){
    if(recoveryRows[i].y-recoveryRows[i-1].y<minGap){
      recoveryRows[i].y=recoveryRows[i-1].y+minGap;
    }
  }
  recoveryRows.forEach(r=>{
-   const x0=W-R+42,w=R-58;
+   const x0=W-R+38,w=R-56;
    svg+=`<g class="recovery-side-label pointer-events-none" style="--recovery:${r.color}">
-           <rect x="${x0}" y="${r.y-13}" width="${w}" height="26" rx="8"/>
-           <circle cx="${x0+10}" cy="${r.y}" r="3.5"/>
-           <text x="${x0+19}" y="${r.y+3.5}">${r.label}</text>
+           <rect x="${x0}" y="${r.y-14}" width="${w}" height="28" rx="8"/>
+           <circle cx="${x0+11}" cy="${r.y}" r="4"/>
+           <text x="${x0+22}" y="${r.y+4}">${r.label}</text>
          </g>`;
  });
 
- svg+=`<text x="${L}" y="${H-15}" class="caption">Itemy dostają szerszy wykres i scroll zamiast ściskania • recovery ma osobną kolumnę po prawej • kolor rarity jest tylko akcentem</text></svg>`;
+ svg+=`<text x="${L}" y="${H-15}" class="caption">Po ascension: zielony odcinek = odbudowa do recovery • szary odcinek = moc już ponad recovery • tylko wykres 3 jest mocno poszerzony dla Itemów</text></svg>`;
  host.innerHTML=svg;
  bindChartInteractions(host,id);
 }

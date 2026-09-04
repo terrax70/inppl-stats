@@ -264,115 +264,12 @@ function renderProgressInsights(target,rows){
    <article class="insight step-strip"><span>WSZYSTKIE SKOKI</span><div>${htmlSteps}</div></article>`;
 }
 
-function renderSkillProgressViz(containerId, rows, ascLevel=0){
- const host=$(containerId); if(!host)return; host.innerHTML="";
- const W=1400,rowGap=88,top=86,bottomPad=72,H=Math.max(620,top+(rows.length-1)*rowGap+bottomPad),bottom=H-bottomPad;
- const ladderX=38,ladderW=325,chartX=535,chartW=790,plotH=bottom-top;
- const base=rows[0].warPoints;
- const values=rows.map(r=>r.warPoints/base);
- const max=Math.max(...values),logMax=Math.log10(max);
- const y=v=>bottom-(Math.log10(v)/(logMax||1))*plotH;
- const x=i=>chartX+(i/(rows.length-1))*chartW;
- const nodeY=i=>top+(rows.length-1-i)*rowGap;
- const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,class:"viz-svg",role:"img","aria-label":"Skille: progresja rarity i punkty wojny"});
- svg.style.height=H+"px";host.style.minHeight=H+"px";
- const defs=svgEl("defs");
- const grad=svgEl("linearGradient",{id:"skillAreaGrad",x1:"0",y1:"0",x2:"0",y2:"1"});
- grad.append(svgEl("stop",{offset:"0%","stop-color":"#6aaef6","stop-opacity":".50"}),svgEl("stop",{offset:"100%","stop-color":"#6aaef6","stop-opacity":"0"}));
- const marker=svgEl("marker",{id:"skillArrow",markerWidth:"8",markerHeight:"8",refX:"7",refY:"3",orient:"auto",markerUnits:"strokeWidth"});
- marker.append(svgEl("path",{d:"M0,0 L0,6 L8,3 z",class:"arrow-head"}));defs.append(grad,marker);svg.append(defs);
- svg.append(svgEl("text",{x:chartX,y:30,class:"chart-title"},`SKILLE • A${ascLevel} • COMMON = ×1`));
- svg.append(svgEl("text",{x:chartX,y:48,class:"chart-note"},`Porównanie rarity na podstawie punktów wojny za pojedynczy skill • Ascension A${ascLevel}: ×${ascMultiplier(ascLevel).toLocaleString("pl-PL")}`));
- svg.append(svgEl("line",{x1:ladderX+22,y1:top,x2:ladderX+22,y2:bottom,class:"ladder-spine"}));
- const pts=rows.map((r,i)=>[x(i),y(values[i])]);
- const path=pts.map((p,i)=>(i?"L":"M")+p[0]+","+p[1]).join(" ");
- const area=path+` L${pts.at(-1)[0]},${bottom} L${pts[0][0]},${bottom} Z`;
- svg.append(svgEl("path",{d:area,class:"plot-area"}));svg.append(svgEl("path",{d:path,class:"plot-line"}));
- rows.forEach((r,i)=>{
-   const ny=nodeY(i),px=x(i),py=y(values[i]),c=D.colors[r.rarity]||"#8abcf5";
-   const connector=svgEl("path",{d:`M${ladderX+ladderW},${ny} C${chartX-85},${ny} ${chartX-58},${py} ${px-10},${py}`,class:"connector","marker-end":"url(#skillArrow)"});svg.append(connector);
-   const g=svgEl("g",{class:"ladder-node"});
-   g.append(svgEl("rect",{x:ladderX+42,y:ny-30,width:ladderW-42,height:60,rx:8,class:"node-bg"}));
-   g.append(svgEl("circle",{cx:ladderX+22,cy:ny,r:8,fill:c,stroke:"#0a1017","stroke-width":"4"}));
-   g.append(svgEl("text",{x:ladderX+58,y:ny-9,fill:c,class:"node-rarity"},r.rarity.toUpperCase()));
-   g.append(svgEl("text",{x:ladderX+58,y:ny+10,class:"node-value"},`⚔️ Wojna: ${fmt(r.warPoints)} pkt / skill`));
-   g.append(svgEl("text",{x:ladderX+58,y:ny+25,class:"node-sub"},`Względem Common: ×${values[i].toLocaleString("pl-PL",{maximumFractionDigits:2})}`));
-   svg.append(g);
-   svg.append(svgEl("circle",{cx:px,cy:py,r:8,fill:c,class:"point"}));
-   svg.append(svgEl("text",{x:px,y:bottom+30,"text-anchor":"middle",fill:c,class:"axis-text"},r.rarity.slice(0,5)));
-   if(i>0){
-     const step=r.warPoints/rows[i-1].warPoints, prev=pts[i-1], mx=(prev[0]+px)/2, my=Math.max(52,Math.min(bottom-92,(prev[1]+py)/2-48));
-     const tag=svgEl("g",{class:"mega-ratio"});
-     tag.append(svgEl("rect",{x:mx-68,y:my-27,width:136,height:54,rx:10}));
-     tag.append(svgEl("text",{x:mx,y:my-7,"text-anchor":"middle",class:"ratio-transition"},`${rows[i-1].rarity} → ${r.rarity}`));
-     tag.append(svgEl("text",{x:mx,y:my+15,"text-anchor":"middle",class:"ratio-number"},`×${step.toLocaleString("pl-PL",{maximumFractionDigits:2})}`));svg.append(tag);
-   }
- });
- host.append(svg);
-}
 function renderSkills(){
  const level=ascState.skills;
- const rows=D.skills.map(r=>({...r,warPoints:r.warPoints*ascMultiplier(level)}));
- renderSkillProgressViz("#skillViz",rows,level);
- const baseRows=D.skills;
- const steps=baseRows.slice(1).map((r,i)=>({from:baseRows[i].rarity,to:r.rarity,ratio:r.warPoints/baseRows[i].warPoints}));
- const total=baseRows.at(-1).warPoints/baseRows[0].warPoints;
- const biggest=[...steps].sort((a,b)=>b.ratio-a.ratio)[0];
- const box=$("#skillInsights");
- if(box) box.innerHTML=`
-   <article class="insight primary-insight"><span>COMMON → MYTHIC</span><b>×${total.toLocaleString("pl-PL",{maximumFractionDigits:1})}</b><small>175 pkt vs 50 pkt wojny za skill.</small></article>
-   <article class="insight primary-insight"><span>NAJWIĘKSZY SKOK</span><b>×${biggest.ratio.toLocaleString("pl-PL",{maximumFractionDigits:2})}</b><small>${biggest.from} → ${biggest.to}</small></article>
-   <article class="insight step-strip"><span>WSZYSTKIE SKOKI</span><div>${steps.map(x=>`<span class="mini-step"><b>×${x.ratio.toLocaleString("pl-PL",{maximumFractionDigits:2})}</b><small>${x.from} → ${x.to}</small></span>`).join("")}</div></article>`;
+ const rows=scaledRows(D.skills,level);
+ renderProgressViz("#skillViz",rows,"Skille",level);
+ renderProgressInsights("#skillInsights",rows);
  updateAscUI("skills",level);
-}
-
-function renderSkills(){
- const level=ascState.skills ?? 0;
- const rows=D.skills;
- const mult=ascMultiplier(level);
-
- // Same ladder component as pets/mounts.
- renderLadder("#skillViz", rows.map(r=>({
-   ...r,
-   damage:r.damage*mult,
-   health:r.health*mult
- })), {
-   section:"skills",
-   metric:"damage",
-   valueLabel:"⚔️ DMG Bonus",
-   secondMetric:"health",
-   secondValueLabel:"❤️ HP Bonus"
- });
-
- const ratios=[];
- for(let i=1;i<rows.length;i++){
-   ratios.push({from:rows[i-1].rarity,to:rows[i].rarity,value:rows[i].damage/rows[i-1].damage});
- }
- const full=rows.at(-1).damage/rows[0].damage;
- const biggest=ratios.reduce((a,b)=>b.value>a.value?b:a,ratios[0]);
- const f=$("#skillFullMultiplier"); if(f)f.textContent=`×${fmt(full)}`;
- const b=$("#skillBiggestStep"); if(b)b.textContent=`×${fmt(biggest.value)}`;
- const bl=$("#skillBiggestStepLabel"); if(bl)bl.textContent=`${biggest.from} → ${biggest.to}`;
-
- const host=$("#skillsSampleGrid");
- if(host){
-   host.innerHTML=D.skillExamples.map(s=>`
-     <article class="skill-example-card rarity-${s.rarity.toLowerCase()}">
-       <div class="skill-example-top">
-         <div><b>${s.name}</b><span>${s.rarity}</span></div>
-         <div class="skill-time"><small>Duration</small><strong>${s.duration}s</strong><small>Cooldown</small><strong>${s.cooldown}s</strong></div>
-       </div>
-       <div class="skill-passive">
-         <div><span>⚔️ Damage Bonus</span><b>+${fmt(s.damageBonus*mult)}</b></div>
-         <div><span>❤️ Health Bonus</span><b>+${fmt(s.healthBonus*mult)}</b></div>
-       </div>
-       <div class="skill-active">
-         ${s.activeDamage?`<div><span>⚔️ ACTIVE DAMAGE</span><b>+${fmt(s.activeDamage*mult)}</b></div>`:""}
-         ${s.activeHealth?`<div><span>❤️ ACTIVE HEALTH</span><b>+${fmt(s.activeHealth*mult)}</b></div>`:""}
-       </div>
-     </article>`).join("");
- }
- renderAscensionPath("skills","#skillAscPath");
 }
 
 function renderPets(){
@@ -416,7 +313,7 @@ function renderItems(){
 
 
 function getRarityRow(section, rarity){
- const rows = section==="items" ? D.itemTiers : section==="pets" ? D.pets : D.mounts;
+ const rows = section==="items" ? D.itemTiers : section==="skills" ? D.skills : section==="pets" ? D.pets : D.mounts;
  return rows.find(r=>r.rarity===rarity);
 }
 
@@ -426,7 +323,7 @@ function getRarityRow(section, rarity){
 
 function renderAscensionPath(section, hostId){
  const cfg=D.ascensionPaths[section];
- const rows=section==="items" ? D.itemTiers : section==="skills" ? D.skills.map(r=>({...r,damage:r.warPoints,health:r.warPoints})) : section==="pets" ? D.pets : D.mounts;
+ const rows=section==="items" ? D.itemTiers : section==="skills" ? D.skills : section==="pets" ? D.pets : D.mounts;
  const host=$(hostId); if(!host)return;
  host.innerHTML="";
 

@@ -243,7 +243,6 @@ window.FORGE_KNOWLEDGE = {
     }
   },
   ascensionPaths: {
-    skills:{system:"Skills",eligibilityLabel:"Level 100",endRarity:"Mythic",recoveryRarity:"Legendary"},
     skills: {
       system:"Skille",
       eligibilityLabel:"Level 100",

@@ -95,6 +95,100 @@ function bindAssetInteractions(id){
  });
 }
 
+
+function labelTextWidth(text,fontSize,padX){
+ const special={"Early-Modern":1.05,"Interstellar":1.02,"Multiverse":1.02};
+ return Math.max(42,Math.min(112,String(text).length*fontSize*0.59*(special[text]||1)+padX*2));
+}
+function rectOverlapArea(a,b,pad=0){
+ const x=Math.max(0,Math.min(a.x+a.w+pad,b.x+b.w+pad)-Math.max(a.x-pad,b.x-pad));
+ const y=Math.max(0,Math.min(a.y+a.h+pad,b.y+b.h+pad)-Math.max(a.y-pad,b.y-pad));
+ return x*y;
+}
+function pointInsideRect(p,r,pad=0){
+ return p.x>=r.x-pad&&p.x<=r.x+r.w+pad&&p.y>=r.y-pad&&p.y<=r.y+r.h+pad;
+}
+function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
+function smartLabelLayout(points,bounds,{fontSize=9,height=22,gap=8,padX=7,obstacles=[]}={}){
+ const placed=[];
+ const allPointObstacles=points.map(p=>({x:p.px-10,y:p.py-10,w:20,h:20}));
+ return points.map((p,index)=>{
+   const w=labelTextWidth(p.name,fontSize,padX);
+   const h=height;
+   const above={x:p.px-w/2,y:p.py-gap-h,w,h,side:"above"};
+   const below={x:p.px-w/2,y:p.py+gap,w,h,side:"below"};
+   const upRight={x:p.px+gap,y:p.py-gap-h,w,h,side:"up-right"};
+   const upLeft={x:p.px-gap-w,y:p.py-gap-h,w,h,side:"up-left"};
+   const downRight={x:p.px+gap,y:p.py+gap,w,h,side:"down-right"};
+   const downLeft={x:p.px-gap-w,y:p.py+gap,w,h,side:"down-left"};
+   const farAbove={x:p.px-w/2,y:p.py-gap-h-20,w,h,side:"far-above"};
+   const farBelow={x:p.px-w/2,y:p.py+gap+20,w,h,side:"far-below"};
+   const right={x:p.px+gap+4,y:p.py-h/2,w,h,side:"right"};
+   const left={x:p.px-gap-4-w,y:p.py-h/2,w,h,side:"left"};
+
+   const preferred=index%2===0
+     ? [above,below,upRight,upLeft,downRight,downLeft,farAbove,farBelow,right,left]
+     : [below,above,downLeft,downRight,upLeft,upRight,farBelow,farAbove,left,right];
+
+   let best=null,bestScore=Infinity;
+   for(const raw of preferred){
+     const c={...raw};
+     c.x=clamp(c.x,bounds.x,bounds.x+bounds.w-c.w);
+     c.y=clamp(c.y,bounds.y,bounds.y+bounds.h-c.h);
+
+     let score=0;
+     for(const r of placed)score+=rectOverlapArea(c,r,5)*180;
+     for(const r of obstacles)score+=rectOverlapArea(c,r,4)*260;
+     for(const r of allPointObstacles)score+=rectOverlapArea(c,r,2)*80;
+
+     // Keep leader lines short whenever possible.
+     const cx=c.x+c.w/2,cy=c.y+c.h/2;
+     score+=Math.hypot(cx-p.px,cy-p.py)*0.16;
+     // Prefer the first candidates in the list.
+     score+=preferred.indexOf(raw)*3;
+
+     if(score<bestScore){bestScore=score;best=c}
+     if(score===0)break;
+   }
+   placed.push(best);
+   return {...p,box:best,fontSize};
+ });
+}
+function labelLeaderTarget(p){
+ const b=p.box,cx=b.x+b.w/2,cy=b.y+b.h/2;
+ const dx=p.px-cx,dy=p.py-cy;
+ if(Math.abs(dx)>Math.abs(dy)){
+   return {x:dx>0?b.x+b.w:b.x,y:cy};
+ }
+ return {x:cx,y:dy>0?b.y+b.h:b.y};
+}
+function chartProfile(host,rowCount,cycles=1){
+ const viewport=Math.max(320,Math.round(host?.getBoundingClientRect?.().width||1200));
+ const dense=rowCount>6;
+ const narrow=viewport<900;
+ const medium=viewport>=900&&viewport<1250;
+
+ // Dense item charts deliberately become wider instead of crushing text.
+ const intrinsic=cycles===4
+   ? (dense?Math.max(1700,Math.min(1940,Math.round(viewport*1.18))):Math.max(1480,viewport))
+   : (dense?Math.max(1460,Math.min(1740,Math.round(viewport*1.08))):Math.max(1240,viewport));
+
+ return {
+   viewport,dense,narrow,medium,intrinsic,
+   labelFont:dense?(narrow?7.5:8.3):(narrow?8.7:9.7),
+   labelHeight:dense?20:23,
+   labelPadX:dense?5.5:7.5,
+   labelGap:dense?7:9
+ };
+}
+let responsiveRenderTimer=0;
+window.addEventListener("resize",()=>{
+ clearTimeout(responsiveRenderTimer);
+ responsiveRenderTimer=setTimeout(()=>{
+   const active=document.querySelector(".view.active")?.id;
+   if(D.systems[active])renderSystem(active);
+ },180);
+},{passive:true});
 const COLORS={Common:"#95a4b7",Rare:"#56a7e8",Epic:"#61d291",Legendary:"#e6c24c",Ultimate:"#ed923d",Mythic:"#c95be8",
 Primitive:"#95a4b7",Medieval:"#72a7d8","Early-Modern":"#59bf9a",Modern:"#89c76a",Space:"#d8bd4e",Interstellar:"#e29147",Multiverse:"#ca6bce",Quantum:"#9a77ed",Underworld:"#e46067",Divine:"#f1cb58"};
 const fmt=n=>{
@@ -196,17 +290,20 @@ function sourceText(id){
 }
 
 function renderRarityChart(host,rows,id){
- const W=1360,H=470,L=105,R=45,T=72,B=70;
+ const profile=chartProfile(host,rows.length,1);
+ const W=profile.intrinsic,H=500,L=108,R=48,T=78,B=42;
  const base=rows[0].damage;
  const mults=rows.map(r=>r.damage/base);
  const hi=Math.log10(Math.max(...mults)),lo=0;
  const x=i=>L+i*(W-L-R)/(rows.length-1);
  const y=v=>T+(hi-Math.log10(v))/(hi-lo||1)*(H-T-B);
- const pts=rows.map((r,i)=>[x(i),y(r.damage/base)]);
+ const pts=rows.map((r,i)=>({name:r.name,row:r,i,px:x(i),py:y(r.damage/base),color:COLORS[r.name]||"#88a"}));
  const ratios=calcRatios(rows);
 
+ host.style.setProperty("--chart-intrinsic-width",W+"px");
+
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg rarity-svg">`;
- svg+=`<text x="${L}" y="30" class="chart-kicker">PROGRESJA MOCY • KLIKNIJ RARITY, ŻEBY JE PODŚWIETLIĆ</text>`;
+ svg+=`<text x="${L}" y="31" class="chart-kicker">PROGRESJA MOCY • NAZWA PRZY KROPCE • KLIK = PODŚWIETLENIE</text>`;
 
  const expMax=Math.ceil(hi);
  const exps=[];
@@ -220,57 +317,66 @@ function renderRarityChart(host,rows,id){
    }
  });
 
- svg+=`<polyline points="${pts.map(p=>p.join(",")).join(" ")}" class="power-line"/>`;
+ svg+=`<polyline points="${pts.map(p=>`${p.px},${p.py}`).join(" ")}" class="power-line"/>`;
 
- rows.forEach((r,i)=>{
-   const [px,py]=pts[i],c=COLORS[r.name]||"#88a";
-   // Labels alternate above/below the point. This avoids collisions and makes the dot self-describing.
-   let dy=(i%2===0?-31:34);
-   if(py+dy<T+18)dy=34;
-   if(py+dy>H-B-8)dy=-31;
-   const labelY=py+dy;
-   const width=Math.max(58,Math.min(92,r.name.length*7.4+22));
-   const labelX=Math.max(L+width/2,Math.min(W-R-width/2,px));
+ // Reserve multiplier cards so labels never sit on top of ×N transitions.
+ const ratioObstacles=[];
+ for(let i=1;i<pts.length;i++){
+   const a=pts[i-1],b=pts[i],mx=(a.px+b.px)/2,my=Math.max(T+24,(a.py+b.py)/2-3);
+   ratioObstacles.push({x:mx-40,y:my-20,w:80,h:38});
+ }
+ const labels=smartLabelLayout(
+   pts,
+   {x:L+2,y:T+8,w:W-L-R-4,h:H-T-B-18},
+   {fontSize:profile.labelFont,height:profile.labelHeight,gap:profile.labelGap,padX:profile.labelPadX,obstacles:ratioObstacles}
+ );
 
+ labels.forEach(p=>{
+   const r=p.row,c=p.color,b=p.box,t=labelLeaderTarget(p);
    const tip=`<b>${r.name} • A${ascState[id]}</b><span>⚔️ DMG: ${fmt(r.damage)}</span><span>❤️ HP: ${fmt(r.health)}</span>${r.hatch?`<span>🥚 Hatch: ${fmtTime(r.hatch)}</span>`:""}<small>Moc vs ${rows[0].name}: ${fmtAxis(r.damage/base)}</small>`;
 
-   svg+=`<g class="chart-point" tabindex="0" data-rarity="${r.name}" data-tip="${esc(tip)}">
-           <circle cx="${px}" cy="${py}" r="9" fill="${c}" class="dot hit-dot"/>
-           <circle cx="${px}" cy="${py}" r="18" class="dot-hit-area"/>
-           <line x1="${px}" y1="${py+(dy<0?-10:10)}" x2="${labelX}" y2="${labelY+(dy<0?10:-10)}" class="point-label-link"/>
-           <g class="point-rarity-label" transform="translate(${labelX},${labelY})">
-             <rect x="${-width/2}" y="-13" width="${width}" height="26" rx="8"/>
-             <text x="0" y="4" text-anchor="middle">${r.name}</text>
+   svg+=`<g class="chart-point" tabindex="0" data-rarity="${r.name}" data-tip="${esc(tip)}" style="--rarity:${c}">
+           <circle cx="${p.px}" cy="${p.py}" r="9" fill="${c}" class="dot hit-dot"/>
+           <circle cx="${p.px}" cy="${p.py}" r="19" class="dot-hit-area"/>
+           <line x1="${p.px}" y1="${p.py}" x2="${t.x}" y2="${t.y}" class="point-label-link" stroke="${c}"/>
+           <g class="point-rarity-label" transform="translate(${b.x+b.w/2},${b.y+b.h/2})">
+             <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(9,b.h/2)}"
+                   fill="${c}" fill-opacity=".14" stroke="${c}"/>
+             <text x="0" y="${profile.labelFont*.35}" text-anchor="middle" fill="${c}" style="font-size:${profile.labelFont}px">${r.name}</text>
            </g>
          </g>`;
-
-   // The multiplier belongs to the transition, not to the dot.
-   if(i>0){
-      const a=pts[i-1],mx=(a[0]+px)/2,my=Math.max(T+20,(a[1]+py)/2-4);
-      svg+=`<g class="ratio transition-ratio"><rect x="${mx-38}" y="${my-18}" width="76" height="34" rx="9"/>
-            <text x="${mx}" y="${my+5}" text-anchor="middle">×${fmt(ratios[i-1].value)}</text></g>`;
-   }
  });
- svg+=`<text x="${L}" y="${H-20}" class="caption">Nazwa jest przy kropce • mnożnik pomiędzy kropkami pokazuje skok do następnego rarity • klik = podświetlenie</text></svg>`;
+
+ // The multiplier belongs to the transition, not to either point.
+ for(let i=1;i<pts.length;i++){
+   const a=pts[i-1],b=pts[i],mx=(a.px+b.px)/2,my=Math.max(T+24,(a.py+b.py)/2-3);
+   svg+=`<g class="ratio transition-ratio"><rect x="${mx-38}" y="${my-18}" width="76" height="34" rx="9"/>
+         <text x="${mx}" y="${my+5}" text-anchor="middle">×${fmt(ratios[i-1].value)}</text></g>`;
+ }
+
+ svg+=`<text x="${L}" y="${H-15}" class="caption">Kolor fasolki = rarity • etykiety same szukają wolnego miejsca • przy węższym ekranie wykres rozszerza się zamiast ściskać tekst</text></svg>`;
  host.innerHTML=svg;
  bindChartInteractions(host,id);
 }
 function renderAscChart(host,S,id){
  const cycles=[0,1,2,3],rows=S.rows,n=rows.length;
+ const profile=chartProfile(host,rows.length,4);
  const baseValue=rows[0].damage;
  const maxMultiple=(rows.at(-1).damage*D.ascMultipliers.at(-1))/baseValue;
  const hi=Math.log10(maxMultiple),lo=0;
 
- const W=1480,H=620,L=112,R=42,T=82,B=70;
+ const W=profile.intrinsic,H=650,L=114,R=44,T=84,B=42;
  const usable=W-L-R;
- const cycleGap=82;
+ const cycleGap=profile.dense?94:84;
  const cycleW=(usable-cycleGap*3)/4;
  const cycleStart=a=>L+a*(cycleW+cycleGap);
  const xInCycle=(a,j)=>cycleStart(a)+j*cycleW/(n-1);
  const y=v=>T+(hi-Math.log10(v))/(hi-lo)*(H-T-B);
 
+ host.style.setProperty("--chart-intrinsic-width",W+"px");
+
  let svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg asc-svg continuous-asc">`;
- svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • KAŻDA KROPKA MA SWÓJ RARITY • KLIKNIJ, ABY ZOBACZYĆ GO NA KARTACH</text>`;
+ svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • KOLOR + NAZWA PRZY KROPCE • SMART LAYOUT</text>`;
  svg+=`<text x="${W-R}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
 
  const expMax=Math.ceil(hi),step=Math.max(1,Math.ceil(expMax/6));
@@ -286,56 +392,63 @@ function renderAscChart(host,S,id){
 
  cycles.forEach(a=>{
    const x0=cycleStart(a);
-   svg+=`<rect x="${x0-14}" y="${T-24}" width="${cycleW+28}" height="${H-T-B+35}" rx="15" class="cycle-band-soft"/>
+   svg+=`<rect x="${x0-14}" y="${T-24}" width="${cycleW+28}" height="${H-T-B+12}" rx="15" class="cycle-band-soft"/>
          <text x="${x0+cycleW/2}" y="${T+1}" text-anchor="middle" class="cycle-title">A${a} • ${fmtMultExact(D.ascMultipliers[a])}</text>`;
  });
  cycles.slice(1).forEach(a=>{
    const sep=cycleStart(a)-cycleGap/2;
-   svg+=`<line x1="${sep}" y1="${T-6}" x2="${sep}" y2="${H-B+12}" class="cycle-separator"/>`;
+   svg+=`<line x1="${sep}" y1="${T-6}" x2="${sep}" y2="${H-B-2}" class="cycle-separator"/>`;
  });
 
  cycles.forEach(a=>{
    const local=rows.map((r,j)=>({
-      name:r.name,j,
+      name:r.name,j,row:r,color:COLORS[r.name]||"#88a",
       multiple:(r.damage*D.ascMultipliers[a])/baseValue,
       damage:r.damage*D.ascMultipliers[a],
-      health:r.health*D.ascMultipliers[a]
+      health:r.health*D.ascMultipliers[a],
+      px:xInCycle(a,j),
+      py:y((r.damage*D.ascMultipliers[a])/baseValue)
    }));
 
-   svg+=`<polyline points="${local.map(p=>`${xInCycle(a,p.j)},${y(p.multiple)}`).join(" ")}" class="power-line"/>`;
+   svg+=`<polyline points="${local.map(p=>`${p.px},${p.py}`).join(" ")}" class="power-line"/>`;
 
-   local.forEach(p=>{
-     const px=xInCycle(a,p.j),py=y(p.multiple),c=COLORS[p.name]||"#88a";
+   const peak=local.at(-1);
+   const peakObstacle={x:peak.px-54,y:peak.py-54,w:108,h:38};
 
-     // Stagger labels around points. Edge labels point inward.
-     let dx=0,dy=(p.j%2===0?-27:29);
-     if(p.j===0)dx=18;
-     if(p.j===n-1)dx=-18;
-     if(py+dy<T+18)dy=29;
-     if(py+dy>H-B-8)dy=-27;
-     const width=Math.max(48,Math.min(74,p.name.length*5.9+16));
-     const lx=Math.max(cycleStart(a)+width/2-2,Math.min(cycleStart(a)+cycleW-width/2+2,px+dx));
-     const ly=py+dy;
+   // Put the recovery badge itself into collision obstacles for the target cycle.
+   const obstacles=[peakObstacle];
+   const labels=smartLabelLayout(
+      local,
+      {x:cycleStart(a)+3,y:T+16,w:cycleW-6,h:H-T-B-26},
+      {
+        fontSize:profile.labelFont,
+        height:profile.labelHeight,
+        gap:profile.labelGap,
+        padX:profile.labelPadX,
+        obstacles
+      }
+   );
 
+   labels.forEach(p=>{
+     const b=p.box,t=labelLeaderTarget(p),c=p.color;
      const tip=`<b>${p.name} • A${a}</b><span>⚔️ DMG: ${fmt(p.damage)}</span><span>❤️ HP: ${fmt(p.health)}</span><small>Moc vs A0 Common: ${fmtAxis(p.multiple)}</small>`;
-
-     svg+=`<g class="chart-point asc-chart-point" tabindex="0" data-rarity="${p.name}" data-asc="${a}" data-tip="${esc(tip)}">
-             <circle cx="${px}" cy="${py}" r="${p.j===n-1?9:7}" fill="${c}" class="dot hit-dot"/>
-             <circle cx="${px}" cy="${py}" r="16" class="dot-hit-area"/>
-             <line x1="${px}" y1="${py+(dy<0?-8:8)}" x2="${lx}" y2="${ly+(dy<0?9:-9)}" class="point-label-link"/>
-             <g class="point-rarity-label compact" transform="translate(${lx},${ly})">
-               <rect x="${-width/2}" y="-11" width="${width}" height="22" rx="7"/>
-               <text x="0" y="3.5" text-anchor="middle">${p.name}</text>
+     svg+=`<g class="chart-point asc-chart-point" tabindex="0" data-rarity="${p.name}" data-asc="${a}" data-tip="${esc(tip)}" style="--rarity:${c}">
+             <circle cx="${p.px}" cy="${p.py}" r="${p.j===n-1?9:7}" fill="${c}" class="dot hit-dot"/>
+             <circle cx="${p.px}" cy="${p.py}" r="17" class="dot-hit-area"/>
+             <line x1="${p.px}" y1="${p.py}" x2="${t.x}" y2="${t.y}" class="point-label-link" stroke="${c}"/>
+             <g class="point-rarity-label compact" transform="translate(${b.x+b.w/2},${b.y+b.h/2})">
+               <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(8,b.h/2)}"
+                     fill="${c}" fill-opacity=".14" stroke="${c}"/>
+               <text x="0" y="${profile.labelFont*.34}" text-anchor="middle" fill="${c}" style="font-size:${profile.labelFont}px">${p.name}</text>
              </g>
            </g>`;
    });
 
-   const peak=local.at(-1);
-   const px=xInCycle(a,n-1),py=y(peak.multiple);
+   const px=peak.px,py=peak.py;
    svg+=`<circle cx="${px}" cy="${py}" r="12" class="asc-peak-ring pointer-events-none"/>
          <g class="peak-label pointer-events-none">
-           <rect x="${px-50}" y="${py-48}" width="100" height="27" rx="8"/>
-           <text x="${px}" y="${py-30}" text-anchor="middle">${a<3?"ASCENSION":"KONIEC A3"}</text>
+           <rect x="${px-50}" y="${py-49}" width="100" height="27" rx="8"/>
+           <text x="${px}" y="${py-31}" text-anchor="middle">${a<3?"ASCENSION":"KONIEC A3"}</text>
          </g>`;
 
    if(a<3){
@@ -343,7 +456,7 @@ function renderAscChart(host,S,id){
      const nextCommon=(rows[0].damage*D.ascMultipliers[a+1])/baseValue;
      const ny=y(nextCommon);
      const gapCenter=(px+nx)/2;
-     svg+=`<path d="M${px+8},${py+5} C${px+28},${py+30} ${nx-28},${ny-30} ${nx-8},${ny-5}" class="reset-curve pointer-events-none"/>
+     svg+=`<path d="M${px+8},${py+5} C${px+30},${py+30} ${nx-30},${ny-30} ${nx-8},${ny-5}" class="reset-curve pointer-events-none"/>
            <g class="reset-badge-clean pointer-events-none">
              <rect x="${gapCenter-35}" y="${(py+ny)/2-16}" width="70" height="32" rx="9"/>
              <text x="${gapCenter}" y="${(py+ny)/2+4}" text-anchor="middle">RESET</text>
@@ -357,7 +470,7 @@ function renderAscChart(host,S,id){
        svg+=`<line x1="${px}" y1="${py}" x2="${lineEndX}" y2="${py}" class="recovery-guide-clean pointer-events-none"/>
              <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot pointer-events-none"/>`;
 
-       const badgeY=Math.max(T+15,Math.min(H-B-45,ry-45));
+       const badgeY=Math.max(T+15,Math.min(H-B-45,ry-48));
        svg+=`<g class="recovery-badge-clean pointer-events-none">
                <rect x="${rx-68}" y="${badgeY}" width="136" height="30" rx="9"/>
                <text x="${rx}" y="${badgeY+20}" text-anchor="middle">${S.recovery} • recovery</text>
@@ -366,7 +479,7 @@ function renderAscChart(host,S,id){
    }
  });
 
- svg+=`<text x="${L}" y="${H-19}" class="caption">Kliknięcie punktu A1/A2/A3 przełącza karty na tę Ascension i podświetla wybrane rarity</text></svg>`;
+ svg+=`<text x="${L}" y="${H-15}" class="caption">Smart layout: etykiety wykrywają kolizje, zmieniają stronę/odległość i zachowują kolor rarity • na małym ekranie wykres dostaje własną szerokość i scroll</text></svg>`;
  host.innerHTML=svg;
  bindChartInteractions(host,id);
 }

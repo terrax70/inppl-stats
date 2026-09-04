@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Forge Knowledge Lab</title>
-<link rel="stylesheet" href="knowledge.css?v=210">
+<link rel="stylesheet" href="knowledge.css?v=210-135">
 </head>
 <body>
 <div class="app">
@@ -17,23 +17,24 @@
 
     <div class="nav-label">Nawigacja</div>
     <nav class="nav">
-      <a class="nav-btn" href="../#overview"><span class="nav-ico">◈</span>Przegląd</a>
-      <a class="nav-btn" href="../#warsView"><span class="nav-ico">⚔</span>Wojny</a>
-      <a class="nav-btn" href="../#playersView"><span class="nav-ico">♟</span>Gracze</a>
-      <a class="nav-btn" href="../#power"><span class="nav-ico">◆</span>Power</a>
-      <a class="nav-btn" href="../#compare"><span class="nav-ico">⇄</span>Porównaj</a>
+      <a class="nav-btn nav-link-btn" href="../#overview"><span class="nav-ico">◈</span>Przegląd</a>
+      <a class="nav-btn nav-link-btn" href="../#warsView"><span class="nav-ico">⚔</span>Wojny</a>
+      <a class="nav-btn nav-link-btn" href="../#playersView"><span class="nav-ico">♟</span>Gracze</a>
+      <a class="nav-btn nav-link-btn" href="../#power"><span class="nav-ico">◆</span>Power</a>
+      <a class="nav-btn nav-link-btn" href="../#compare"><span class="nav-ico">⇄</span>Porównaj</a>
 
       <div class="nav-label nav-section-label">Narzędzia</div>
-      <a class="nav-btn" href="../share/"><span class="nav-ico">☷</span>Podsumowanie</a>
-      <a class="nav-btn" href="../planner/"><span class="nav-ico">⌁</span>Planner</a>
+      <a class="nav-btn nav-link-btn" href="../share/"><span class="nav-ico">☷</span>Podsumowanie</a>
+      <a class="nav-btn nav-link-btn" href="../planner/"><span class="nav-ico">⌁</span>Planner</a>
+      <a class="nav-btn nav-link-btn active" href="./"><span class="nav-ico">✦</span>Rozwój</a>
 
       <div class="nav-label nav-section-label nav-addon-label">Dodatek</div>
-      <a class="nav-btn nav-addon" href="../#outcastsView"><span class="nav-ico">↪</span>Wyrzutki</a>
+      <a class="nav-btn nav-link-btn nav-addon" href="../#outcastsView"><span class="nav-ico">↪</span>Wyrzutki</a>
     </nav>
 
     <div class="side-status">
-      <div class="release-row"><strong>Forge Knowledge</strong><span class="release-badge">LAB 0.21</span></div>
-      <div>Moduł ukryty • brak linku w INPPL</div>
+      <div class="release-row"><strong>INPPL • Rozwój</strong><span class="release-badge">v0.21</span></div>
+      <div>Narzędzie INPPL • Rozwój</div>
       <div>Dane config: 2026-07-15</div>
     </div>
   </aside>
@@ -411,7 +412,28 @@
   </main>
 </div>
 
-<script src="knowledge-data.js?v=210"></script>
-<script src="knowledge.js?v=210"></script>
+<script src="knowledge-data.js?v=210-135"></script>
+<script src="knowledge.js?v=210-135"></script>
+
+<script>
+(() => {
+  const meta = document.querySelector('meta[name="inppl-build"]');
+  const LOCAL_BUILD = meta ? meta.content : "";
+  const VERSION_URL = "../version.json";
+  const KEY = "inppl_last_reloaded_build";
+  fetch(VERSION_URL + "?t=" + Date.now(), {cache:"no-store"})
+    .then(r => r.ok ? r.json() : null)
+    .then(v => {
+      if (!v || !v.build || String(v.build) === LOCAL_BUILD) return;
+      if (sessionStorage.getItem(KEY) === String(v.build)) return;
+      sessionStorage.setItem(KEY, String(v.build));
+      const u = new URL(location.href);
+      u.searchParams.set("_v", String(v.build));
+      location.replace(u.toString());
+    })
+    .catch(() => {});
+})();
+</script>
+
 </body>
 </html>

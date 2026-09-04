@@ -239,8 +239,9 @@ function renderAscChart(host,S){
        const rm=(rows[recoveryIndex].damage*D.ascMultipliers[a+1])/baseValue;
        const rx=xInCycle(a+1,recoveryIndex),ry=y(rm);
 
-       // Guide line stays horizontal from the old peak; point remains at real raw value.
-       svg+=`<line x1="${px}" y1="${py}" x2="${rx}" y2="${py}" class="recovery-guide-clean"/>
+       // Recovery guide spans the whole remaining chart so the player can compare old power with later cycles at a glance.
+       const lineEndX=W-R-16;
+       svg+=`<line x1="${px}" y1="${py}" x2="${lineEndX}" y2="${py}" class="recovery-guide-clean"/>
              <circle cx="${rx}" cy="${ry}" r="8" class="recover-dot"/>`;
 
        const badgeY=Math.max(T+15,Math.min(H-B-45,ry-45));
@@ -252,7 +253,7 @@ function renderAscChart(host,S){
    }
  });
 
- svg+=`<text x="${L}" y="${H-23}" class="caption">A0 → A3 na jednej skali • przerwy między cyklami są celowe • RESET i recovery nie nachodzą na rarity</text></svg>`;
+ svg+=`<text x="${L}" y="${H-23}" class="caption">A0 → A3 na jednej skali • zielona linia recovery idzie przez cały wykres • łatwo porównać starą moc z późniejszymi cyklami</text></svg>`;
  host.innerHTML=svg;
 }
 

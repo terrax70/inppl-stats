@@ -686,7 +686,7 @@ button,input,select,textarea,svg text{
   stroke:#4daf82;
   stroke-width:1.5;
   stroke-dasharray:5 5;
-}
+stroke-dasharray:6 6;}
 .recovery-badge-clean rect{
   fill:#0d1b15;
   stroke:#34775a;

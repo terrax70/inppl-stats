@@ -232,6 +232,13 @@ window.FORGE_KNOWLEDGE = {
     }
   },
   ascensionPaths: {
+    skills: {
+      system:"Skille",
+      eligibilityLabel:"Level 100",
+      endRarity:"Mythic",
+      recoveryRarity:"Legendary",
+      note:"Ascension odblokowuje Level 100. Oficjalny poradnik wskazuje Legendary jako około-próg odzyskania poprzedniej mocy."
+    },
     pets: {
       system:"Pety",
       eligibilityLabel:"Level 100",

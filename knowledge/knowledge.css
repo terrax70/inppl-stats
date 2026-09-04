@@ -1666,3 +1666,6 @@ html,body{font-size:14px !important}
 .skill-asc-flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:8px;margin-top:12px}.skill-asc-flow article{padding:13px;border-radius:10px;border:1px solid #273746;background:#0d141c;text-align:center;min-height:88px;display:grid;align-content:center;gap:3px}.skill-asc-flow article.reset{border-color:#734246;background:#170e11}.skill-asc-flow article.recover{border-color:#397154;background:#0d1712}.skill-asc-flow>div{font-size:22px;color:#68798d}.skill-asc-flow small{font-size:8px;color:#708196;font-weight:1000}.skill-asc-flow b{font-size:15px}.skill-asc-flow span{font-size:9.5px;color:#8d9daf}.skill-asc-note{margin:10px 0 0;color:#8796a7;font-size:10.5px;line-height:1.55}
 @media(max-width:1100px){.skill-rarity-strip{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:700px){.skill-rarity-strip{grid-template-columns:1fr 1fr}.skill-threshold-flow,.skill-asc-flow{grid-template-columns:1fr}.skill-threshold-arrow,.skill-asc-flow>div{transform:rotate(90deg);text-align:center}.skill-cost-row{grid-template-columns:1fr}}
+
+/* Knowledge 0.28 — Skills now intentionally reuse the same two-chart hierarchy as Pets/Mounts. */
+#skills .viz-shell,#skills .asc-path-viz{margin-top:10px}

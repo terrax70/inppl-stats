@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="inppl-build" content="141">
+<meta name="inppl-build" content="142">
 <meta name="theme-color" content="#07090d">
 <title>INPPL • Forge Knowledge Lab</title>
-<link rel="stylesheet" href="knowledge.css?v=270-141">
-<link rel="stylesheet" href="../ui-shell.css?v=141">
+<link rel="stylesheet" href="knowledge.css?v=280-142">
+<link rel="stylesheet" href="../ui-shell.css?v=142">
 </head>
 <body>
 <div class="app">
@@ -35,7 +35,7 @@
     </nav>
 
     <div class="side-status">
-      <div class="release-row"><strong>INPPL • Rozwój</strong><span class="release-badge">v0.27</span></div>
+      <div class="release-row"><strong>INPPL • Rozwój</strong><span class="release-badge">v0.28</span></div>
       <div>Narzędzie INPPL • Rozwój</div>
       <div>Dane config: 2026-07-15</div>
     </div>
@@ -161,57 +161,47 @@
     <section class="view" id="skills">
       <div class="view-head">
         <div>
-          <div class="eyebrow">SKILLS • RARITY / SUMMON</div>
-          <h2>Jak rośnie rarity skilli?</h2>
-          <p>Skille mają unikalne efekty, więc nie udajemy, że każdy ma wspólne HP/DMG jak Pet czy Mount. Tutaj pokazujemy to, co da się porównać uczciwie: <b>rarity</b>, <b>punkty wojny za pojedynczy skill</b> oraz próg potrzebny po Ascension.</p>
+          <div class="eyebrow">SKILLS • PROGRESJA RARITY</div>
+          <h2>O ile rośnie kolejny rarity skilla?</h2>
+          <p>Dokładnie ten sam układ jak dla Petów i Mountów. Ponieważ skille nie mają jednej wspólnej bazowej wartości HP/DMG, wykres rarity używa <b>punktów wojny za pojedynczy skill</b> jako wspólnej porównywalnej wartości.</p>
+        </div>
+        <div class="asc-controls">
+          <div class="asc-control-label">ASCENSION</div>
+          <div class="asc-switch" data-asc-switch="skills">
+            <button class="asc-btn active" data-asc="0">A0</button>
+            <button class="asc-btn" data-asc="1">A1</button>
+            <button class="asc-btn" data-asc="2">A2</button>
+            <button class="asc-btn" data-asc="3">A3</button>
+          </div>
         </div>
       </div>
-
-      <div class="skill-rarity-strip" id="skillRarityStrip"></div>
+      <div class="asc-power-strip" data-asc-strip="skills">
+        <div class="asc-power-title">ASCENSION • SKILLE</div>
+        <div class="asc-power-steps">
+          <div class="asc-power-step active" data-asc-step="0"><span>A0</span><b>×1</b><small>Base</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="1"><span>A1</span><b>×50</b><small>vs A0</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="2"><span>A2</span><b>×2 500</b><small>vs A0</small></div>
+          <div class="asc-power-arrow"><b>×50</b><span>→</span></div>
+          <div class="asc-power-step" data-asc-step="3"><span>A3</span><b>×125 000</b><small>vs A0</small></div>
+        </div>
+      </div>
+      <div class="viz-shell" id="skillViz"></div>
       <div class="insights" id="skillInsights"></div>
-
-      <section class="skill-summon-card">
-        <div class="skill-card-head">
+      <section class="asc-path-card">
+        <div class="asc-path-head">
           <div>
-            <div class="card-kicker">SUMMON LEVEL • OFFICIAL GUIDE</div>
-            <h3>Kiedy zaczyna się sensowny Legendary?</h3>
+            <div class="card-kicker">PEŁNA ŚCIEŻKA ASCENSION • A0 → A3</div>
+            <h3>Pełna progresja rarity • Level 1 → 100 → Ascension</h3>
+            <p data-path-copy="skills"></p>
           </div>
-          <div class="skill-target-pill">CEL A1 • LV24</div>
-        </div>
-        <div class="skill-threshold-flow">
-          <article>
-            <small>LEGENDARY ZACZYNA SIĘ</small>
-            <b>Skill Lv18</b>
-            <span>około 0,03%</span>
-          </article>
-          <div class="skill-threshold-arrow">→</div>
-          <article class="target">
-            <small>ZALECANY CEL PO A1</small>
-            <b>Skill Lv24</b>
-            <span>2% Legendary</span>
-          </article>
-        </div>
-        <div class="skill-cost-row">
-          <div><span>Base</span><b>49 600 Tickets</b></div>
-          <div><span>25% Discount</span><b>37 200 Tickets</b></div>
-        </div>
-      </section>
-
-      <section class="skill-asc-card">
-        <div class="skill-card-head">
-          <div>
-            <div class="card-kicker">SKILL ASCENSION • NAJPROŚCIEJ</div>
-            <h3>Co dzieje się ze skillami po Ascension?</h3>
+          <div class="path-legend">
+            <span><i class="legend-peak"></i> moment Ascension</span>
+            <span><i class="legend-recover"></i> odzyskanie starej mocy</span>
           </div>
         </div>
-        <div class="skill-asc-flow">
-          <article><small>PRZED</small><b>A0 • Lv100</b><span>np. Mythic skills</span></article>
-          <div>→</div>
-          <article class="reset"><small>RESET</small><b>Skills A1 • Lv1</b><span>Skill Tickets zostają</span></article>
-          <div>→</div>
-          <article class="recover"><small>ODZYSKANIE MOCY</small><b>A1 • Lv24</b><span>Legendary ≈ stara moc Mythic</span></article>
-        </div>
-        <p class="skill-asc-note">Według oficjalnego poradnika Skills są najłatwiejszym filarem do Ascension. Po zdobyciu kompletu Legendary wracasz mniej więcej do mocy sprzed resetu.</p>
+        <div class="asc-path-viz" id="skillsAscPath"></div>
       </section>
     </section>
 
@@ -617,8 +607,8 @@
   </main>
 </div>
 
-<script src="knowledge-data.js?v=270-141"></script>
-<script src="knowledge.js?v=270-141"></script>
+<script src="knowledge-data.js?v=280-142"></script>
+<script src="knowledge.js?v=280-142"></script>
 
 <script>
 (() => {

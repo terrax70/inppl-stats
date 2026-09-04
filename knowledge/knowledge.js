@@ -264,6 +264,27 @@ function renderProgressInsights(target,rows){
    <article class="insight step-strip"><span>WSZYSTKIE SKOKI</span><div>${htmlSteps}</div></article>`;
 }
 
+function renderSkills(){
+ const host=$("#skillRarityStrip"), insights=$("#skillInsights");
+ if(!host||!insights)return;
+ const rows=D.skills;
+ host.innerHTML=rows.map((r,i)=>{
+   const prev=i?rows[i-1].warPoints:null;
+   const gain=prev?((r.warPoints/prev)-1)*100:null;
+   return `<article class="skill-rarity-card" style="--rarity:${D.colors[r.rarity]||'#8abcf5'}">
+     <div class="skill-rarity-dot"></div>
+     <div class="skill-rarity-name">${r.rarity}</div>
+     <div class="skill-war-points"><span>WAR POINTS / SKILL</span><b>${fmt(r.warPoints)}</b></div>
+     ${gain!==null?`<small>+${gain.toLocaleString("pl-PL",{maximumFractionDigits:1})}% vs ${rows[i-1].rarity}</small>`:`<small>punkt bazowy rarity</small>`}
+   </article>`;
+ }).join("");
+ const total=rows.at(-1).warPoints/rows[0].warPoints;
+ insights.innerHTML=`
+   <article class="insight primary-insight"><span>COMMON → MYTHIC</span><b>×${total.toLocaleString("pl-PL",{maximumFractionDigits:1})}</b><small>175 pkt vs 50 pkt za pojedynczy skill.</small></article>
+   <article class="insight primary-insight"><span>LEGENDARY</span><b>125 pkt</b><small>Cel wskazany przez poradnik po Skill Ascension.</small></article>
+   <article class="insight step-strip"><span>WAR POINTS</span><div>${rows.map(r=>`<span class="mini-step"><b>${r.warPoints}</b><small>${r.rarity}</small></span>`).join("")}</div></article>`;
+}
+
 function renderPets(){
  renderAssetStrip("pets");
  const level=ascState.pets;
@@ -840,7 +861,7 @@ $$(".tab").forEach(b=>b.onclick=()=>{
  $$(".view").forEach(v=>v.classList.toggle("active",v.id===b.dataset.tab));
 });
 
-renderPets();renderMounts();renderItems();renderAllAscensionPaths();renderAscension();
+renderPets();renderMounts();renderSkills();renderItems();renderAllAscensionPaths();renderAscension();
 
 bindTechRoadmap();
 bindOfficialAscensionGuide();

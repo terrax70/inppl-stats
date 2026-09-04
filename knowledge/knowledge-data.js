@@ -7,6 +7,14 @@ window.FORGE_KNOWLEDGE = {
     {level:3,label:"A3",multiplier:125000, stepMultiplier:50}
   ],
   rarities: ["Common","Rare","Epic","Legendary","Ultimate","Mythic"],
+  skills: [
+    {rarity:"Common",warPoints:50},
+    {rarity:"Rare",warPoints:75},
+    {rarity:"Epic",warPoints:100},
+    {rarity:"Legendary",warPoints:125},
+    {rarity:"Ultimate",warPoints:150},
+    {rarity:"Mythic",warPoints:175}
+  ],
   colors: {
     Common:"#aeb8c6", Rare:"#5ba7ff", Epic:"#bb6cff",
     Legendary:"#ffb84d", Ultimate:"#ff6767", Mythic:"#67e6d0"

@@ -291,27 +291,36 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="data.js?v=134"></script>
-<script src="app.js?v=165"></script>
-
 <script>
-(() => {
-  const LOCAL_BUILD = "134";
+(async () => {
   const VERSION_URL = "version.json";
-  const KEY = "inppl_last_reloaded_build";
 
-  fetch(VERSION_URL + "?t=" + Date.now(), { cache: "no-store" })
-    .then(r => r.ok ? r.json() : null)
-    .then(v => {
-      if (!v || !v.build || String(v.build) === LOCAL_BUILD) return;
-      if (sessionStorage.getItem(KEY) === String(v.build)) return;
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.body.appendChild(s);
+    });
+  }
 
-      sessionStorage.setItem(KEY, String(v.build));
-      const u = new URL(location.href);
-      u.searchParams.set("_v", String(v.build));
-      location.replace(u.toString());
-    })
-    .catch(() => {});
+  let build = String(Date.now());
+
+  try {
+    const r = await fetch(VERSION_URL + "?t=" + Date.now(), { cache: "no-store" });
+    if (r.ok) {
+      const v = await r.json();
+      if (v && v.build != null) build = String(v.build);
+    }
+  } catch (_) {}
+
+  try {
+    await loadScript("data.js?v=" + encodeURIComponent(build));
+    await loadScript("app.js?v=" + encodeURIComponent(build));
+  } catch (e) {
+    console.error("Nie udało się załadować aktualnych danych INPPL:", e);
+  }
 })();
 </script>
 

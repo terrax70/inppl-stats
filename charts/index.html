@@ -102,7 +102,7 @@ th:first-child,td:first-child{text-align:left}
     <div>
       <div class="eyebrow">INPPL • Forge Master</div>
       <h1>Clan Tech Tree Analyzer</h1>
-      <div class="sub">Całe klanowe drzewko technologii. Każdy node dostaje własny model opłacalności zgodny z mechaniką gry — Damage/Health, timery, stałe bonusy, poziomy nieskończone i ekonomia nie są już liczone jednym wzorem. Dane node'ów są pobierane z najnowszej konfiguracji gry z repo <b>1vcian/fm</b>, a dane graczy z lokalnego <b>data.js</b>.</div>
+      <div class="sub">Całe klanowe drzewko technologii. Każdy node dostaje własny model opłacalności zgodny z mechaniką gry — Damage/Health, timery, stałe bonusy, poziomy ponad MAX (ignorowane) i ekonomia nie są już liczone jednym wzorem. Dane node'ów są pobierane z najnowszej konfiguracji gry z repo <b>1vcian/fm</b>, a dane graczy z lokalnego <b>data.js</b>.</div>
     </div>
     <a class="back" href="../#overview">← INPPL Stats</a>
   </div>
@@ -121,14 +121,14 @@ th:first-child,td:first-child{text-align:left}
     <div class="toolbar">
       <div>
         <h2>Pełne klanowe Tech Tree</h2>
-        <div class="note">Koszt node'a jest liniowy: <b>PointsPerLevel × liczba poziomów</b>. Konwersja darowizn jest pobierana z GuildBaseConfig: obecnie <b>1 pkt tech = 2 Green Potions albo 1 Gem</b>.</div>
+        <div class="note">Koszt node'a jest liczony tylko do jego <b>MaxLevel</b>: <b>PointsPerLevel × poziom</b>. Analyzer celowo ignoruje pola <code>PointsPerInfiniteLevel</code> / <code>ValuePerInfiniteLevel</code>, bo właściwy Clan Tech Tree blokuje poziom na MaxLevel. Konwersja darowizn: <b>1 pkt tech = 2 Green Potions albo 1 Gem</b>.</div>
       </div>
       <input id="search" class="search" placeholder="Szukaj node'a, np. Clan War, Pet, Race…">
     </div>
     <div id="tree" class="tree"></div>
   </div>
 
-  <div class="note">Wersja 2.1 analizatora po audycie mechanik i kosztów darowizn. Dla node'ów Damage + Health działających w tym samym kontekście można policzyć zmianę efektywnej Power z samego <b>powerM</b>, jeśli oba są rozwinięte do tego samego poziomu. Dla node'ów wpływających tylko na część buildu (np. WeaponBonus, PetBonusDamage) dokładna zmiana Power wymagałaby osobnych statystyk gracza, których data.js nie zawiera.</div>
+  <div class="note">Wersja 2.2 analizatora — każdy node kończy się dokładnie na swoim MaxLevel. Dla node'ów Damage + Health działających w tym samym kontekście można policzyć zmianę efektywnej Power z samego <b>powerM</b>, jeśli oba są rozwinięte do tego samego poziomu. Dla node'ów wpływających tylko na część buildu (np. WeaponBonus, PetBonusDamage) dokładna zmiana Power wymagałaby osobnych statystyk gracza, których data.js nie zawiera.</div>
 </div>
 
 <div id="modalBack" class="modalBack">
@@ -280,24 +280,21 @@ function isPercent(type){
 function valFmt(type,v){
   return isPercent(type) ? pct(v) : fmt(v);
 }
-function hasInfinite(type){
-  const d=UPGRADES[type]||{};
-  return Number(d.PointsPerInfiniteLevel)>0 && Number(d.ValuePerInfiniteLevel)!==0;
-}
+function hasInfinite(type){ return false; } // Clan Tech Tree respects MaxLevel as a hard cap.
 function totalValueAt(type,level){
-  const d=UPGRADES[type]||{}, max=Number(d.MaxLevel||0), v=Number(d.ValuePerLevel||0);
-  const l=Math.max(0,Number(level)||0);
-  if(!hasInfinite(type) || l<=max)return l*v;
-  return max*v+(l-max)*Number(d.ValuePerInfiniteLevel||0);
+  const d=UPGRADES[type]||{}, max=Math.max(0,Number(d.MaxLevel||0)), v=Number(d.ValuePerLevel||0);
+  const l=Math.max(0,Math.min(Number(level)||0,max));
+  return l*v;
 }
 function totalCostAt(type,level){
-  const d=UPGRADES[type]||{}, max=Number(d.MaxLevel||0), c=Number(d.PointsPerLevel||0);
-  const l=Math.max(0,Number(level)||0);
-  if(!hasInfinite(type) || l<=max)return l*c;
-  return max*c+(l-max)*Number(d.PointsPerInfiniteLevel||0);
+  const d=UPGRADES[type]||{}, max=Math.max(0,Number(d.MaxLevel||0)), c=Number(d.PointsPerLevel||0);
+  const l=Math.max(0,Math.min(Number(level)||0,max));
+  return l*c;
 }
 function levelIncrement(type,level){
-  const d=UPGRADES[type]||{}, max=Number(d.MaxLevel||0);
+  const d=UPGRADES[type]||{};
+  return {cost:Number(d.PointsPerLevel||0),value:Number(d.ValuePerLevel||0),infinite:false};
+}, max=Number(d.MaxLevel||0);
   if(level>max && hasInfinite(type)){
     return {cost:Number(d.PointsPerInfiniteLevel||0),value:Number(d.ValuePerInfiniteLevel||0),infinite:true};
   }
@@ -308,7 +305,6 @@ function modelFor(type){
   const m=nodeMeta(type);
   if(CONTEXT_PAIRS[type])return 'combatPair';
   if(m.nature==='Divisor' && (m.statType==='TimerSpeed'||m.statType==='Duration'))return 'timerDivisor';
-  if(hasInfinite(type))return 'linearInfinite';
   if(m.nature==='Additive')return 'additive';
   if(m.nature==='Multiplier')return 'linearMultiplier';
   return 'flatFallback';
@@ -318,7 +314,6 @@ function modelName(type){
   const model=modelFor(type);
   if(model==='combatPair')return 'POWER + PARA';
   if(model==='timerDivisor')return 'TIMER / DIVISOR';
-  if(model==='linearInfinite')return 'STAŁE → DROP PO MAX';
   if(model==='additive')return 'ADDITIVE';
   if(POWER_SOURCE_TYPES.has(type))return 'POWER • ŹRÓDŁO';
   return 'STAŁY BONUS / KOSZT';
@@ -327,11 +322,6 @@ function modelName(type){
 function finiteEfficiencyBase(type){
   const d=UPGRADES[type]||{};
   return Number(d.PointsPerLevel)>0 ? Number(d.ValuePerLevel||0)/Number(d.PointsPerLevel) : 0;
-}
-function infiniteEfficiencyRatio(type){
-  const d=UPGRADES[type]||{}, base=finiteEfficiencyBase(type);
-  if(!base || !hasInfinite(type))return null;
-  return (Number(d.ValuePerInfiniteLevel||0)/Number(d.PointsPerInfiniteLevel||0))/base;
 }
 
 /* Opłacalność jest ZALEŻNA OD MECHANIKI node'a.
@@ -357,9 +347,6 @@ function efficiencyAt(type,level){
     return save1>0?saved/save1:1;
   }
 
-  if(model==='linearInfinite' && l>max){
-    return infiniteEfficiencyRatio(type)??1;
-  }
 
   // Multiplier / Additive o stałym koszcie i stałym przyroście:
   // absolutny efekt na bazową wartość za punkt jest taki sam na każdym poziomie.
@@ -388,9 +375,6 @@ function stageLevels(type){
   const d=UPGRADES[type]||{}, max=Math.max(1,Number(d.MaxLevel||1));
   const base=[1,2,4,8,16,24,32,48,64,96,100].filter(x=>x<=max);
   if(!base.includes(max))base.push(max);
-  if(hasInfinite(type)){
-    [max+1,max+5,max+10].forEach(x=>{if(!base.includes(x))base.push(x)});
-  }
   return [...new Set(base)].sort((a,b)=>a-b);
 }
 
@@ -432,7 +416,6 @@ function badgeFor(type){
   const model=modelFor(type);
   if(model==='combatPair')return '<span class="badge contextBadge">POWER + PARA</span>';
   if(model==='timerDivisor')return '<span class="badge timerBadge">TIMER</span>';
-  if(model==='linearInfinite')return '<span class="badge infiniteBadge">∞ PO MAX</span>';
   if(POWER_SOURCE_TYPES.has(type))return '<span class="badge powerBadge">POWER</span>';
   if(model==='additive')return '<span class="badge addBadge">ADDITIVE</span>';
   return '<span class="badge flatBadge">STAŁE ROI</span>';
@@ -446,7 +429,7 @@ function renderTree(filter=''){
     const el=document.createElement('section');el.className='cat';
     el.innerHTML='<div class="catHead"><div class="catTitle">'+label(key)+'</div><div class="catCount">'+nodes.length+' node’ów</div></div><div class="nodes">'+nodes.map(t=>{
       const d=UPGRADES[t]||{};
-      const maxText=hasInfinite(t)?('MAX '+d.MaxLevel+' + ∞'):('MAX '+(d.MaxLevel??'?'));
+      const maxText='MAX '+(d.MaxLevel??'?');
       return `<button class="node" data-type="${t}">
         <div class="nodeTop"><div class="nodeName">${label(t)}</div>${badgeFor(t)}</div>
         <div class="nodeMeta"><span>${maxText}</span><span>${fmt(d.PointsPerLevel||0)} pkt • ${fmt(Number(d.PointsPerLevel||0)*POTIONS_PER_POINT)} potek</span><span>${valFmt(t,d.ValuePerLevel||0)}/lvl</span></div>
@@ -471,19 +454,17 @@ function findCategory(type){
 
 function openNode(type){
   SELECTED=type;const d=UPGRADES[type];if(!d)return;
-  const inf=hasInfinite(type),meta=nodeMeta(type);
+  const meta=nodeMeta(type);
 
   modalTitle.textContent=label(type);
   modalType.textContent=type+' • '+findCategory(type)+' • '+meta.statType+' / '+meta.nature;
-  maxLevelKpi.textContent=inf?(d.MaxLevel+' + ∞'):d.MaxLevel;
+  maxLevelKpi.textContent=d.MaxLevel;
   costLevelKpi.textContent=techPointCostText(d.PointsPerLevel);
   valueLevelKpi.textContent=valFmt(type,d.ValuePerLevel);
   totalCostKpi.textContent=techPointCostText(totalCostAt(type,d.MaxLevel));
-  maxBonusKpi.textContent=inf?(valFmt(type,totalValueAt(type,d.MaxLevel))+' + ∞'):valFmt(type,totalValueAt(type,d.MaxLevel));
+  maxBonusKpi.textContent=valFmt(type,totalValueAt(type,d.MaxLevel));
 
-  currentLevel.removeAttribute('max');targetLevel.removeAttribute('max');
-  if(!inf){currentLevel.max=d.MaxLevel;targetLevel.max=d.MaxLevel}
-  else {currentLevel.max=999;targetLevel.max=999}
+  currentLevel.max=d.MaxLevel;targetLevel.max=d.MaxLevel;
   currentLevel.value=0;targetLevel.value=Math.min(1,Number(d.MaxLevel||1));
   currentLevel.oninput=updateNode;targetLevel.oninput=updateNode;
 
@@ -495,12 +476,11 @@ function openNode(type){
 }
 
 function clampLevels(){
-  const d=UPGRADES[SELECTED],inf=hasInfinite(SELECTED),max=Number(d.MaxLevel||0);
-  let cur=Math.max(0,Number(currentLevel.value)||0);
-  let tar=Math.max(0,Number(targetLevel.value)||0);
-  if(!inf){cur=Math.min(cur,max);tar=Math.min(tar,max)}
-  else {cur=Math.min(cur,999);tar=Math.min(tar,999)}
+  const d=UPGRADES[SELECTED],max=Number(d.MaxLevel||0);
+  let cur=Math.max(0,Math.min(Number(currentLevel.value)||0,max));
+  let tar=Math.max(0,Math.min(Number(targetLevel.value)||0,max));
   if(tar<cur){tar=cur;targetLevel.value=String(cur)}
+  currentLevel.value=String(cur);targetLevel.value=String(tar);
   return {cur,tar};
 }
 
@@ -533,7 +513,7 @@ function updateNode(){
     per1000.textContent=isPercent(SELECTED)?pct((inc.value/inc.cost)*1000):fmt((inc.value/inc.cost)*1000);
   }
 
-  relativeGainLabel.textContent=(model==='linearInfinite'&&tar>Number(d.MaxLevel||0))?'Opłacalność poziomu po MAX':'Opłacalność poziomu docelowego';
+  relativeGainLabel.textContent='Opłacalność poziomu docelowego';
   relativeGain.textContent=tar>0?effFmt(targetEfficiency(SELECTED,tar)):'—';
 
   renderModelPanel(cur,tar);
@@ -568,16 +548,6 @@ function renderModelPanel(cur,tar){
       ['Czas na MAX',pct(remain)+' bazowego'],
       ['Łącznie krócej',pct(1-remain)],
       ['Opłacalność MAX lvl',effFmt(efficiencyAt(type,max))]
-    ];
-  }else if(model==='linearInfinite'){
-    const max=Number(d.MaxLevel||0),ratio=infiniteEfficiencyRatio(type);
-    title='Stała opłacalność do MAX, potem wyraźny spadek';
-    explain='Do poziomu MAX każdy level kosztuje tyle samo i daje ten sam absolutny bonus do bazowej wartości — więc ROI kosztowe jest płaskie. Po MAX gra przechodzi na PointsPerInfiniteLevel / ValuePerInfiniteLevel i opłacalność zmienia się skokowo.';
-    stats=[
-      ['Do MAX',fmt(d.PointsPerLevel)+' pkt ('+fmt(Number(d.PointsPerLevel)*POTIONS_PER_POINT)+' potek) → '+valFmt(type,d.ValuePerLevel)],
-      ['Po MAX',fmt(d.PointsPerInfiniteLevel)+' pkt ('+fmt(Number(d.PointsPerInfiniteLevel)*POTIONS_PER_POINT)+' potek) → '+valFmt(type,d.ValuePerInfiniteLevel)],
-      ['ROI po MAX vs zwykły lvl',effFmt(ratio)],
-      ['Bonus na MAX',valFmt(type,totalValueAt(type,max))]
     ];
   }else if(model==='additive'){
     title='Stała opłacalność — przyrost Additive';
@@ -627,10 +597,10 @@ function renderLevels(){
       effect=valFmt(type,val);
       gain=actualGainText(type,l);
     }
-    const isInf=hasInfinite(type)&&l>Number(UPGRADES[type].MaxLevel||0);
-    const lvlLabel=isInf?('MAX+'+(l-Number(UPGRADES[type].MaxLevel||0))):String(l);
+    const isInf=false;
+    const lvlLabel=String(l);
     return `<tr>
-      <td><b>${lvlLabel}</b>${isInf?' <span style="color:#d99a83;font-size:9px">∞</span>':''}</td>
+      <td><b>${lvlLabel}</b></td>
       <td>${compact(cost)} pkt<br><span style="color:#8297aa;font-size:9px">${compact(cost*POTIONS_PER_POINT)} potek</span></td>
       <td>${effect}</td>
       <td>${gain}</td>
@@ -661,7 +631,7 @@ function drawChart(){
 
   const W=r.width,H=r.height,m={l:92,r:24,t:48,b:74},pw=W-m.l-m.r,ph=H-m.t-m.b;
   const model=modelFor(type),levels=stageLevels(type);
-  const data=levels.map(l=>({level:l,label:(hasInfinite(type)&&l>Number(UPGRADES[type].MaxLevel||0))?'MAX+'+(l-Number(UPGRADES[type].MaxLevel||0)):String(l),eff:efficiencyAt(type,l)}));
+  const data=levels.map(l=>({level:l,label:(hasInfinite(type)&&l>Number(UPGRADES[type].MaxLevel||0))?'MAX'+(l-Number(UPGRADES[type].MaxLevel||0)):String(l),eff:efficiencyAt(type,l)}));
   const stepX=data.length>1?pw/(data.length-1):0;
   const pts=data.map((o,i)=>({x:m.l+i*stepX,y:m.t+ph-o.eff*ph}));
 
@@ -679,15 +649,6 @@ function drawChart(){
     ctx.fillStyle='rgba(156,189,144,.065)';ctx.fillRect(m.l,m.t,pw,ph);
     ctx.fillStyle='rgba(223,242,216,.92)';ctx.font='800 10px system-ui';ctx.textAlign='left';ctx.textBaseline='top';
     ctx.fillText('STAŁA OPŁACALNOŚĆ KOSZTOWA',m.l+12,m.t+10);
-  }else if(model==='linearInfinite'){
-    const max=Number(UPGRADES[type].MaxLevel||0);
-    const idx=data.findIndex(x=>x.level>max);
-    const splitX=idx>0?m.l+(idx-.5)*stepX:W-m.r;
-    ctx.fillStyle='rgba(156,189,144,.065)';ctx.fillRect(m.l,m.t,splitX-m.l,ph);
-    ctx.fillStyle='rgba(190,132,132,.045)';ctx.fillRect(splitX,m.t,W-m.r-splitX,ph);
-    ctx.strokeStyle='rgba(218,151,130,.55)';ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(splitX,m.t);ctx.lineTo(splitX,m.t+ph);ctx.stroke();ctx.setLineDash([]);
-    ctx.fillStyle='#dfeeda';ctx.font='800 10px system-ui';ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText('DO MAX: STAŁE ROI',m.l+12,m.t+10);
-    ctx.fillStyle='#dfaa98';ctx.textAlign='right';ctx.fillText('PO MAX: DROŻSZE POZIOMY',W-m.r-8,m.t+10);
   }else{
     const bestEnd=data.length>=2?m.l+Math.min(1.5,data.length-1)*stepX:m.l;
     ctx.fillStyle='rgba(156,189,144,.065)';ctx.fillRect(m.l,m.t,Math.max(0,bestEnd-m.l),ph);
@@ -724,12 +685,11 @@ function drawChart(){
   });
 
   ctx.fillStyle='#9fb0c4';ctx.font='800 10px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
-  ctx.fillText(hasInfinite(type)?'Kolejne progi (MAX+ = poziomy nieskończone)':'Kolejne progi poziomu node’a',m.l+pw/2,H-8);
+  ctx.fillText('Kolejne progi poziomu node’a',m.l+pw/2,H-8);
   ctx.save();ctx.translate(18,m.t+ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Opłacalność vs 1. poziom (%)',0,0);ctx.restore();
 
   let title='opłacalność kolejnych progów';
   if(model==='linearMultiplier'||model==='additive')title='stała opłacalność kosztowa';
-  if(model==='linearInfinite')title='opłacalność do MAX i po MAX';
   if(model==='timerDivisor')title='opłacalność oszczędności czasu';
   ctx.fillStyle='#dce8f5';ctx.font='900 12px system-ui';ctx.textAlign='left';ctx.textBaseline='top';
   ctx.fillText(label(type)+' — '+title,m.l,m.t-29);

@@ -41,6 +41,21 @@ h1{font-size:28px;line-height:1.05;margin:6px 0 8px}
 .badge{font-size:9px;padding:3px 6px;border-radius:999px;border:1px solid #36516b;color:#9cccf5;white-space:nowrap}
 .nodeMeta{display:flex;justify-content:space-between;gap:8px;margin-top:6px;color:var(--muted);font-size:9px}
 .powerBadge{border-color:#53613e;color:#b9db9d}.contextBadge{border-color:#65533a;color:#e0bd80}
+.timerBadge{border-color:#315f6b;color:#86d5df}.flatBadge{border-color:#43556a;color:#9ec5e7}
+.infiniteBadge{border-color:#714d43;color:#e3a38e}.addBadge{border-color:#5b4e72;color:#c4adea}
+.modelPanel{margin:0 0 12px;padding:12px 13px;border:1px solid #2a3c4d;border-radius:13px;background:#0a1620}
+.modelHead{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:5px}
+.modelTitle{font-size:14px;font-weight:900}.modelBadge{font-size:9px;font-weight:900;letter-spacing:.06em;padding:4px 7px;border-radius:999px;border:1px solid #46617b;color:#a8d4f8}
+.modelStats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:9px}
+.modelStat{background:#09131b;border:1px solid #243747;border-radius:9px;padding:8px 9px}
+.modelStat .l{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.modelStat .v{font-size:13px;font-weight:900;margin-top:3px}
+.specialPanel{margin-top:14px;border:1px solid #3e4f63;background:#0b1620;border-radius:13px;padding:12px}
+.specialPanel h3{margin:0 0 5px;font-size:14px}.specialControls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.specialControls label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.specialControls input{width:100%;margin-top:5px;background:#07111a;color:#fff;border:1px solid #31475c;border-radius:8px;padding:8px}
+.specialMetrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.specialMetric{background:#09131b;border:1px solid #273b4d;border-radius:9px;padding:9px}
+.specialMetric .l{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.specialMetric .v{font-size:14px;font-weight:900;margin-top:3px}
 .note{font-size:11px;color:var(--muted);line-height:1.45;margin-top:10px}
 .modalBack{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:flex-start;justify-content:center;padding:28px 14px;z-index:50;overflow:auto}
 .modalBack.open{display:flex}
@@ -77,7 +92,7 @@ th:first-child,td:first-child{text-align:left}
 .warn{margin-top:12px;padding:10px 11px;border-radius:11px;border:1px solid #55462f;background:#19140d;color:#e2bd80;font-size:11px;line-height:1.45}
 .hidden{display:none!important}
 @media(max-width:1100px){.tree{grid-template-columns:repeat(3,1fr)}.summary{grid-template-columns:repeat(3,1fr)}.nodeKpis{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:780px){.tree{grid-template-columns:1fr 1fr}.summary{grid-template-columns:1fr 1fr}.analysisGrid{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.powerGrid{grid-template-columns:1fr 1fr}.top{flex-direction:column}}
+@media(max-width:780px){.tree{grid-template-columns:1fr 1fr}.summary{grid-template-columns:1fr 1fr}.analysisGrid{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.powerGrid{grid-template-columns:1fr 1fr}.modelStats,.specialMetrics{grid-template-columns:1fr 1fr}.specialControls{grid-template-columns:1fr}.top{flex-direction:column}}
 @media(max-width:520px){.tree{grid-template-columns:1fr}.summary,.nodeKpis{grid-template-columns:1fr 1fr}}
 </style>
 </head>
@@ -87,7 +102,7 @@ th:first-child,td:first-child{text-align:left}
     <div>
       <div class="eyebrow">INPPL • Forge Master</div>
       <h1>Clan Tech Tree Analyzer</h1>
-      <div class="sub">Całe klanowe drzewko technologii. Kliknij dowolny node, żeby zobaczyć koszt, bonus i przede wszystkim spadek opłacalności kolejnych poziomów. Dane node'ów są pobierane z najnowszej konfiguracji gry z repo <b>1vcian/fm</b>, a dane graczy z lokalnego <b>data.js</b>.</div>
+      <div class="sub">Całe klanowe drzewko technologii. Każdy node dostaje własny model opłacalności zgodny z mechaniką gry — Damage/Health, timery, stałe bonusy, poziomy nieskończone i ekonomia nie są już liczone jednym wzorem. Dane node'ów są pobierane z najnowszej konfiguracji gry z repo <b>1vcian/fm</b>, a dane graczy z lokalnego <b>data.js</b>.</div>
     </div>
     <a class="back" href="../#overview">← INPPL Stats</a>
   </div>
@@ -106,14 +121,14 @@ th:first-child,td:first-child{text-align:left}
     <div class="toolbar">
       <div>
         <h2>Pełne klanowe Tech Tree</h2>
-        <div class="note">Koszt node'a jest liniowy: <b>PointsPerLevel × liczba poziomów</b>. Repo 1vcian/fm traktuje PointsPerLevel jako cenę jednego poziomu.</div>
+        <div class="note">Koszt node'a jest liniowy: <b>PointsPerLevel × liczba poziomów</b>. Konwersja darowizn jest pobierana z GuildBaseConfig: obecnie <b>1 pkt tech = 2 Green Potions albo 1 Gem</b>.</div>
       </div>
       <input id="search" class="search" placeholder="Szukaj node'a, np. Clan War, Pet, Race…">
     </div>
     <div id="tree" class="tree"></div>
   </div>
 
-  <div class="note">Wersja 1 analizatora. Dla node'ów Damage + Health działających w tym samym kontekście można policzyć zmianę efektywnej Power z samego <b>powerM</b>, jeśli oba są rozwinięte do tego samego poziomu. Dla node'ów wpływających tylko na część buildu (np. WeaponBonus, PetBonusDamage) dokładna zmiana Power wymagałaby osobnych statystyk gracza, których data.js nie zawiera.</div>
+  <div class="note">Wersja 2.1 analizatora po audycie mechanik i kosztów darowizn. Dla node'ów Damage + Health działających w tym samym kontekście można policzyć zmianę efektywnej Power z samego <b>powerM</b>, jeśli oba są rozwinięte do tego samego poziomu. Dla node'ów wpływających tylko na część buildu (np. WeaponBonus, PetBonusDamage) dokładna zmiana Power wymagałaby osobnych statystyk gracza, których data.js nie zawiera.</div>
 </div>
 
 <div id="modalBack" class="modalBack">
@@ -134,17 +149,27 @@ th:first-child,td:first-child{text-align:left}
       <div class="controls">
         <div class="control"><label>Aktualny poziom</label><input id="currentLevel" type="number" min="0" value="0"></div>
         <div class="control"><label>Poziom docelowy</label><input id="targetLevel" type="number" min="1" value="1"></div>
-        <div class="control"><label>Gracz do podglądu Power</label><select id="playerSelect"></select></div>
+        <div id="playerControl" class="control"><label>Gracz do podglądu Power</label><select id="playerSelect"></select></div>
       </div>
 
-      <div class="note" style="margin:0 0 10px"><b>Wykres pokazuje spadek opłacalności kolejnych progów.</b> Pierwszy próg jest bazą 100%. Zielony = najlepsza wartość, pomarańczowy = coraz słabiej, czerwony = bardzo niski zwrot względem tego, co już masz.</div><div class="analysisGrid">
+      <div id="modelPanel" class="modelPanel">
+        <div class="modelHead"><span id="modelBadge" class="modelBadge">MODEL</span><div id="modelTitle" class="modelTitle">—</div></div>
+        <div id="modelExplain" class="note" style="margin:0">—</div>
+        <div id="modelStats" class="modelStats"></div>
+      </div>
+      <div class="analysisGrid">
         <div class="chartBox"><canvas id="nodeChart"></canvas></div>
         <div class="sideBox">
           <div class="metric"><div class="l">Koszt aktualny → cel</div><div id="upgradeCost" class="v">—</div></div>
-          <div class="metric"><div class="l">Bonus aktualny → cel</div><div id="bonusChange" class="v">—</div></div>
-          <div class="metric"><div class="l">Bonus / 1000 pkt</div><div id="per1000" class="v">—</div></div>
-          <div class="metric"><div class="l">Opłacalność poziomu docelowego</div><div id="relativeGain" class="v">—</div></div>
+          <div class="metric"><div id="bonusChangeLabel" class="l">Efekt aktualny → cel</div><div id="bonusChange" class="v">—</div></div>
+          <div class="metric"><div id="per1000Label" class="l">Efekt / 1000 pkt</div><div id="per1000" class="v">—</div></div>
+          <div class="metric"><div id="relativeGainLabel" class="l">Opłacalność poziomu docelowego</div><div id="relativeGain" class="v">—</div></div>
         </div>
+      </div>
+
+      <div id="specialPanel" class="specialPanel hidden">
+        <h3 id="specialTitle">Analiza specjalna</h3>
+        <div id="specialBody"></div>
       </div>
 
       <div id="powerPanel" class="powerPanel hidden">
@@ -156,7 +181,7 @@ th:first-child,td:first-child{text-align:left}
 
       <div class="tableWrap">
         <table>
-          <thead><tr><th>Poziom</th><th>Koszt łączny</th><th>Bonus łączny</th><th>Opłacalność tego poziomu</th><th>Bonus / 1000 pkt</th></tr></thead>
+          <thead><tr><th id="thLevel">Poziom</th><th id="thCost">Koszt łączny</th><th id="thEffect">Efekt łączny</th><th id="thGain">Zysk tego poziomu</th><th id="thEfficiency">Opłacalność vs 1. poziom</th></tr></thead>
           <tbody id="levelsBody"></tbody>
         </table>
       </div>
@@ -167,6 +192,7 @@ th:first-child,td:first-child{text-align:left}
 <script src="../data.js"></script>
 <script>
 const REPO_BASE='https://raw.githubusercontent.com/1vcian/fm/main/public/parsed_configs/';
+
 const LABELS={
 Power:'Moc',EggTimers:'Timery jaj',Special:'Specjalne',ClanWar:'Wojna klanów',ClanMissions:'Misje klanowe',Dungeons:'Lochy',ClanTechPotions:'Fiolki / Tech Race',
 WeaponBonus:'Bonus broni',HelmetBonus:'Bonus hełmu',BodyBonus:'Bonus pancerza',ShoeBonus:'Bonus butów',GloveBonus:'Bonus rękawic',BeltBonus:'Bonus pasa',NecklaceBonus:'Bonus naszyjnika',RingBonus:'Bonus pierścienia',
@@ -175,9 +201,14 @@ CommonEggTimer:'Common Egg Timer',RareEggTimer:'Rare Egg Timer',EpicEggTimer:'Ep
 AutoForge:'Auto Forge',ForgeAnimationSpeed:'Forge Animation Speed',PlayerMoveSpeed:'Move Speed',PlayerAttackRange:'Attack Range',
 ClanWarDamage:'Clan War Damage',ClanWarHealth:'Clan War Health',PersonalWarRewards:'Personal War Rewards',ClanWarWinRewards:'Clan War Win Rewards',ClanWarLoseRewards:'Clan War Lose Rewards',
 MissionDamage:'Mission Damage',MissionHealth:'Mission Health',MissionRewards:'Mission Rewards',
-GuildPotionsFromMissions:'Potions from Missions',GuildPotionsFromPersonalWar:'Potions from Personal War',GuildPotionsFromClanWarWin:'Potions from Clan War Win',GuildPotionsFromClanWarLose:'Potions from Clan War Lose',GuildTechRaceRewardMultiplier:'Clan Tech Race Rewards',GuildTechRaceScoreMultiplier:'Clan Tech Race Score'
+HammerThiefDungeonDamage:'Hammer Thief Damage',HammerThiefDungeonHealth:'Hammer Thief Health',
+GhostTownDungeonDamage:'Ghost Town Damage',GhostTownDungeonHealth:'Ghost Town Health',
+InvasionDungeonDamage:'Invasion Damage',InvasionDungeonHealth:'Invasion Health',
+ZombieRushDungeonDamage:'Zombie Rush Damage',ZombieRushDungeonHealth:'Zombie Rush Health',
+GuildPotionsFromMissions:'Potions from Missions',GuildPotionsFromPersonalWar:'Potions from Personal War',GuildPotionsFromClanWarWin:'Potions from Clan War Win',GuildPotionsFromClanWarLose:'Potions from Clan War Lose',
+GuildTechRaceRewardMultiplier:'Clan Tech Race Rewards',GuildTechRaceScoreMultiplier:'Clan Tech Race Score'
 };
-const RAW_TYPES=new Set(['AutoForge','PlayerAttackRange']);
+
 const CONTEXT_PAIRS={
 ClanWarDamage:'ClanWarHealth',ClanWarHealth:'ClanWarDamage',
 MissionDamage:'MissionHealth',MissionHealth:'MissionDamage',
@@ -186,11 +217,18 @@ GhostTownDungeonDamage:'GhostTownDungeonHealth',GhostTownDungeonHealth:'GhostTow
 InvasionDungeonDamage:'InvasionDungeonHealth',InvasionDungeonHealth:'InvasionDungeonDamage',
 ZombieRushDungeonDamage:'ZombieRushDungeonHealth',ZombieRushDungeonHealth:'ZombieRushDungeonDamage'
 };
-const POWER_CATEGORY_TYPES=new Set(['WeaponBonus','HelmetBonus','BodyBonus','ShoeBonus','GloveBonus','BeltBonus','NecklaceBonus','RingBonus','SkillDamage','PetBonusDamage','PetBonusHealth','MountDamage','MountHealth']);
 
-let VERSION='',POSITIONS={},UPGRADES={},PLAYERS=[],SELECTED=null;
+const POWER_SOURCE_TYPES=new Set([
+'WeaponBonus','HelmetBonus','BodyBonus','ShoeBonus','GloveBonus','BeltBonus','NecklaceBonus','RingBonus',
+'SkillDamage','PetBonusDamage','PetBonusHealth','MountDamage','MountHealth'
+]);
+
+let VERSION='',POSITIONS={},UPGRADES={},TECHNODES={},GUILDBASE={},PLAYERS=[],SELECTED=null;
+let RACE_MEMBERS=50,RACE_BASE_PER_MEMBER=400;
+let POTIONS_PER_POINT=2,GEMS_PER_POINT=1;
 
 const fmt=n=>Number(n||0).toLocaleString('pl-PL',{maximumFractionDigits:2});
+const pct=n=>(Number(n||0)*100).toLocaleString('pl-PL',{maximumFractionDigits:2})+'%';
 const compact=n=>{
   n=Number(n||0); const a=Math.abs(n);
   if(a>=1e12)return (n/1e12).toLocaleString('pl-PL',{maximumFractionDigits:2})+' bln';
@@ -199,13 +237,8 @@ const compact=n=>{
   if(a>=1e3)return (n/1e3).toLocaleString('pl-PL',{maximumFractionDigits:2})+' tys.';
   return fmt(n);
 };
-function splitName(s){return s.replace(/([a-z0-9])([A-Z])/g,'$1 $2')}
+function splitName(s){return String(s||'').replace(/([a-z0-9])([A-Z])/g,'$1 $2')}
 function label(s){return LABELS[s]||splitName(s)}
-function isPercent(type){return !RAW_TYPES.has(type)}
-function valFmt(type,v){
-  if(isPercent(type)) return (v*100).toLocaleString('pl-PL',{maximumFractionDigits:2})+'%';
-  return fmt(v);
-}
 function powerFmtM(m){
   const n=Number(m)*1e6,a=Math.abs(n);
   if(a>=1e12)return (n/1e12).toLocaleString('pl-PL',{maximumFractionDigits:2})+'T';
@@ -214,247 +247,569 @@ function powerFmtM(m){
   return fmt(n);
 }
 function projectedPowerM(baseM,mult){return Number(baseM)*mult+0.00048*(mult-1)}
+function techPointCostText(points){
+  const p=Number(points||0);
+  return `${compact(p)} pkt • ${compact(p*POTIONS_PER_POINT)} potek`;
+}
+function readDonationRates(){
+  const arr=GUILDBASE?.TechTreeDonationCurrencies;
+  if(!Array.isArray(arr))return;
+  const pot=arr.find(x=>String(x?.Currency)==='GuildPotions');
+  const gem=arr.find(x=>String(x?.Currency)==='Gems');
+  const pr=Number(pot?.CostPerPoint),gr=Number(gem?.CostPerPoint);
+  if(Number.isFinite(pr)&&pr>0)POTIONS_PER_POINT=pr;
+  if(Number.isFinite(gr)&&gr>0)GEMS_PER_POINT=gr;
+}
+
+function nodeMeta(type){
+  const rows=TECHNODES?.[type]?.StatNodes||[];
+  const first=rows[0]||{};
+  const stat=first.UniqueStat||{};
+  return {
+    rows,
+    statType:stat.StatType||'Unknown',
+    nature:stat.StatNature||'Unknown',
+    targetKind:first.Target?.Kind||'Unknown',
+    condition:first.Condition||'None'
+  };
+}
+function isPercent(type){
+  const m=nodeMeta(type);
+  return m.nature!=='Additive';
+}
+function valFmt(type,v){
+  return isPercent(type) ? pct(v) : fmt(v);
+}
+function hasInfinite(type){
+  const d=UPGRADES[type]||{};
+  return Number(d.PointsPerInfiniteLevel)>0 && Number(d.ValuePerInfiniteLevel)!==0;
+}
+function totalValueAt(type,level){
+  const d=UPGRADES[type]||{}, max=Number(d.MaxLevel||0), v=Number(d.ValuePerLevel||0);
+  const l=Math.max(0,Number(level)||0);
+  if(!hasInfinite(type) || l<=max)return l*v;
+  return max*v+(l-max)*Number(d.ValuePerInfiniteLevel||0);
+}
+function totalCostAt(type,level){
+  const d=UPGRADES[type]||{}, max=Number(d.MaxLevel||0), c=Number(d.PointsPerLevel||0);
+  const l=Math.max(0,Number(level)||0);
+  if(!hasInfinite(type) || l<=max)return l*c;
+  return max*c+(l-max)*Number(d.PointsPerInfiniteLevel||0);
+}
+function levelIncrement(type,level){
+  const d=UPGRADES[type]||{}, max=Number(d.MaxLevel||0);
+  if(level>max && hasInfinite(type)){
+    return {cost:Number(d.PointsPerInfiniteLevel||0),value:Number(d.ValuePerInfiniteLevel||0),infinite:true};
+  }
+  return {cost:Number(d.PointsPerLevel||0),value:Number(d.ValuePerLevel||0),infinite:false};
+}
+
+function modelFor(type){
+  const m=nodeMeta(type);
+  if(CONTEXT_PAIRS[type])return 'combatPair';
+  if(m.nature==='Divisor' && (m.statType==='TimerSpeed'||m.statType==='Duration'))return 'timerDivisor';
+  if(hasInfinite(type))return 'linearInfinite';
+  if(m.nature==='Additive')return 'additive';
+  if(m.nature==='Multiplier')return 'linearMultiplier';
+  return 'flatFallback';
+}
+
+function modelName(type){
+  const model=modelFor(type);
+  if(model==='combatPair')return 'POWER + PARA';
+  if(model==='timerDivisor')return 'TIMER / DIVISOR';
+  if(model==='linearInfinite')return 'STAŁE → DROP PO MAX';
+  if(model==='additive')return 'ADDITIVE';
+  if(POWER_SOURCE_TYPES.has(type))return 'POWER • ŹRÓDŁO';
+  return 'STAŁY BONUS / KOSZT';
+}
+
+function finiteEfficiencyBase(type){
+  const d=UPGRADES[type]||{};
+  return Number(d.PointsPerLevel)>0 ? Number(d.ValuePerLevel||0)/Number(d.PointsPerLevel) : 0;
+}
+function infiniteEfficiencyRatio(type){
+  const d=UPGRADES[type]||{}, base=finiteEfficiencyBase(type);
+  if(!base || !hasInfinite(type))return null;
+  return (Number(d.ValuePerInfiniteLevel||0)/Number(d.PointsPerInfiniteLevel||0))/base;
+}
+
+/* Opłacalność jest ZALEŻNA OD MECHANIKI node'a.
+   Wynik 1.0 = 100% wartości referencyjnej pierwszego poziomu. */
+function efficiencyAt(type,level){
+  const d=UPGRADES[type]||{}, v=Number(d.ValuePerLevel||0), max=Number(d.MaxLevel||0);
+  const l=Math.max(1,Number(level)||1), model=modelFor(type);
+
+  if(model==='combatPair'){
+    // Para Damage+Health: mnożnik efektywnej siły = 1 + bonus.
+    // Marginalny względny wzrost poziomu L: v/(1+v*(L-1)).
+    // Normalizacja do poziomu 1 daje 1/(1+v*(L-1)).
+    return v>0 ? 1/(1+v*(l-1)) : 1;
+  }
+
+  if(model==='timerDivisor'){
+    // Divisor: czas = baza / (1 + bonus).
+    // Liczymy ile czasu bazowego oszczędza konkretny kolejny poziom.
+    const save1=1-(1/(1+v));
+    const before=1/(1+v*(l-1));
+    const after=1/(1+v*l);
+    const saved=before-after;
+    return save1>0?saved/save1:1;
+  }
+
+  if(model==='linearInfinite' && l>max){
+    return infiniteEfficiencyRatio(type)??1;
+  }
+
+  // Multiplier / Additive o stałym koszcie i stałym przyroście:
+  // absolutny efekt na bazową wartość za punkt jest taki sam na każdym poziomie.
+  return 1;
+}
+
+function actualGainText(type,level){
+  const d=UPGRADES[type]||{}, v=Number(d.ValuePerLevel||0), max=Number(d.MaxLevel||0);
+  const inc=levelIncrement(type,level), model=modelFor(type);
+
+  if(model==='combatPair'){
+    const gain=v/(1+v*(level-1));
+    return '+'+pct(gain)+' efektywnej siły';
+  }
+  if(model==='timerDivisor'){
+    const before=1/(1+v*(level-1)),after=1/(1+v*level);
+    return '−'+pct(before-after)+' czasu bazowego';
+  }
+  if(inc.infinite){
+    return isPercent(type)?'+'+pct(inc.value)+' bazowej wartości':'+'+fmt(inc.value);
+  }
+  return isPercent(type)?'+'+pct(inc.value)+' bazowej wartości':'+'+fmt(inc.value);
+}
+
+function stageLevels(type){
+  const d=UPGRADES[type]||{}, max=Math.max(1,Number(d.MaxLevel||1));
+  const base=[1,2,4,8,16,24,32,48,64,96,100].filter(x=>x<=max);
+  if(!base.includes(max))base.push(max);
+  if(hasInfinite(type)){
+    [max+1,max+5,max+10].forEach(x=>{if(!base.includes(x))base.push(x)});
+  }
+  return [...new Set(base)].sort((a,b)=>a-b);
+}
 
 async function load(){
   const status=document.getElementById('status');
   try{
     const versions=await fetch(REPO_BASE+'versions.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('versions');return r.json()});
     VERSION=[...versions].sort((a,b)=>b.localeCompare(a))[0];
-    [POSITIONS,UPGRADES]=await Promise.all([
+    [POSITIONS,UPGRADES,TECHNODES,GUILDBASE]=await Promise.all([
       fetch(REPO_BASE+VERSION+'/GuildTechTreePositionLibrary.json',{cache:'no-store'}).then(r=>r.json()),
-      fetch(REPO_BASE+VERSION+'/GuildTechTreeUpgradeLibrary.json',{cache:'no-store'}).then(r=>r.json())
+      fetch(REPO_BASE+VERSION+'/GuildTechTreeUpgradeLibrary.json',{cache:'no-store'}).then(r=>r.json()),
+      fetch(REPO_BASE+VERSION+'/TechNodesLibrary.json',{cache:'no-store'}).then(r=>r.json()),
+      fetch(REPO_BASE+VERSION+'/GuildBaseConfig.json',{cache:'no-store'}).then(r=>r.json())
     ]);
+    readDonationRates();
+
     const D=window.INPPL_DATA;
-    if(D&&Array.isArray(D.players)) PLAYERS=D.players.filter(p=>p&&p.active!==false&&Number.isFinite(Number(p.powerM))).sort((a,b)=>Number(b.powerM)-Number(a.powerM));
-    status.textContent='Połączono • konfiguracja '+VERSION+' • '+Object.keys(UPGRADES).length+' definicji node’ów';
+    if(D&&Array.isArray(D.players)){
+      PLAYERS=D.players.filter(p=>p&&p.active!==false&&Number.isFinite(Number(p.powerM))).sort((a,b)=>Number(b.powerM)-Number(a.powerM));
+    }
+    RACE_MEMBERS=PLAYERS.length||50;
+
+    status.textContent='Połączono • konfiguracja '+VERSION+' • 1 pkt tech = '+POTIONS_PER_POINT+' potki lub '+GEMS_PER_POINT+' gem • '+Object.keys(UPGRADES).length+' definicji';
     status.className='status ok';
-    renderSummary(); renderTree(); fillPlayers();
+    renderSummary();renderTree();fillPlayers();
   }catch(e){
-    console.error(e); status.textContent='Nie udało się pobrać Clan Tech Tree z repo 1vcian/fm.';status.className='status err';
+    console.error(e);status.textContent='Nie udało się pobrać pełnych danych Clan Tech Tree z repo 1vcian/fm.';status.className='status err';
   }
 }
+
 function renderSummary(){
-  const cats=Object.keys(POSITIONS), nodes=cats.flatMap(c=>POSITIONS[c]?.Nodes||[]);
-  const total=nodes.reduce((s,t)=>{const d=UPGRADES[t];return s+(d?Number(d.PointsPerLevel||0)*Number(d.MaxLevel||0):0)},0);
-  versionKpi.textContent=VERSION.replaceAll('_','-');catsKpi.textContent=cats.length;nodesKpi.textContent=nodes.length;costKpi.textContent=compact(total);playersKpi.textContent=PLAYERS.length||'—';
+  const cats=Object.keys(POSITIONS),nodes=cats.flatMap(c=>POSITIONS[c]?.Nodes||[]);
+  const total=nodes.reduce((s,t)=>s+totalCostAt(t,Number(UPGRADES[t]?.MaxLevel||0)),0);
+  versionKpi.textContent=VERSION.replaceAll('_','-');
+  catsKpi.textContent=cats.length;nodesKpi.textContent=nodes.length;costKpi.textContent=compact(total)+' pkt / '+compact(total*POTIONS_PER_POINT)+' potek';playersKpi.textContent=PLAYERS.length||'—';
 }
+
 function badgeFor(type){
-  if(CONTEXT_PAIRS[type])return '<span class="badge contextBadge">POWER + PARA</span>';
-  if(POWER_CATEGORY_TYPES.has(type))return '<span class="badge powerBadge">POWER</span>';
-  return '';
+  const model=modelFor(type);
+  if(model==='combatPair')return '<span class="badge contextBadge">POWER + PARA</span>';
+  if(model==='timerDivisor')return '<span class="badge timerBadge">TIMER</span>';
+  if(model==='linearInfinite')return '<span class="badge infiniteBadge">∞ PO MAX</span>';
+  if(POWER_SOURCE_TYPES.has(type))return '<span class="badge powerBadge">POWER</span>';
+  if(model==='additive')return '<span class="badge addBadge">ADDITIVE</span>';
+  return '<span class="badge flatBadge">STAŁE ROI</span>';
 }
+
 function renderTree(filter=''){
-  const q=filter.trim().toLowerCase(), tree=document.getElementById('tree');tree.innerHTML='';
+  const q=filter.trim().toLowerCase(),tree=document.getElementById('tree');tree.innerHTML='';
   Object.entries(POSITIONS).forEach(([key,cat])=>{
-    const nodes=(cat.Nodes||[]).filter(t=>(label(t)+' '+t+' '+label(key)).toLowerCase().includes(q));
+    const nodes=(cat.Nodes||[]).filter(t=>(label(t)+' '+t+' '+label(key)+' '+modelName(t)).toLowerCase().includes(q));
     if(!nodes.length)return;
     const el=document.createElement('section');el.className='cat';
     el.innerHTML='<div class="catHead"><div class="catTitle">'+label(key)+'</div><div class="catCount">'+nodes.length+' node’ów</div></div><div class="nodes">'+nodes.map(t=>{
       const d=UPGRADES[t]||{};
-      return `<button class="node" data-type="${t}"><div class="nodeTop"><div class="nodeName">${label(t)}</div>${badgeFor(t)}</div><div class="nodeMeta"><span>MAX ${d.MaxLevel??'?'}</span><span>${fmt(d.PointsPerLevel||0)} pkt/lvl</span><span>${valFmt(t,d.ValuePerLevel||0)}/lvl</span></div></button>`;
+      const maxText=hasInfinite(t)?('MAX '+d.MaxLevel+' + ∞'):('MAX '+(d.MaxLevel??'?'));
+      return `<button class="node" data-type="${t}">
+        <div class="nodeTop"><div class="nodeName">${label(t)}</div>${badgeFor(t)}</div>
+        <div class="nodeMeta"><span>${maxText}</span><span>${fmt(d.PointsPerLevel||0)} pkt • ${fmt(Number(d.PointsPerLevel||0)*POTIONS_PER_POINT)} potek</span><span>${valFmt(t,d.ValuePerLevel||0)}/lvl</span></div>
+      </button>`;
     }).join('')+'</div>';
     tree.appendChild(el);
   });
   tree.querySelectorAll('.node').forEach(b=>b.addEventListener('click',()=>openNode(b.dataset.type)));
 }
+
 function fillPlayers(){
   const s=document.getElementById('playerSelect');
-  s.innerHTML=PLAYERS.length?PLAYERS.map(p=>`<option value="${p.nick}">${p.nick} — ${powerFmtM(p.powerM)}</option>`).join(''):'<option>Brak danych</option>';
+  s.innerHTML=PLAYERS.length?PLAYERS.map(p=>`<option value="${String(p.nick).replace(/"/g,'&quot;')}">${p.nick} — ${powerFmtM(p.powerM)}</option>`).join(''):'<option>Brak danych</option>';
   if(PLAYERS.some(p=>p.nick==='Wosiu'))s.value='Wosiu';
   s.onchange=updateNode;
 }
-function milestones(max){
-  const base=[0,1,2,4,8,16,24,32,48,64,96,100].filter(x=>x<=max);
-  if(!base.includes(max))base.push(max);
-  return [...new Set(base)].sort((a,b)=>a-b);
+
+function findCategory(type){
+  for(const [k,c] of Object.entries(POSITIONS))if((c.Nodes||[]).includes(type))return label(k);
+  return '—';
 }
+
 function openNode(type){
   SELECTED=type;const d=UPGRADES[type];if(!d)return;
-  modalTitle.textContent=label(type);modalType.textContent=type+' • '+findCategory(type);
-  maxLevelKpi.textContent=d.MaxLevel;costLevelKpi.textContent=fmt(d.PointsPerLevel)+' pkt';valueLevelKpi.textContent=valFmt(type,d.ValuePerLevel);
-  totalCostKpi.textContent=compact(Number(d.PointsPerLevel)*Number(d.MaxLevel));maxBonusKpi.textContent=valFmt(type,Number(d.ValuePerLevel)*Number(d.MaxLevel));
-  currentLevel.max=d.MaxLevel;targetLevel.max=d.MaxLevel;currentLevel.value=0;targetLevel.value=Math.min(1,d.MaxLevel);
-  currentLevel.oninput=updateNode;targetLevel.oninput=updateNode;
-  modalBack.classList.add('open');requestAnimationFrame(()=>{updateNode();requestAnimationFrame(drawChart)});
-}
-function findCategory(type){for(const [k,c] of Object.entries(POSITIONS))if((c.Nodes||[]).includes(type))return label(k);return '—'}
+  const inf=hasInfinite(type),meta=nodeMeta(type);
 
-function marginalEfficiency(type, level){
-  // Znormalizowana opłacalność kolejnego poziomu względem pierwszego poziomu = 100%.
-  // Dla procentowych bonusów mnożnikowych: efekt całkowity = 1 + level * ValuePerLevel.
-  // ROI marginalne poziomu L: ValuePerLevel / (1 + (L-1)*ValuePerLevel), przy tym samym koszcie / lvl.
-  // Po normalizacji przez ROI pierwszego poziomu zostaje 1 / (1 + (L-1)*ValuePerLevel).
-  const d=UPGRADES[type]||{}, v=Number(d.ValuePerLevel||0);
-  if(level<=0) return null;
-  if(!isPercent(type) || v<=0) return 1;
-  return 1/(1+(level-1)*v);
+  modalTitle.textContent=label(type);
+  modalType.textContent=type+' • '+findCategory(type)+' • '+meta.statType+' / '+meta.nature;
+  maxLevelKpi.textContent=inf?(d.MaxLevel+' + ∞'):d.MaxLevel;
+  costLevelKpi.textContent=techPointCostText(d.PointsPerLevel);
+  valueLevelKpi.textContent=valFmt(type,d.ValuePerLevel);
+  totalCostKpi.textContent=techPointCostText(totalCostAt(type,d.MaxLevel));
+  maxBonusKpi.textContent=inf?(valFmt(type,totalValueAt(type,d.MaxLevel))+' + ∞'):valFmt(type,totalValueAt(type,d.MaxLevel));
+
+  currentLevel.removeAttribute('max');targetLevel.removeAttribute('max');
+  if(!inf){currentLevel.max=d.MaxLevel;targetLevel.max=d.MaxLevel}
+  else {currentLevel.max=999;targetLevel.max=999}
+  currentLevel.value=0;targetLevel.value=Math.min(1,Number(d.MaxLevel||1));
+  currentLevel.oninput=updateNode;targetLevel.oninput=updateNode;
+
+  const showPlayer=!!CONTEXT_PAIRS[type]||POWER_SOURCE_TYPES.has(type);
+  playerControl.classList.toggle('hidden',!showPlayer);
+
+  modalBack.classList.add('open');
+  requestAnimationFrame(()=>{updateNode();requestAnimationFrame(drawChart)});
 }
-function efficiencyFmt(type, level){
-  const e=marginalEfficiency(type,level);
-  return e==null?'—':(e*100).toLocaleString('pl-PL',{maximumFractionDigits:2})+'%';
+
+function clampLevels(){
+  const d=UPGRADES[SELECTED],inf=hasInfinite(SELECTED),max=Number(d.MaxLevel||0);
+  let cur=Math.max(0,Number(currentLevel.value)||0);
+  let tar=Math.max(0,Number(targetLevel.value)||0);
+  if(!inf){cur=Math.min(cur,max);tar=Math.min(tar,max)}
+  else {cur=Math.min(cur,999);tar=Math.min(tar,999)}
+  if(tar<cur){tar=cur;targetLevel.value=String(cur)}
+  return {cur,tar};
 }
+
+function targetEfficiency(type,level){
+  if(level<=0)return null;
+  return efficiencyAt(type,level);
+}
+function effFmt(e){return e==null?'—':(e*100).toLocaleString('pl-PL',{maximumFractionDigits:2})+'%'}
 
 function updateNode(){
-  if(!SELECTED)return;const d=UPGRADES[SELECTED];
-  let cur=Math.max(0,Math.min(Number(currentLevel.value)||0,d.MaxLevel));
-  let tar=Math.max(cur,Math.min(Number(targetLevel.value)||0,d.MaxLevel));
-  if(tar<cur){tar=cur;targetLevel.value=cur}
-  const cpl=Number(d.PointsPerLevel||0),vpl=Number(d.ValuePerLevel||0);
-  const cost=(tar-cur)*cpl, curVal=cur*vpl,tarVal=tar*vpl,delta=tarVal-curVal;
-  upgradeCost.textContent=compact(cost)+' pkt';bonusChange.textContent=valFmt(SELECTED,curVal)+' → '+valFmt(SELECTED,tarVal);
-  per1000.textContent=cpl?valFmt(SELECTED,(1000/cpl)*vpl):'—';
-  relativeGain.textContent=tar>0?efficiencyFmt(SELECTED,tar):'—';
-  renderLevels();drawChart();renderPower(cur,tar,vpl);
+  if(!SELECTED)return;
+  const d=UPGRADES[SELECTED],{cur,tar}=clampLevels(),model=modelFor(SELECTED);
+  const cost=totalCostAt(SELECTED,tar)-totalCostAt(SELECTED,cur);
+  const curVal=totalValueAt(SELECTED,cur),tarVal=totalValueAt(SELECTED,tar);
+
+  upgradeCost.textContent=techPointCostText(cost);
+
+  if(model==='timerDivisor'){
+    const remainCur=1/(1+curVal),remainTar=1/(1+tarVal);
+    bonusChangeLabel.textContent='Pozostały czas aktualny → cel';
+    bonusChange.textContent=pct(remainCur)+' → '+pct(remainTar);
+    const v=Number(d.ValuePerLevel||0),firstSave=1-(1/(1+v));
+    per1000Label.textContent='Oszczędność czasu / 1000 pkt (1. lvl)';
+    per1000.textContent=pct(firstSave*(1000/Number(d.PointsPerLevel||1)));
+  }else{
+    bonusChangeLabel.textContent='Bonus aktualny → cel';
+    bonusChange.textContent=valFmt(SELECTED,curVal)+' → '+valFmt(SELECTED,tarVal);
+    per1000Label.textContent=isPercent(SELECTED)?'Bonus bazowy / 1000 pkt':'Wartość / 1000 pkt';
+    const inc=levelIncrement(SELECTED,Math.min(Math.max(1,tar),Number(d.MaxLevel||1)));
+    per1000.textContent=isPercent(SELECTED)?pct((inc.value/inc.cost)*1000):fmt((inc.value/inc.cost)*1000);
+  }
+
+  relativeGainLabel.textContent=(model==='linearInfinite'&&tar>Number(d.MaxLevel||0))?'Opłacalność poziomu po MAX':'Opłacalność poziomu docelowego';
+  relativeGain.textContent=tar>0?effFmt(targetEfficiency(SELECTED,tar)):'—';
+
+  renderModelPanel(cur,tar);
+  renderLevels();
+  drawChart();
+  renderPower(cur,tar,Number(d.ValuePerLevel||0));
+  renderSpecial(cur,tar);
 }
+
+function renderModelPanel(cur,tar){
+  const type=SELECTED,d=UPGRADES[type],model=modelFor(type),meta=nodeMeta(type);
+  modelBadge.textContent=modelName(type);
+  let title='',explain='',stats=[];
+
+  if(model==='combatPair'){
+    const pair=CONTEXT_PAIRS[type],v=Number(d.ValuePerLevel||0);
+    title='Malejąca opłacalność realnej siły';
+    explain=`${label(type)} działa jako mnożnik ${meta.statType}. Gdy ${label(type)} i ${label(pair)} mają ten sam poziom, Damage i Health rosną razem. Wykres pokazuje marginalny wzrost efektywnej siły kolejnego poziomu, znormalizowany tak, że 1. poziom = 100%.`;
+    const max=Number(d.MaxLevel||0);
+    stats=[
+      ['Para',label(pair)],
+      ['1. poziom',actualGainText(type,1)],
+      ['MAX bonus',valFmt(type,totalValueAt(type,max))],
+      ['Opłacalność MAX lvl',effFmt(efficiencyAt(type,max))]
+    ];
+  }else if(model==='timerDivisor'){
+    const max=Number(d.MaxLevel||0),maxVal=totalValueAt(type,max),remain=1/(1+maxVal);
+    title='Rzeczywista oszczędność czasu — Divisor';
+    explain='Gra liczy ten typ jako Divisor: czas = czas bazowy / (1 + bonus). Dlatego +5% speed nie oznacza −5% czasu. Każdy kolejny poziom oszczędza coraz mniej czasu bazowego, więc wykres opada.';
+    stats=[
+      ['Bonus speed na MAX',valFmt(type,maxVal)],
+      ['Czas na MAX',pct(remain)+' bazowego'],
+      ['Łącznie krócej',pct(1-remain)],
+      ['Opłacalność MAX lvl',effFmt(efficiencyAt(type,max))]
+    ];
+  }else if(model==='linearInfinite'){
+    const max=Number(d.MaxLevel||0),ratio=infiniteEfficiencyRatio(type);
+    title='Stała opłacalność do MAX, potem wyraźny spadek';
+    explain='Do poziomu MAX każdy level kosztuje tyle samo i daje ten sam absolutny bonus do bazowej wartości — więc ROI kosztowe jest płaskie. Po MAX gra przechodzi na PointsPerInfiniteLevel / ValuePerInfiniteLevel i opłacalność zmienia się skokowo.';
+    stats=[
+      ['Do MAX',fmt(d.PointsPerLevel)+' pkt ('+fmt(Number(d.PointsPerLevel)*POTIONS_PER_POINT)+' potek) → '+valFmt(type,d.ValuePerLevel)],
+      ['Po MAX',fmt(d.PointsPerInfiniteLevel)+' pkt ('+fmt(Number(d.PointsPerInfiniteLevel)*POTIONS_PER_POINT)+' potek) → '+valFmt(type,d.ValuePerInfiniteLevel)],
+      ['ROI po MAX vs zwykły lvl',effFmt(ratio)],
+      ['Bonus na MAX',valFmt(type,totalValueAt(type,max))]
+    ];
+  }else if(model==='additive'){
+    title='Stała opłacalność — przyrost Additive';
+    explain='Każdy poziom daje ten sam przyrost liczbowy i kosztuje tyle samo. Nie ma matematycznego spadku ROI: wykres powinien być płaski na 100%.';
+    stats=[
+      ['Przyrost / lvl','+'+fmt(d.ValuePerLevel)],
+      ['Koszt / lvl',fmt(d.PointsPerLevel)+' pkt / '+fmt(Number(d.PointsPerLevel)*POTIONS_PER_POINT)+' potek'],
+      ['Wartość na MAX',fmt(totalValueAt(type,d.MaxLevel))],
+      ['ROI wszystkich lvl','100%']
+    ];
+  }else{
+    title=POWER_SOURCE_TYPES.has(type)?'Stała efektywność źródłowej statystyki':'Stała efektywność bonusu kosztowego';
+    explain=POWER_SOURCE_TYPES.has(type)
+      ?'Ten node wzmacnia tylko konkretne źródło Damage/Health. Każdy level daje ten sam procent tego źródła za ten sam koszt, więc jego czysta efektywność bonus/punkt jest płaska. Dokładnego wzrostu całkowitego Power nie da się wyliczyć z samego powerM.'
+      :'Ten efekt jest mnożnikiem bazowej nagrody / punktów / prędkości. Każdy poziom dodaje ten sam procent bazowej wartości za ten sam koszt, więc kosztowa opłacalność każdego poziomu jest taka sama.';
+    const max=Number(d.MaxLevel||0);
+    stats=[
+      ['Bonus / lvl',valFmt(type,d.ValuePerLevel)],
+      ['Koszt / lvl',fmt(d.PointsPerLevel)+' pkt / '+fmt(Number(d.PointsPerLevel)*POTIONS_PER_POINT)+' potek'],
+      ['Bonus na MAX',valFmt(type,totalValueAt(type,max))],
+      ['ROI wszystkich lvl','100%']
+    ];
+  }
+
+  modelTitle.textContent=title;
+  modelExplain.textContent=explain;
+  modelStats.innerHTML=stats.map(([l,v])=>`<div class="modelStat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
+}
+
+function tableStages(type){
+  return stageLevels(type);
+}
+
 function renderLevels(){
-  const d=UPGRADES[SELECTED],cpl=Number(d.PointsPerLevel||0),vpl=Number(d.ValuePerLevel||0),ms=milestones(Number(d.MaxLevel));
-  levelsBody.innerHTML=ms.map(l=>{
-    const value=l*vpl,total=l*cpl;
+  const type=SELECTED,model=modelFor(type),rows=tableStages(type);
+  thEffect.textContent=model==='timerDivisor'?'Czas pozostały':'Efekt łączny';
+  thGain.textContent=model==='timerDivisor'?'Oszczędność tego poziomu':'Zysk tego poziomu';
+  thEfficiency.textContent='Opłacalność vs 1. poziom';
+
+  levelsBody.innerHTML=rows.map(l=>{
+    const val=totalValueAt(type,l),cost=totalCostAt(type,l);
+    let effect,gain;
+    if(model==='timerDivisor'){
+      effect=pct(1/(1+val))+' bazowego';
+      gain=actualGainText(type,l);
+    }else{
+      effect=valFmt(type,val);
+      gain=actualGainText(type,l);
+    }
+    const isInf=hasInfinite(type)&&l>Number(UPGRADES[type].MaxLevel||0);
+    const lvlLabel=isInf?('MAX+'+(l-Number(UPGRADES[type].MaxLevel||0))):String(l);
     return `<tr>
-      <td><b>${l}</b></td>
-      <td>${compact(total)} pkt</td>
-      <td>${valFmt(SELECTED,value)}</td>
-      <td>${l===0?'—':efficiencyFmt(SELECTED,l)}</td>
-      <td>${cpl?valFmt(SELECTED,(1000/cpl)*vpl):'—'}</td>
+      <td><b>${lvlLabel}</b>${isInf?' <span style="color:#d99a83;font-size:9px">∞</span>':''}</td>
+      <td>${compact(cost)} pkt<br><span style="color:#8297aa;font-size:9px">${compact(cost*POTIONS_PER_POINT)} potek</span></td>
+      <td>${effect}</td>
+      <td>${gain}</td>
+      <td><b>${effFmt(efficiencyAt(type,l))}</b></td>
     </tr>`;
   }).join('');
 }
 
 function roiColor(e){
   const v=Math.max(0,Math.min(100,Number(e)*100));
-  if(v>=50)return '#9cbd90';
-  if(v>=25)return '#c7ab7e';
+  if(v>=75)return '#9cbd90';
+  if(v>=45)return '#b8bd82';
+  if(v>=20)return '#c7ab7e';
   if(v>=10)return '#c7957e';
   return '#be8484';
 }
 function rr(ctx,x,y,w,h,r){
   r=Math.min(r,w/2,h/2);
-  ctx.beginPath();
-  ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
   ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
 }
 
 function drawChart(){
-  const canvas=document.getElementById('nodeChart'),ctx=canvas.getContext('2d'),d=UPGRADES[SELECTED];
+  const canvas=document.getElementById('nodeChart'),ctx=canvas.getContext('2d'),type=SELECTED;
   const r=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
-  canvas.width=Math.max(1,Math.round(r.width*dpr));
-  canvas.height=Math.max(1,Math.round(r.height*dpr));
+  canvas.width=Math.max(1,Math.round(r.width*dpr));canvas.height=Math.max(1,Math.round(r.height*dpr));
   ctx.setTransform(dpr,0,0,dpr,0,0);
 
-  const W=r.width,H=r.height;
-  const m={l:92,r:24,t:44,b:72},pw=W-m.l-m.r,ph=H-m.t-m.b;
-  const maxL=Math.max(1,Number(d.MaxLevel)||1);
-  ctx.clearRect(0,0,W,H);
-
-  // Wykres pokazuje wybrane PROGI, tak jak nasz pierwotny wykres Clan War.
-  // To jest wykres "kolejnych progów", nie liniowa oś poziomu.
-  let levels=milestones(maxL).filter(x=>x>0);
-  if(levels.length<2) levels=[1,maxL].filter((x,i,a)=>a.indexOf(x)===i);
-  const data=levels.map(lvl=>({lvl,eff:marginalEfficiency(SELECTED,lvl)??1}));
+  const W=r.width,H=r.height,m={l:92,r:24,t:48,b:74},pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const model=modelFor(type),levels=stageLevels(type);
+  const data=levels.map(l=>({level:l,label:(hasInfinite(type)&&l>Number(UPGRADES[type].MaxLevel||0))?'MAX+'+(l-Number(UPGRADES[type].MaxLevel||0)):String(l),eff:efficiencyAt(type,l)}));
   const stepX=data.length>1?pw/(data.length-1):0;
   const pts=data.map((o,i)=>({x:m.l+i*stepX,y:m.t+ph-o.eff*ph}));
 
-  // Tło.
-  ctx.fillStyle='#0e151e';ctx.fillRect(0,0,W,H);
+  ctx.clearRect(0,0,W,H);ctx.fillStyle='#0e151e';ctx.fillRect(0,0,W,H);
 
-  // Siatka + oś Y.
   ctx.font='11px system-ui';ctx.textBaseline='middle';
   [0,20,40,60,80,100].forEach(v=>{
     const y=m.t+ph-(v/100)*ph;
-    ctx.strokeStyle='#283241';ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(m.l,y);ctx.lineTo(W-m.r,y);ctx.stroke();
+    ctx.strokeStyle='#283241';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(m.l,y);ctx.lineTo(W-m.r,y);ctx.stroke();
     ctx.fillStyle='#8fa0b5';ctx.textAlign='right';ctx.fillText(v+'%',m.l-12,y);
   });
 
-  // Zielona strefa najlepszej wartości: pierwsze dwa progi.
-  if(data.length>=2){
-    const bestEnd=m.l+Math.min(1.5,data.length-1)*stepX;
-    ctx.fillStyle='rgba(156,189,144,.075)';
-    ctx.fillRect(m.l,m.t,bestEnd-m.l,ph);
-    ctx.strokeStyle='rgba(156,189,144,.28)';
-    ctx.setLineDash([5,5]);
-    ctx.beginPath();ctx.moveTo(bestEnd,m.t);ctx.lineTo(bestEnd,m.t+ph);ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle='rgba(223,242,216,.92)';
-    ctx.font='800 10px system-ui';ctx.textAlign='left';ctx.textBaseline='top';
-    ctx.fillText('NAJLEPSZA OPŁACALNOŚĆ',m.l+10,m.t+10);
+  // Model-specific background guidance.
+  if(model==='linearMultiplier'||model==='additive'||model==='flatFallback'){
+    ctx.fillStyle='rgba(156,189,144,.065)';ctx.fillRect(m.l,m.t,pw,ph);
+    ctx.fillStyle='rgba(223,242,216,.92)';ctx.font='800 10px system-ui';ctx.textAlign='left';ctx.textBaseline='top';
+    ctx.fillText('STAŁA OPŁACALNOŚĆ KOSZTOWA',m.l+12,m.t+10);
+  }else if(model==='linearInfinite'){
+    const max=Number(UPGRADES[type].MaxLevel||0);
+    const idx=data.findIndex(x=>x.level>max);
+    const splitX=idx>0?m.l+(idx-.5)*stepX:W-m.r;
+    ctx.fillStyle='rgba(156,189,144,.065)';ctx.fillRect(m.l,m.t,splitX-m.l,ph);
+    ctx.fillStyle='rgba(190,132,132,.045)';ctx.fillRect(splitX,m.t,W-m.r-splitX,ph);
+    ctx.strokeStyle='rgba(218,151,130,.55)';ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(splitX,m.t);ctx.lineTo(splitX,m.t+ph);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#dfeeda';ctx.font='800 10px system-ui';ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText('DO MAX: STAŁE ROI',m.l+12,m.t+10);
+    ctx.fillStyle='#dfaa98';ctx.textAlign='right';ctx.fillText('PO MAX: DROŻSZE POZIOMY',W-m.r-8,m.t+10);
+  }else{
+    const bestEnd=data.length>=2?m.l+Math.min(1.5,data.length-1)*stepX:m.l;
+    ctx.fillStyle='rgba(156,189,144,.065)';ctx.fillRect(m.l,m.t,Math.max(0,bestEnd-m.l),ph);
+    ctx.fillStyle='rgba(223,242,216,.92)';ctx.font='800 10px system-ui';ctx.textAlign='left';ctx.textBaseline='top';
+    ctx.fillText(model==='timerDivisor'?'NAJWIĘCEJ CZASU OSZCZĘDZAJĄ PIERWSZE POZIOMY':'NAJLEPSZA WARTOŚĆ: PIERWSZE POZIOMY',m.l+12,m.t+10);
   }
 
-  // Pole pod krzywą.
   if(pts.length){
     const area=ctx.createLinearGradient(0,m.t,0,m.t+ph);
-    area.addColorStop(0,'rgba(156,189,144,.18)');
-    area.addColorStop(1,'rgba(156,189,144,.012)');
-    ctx.beginPath();ctx.moveTo(pts[0].x,m.t+ph);
-    pts.forEach(p=>ctx.lineTo(p.x,p.y));
-    ctx.lineTo(pts[pts.length-1].x,m.t+ph);ctx.closePath();
+    area.addColorStop(0,'rgba(156,189,144,.15)');area.addColorStop(1,'rgba(156,189,144,.01)');
+    ctx.beginPath();ctx.moveTo(pts[0].x,m.t+ph);pts.forEach(p=>ctx.lineTo(p.x,p.y));ctx.lineTo(pts[pts.length-1].x,m.t+ph);ctx.closePath();
     ctx.fillStyle=area;ctx.fill();
   }
 
-  // Kolorowana linia zielony -> pomarańczowy -> czerwony.
   ctx.lineWidth=3;ctx.lineJoin='round';
   for(let i=0;i<pts.length-1;i++){
     const g=ctx.createLinearGradient(pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y);
-    g.addColorStop(0,roiColor(data[i].eff));
-    g.addColorStop(1,roiColor(data[i+1].eff));
-    ctx.strokeStyle=g;
-    ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[i+1].x,pts[i+1].y);ctx.stroke();
+    g.addColorStop(0,roiColor(data[i].eff));g.addColorStop(1,roiColor(data[i+1].eff));
+    ctx.strokeStyle=g;ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[i+1].x,pts[i+1].y);ctx.stroke();
   }
 
-  // Punkty + etykiety progów.
   pts.forEach((p,i)=>{
-    ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);
-    ctx.fillStyle=roiColor(data[i].eff);ctx.fill();
+    ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);ctx.fillStyle=roiColor(data[i].eff);ctx.fill();
     ctx.strokeStyle='#0b0f14';ctx.lineWidth=2;ctx.stroke();
 
     ctx.fillStyle='#8fa0b5';ctx.font='10px system-ui';ctx.textAlign='center';ctx.textBaseline='top';
-    ctx.fillText(String(data[i].lvl),p.x,m.t+ph+18);
+    ctx.fillText(data[i].label,p.x,m.t+ph+18);
 
-    const txt=(data[i].eff*100).toLocaleString('pl-PL',{maximumFractionDigits:2})+'%';
-    ctx.font='800 11px system-ui';
-    const tw=ctx.measureText(txt).width+16;
-    const bx=Math.max(m.l,Math.min(W-m.r-tw,p.x-tw/2));
-    const by=Math.max(m.t+28,p.y-34);
-    ctx.fillStyle='rgba(12,18,25,.94)';rr(ctx,bx,by,tw,24,8);ctx.fill();
-    ctx.strokeStyle='#2b3745';ctx.stroke();
-    ctx.fillStyle=roiColor(data[i].eff);ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText(txt,bx+tw/2,by+12);
+    const txt=effFmt(data[i].eff);
+    ctx.font='800 11px system-ui';const tw=ctx.measureText(txt).width+16;
+    const bx=Math.max(m.l,Math.min(W-m.r-tw,p.x-tw/2)),by=Math.max(m.t+31,p.y-34);
+    ctx.fillStyle='rgba(12,18,25,.95)';rr(ctx,bx,by,tw,24,8);ctx.fill();ctx.strokeStyle='#2b3745';ctx.stroke();
+    ctx.fillStyle=roiColor(data[i].eff);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(txt,bx+tw/2,by+12);
   });
 
-  // Oś X / Y.
-  ctx.fillStyle='#9fb0c4';ctx.font='800 10px system-ui';
-  ctx.textAlign='center';ctx.textBaseline='bottom';
-  ctx.fillText('Kolejne progi poziomu node’a',m.l+pw/2,H-8);
-  ctx.save();ctx.translate(18,m.t+ph/2);ctx.rotate(-Math.PI/2);
-  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Opłacalność kolejnego progu (%)',0,0);ctx.restore();
+  ctx.fillStyle='#9fb0c4';ctx.font='800 10px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
+  ctx.fillText(hasInfinite(type)?'Kolejne progi (MAX+ = poziomy nieskończone)':'Kolejne progi poziomu node’a',m.l+pw/2,H-8);
+  ctx.save();ctx.translate(18,m.t+ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Opłacalność vs 1. poziom (%)',0,0);ctx.restore();
 
-  // Tytuł.
+  let title='opłacalność kolejnych progów';
+  if(model==='linearMultiplier'||model==='additive')title='stała opłacalność kosztowa';
+  if(model==='linearInfinite')title='opłacalność do MAX i po MAX';
+  if(model==='timerDivisor')title='opłacalność oszczędności czasu';
   ctx.fillStyle='#dce8f5';ctx.font='900 12px system-ui';ctx.textAlign='left';ctx.textBaseline='top';
-  ctx.fillText(label(SELECTED)+' — spadek opłacalności kolejnych progów',m.l,m.t-27);
+  ctx.fillText(label(type)+' — '+title,m.l,m.t-29);
 }
+
 function renderPower(cur,tar,vpl){
   powerPanel.classList.add('hidden');powerWarn.classList.add('hidden');
   const pair=CONTEXT_PAIRS[SELECTED];
+
   if(pair){
-    if(!PLAYERS.length){powerWarn.textContent='Ten node może być policzony jako efektywna Power razem z '+label(pair)+', ale data.js nie zawiera teraz graczy.';powerWarn.classList.remove('hidden');return}
+    if(!PLAYERS.length){
+      powerWarn.textContent='Ten node może być policzony jako efektywna Power razem z '+label(pair)+', ale data.js nie zawiera teraz graczy.';
+      powerWarn.classList.remove('hidden');return;
+    }
     const p=PLAYERS.find(x=>x.nick===playerSelect.value)||PLAYERS[0];
-    const curMult=1+cur*vpl,tarMult=1+tar*vpl;
+    const curMult=1+totalValueAt(SELECTED,cur),tarMult=1+totalValueAt(SELECTED,tar);
     const before=projectedPowerM(p.powerM,curMult),after=projectedPowerM(p.powerM,tarMult);
     powerTitle.textContent='Efektywna Power — '+label(SELECTED)+' + '+label(pair);
-    powerDesc.textContent='Założenie: oba sparowane node’y mają ten sam poziom. Wtedy Damage i Health dostają ten sam mnożnik i można policzyć efekt z samego powerM.';
+    powerDesc.textContent='Założenie: oba sparowane node’y mają ten sam poziom. Repo stosuje kontekstowy mnożnik osobno do całego Damage i Health; przy równym poziomie obu node’ów można policzyć efektywną Power z samego powerM.';
     powerGrid.innerHTML=[
-      ['Gracz',p.nick],
-      ['Bazowa Power',powerFmtM(p.powerM)],
-      ['Na poziomie '+cur,powerFmtM(before)],
-      ['Na poziomie '+tar,powerFmtM(after)]
+      ['Gracz',p.nick],['Bazowa Power',powerFmtM(p.powerM)],['Poziom '+cur,powerFmtM(before)],['Poziom '+tar,powerFmtM(after)]
     ].map(x=>`<div class="powerItem"><div class="n">${x[0]}</div><div class="p">${x[1]}</div></div>`).join('');
     powerPanel.classList.remove('hidden');return;
   }
-  if(POWER_CATEGORY_TYPES.has(SELECTED)){
-    powerWarn.textContent='Ten node wpływa na Power, ale nie da się policzyć dokładnej zmiany z samego powerM, bo wzmacnia tylko część buildu ('+label(SELECTED)+'). Potrzebny byłby udział tej statystyki w całkowitym Damage/Health gracza.';
+
+  if(POWER_SOURCE_TYPES.has(SELECTED)){
+    powerWarn.textContent='Ten node wpływa na Power, ale wzmacnia tylko konkretne źródło statystyki ('+label(SELECTED)+'). Z samego powerM nie znamy udziału tego źródła w całkowitym Damage/Health, więc dokładna zmiana Power byłaby zgadywaniem.';
     powerWarn.classList.remove('hidden');
   }
 }
+
+function renderSpecial(cur,tar){
+  specialPanel.classList.add('hidden');specialBody.innerHTML='';
+  const type=SELECTED,d=UPGRADES[type];
+
+  if(type==='GuildTechRaceRewardMultiplier'){
+    specialTitle.textContent='Tech Race Rewards — zwrot w realnych fiolkach';
+    specialBody.innerHTML=`
+      <div class="note" style="margin:0">Bazową nagrodę można zmienić. Domyślnie wpisuję 400 na gracza, a liczbę członków biorę z data.js (${PLAYERS.length||50}).</div>
+      <div class="specialControls">
+        <label>Liczba członków<input id="raceMembers" type="number" min="1" value="${RACE_MEMBERS}"></label>
+        <label>Bazowa nagroda / gracza<input id="raceBase" type="number" min="0" value="${RACE_BASE_PER_MEMBER}"></label>
+      </div>
+      <div id="raceMetrics" class="specialMetrics"></div>`;
+    specialPanel.classList.remove('hidden');
+
+    const refresh=()=>{
+      RACE_MEMBERS=Math.max(1,Number(document.getElementById('raceMembers').value)||1);
+      RACE_BASE_PER_MEMBER=Math.max(0,Number(document.getElementById('raceBase').value)||0);
+      const base=RACE_MEMBERS*RACE_BASE_PER_MEMBER;
+      const curReward=base*(1+totalValueAt(type,cur)),tarReward=base*(1+totalValueAt(type,tar));
+      const extra=tarReward-curReward,pointCost=totalCostAt(type,tar)-totalCostAt(type,cur),potionCost=pointCost*POTIONS_PER_POINT;
+      const payback=extra>0?potionCost/extra:Infinity;
+      document.getElementById('raceMetrics').innerHTML=[
+        ['Bazowa nagroda klanu',compact(base)],
+        ['Nagroda na celu',compact(tarReward)],
+        ['Dodatkowo / Race',compact(extra)+' potek'],
+        ['Koszt ulepszenia',compact(potionCost)+' potek'],
+        ['Zwrot kosztu',Number.isFinite(payback)?payback.toLocaleString('pl-PL',{maximumFractionDigits:2})+' wygranych':'—']
+      ].map(x=>`<div class="specialMetric"><div class="l">${x[0]}</div><div class="v">${x[1]}</div></div>`).join('');
+    };
+    document.getElementById('raceMembers').oninput=refresh;
+    document.getElementById('raceBase').oninput=refresh;
+    refresh();
+    return;
+  }
+
+  if(type==='GuildTechRaceScoreMultiplier'){
+    specialTitle.textContent='Tech Race Score — efekt na 100 bazowych punktów';
+    const curOut=100*(1+totalValueAt(type,cur)),tarOut=100*(1+totalValueAt(type,tar));
+    specialBody.innerHTML=`<div class="specialMetrics">
+      <div class="specialMetric"><div class="l">100 bazowego score</div><div class="v">100</div></div>
+      <div class="specialMetric"><div class="l">Na aktualnym lvl</div><div class="v">${fmt(curOut)}</div></div>
+      <div class="specialMetric"><div class="l">Na docelowym lvl</div><div class="v">${fmt(tarOut)}</div></div>
+      <div class="specialMetric"><div class="l">Przyrost</div><div class="v">+${fmt(tarOut-curOut)}</div></div>
+    </div>`;
+    specialPanel.classList.remove('hidden');
+  }
+}
+
 search.addEventListener('input',e=>renderTree(e.target.value));
 closeBtn.onclick=()=>modalBack.classList.remove('open');
 modalBack.addEventListener('click',e=>{if(e.target===modalBack)modalBack.classList.remove('open')});

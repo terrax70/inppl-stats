@@ -125,14 +125,14 @@ td.bad{color:var(--bad);font-weight:800}
     <div class="moduleHead">
       <div>
         <div class="moduleTitle">Moc graczy na poziomach Clan War Damage / Health</div>
-        <div class="moduleSub">Dane graczy są pobierane automatycznie z <b>data.js</b>. Przeliczenie jest dokładnie takie jak w Twoim Excelu: <b>Moc × poziom × 2</b>.</div>
+        <div class="moduleSub">Dane graczy są pobierane automatycznie z <b>data.js</b>. Prognoza zakłada, że <b>Clan War Damage i Clan War Health mają ten sam bonus</b>. Wtedy Power skaluje się praktycznie jak <b>1 + bonus</b>, zgodnie z formułą gry: <b>Power = 3 × (8 × Damage + Health − 160)</b>.</div>
       </div>
       <div class="playerControls">
         <div><label for="playerSelect">Gracz</label><br><select id="playerSelect"></select></div>
       </div>
     </div>
 
-    <div id="dataStatus" class="dataStatus">Ładowanie danych z data.js…</div>
+    <div id="dataStatus" class="dataStatus">Ładowanie danych z data.js…</div><div id="formulaNote" class="dataStatus">Przykład: +200% = ×3, +400% = ×5, +10000% = ×101. Nie ×4 / ×8 / ×200.</div>
 
     <div class="powerKpis">
       <div class="powerKpi"><div class="l">Aktualna moc</div><div class="v" id="basePower">—</div></div>
@@ -146,7 +146,7 @@ td.bad{color:var(--bad);font-weight:800}
       <div class="powerStageList" id="powerStageList"></div>
     </div>
 
-    <div class="note">Tabela poniżej działa jak Twój arkusz Excel, ale nie trzeba jej ręcznie aktualizować — po zmianie <b>data.js</b> bierze najnowszą moc każdego aktywnego gracza.</div>
+    <div class="note">Tabela poniżej nie wymaga ręcznej aktualizacji — po zmianie <b>data.js</b> bierze najnowszą moc każdego aktywnego gracza. Wyniki są liczone dla jednoczesnego bonusu Clan War Damage + Health.</div>
     <div class="rankTableWrap">
       <table id="powerRankTable">
         <thead>
@@ -399,16 +399,22 @@ window.addEventListener('resize',resize); resize();
 
 // ===== Player power projection from ../data.js =====
 const POWER_STAGES = [
-  {level:1, bonus:'100%', mult:2},
-  {level:2, bonus:'200%', mult:4},
-  {level:4, bonus:'400%', mult:8},
-  {level:8, bonus:'800%', mult:16},
-  {level:16, bonus:'1600%', mult:32},
-  {level:24, bonus:'2400%', mult:48},
-  {level:48, bonus:'4800%', mult:96},
-  {level:96, bonus:'9600%', mult:192},
-  {level:100, bonus:'10000%', mult:200}
+  {level:1, bonus:'100%', pct:100, mult:2},
+  {level:2, bonus:'200%', pct:200, mult:3},
+  {level:4, bonus:'400%', pct:400, mult:5},
+  {level:8, bonus:'800%', pct:800, mult:9},
+  {level:16, bonus:'1600%', pct:1600, mult:17},
+  {level:24, bonus:'2400%', pct:2400, mult:25},
+  {level:48, bonus:'4800%', pct:4800, mult:49},
+  {level:96, bonus:'9600%', pct:9600, mult:97},
+  {level:100, bonus:'10000%', pct:10000, mult:101}
 ];
+
+function projectedPowerM(baseM, mult){
+  // Exact transform for equal Damage + Health multiplier:
+  // P' = mult × P + 480 × (mult − 1); baseM is stored in millions.
+  return Number(baseM) * mult + 0.00048 * (mult - 1);
+}
 
 const fmtPowerM = m => {
   if (m == null || !Number.isFinite(Number(m))) return '—';
@@ -456,15 +462,15 @@ function renderPlayerPower(){
   const p=powerPlayers.find(x=>x.nick===selectedPowerNick);
   if(!p)return;
   document.getElementById('basePower').textContent=fmtPowerM(p.powerM);
-  document.getElementById('powerLvl1').textContent=fmtPowerM(p.powerM*2);
-  document.getElementById('powerLvl16').textContent=fmtPowerM(p.powerM*32);
-  document.getElementById('powerMax').textContent=fmtPowerM(p.powerM*200);
+  document.getElementById('powerLvl1').textContent=fmtPowerM(projectedPowerM(p.powerM, 2));
+  document.getElementById('powerLvl16').textContent=fmtPowerM(projectedPowerM(p.powerM, 17));
+  document.getElementById('powerMax').textContent=fmtPowerM(projectedPowerM(p.powerM, 2)00);
 
   document.getElementById('powerStageList').innerHTML=POWER_STAGES.map(s=>`
     <div class="powerStage">
-      <div class="level">Lv ${s.level}</div>
+      <div class="level">Próg ${s.level}</div>
       <div class="bonus">${s.bonus}</div>
-      <div class="power">${fmtPowerM(p.powerM*s.mult)}</div>
+      <div class="power">${fmtPowerM(projectedPowerM(p.powerM, s.mult))}</div>
     </div>`).join('');
 
   resizePlayerPowerChart();
@@ -483,7 +489,7 @@ function drawPlayerPowerChart(){
   const W=playerCanvas.clientWidth,H=playerCanvas.clientHeight;
   pctx.clearRect(0,0,W,H);
   const m={l:72,r:22,t:34,b:54},pw=W-m.l-m.r,ph=H-m.t-m.b;
-  const vals=POWER_STAGES.map(s=>p.powerM*s.mult);
+  const vals=POWER_STAGES.map(s=>projectedPowerM(p.powerM, s.mult));
   const max=Math.max(...vals)*1.08;
   const pts=vals.map((v,i)=>({x:m.l+i*(pw/(vals.length-1)),y:m.t+ph-(v/max)*ph,v}));
 
@@ -517,7 +523,7 @@ function drawPlayerPowerChart(){
 function renderAllPlayersPowerTable(){
   const tb=document.querySelector('#powerRankTable tbody');
   tb.innerHTML=powerPlayers.map((p,i)=>{
-    const vals=POWER_STAGES.map(s=>`<td>${fmtPowerM(p.powerM*s.mult)}</td>`).join('');
+    const vals=POWER_STAGES.map(s=>`<td>${fmtPowerM(projectedPowerM(p.powerM, s.mult))}</td>`).join('');
     return `<tr><td>${i+1}</td><td><b>${p.nick}</b><div class="playerState">${p.rank}</div></td><td><b>${fmtPowerM(p.powerM)}</b></td>${vals}</tr>`;
   }).join('');
 }

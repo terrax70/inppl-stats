@@ -87,7 +87,7 @@ th:first-child,td:first-child{text-align:left}
     <div>
       <div class="eyebrow">INPPL • Forge Master</div>
       <h1>Clan Tech Tree Analyzer</h1>
-      <div class="sub">Całe klanowe drzewko technologii. Kliknij dowolny node, żeby zobaczyć jego koszt, bonus, poziomy i opłacalność. Dane node'ów są pobierane z najnowszej konfiguracji gry z repo <b>1vcian/fm</b>, a dane graczy z lokalnego <b>data.js</b>.</div>
+      <div class="sub">Całe klanowe drzewko technologii. Kliknij dowolny node, żeby zobaczyć koszt, bonus i przede wszystkim spadek opłacalności kolejnych poziomów. Dane node'ów są pobierane z najnowszej konfiguracji gry z repo <b>1vcian/fm</b>, a dane graczy z lokalnego <b>data.js</b>.</div>
     </div>
     <a class="back" href="../#overview">← INPPL Stats</a>
   </div>
@@ -137,13 +137,13 @@ th:first-child,td:first-child{text-align:left}
         <div class="control"><label>Gracz do podglądu Power</label><select id="playerSelect"></select></div>
       </div>
 
-      <div class="analysisGrid">
+      <div class="note" style="margin:0 0 10px"><b>Opłacalność = marginalny zysk z kolejnego poziomu względem efektu, który już masz, przy stałym koszcie / lvl.</b> Pierwszy poziom jest bazą 100%. Dla Clan War Damage: 1 lvl = 100%, 2 lvl = 50%, 3 lvl = 33,3%, 4 lvl = 25% itd.</div><div class="analysisGrid">
         <div class="chartBox"><canvas id="nodeChart"></canvas></div>
         <div class="sideBox">
           <div class="metric"><div class="l">Koszt aktualny → cel</div><div id="upgradeCost" class="v">—</div></div>
           <div class="metric"><div class="l">Bonus aktualny → cel</div><div id="bonusChange" class="v">—</div></div>
           <div class="metric"><div class="l">Bonus / 1000 pkt</div><div id="per1000" class="v">—</div></div>
-          <div class="metric"><div class="l">Względny wzrost efektu</div><div id="relativeGain" class="v">—</div></div>
+          <div class="metric"><div class="l">Opłacalność poziomu docelowego</div><div id="relativeGain" class="v">—</div></div>
         </div>
       </div>
 
@@ -156,7 +156,7 @@ th:first-child,td:first-child{text-align:left}
 
       <div class="tableWrap">
         <table>
-          <thead><tr><th>Poziom</th><th>Koszt łączny</th><th>Bonus łączny</th><th>Wzrost vs poprzedni próg</th><th>Bonus / 1000 pkt</th></tr></thead>
+          <thead><tr><th>Poziom</th><th>Koszt łączny</th><th>Bonus łączny</th><th>Opłacalność tego poziomu</th><th>Bonus / 1000 pkt</th></tr></thead>
           <tbody id="levelsBody"></tbody>
         </table>
       </div>
@@ -278,6 +278,22 @@ function openNode(type){
   modalBack.classList.add('open');requestAnimationFrame(()=>{updateNode();requestAnimationFrame(drawChart)});
 }
 function findCategory(type){for(const [k,c] of Object.entries(POSITIONS))if((c.Nodes||[]).includes(type))return label(k);return '—'}
+
+function marginalEfficiency(type, level){
+  // Znormalizowana opłacalność kolejnego poziomu względem pierwszego poziomu = 100%.
+  // Dla procentowych bonusów mnożnikowych: efekt całkowity = 1 + level * ValuePerLevel.
+  // ROI marginalne poziomu L: ValuePerLevel / (1 + (L-1)*ValuePerLevel), przy tym samym koszcie / lvl.
+  // Po normalizacji przez ROI pierwszego poziomu zostaje 1 / (1 + (L-1)*ValuePerLevel).
+  const d=UPGRADES[type]||{}, v=Number(d.ValuePerLevel||0);
+  if(level<=0) return null;
+  if(!isPercent(type) || v<=0) return 1;
+  return 1/(1+(level-1)*v);
+}
+function efficiencyFmt(type, level){
+  const e=marginalEfficiency(type,level);
+  return e==null?'—':(e*100).toLocaleString('pl-PL',{maximumFractionDigits:2})+'%';
+}
+
 function updateNode(){
   if(!SELECTED)return;const d=UPGRADES[SELECTED];
   let cur=Math.max(0,Math.min(Number(currentLevel.value)||0,d.MaxLevel));
@@ -287,44 +303,43 @@ function updateNode(){
   const cost=(tar-cur)*cpl, curVal=cur*vpl,tarVal=tar*vpl,delta=tarVal-curVal;
   upgradeCost.textContent=compact(cost)+' pkt';bonusChange.textContent=valFmt(SELECTED,curVal)+' → '+valFmt(SELECTED,tarVal);
   per1000.textContent=cpl?valFmt(SELECTED,(1000/cpl)*vpl):'—';
-  relativeGain.textContent=curVal>0?((delta/curVal)*100).toLocaleString('pl-PL',{maximumFractionDigits:1})+'%':(delta>0?'start → +'+valFmt(SELECTED,delta):'—');
+  relativeGain.textContent=tar>0?efficiencyFmt(SELECTED,tar):'—';
   renderLevels();drawChart();renderPower(cur,tar,vpl);
 }
 function renderLevels(){
   const d=UPGRADES[SELECTED],cpl=Number(d.PointsPerLevel||0),vpl=Number(d.ValuePerLevel||0),ms=milestones(Number(d.MaxLevel));
-  let prev=null;
   levelsBody.innerHTML=ms.map(l=>{
     const value=l*vpl,total=l*cpl;
-    const rel=prev===null?'—':(prev===0?(value>0?'start':'—'):(((value-prev)/prev)*100).toLocaleString('pl-PL',{maximumFractionDigits:1})+'%');
-    prev=value;
-    return `<tr><td><b>${l}</b></td><td>${compact(total)} pkt</td><td>${valFmt(SELECTED,value)}</td><td>${rel}</td><td>${cpl?valFmt(SELECTED,(1000/cpl)*vpl):'—'}</td></tr>`;
+    return `<tr>
+      <td><b>${l}</b></td>
+      <td>${compact(total)} pkt</td>
+      <td>${valFmt(SELECTED,value)}</td>
+      <td>${l===0?'—':efficiencyFmt(SELECTED,l)}</td>
+      <td>${cpl?valFmt(SELECTED,(1000/cpl)*vpl):'—'}</td>
+    </tr>`;
   }).join('');
 }
 function drawChart(){
   const canvas=document.getElementById('nodeChart'),ctx=canvas.getContext('2d'),d=UPGRADES[SELECTED];
   const r=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
-
-  // Canvas ma w CSS 100% szerokości i wysokości kontenera.
-  // Tu ustawiamy tylko rozdzielczość bitmapy, żeby wykres był ostry.
   canvas.width=Math.max(1,Math.round(r.width*dpr));
   canvas.height=Math.max(1,Math.round(r.height*dpr));
   ctx.setTransform(dpr,0,0,dpr,0,0);
 
   const W=r.width,H=r.height;
-  const m={l:82,r:24,t:28,b:52},pw=W-m.l-m.r,ph=H-m.t-m.b;
-  const maxL=Math.max(1,Number(d.MaxLevel)||1),vpl=Number(d.ValuePerLevel||0);
+  const m={l:76,r:24,t:34,b:52},pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const maxL=Math.max(1,Number(d.MaxLevel)||1);
   ctx.clearRect(0,0,W,H);
-
-  // tło + siatka
   ctx.fillStyle='#07111a';ctx.fillRect(0,0,W,H);
-  ctx.font='11px system-ui';
 
+  // Oś Y: 0–100% względnej opłacalności.
+  ctx.font='11px system-ui';
   for(let i=0;i<=4;i++){
-    const q=i/4,y=m.t+ph-q*ph,val=maxL*vpl*q;
+    const q=i/4,y=m.t+ph-q*ph;
     ctx.strokeStyle='#203140';ctx.lineWidth=1;
     ctx.beginPath();ctx.moveTo(m.l,y);ctx.lineTo(W-m.r,y);ctx.stroke();
     ctx.fillStyle='#8197aa';ctx.textAlign='right';ctx.textBaseline='middle';
-    ctx.fillText(valFmt(SELECTED,val),m.l-10,y);
+    ctx.fillText(Math.round(q*100)+'%',m.l-10,y);
   }
 
   [0,.25,.5,.75,1].forEach(q=>{
@@ -335,31 +350,44 @@ function drawChart(){
     ctx.fillText(String(lvl),x,m.t+ph+12);
   });
 
-  // główna linia bonusu
-  ctx.strokeStyle='#78b9f3';ctx.lineWidth=3;
-  ctx.beginPath();ctx.moveTo(m.l,m.t+ph);ctx.lineTo(m.l+pw,m.t);ctx.stroke();
+  // Krzywa marginalnej opłacalności dla każdego poziomu 1..MAX.
+  const pts=[];
+  for(let lvl=1;lvl<=maxL;lvl++){
+    const eff=marginalEfficiency(SELECTED,lvl) ?? 1;
+    pts.push({lvl,eff,x:m.l+(lvl/maxL)*pw,y:m.t+ph-eff*ph});
+  }
+  if(pts.length){
+    const grad=ctx.createLinearGradient(m.l,0,W-m.r,0);
+    grad.addColorStop(0,'#9ac58c');
+    grad.addColorStop(.55,'#d8b16d');
+    grad.addColorStop(1,'#d88484');
+    ctx.strokeStyle=grad;ctx.lineWidth=3;ctx.beginPath();
+    pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+    ctx.stroke();
+  }
 
-  // aktualny i docelowy poziom
+  // Aktualny "następny" poziom i poziom docelowy.
   const cur=Math.max(0,Math.min(Number(currentLevel.value)||0,maxL));
   const tar=Math.max(cur,Math.min(Number(targetLevel.value)||0,maxL));
-  [{l:cur,c:'#9ac58c',name:'Aktualny'},{l:tar,c:'#d8b16d',name:'Cel'}].forEach(o=>{
-    const x=m.l+(o.l/maxL)*pw,y=m.t+ph-(o.l/maxL)*ph;
+  const marks=[
+    {lvl:Math.min(maxL,Math.max(1,cur+1)),c:'#9ac58c',name:'Następny'},
+    {lvl:Math.max(1,tar),c:'#d8b16d',name:'Cel'}
+  ];
+  marks.forEach(o=>{
+    const eff=marginalEfficiency(SELECTED,o.lvl) ?? 1;
+    const x=m.l+(o.lvl/maxL)*pw,y=m.t+ph-eff*ph;
     ctx.fillStyle=o.c;ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();
     ctx.fillStyle='#eaf3fb';ctx.font='700 10px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
-    ctx.fillText(o.name+' '+o.l,x,y-9);
+    ctx.fillText(o.name+' '+o.lvl+' • '+(eff*100).toLocaleString('pl-PL',{maximumFractionDigits:1})+'%',x,y-9);
   });
 
-  // osie
   ctx.fillStyle='#a9bdd0';ctx.font='700 11px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
   ctx.fillText('Poziom node’a',m.l+pw/2,H-5);
-  ctx.save();
-  ctx.translate(17,m.t+ph/2);ctx.rotate(-Math.PI/2);
-  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Łączny bonus',0,0);
-  ctx.restore();
+  ctx.save();ctx.translate(17,m.t+ph/2);ctx.rotate(-Math.PI/2);
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Względna opłacalność poziomu',0,0);ctx.restore();
 
-  // nagłówek wykresu
   ctx.fillStyle='#d9e8f5';ctx.font='800 12px system-ui';ctx.textAlign='left';ctx.textBaseline='top';
-  ctx.fillText(label(SELECTED)+' — rozwój bonusu 0 → MAX',m.l,m.t-20);
+  ctx.fillText(label(SELECTED)+' — opłacalność kolejnych poziomów',m.l,m.t-23);
 }
 function renderPower(cur,tar,vpl){
   powerPanel.classList.add('hidden');powerWarn.classList.add('hidden');

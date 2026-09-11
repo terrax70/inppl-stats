@@ -58,7 +58,8 @@ h1{font-size:28px;line-height:1.05;margin:6px 0 8px}
 .control label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .control input,.control select{width:100%;margin-top:6px;background:#07111a;color:#fff;border:1px solid #31475c;border-radius:8px;padding:8px}
 .analysisGrid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:12px}
-.chartBox{height:320px;border:1px solid #263849;border-radius:13px;background:#07111a;padding:8px}
+.chartBox{height:320px;border:1px solid #263849;border-radius:13px;background:#07111a;padding:8px;position:relative;overflow:hidden}
+.chartBox canvas{display:block;width:100%;height:100%}
 .sideBox{display:grid;gap:8px;align-content:start}
 .metric{padding:10px 11px;border-radius:11px;border:1px solid #2a3b4c;background:#0b1721}
 .metric .l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
@@ -274,7 +275,7 @@ function openNode(type){
   totalCostKpi.textContent=compact(Number(d.PointsPerLevel)*Number(d.MaxLevel));maxBonusKpi.textContent=valFmt(type,Number(d.ValuePerLevel)*Number(d.MaxLevel));
   currentLevel.max=d.MaxLevel;targetLevel.max=d.MaxLevel;currentLevel.value=0;targetLevel.value=Math.min(1,d.MaxLevel);
   currentLevel.oninput=updateNode;targetLevel.oninput=updateNode;
-  modalBack.classList.add('open');updateNode();
+  modalBack.classList.add('open');requestAnimationFrame(()=>{updateNode();requestAnimationFrame(drawChart)});
 }
 function findCategory(type){for(const [k,c] of Object.entries(POSITIONS))if((c.Nodes||[]).includes(type))return label(k);return '—'}
 function updateNode(){
@@ -301,16 +302,64 @@ function renderLevels(){
 }
 function drawChart(){
   const canvas=document.getElementById('nodeChart'),ctx=canvas.getContext('2d'),d=UPGRADES[SELECTED];
-  const r=canvas.getBoundingClientRect(),dpr=devicePixelRatio||1;canvas.width=r.width*dpr;canvas.height=r.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
-  const W=r.width,H=r.height,m={l:64,r:18,t:26,b:45},pw=W-m.l-m.r,ph=H-m.t-m.b,maxL=Number(d.MaxLevel),vpl=Number(d.ValuePerLevel),cpl=Number(d.PointsPerLevel);
+  const r=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+
+  // Canvas ma w CSS 100% szerokości i wysokości kontenera.
+  // Tu ustawiamy tylko rozdzielczość bitmapy, żeby wykres był ostry.
+  canvas.width=Math.max(1,Math.round(r.width*dpr));
+  canvas.height=Math.max(1,Math.round(r.height*dpr));
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+
+  const W=r.width,H=r.height;
+  const m={l:82,r:24,t:28,b:52},pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const maxL=Math.max(1,Number(d.MaxLevel)||1),vpl=Number(d.ValuePerLevel||0);
   ctx.clearRect(0,0,W,H);
-  for(let i=0;i<=4;i++){const y=m.t+ph-i*ph/4;ctx.strokeStyle='#203140';ctx.beginPath();ctx.moveTo(m.l,y);ctx.lineTo(W-m.r,y);ctx.stroke();ctx.fillStyle='#8197aa';ctx.font='10px system-ui';ctx.textAlign='right';ctx.fillText(valFmt(SELECTED,maxL*vpl*i/4),m.l-8,y+3)}
-  [0,.25,.5,.75,1].forEach(q=>{const x=m.l+pw*q;ctx.fillStyle='#8197aa';ctx.textAlign='center';ctx.fillText(Math.round(maxL*q),x,H-m.b+17)});
-  ctx.strokeStyle='#78b9f3';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(m.l,m.t+ph);ctx.lineTo(m.l+pw,m.t);ctx.stroke();
-  const cur=Math.max(0,Math.min(Number(currentLevel.value)||0,maxL)),tar=Math.max(cur,Math.min(Number(targetLevel.value)||0,maxL));
-  [cur,tar].forEach((l,i)=>{const x=m.l+(l/maxL)*pw,y=m.t+ph-(l/maxL)*ph;ctx.fillStyle=i?'#d8b16d':'#9ac58c';ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill()});
-  ctx.fillStyle='#a9bdd0';ctx.font='700 10px system-ui';ctx.textAlign='center';ctx.fillText('Poziom node’a',m.l+pw/2,H-5);
-  ctx.save();ctx.translate(13,m.t+ph/2);ctx.rotate(-Math.PI/2);ctx.fillText('Łączny bonus',0,0);ctx.restore();
+
+  // tło + siatka
+  ctx.fillStyle='#07111a';ctx.fillRect(0,0,W,H);
+  ctx.font='11px system-ui';
+
+  for(let i=0;i<=4;i++){
+    const q=i/4,y=m.t+ph-q*ph,val=maxL*vpl*q;
+    ctx.strokeStyle='#203140';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(m.l,y);ctx.lineTo(W-m.r,y);ctx.stroke();
+    ctx.fillStyle='#8197aa';ctx.textAlign='right';ctx.textBaseline='middle';
+    ctx.fillText(valFmt(SELECTED,val),m.l-10,y);
+  }
+
+  [0,.25,.5,.75,1].forEach(q=>{
+    const x=m.l+pw*q,lvl=Math.round(maxL*q);
+    ctx.strokeStyle='#152431';
+    ctx.beginPath();ctx.moveTo(x,m.t);ctx.lineTo(x,m.t+ph);ctx.stroke();
+    ctx.fillStyle='#8197aa';ctx.textAlign='center';ctx.textBaseline='top';
+    ctx.fillText(String(lvl),x,m.t+ph+12);
+  });
+
+  // główna linia bonusu
+  ctx.strokeStyle='#78b9f3';ctx.lineWidth=3;
+  ctx.beginPath();ctx.moveTo(m.l,m.t+ph);ctx.lineTo(m.l+pw,m.t);ctx.stroke();
+
+  // aktualny i docelowy poziom
+  const cur=Math.max(0,Math.min(Number(currentLevel.value)||0,maxL));
+  const tar=Math.max(cur,Math.min(Number(targetLevel.value)||0,maxL));
+  [{l:cur,c:'#9ac58c',name:'Aktualny'},{l:tar,c:'#d8b16d',name:'Cel'}].forEach(o=>{
+    const x=m.l+(o.l/maxL)*pw,y=m.t+ph-(o.l/maxL)*ph;
+    ctx.fillStyle=o.c;ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#eaf3fb';ctx.font='700 10px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
+    ctx.fillText(o.name+' '+o.l,x,y-9);
+  });
+
+  // osie
+  ctx.fillStyle='#a9bdd0';ctx.font='700 11px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
+  ctx.fillText('Poziom node’a',m.l+pw/2,H-5);
+  ctx.save();
+  ctx.translate(17,m.t+ph/2);ctx.rotate(-Math.PI/2);
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Łączny bonus',0,0);
+  ctx.restore();
+
+  // nagłówek wykresu
+  ctx.fillStyle='#d9e8f5';ctx.font='800 12px system-ui';ctx.textAlign='left';ctx.textBaseline='top';
+  ctx.fillText(label(SELECTED)+' — rozwój bonusu 0 → MAX',m.l,m.t-20);
 }
 function renderPower(cur,tar,vpl){
   powerPanel.classList.add('hidden');powerWarn.classList.add('hidden');

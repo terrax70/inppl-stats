@@ -44,6 +44,39 @@ td.eff{font-weight:800;color:var(--accent)}
 td.bad{color:var(--bad);font-weight:800}
 .note{margin-top:12px;color:var(--muted);font-size:12px;line-height:1.5}
 @media(max-width:900px){.grid{grid-template-columns:1fr} .chartBox{height:430px} .header{align-items:flex-start;flex-direction:column}}
+
+.playerModule{margin-top:18px}
+.moduleHead{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:14px}
+.moduleTitle{font-size:20px;font-weight:850}
+.moduleSub{font-size:12px;color:var(--muted);margin-top:4px}
+.playerControls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.playerControls label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.playerControls select{background:#0c131b;color:var(--text);border:1px solid #2c3948;border-radius:10px;padding:9px 12px;min-width:220px;font-weight:700}
+.powerKpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+.powerKpi{padding:13px 14px;border-radius:13px;background:#0d141c;border:1px solid #22303e}
+.powerKpi .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.powerKpi .v{font-size:21px;font-weight:850;margin-top:4px}
+.powerGrid{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px}
+.powerChartBox{height:360px;position:relative;background:#0b1219;border:1px solid #202d3a;border-radius:14px;padding:8px}
+.powerStageList{display:grid;gap:7px;align-content:start}
+.powerStage{display:grid;grid-template-columns:54px 66px 1fr;align-items:center;gap:8px;padding:9px 10px;border:1px solid #253240;border-radius:11px;background:#0c131b}
+.powerStage .level{font-weight:850;color:#dce8f5}
+.powerStage .bonus{font-size:11px;color:var(--muted)}
+.powerStage .power{text-align:right;font-weight:850}
+.rankTableWrap{overflow:auto;margin-top:14px;border:1px solid #273241;border-radius:14px}
+#powerRankTable{margin:0;min-width:1050px}
+#powerRankTable th{position:sticky;top:0;z-index:1}
+#powerRankTable td:nth-child(2),#powerRankTable th:nth-child(2){text-align:left}
+.playerState{font-size:10px;color:var(--muted)}
+.dataStatus{font-size:11px;color:var(--muted);margin-top:8px}
+.dataStatus.ok{color:#9cbd90}
+.dataStatus.err{color:#d88c8c}
+@media(max-width:900px){
+  .powerGrid{grid-template-columns:1fr}
+  .powerKpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .moduleHead{align-items:flex-start;flex-direction:column}
+}
+
 </style>
 </head>
 <body>
@@ -87,8 +120,49 @@ td.bad{color:var(--bad);font-weight:800}
       <div class="stat"><div class="k">Koszt MAX</div><div class="v" style="font-size:22px">16,9 bln</div><small>16 904 991 277 056</small></div>
     </div>
   </div>
+
+  <div class="card playerModule">
+    <div class="moduleHead">
+      <div>
+        <div class="moduleTitle">Moc graczy na poziomach Clan War Damage / Health</div>
+        <div class="moduleSub">Dane graczy są pobierane automatycznie z <b>data.js</b>. Przeliczenie jest dokładnie takie jak w Twoim Excelu: <b>Moc × poziom × 2</b>.</div>
+      </div>
+      <div class="playerControls">
+        <div><label for="playerSelect">Gracz</label><br><select id="playerSelect"></select></div>
+      </div>
+    </div>
+
+    <div id="dataStatus" class="dataStatus">Ładowanie danych z data.js…</div>
+
+    <div class="powerKpis">
+      <div class="powerKpi"><div class="l">Aktualna moc</div><div class="v" id="basePower">—</div></div>
+      <div class="powerKpi"><div class="l">Poziom 1 / 100%</div><div class="v" id="powerLvl1">—</div></div>
+      <div class="powerKpi"><div class="l">Poziom 16 / 1600%</div><div class="v" id="powerLvl16">—</div></div>
+      <div class="powerKpi"><div class="l">MAX / 10000%</div><div class="v" id="powerMax">—</div></div>
+    </div>
+
+    <div class="powerGrid">
+      <div class="powerChartBox"><canvas id="playerPowerChart"></canvas></div>
+      <div class="powerStageList" id="powerStageList"></div>
+    </div>
+
+    <div class="note">Tabela poniżej działa jak Twój arkusz Excel, ale nie trzeba jej ręcznie aktualizować — po zmianie <b>data.js</b> bierze najnowszą moc każdego aktywnego gracza.</div>
+    <div class="rankTableWrap">
+      <table id="powerRankTable">
+        <thead>
+          <tr>
+            <th>#</th><th>Nick</th><th>Aktualna moc</th>
+            <th>100%</th><th>200%</th><th>400%</th><th>800%</th><th>1600%</th><th>2400%</th><th>4800%</th><th>9600%</th><th>10000%</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
 </div>
 
+<script src="../data.js"></script>
 <script>
 const data = [{"step": "0 → 1", "eff": 100, "cost": 246, "bonus": "100%"}, {"step": "1 → 2", "eff": 100, "cost": 492, "bonus": "200%"}, {"step": "2 → 4", "eff": 50, "cost": 1968, "bonus": "400%"}, {"step": "4 → 8", "eff": 25, "cost": 15744, "bonus": "800%"}, {"step": "8 → 16", "eff": 12.5, "cost": 251904, "bonus": "1600%"}, {"step": "16 → 24", "eff": 4.6875, "cost": 8060928, "bonus": "2400%"}, {"step": "24 → 48", "eff": 3.125, "cost": 515899392, "bonus": "4800%"}, {"step": "48 → 96", "eff": 1.5625, "cost": 66035122176, "bonus": "9600%"}, {"step": "96 → 100", "eff": 0.4069010416666667, "cost": 16904991277056, "bonus": "10000%"}];
 
@@ -321,6 +395,136 @@ canvas.addEventListener('mousemove',e=>{
 });
 canvas.addEventListener('mouseleave',()=>{hover=-1;draw()});
 window.addEventListener('resize',resize); resize();
+
+
+// ===== Player power projection from ../data.js =====
+const POWER_STAGES = [
+  {level:1, bonus:'100%', mult:2},
+  {level:2, bonus:'200%', mult:4},
+  {level:4, bonus:'400%', mult:8},
+  {level:8, bonus:'800%', mult:16},
+  {level:16, bonus:'1600%', mult:32},
+  {level:24, bonus:'2400%', mult:48},
+  {level:48, bonus:'4800%', mult:96},
+  {level:96, bonus:'9600%', mult:192},
+  {level:100, bonus:'10000%', mult:200}
+];
+
+const fmtPowerM = m => {
+  if (m == null || !Number.isFinite(Number(m))) return '—';
+  const n = Number(m) * 1e6;
+  const a = Math.abs(n);
+  if (a >= 1e12) return (n/1e12).toLocaleString('pl-PL',{maximumFractionDigits:1})+'T';
+  if (a >= 1e9) return (n/1e9).toLocaleString('pl-PL',{maximumFractionDigits:1})+'B';
+  if (a >= 1e6) return (n/1e6).toLocaleString('pl-PL',{maximumFractionDigits:1})+'M';
+  if (a >= 1e3) return (n/1e3).toLocaleString('pl-PL',{maximumFractionDigits:1})+'K';
+  return Math.round(n).toLocaleString('pl-PL');
+};
+
+let powerPlayers = [];
+let selectedPowerNick = 'Wosiu';
+const playerCanvas = document.getElementById('playerPowerChart');
+const pctx = playerCanvas.getContext('2d');
+
+function loadPowerPlayers(){
+  const status = document.getElementById('dataStatus');
+  const D = window.INPPL_DATA;
+  if(!D || !Array.isArray(D.players)){
+    status.textContent='Nie udało się odczytać ../data.js';
+    status.className='dataStatus err';
+    return;
+  }
+  powerPlayers = D.players
+    .filter(p => p && p.active !== false && Number.isFinite(Number(p.powerM)))
+    .map(p => ({nick:p.nick, rank:p.rank||'', powerM:Number(p.powerM)}))
+    .sort((a,b)=>b.powerM-a.powerM);
+
+  status.textContent=`Połączono z data.js • ${powerPlayers.length} aktywnych graczy z aktualną mocą`;
+  status.className='dataStatus ok';
+
+  const sel=document.getElementById('playerSelect');
+  sel.innerHTML=powerPlayers.map(p=>`<option value="${String(p.nick).replace(/"/g,'&quot;')}">${p.nick} — ${fmtPowerM(p.powerM)}</option>`).join('');
+  if(powerPlayers.some(p=>p.nick==='Wosiu')) selectedPowerNick='Wosiu';
+  else if(powerPlayers[0]) selectedPowerNick=powerPlayers[0].nick;
+  sel.value=selectedPowerNick;
+  sel.addEventListener('change',()=>{selectedPowerNick=sel.value;renderPlayerPower();});
+  renderAllPlayersPowerTable();
+  renderPlayerPower();
+}
+
+function renderPlayerPower(){
+  const p=powerPlayers.find(x=>x.nick===selectedPowerNick);
+  if(!p)return;
+  document.getElementById('basePower').textContent=fmtPowerM(p.powerM);
+  document.getElementById('powerLvl1').textContent=fmtPowerM(p.powerM*2);
+  document.getElementById('powerLvl16').textContent=fmtPowerM(p.powerM*32);
+  document.getElementById('powerMax').textContent=fmtPowerM(p.powerM*200);
+
+  document.getElementById('powerStageList').innerHTML=POWER_STAGES.map(s=>`
+    <div class="powerStage">
+      <div class="level">Lv ${s.level}</div>
+      <div class="bonus">${s.bonus}</div>
+      <div class="power">${fmtPowerM(p.powerM*s.mult)}</div>
+    </div>`).join('');
+
+  resizePlayerPowerChart();
+}
+
+function resizePlayerPowerChart(){
+  const r=playerCanvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  playerCanvas.width=Math.round(r.width*dpr);playerCanvas.height=Math.round(r.height*dpr);
+  pctx.setTransform(dpr,0,0,dpr,0,0);
+  drawPlayerPowerChart();
+}
+
+function drawPlayerPowerChart(){
+  const p=powerPlayers.find(x=>x.nick===selectedPowerNick);
+  if(!p)return;
+  const W=playerCanvas.clientWidth,H=playerCanvas.clientHeight;
+  pctx.clearRect(0,0,W,H);
+  const m={l:72,r:22,t:34,b:54},pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const vals=POWER_STAGES.map(s=>p.powerM*s.mult);
+  const max=Math.max(...vals)*1.08;
+  const pts=vals.map((v,i)=>({x:m.l+i*(pw/(vals.length-1)),y:m.t+ph-(v/max)*ph,v}));
+
+  pctx.font='11px system-ui';
+  [0,.25,.5,.75,1].forEach(q=>{
+    const y=m.t+ph-q*ph, val=max*q;
+    pctx.strokeStyle='#263240';pctx.lineWidth=1;pctx.beginPath();pctx.moveTo(m.l,y);pctx.lineTo(W-m.r,y);pctx.stroke();
+    pctx.fillStyle='#8091a6';pctx.textAlign='right';pctx.textBaseline='middle';pctx.fillText(fmtPowerM(val),m.l-10,y);
+  });
+
+  const grad=pctx.createLinearGradient(m.l,0,W-m.r,0);
+  grad.addColorStop(0,'#9cbd90');grad.addColorStop(.55,'#c7ab7e');grad.addColorStop(1,'#be8484');
+  pctx.strokeStyle=grad;pctx.lineWidth=3;pctx.beginPath();
+  pts.forEach((pt,i)=>i?pctx.lineTo(pt.x,pt.y):pctx.moveTo(pt.x,pt.y));pctx.stroke();
+
+  pts.forEach((pt,i)=>{
+    pctx.fillStyle= i<2 ? '#9cbd90' : (i<5 ? '#c7ab7e' : '#be8484');
+    pctx.beginPath();pctx.arc(pt.x,pt.y,5,0,Math.PI*2);pctx.fill();
+    pctx.fillStyle='#8fa0b5';pctx.textAlign='center';pctx.textBaseline='top';
+    pctx.fillText(POWER_STAGES[i].level,pt.x,H-m.b+12);
+  });
+
+  pctx.fillStyle='#9fb0c4';pctx.textAlign='center';pctx.textBaseline='bottom';pctx.font='700 11px system-ui';
+  pctx.fillText('Poziom Clan War Damage / Health',m.l+pw/2,H-5);
+  pctx.save();pctx.translate(15,m.t+ph/2);pctx.rotate(-Math.PI/2);pctx.fillText('Prognozowana moc',0,0);pctx.restore();
+
+  pctx.fillStyle='#dce8f5';pctx.textAlign='left';pctx.textBaseline='top';pctx.font='800 13px system-ui';
+  pctx.fillText(`${p.nick} • baza ${fmtPowerM(p.powerM)}`,m.l,m.t-24);
+}
+
+function renderAllPlayersPowerTable(){
+  const tb=document.querySelector('#powerRankTable tbody');
+  tb.innerHTML=powerPlayers.map((p,i)=>{
+    const vals=POWER_STAGES.map(s=>`<td>${fmtPowerM(p.powerM*s.mult)}</td>`).join('');
+    return `<tr><td>${i+1}</td><td><b>${p.nick}</b><div class="playerState">${p.rank}</div></td><td><b>${fmtPowerM(p.powerM)}</b></td>${vals}</tr>`;
+  }).join('');
+}
+
+window.addEventListener('resize',()=>{ if(powerPlayers.length) resizePlayerPowerChart(); });
+loadPowerPlayers();
+
 </script>
 </body>
 </html>

@@ -128,7 +128,7 @@ th:first-child,td:first-child{text-align:left}
     <div id="tree" class="tree"></div>
   </div>
 
-  <div class="note">Wersja 2.2 analizatora — każdy node kończy się dokładnie na swoim MaxLevel. Dla node'ów Damage + Health działających w tym samym kontekście można policzyć zmianę efektywnej Power z samego <b>powerM</b>, jeśli oba są rozwinięte do tego samego poziomu. Dla node'ów wpływających tylko na część buildu (np. WeaponBonus, PetBonusDamage) dokładna zmiana Power wymagałaby osobnych statystyk gracza, których data.js nie zawiera.</div>
+  <div class="note">Wersja 2.2.1 — każdy node kończy się dokładnie na swoim MaxLevel. Dla node'ów Damage + Health działających w tym samym kontekście można policzyć zmianę efektywnej Power z samego <b>powerM</b>, jeśli oba są rozwinięte do tego samego poziomu. Dla node'ów wpływających tylko na część buildu (np. WeaponBonus, PetBonusDamage) dokładna zmiana Power wymagałaby osobnych statystyk gracza, których data.js nie zawiera.</div>
 </div>
 
 <div id="modalBack" class="modalBack">
@@ -280,7 +280,6 @@ function isPercent(type){
 function valFmt(type,v){
   return isPercent(type) ? pct(v) : fmt(v);
 }
-function hasInfinite(type){ return false; } // Clan Tech Tree respects MaxLevel as a hard cap.
 function totalValueAt(type,level){
   const d=UPGRADES[type]||{}, max=Math.max(0,Number(d.MaxLevel||0)), v=Number(d.ValuePerLevel||0);
   const l=Math.max(0,Math.min(Number(level)||0,max));
@@ -293,11 +292,6 @@ function totalCostAt(type,level){
 }
 function levelIncrement(type,level){
   const d=UPGRADES[type]||{};
-  return {cost:Number(d.PointsPerLevel||0),value:Number(d.ValuePerLevel||0),infinite:false};
-}, max=Number(d.MaxLevel||0);
-  if(level>max && hasInfinite(type)){
-    return {cost:Number(d.PointsPerInfiniteLevel||0),value:Number(d.ValuePerInfiniteLevel||0),infinite:true};
-  }
   return {cost:Number(d.PointsPerLevel||0),value:Number(d.ValuePerLevel||0),infinite:false};
 }
 
@@ -631,7 +625,7 @@ function drawChart(){
 
   const W=r.width,H=r.height,m={l:92,r:24,t:48,b:74},pw=W-m.l-m.r,ph=H-m.t-m.b;
   const model=modelFor(type),levels=stageLevels(type);
-  const data=levels.map(l=>({level:l,label:(hasInfinite(type)&&l>Number(UPGRADES[type].MaxLevel||0))?'MAX'+(l-Number(UPGRADES[type].MaxLevel||0)):String(l),eff:efficiencyAt(type,l)}));
+  const data=levels.map(l=>({level:l,label:String(l),eff:efficiencyAt(type,l)}));
   const stepX=data.length>1?pw/(data.length-1):0;
   const pts=data.map((o,i)=>({x:m.l+i*stepX,y:m.t+ph-o.eff*ph}));
 

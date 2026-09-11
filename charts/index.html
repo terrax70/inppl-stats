@@ -142,7 +142,7 @@ td.bad{color:var(--bad);font-weight:800}
     </div>
 
     <div class="powerGrid">
-      <div class="powerChartBox"><canvas id="playerPowerChart"></canvas></div>
+      <div><div class="powerChartBox"><canvas id="playerPowerChart"></canvas></div><div class="dataStatus" style="margin:7px 4px 0">Oś X jest proporcjonalna do poziomu: 96 → 100 zajmuje tylko 4% szerokości osi, bo to tylko 4 poziomy różnicy.</div></div>
       <div class="powerStageList" id="powerStageList"></div>
     </div>
 
@@ -489,9 +489,19 @@ function drawPlayerPowerChart(){
   const W=playerCanvas.clientWidth,H=playerCanvas.clientHeight;
   pctx.clearRect(0,0,W,H);
   const m={l:72,r:22,t:34,b:54},pw=W-m.l-m.r,ph=H-m.t-m.b;
-  const vals=POWER_STAGES.map(s=>projectedPowerM(p.powerM, s.mult));
+
+  // Wykres używa PRAWDZIWEJ skali poziomu 0..100.
+  // Wcześniej każdy próg miał taki sam odstęp na osi X, co sztucznie
+  // tworzyło "załamanie" między 96 a 100.
+  const chartStages = [{level:0, bonus:'0%', mult:1}, ...POWER_STAGES];
+  const vals=chartStages.map(s=>s.level===0 ? p.powerM : projectedPowerM(p.powerM,s.mult));
   const max=Math.max(...vals)*1.08;
-  const pts=vals.map((v,i)=>({x:m.l+i*(pw/(vals.length-1)),y:m.t+ph-(v/max)*ph,v}));
+  const pts=chartStages.map((s,i)=>({
+    x:m.l+(s.level/100)*pw,
+    y:m.t+ph-(vals[i]/max)*ph,
+    v:vals[i],
+    level:s.level
+  }));
 
   pctx.font='11px system-ui';
   [0,.25,.5,.75,1].forEach(q=>{
@@ -500,20 +510,25 @@ function drawPlayerPowerChart(){
     pctx.fillStyle='#8091a6';pctx.textAlign='right';pctx.textBaseline='middle';pctx.fillText(fmtPowerM(val),m.l-10,y);
   });
 
+  // Numeric X-axis ticks: distance on screen = actual distance between levels.
+  [0,20,40,60,80,100].forEach(level=>{
+    const x=m.l+(level/100)*pw;
+    pctx.strokeStyle='#1d2834';pctx.lineWidth=1;pctx.beginPath();pctx.moveTo(x,m.t);pctx.lineTo(x,m.t+ph);pctx.stroke();
+    pctx.fillStyle='#8091a6';pctx.textAlign='center';pctx.textBaseline='top';pctx.fillText(String(level),x,H-m.b+12);
+  });
+
   const grad=pctx.createLinearGradient(m.l,0,W-m.r,0);
   grad.addColorStop(0,'#9cbd90');grad.addColorStop(.55,'#c7ab7e');grad.addColorStop(1,'#be8484');
   pctx.strokeStyle=grad;pctx.lineWidth=3;pctx.beginPath();
   pts.forEach((pt,i)=>i?pctx.lineTo(pt.x,pt.y):pctx.moveTo(pt.x,pt.y));pctx.stroke();
 
   pts.forEach((pt,i)=>{
-    pctx.fillStyle= i<2 ? '#9cbd90' : (i<5 ? '#c7ab7e' : '#be8484');
+    pctx.fillStyle= i<=2 ? '#9cbd90' : (i<6 ? '#c7ab7e' : '#be8484');
     pctx.beginPath();pctx.arc(pt.x,pt.y,5,0,Math.PI*2);pctx.fill();
-    pctx.fillStyle='#8fa0b5';pctx.textAlign='center';pctx.textBaseline='top';
-    pctx.fillText(POWER_STAGES[i].level,pt.x,H-m.b+12);
   });
 
   pctx.fillStyle='#9fb0c4';pctx.textAlign='center';pctx.textBaseline='bottom';pctx.font='700 11px system-ui';
-  pctx.fillText('Poziom Clan War Damage / Health',m.l+pw/2,H-5);
+  pctx.fillText('Poziom Clan War Damage / Health (skala 0–100)',m.l+pw/2,H-5);
   pctx.save();pctx.translate(15,m.t+ph/2);pctx.rotate(-Math.PI/2);pctx.fillText('Prognozowana moc',0,0);pctx.restore();
 
   pctx.fillStyle='#dce8f5';pctx.textAlign='left';pctx.textBaseline='top';pctx.font='800 13px system-ui';

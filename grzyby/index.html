@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v39: unified fixed details panel — no popup autopan / no map jump -->
+<!-- GitHub production v40: mobile settings header + auto-collapsing data status dots -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2519,6 +2519,146 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
+
+<style id="v40-mobile-settings-status">
+/* ===== v40: telefon — Ustawienia nad statusami, status po chwili = same kropki ===== */
+@media(max-width:700px){
+  /* Status jest przez JS przenoszony do panelu, między nagłówek a treść. */
+  .panel > .data-source-mini{
+    position:relative!important;
+    top:auto!important;
+    right:auto!important;
+    left:auto!important;
+    width:auto!important;
+    max-width:none!important;
+    margin:0 10px 8px!important;
+    padding:0!important;
+    z-index:1!important;
+    display:flex!important;
+    flex-direction:column!important;
+    align-items:stretch!important;
+    gap:5px!important;
+    pointer-events:auto!important;
+  }
+
+  .panel > .data-source-mini .data-source-summary{
+    align-self:stretch!important;
+    min-height:27px!important;
+    padding:5px 8px!important;
+    border-radius:9px!important;
+    font-size:8.8px!important;
+    justify-content:flex-start!important;
+  }
+
+  .panel > .data-source-mini .data-source-list{
+    display:grid!important;
+    grid-template-columns:repeat(4,minmax(0,1fr))!important;
+    gap:4px!important;
+    max-width:none!important;
+    width:100%!important;
+  }
+
+  .panel > .data-source-mini .source-chip{
+    min-width:0!important;
+    width:auto!important;
+    height:27px!important;
+    box-sizing:border-box!important;
+    padding:4px 6px!important;
+    border-radius:8px!important;
+    justify-content:flex-start!important;
+    font-size:7.7px!important;
+    overflow:hidden!important;
+  }
+
+  .panel > .data-source-mini .source-chip > span:last-child{
+    min-width:0;
+    overflow:hidden;
+    white-space:nowrap;
+    text-overflow:ellipsis;
+  }
+
+  /* Po zakończeniu aktualizacji zostaje tylko dyskretny pasek kropek. */
+  .panel > .data-source-mini.compact{
+    margin-top:-2px!important;
+    margin-bottom:6px!important;
+  }
+
+  .panel > .data-source-mini.compact .data-source-summary{
+    display:none!important;
+  }
+
+  .panel > .data-source-mini.compact .data-source-list{
+    display:flex!important;
+    flex-direction:row!important;
+    flex-wrap:nowrap!important;
+    justify-content:flex-end!important;
+    align-items:center!important;
+    gap:7px!important;
+    min-height:21px!important;
+    padding:2px 4px!important;
+    border-radius:9px!important;
+    background:rgba(18,24,20,.52)!important;
+    border:1px solid rgba(255,255,255,.06)!important;
+  }
+
+  .panel > .data-source-mini.compact .source-chip{
+    flex:0 0 14px!important;
+    min-width:14px!important;
+    width:14px!important;
+    height:14px!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:50%!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    overflow:visible!important;
+    justify-content:center!important;
+  }
+
+  .panel > .data-source-mini.compact .source-chip > span:last-child{
+    display:none!important;
+  }
+
+  .panel > .data-source-mini.compact .source-dot{
+    width:10px!important;
+    height:10px!important;
+    flex:0 0 10px!important;
+  }
+
+  .panel > .data-source-mini.compact .source-chip[data-state="load"] .source-dot{
+    width:10px!important;
+    height:10px!important;
+    flex-basis:10px!important;
+  }
+
+  /* Nagłówek ustawień zawsze jest nad paskiem źródeł. */
+  .panel > .panel-toggle{
+    position:relative!important;
+    z-index:2!important;
+  }
+
+  .panel > .panel-toggle .sub{
+    display:block!important;
+    font-size:9.5px!important;
+    opacity:.78;
+  }
+
+  .panel.mobile-collapsed > .data-source-mini{
+    margin-left:8px!important;
+    margin-right:8px!important;
+  }
+
+  /* Detail źródła ma nie przykrywać całego ekranu. */
+  .source-detail-box{
+    top:132px!important;
+    right:8px!important;
+    width:min(260px,calc(100vw - 16px))!important;
+    font-size:9px!important;
+  }
+}
+</style>
+
 </head>
 
 <style>
@@ -2602,9 +2742,9 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   <button id="togglePanel" class="head panel-toggle" type="button" aria-expanded="true">
     <div class="head-inner">
       <div>
-        <h1>Mapa grzybowa Polski</h1>
+        <h1>Ustawienia</h1>
         <div class="sub">
-          Znajdź dobre miejsca na grzyby w dowolnym rejonie Polski.
+          Mapa grzybowa Polski
         </div>
       </div>
       <span id="panelChevron" class="panel-chev">▾</span>
@@ -9379,6 +9519,88 @@ const sourceStates={
  forest:'off',habitat:'off',weather:'off',reserve:'off',
  soil:'off',terrain:'off',open:'off',obs:'off'
 };
+
+let sourceStatusCollapseTimer=0;
+
+function placeMobileSourceStatus(){
+ const mini=document.getElementById('dataSourceMini');
+ const panel=document.querySelector('.panel');
+ const body=document.getElementById('panelBody');
+ if(!mini||!panel||!body)return;
+
+ const mobile=window.matchMedia('(max-width:700px)').matches;
+ if(mobile){
+   if(mini.parentElement!==panel)panel.insertBefore(mini,body);
+ }else{
+   if(mini.parentElement===panel){
+     const detail=document.getElementById('sourceDetailBox');
+     if(detail&&detail.parentElement)detail.parentElement.insertBefore(mini,detail);
+     else document.body.appendChild(mini);
+   }
+   mini.classList.remove('compact');
+ }
+}
+
+function sourceStatusHasLoading(){
+ return Object.values(sourceStates).some(v=>v==='load');
+}
+
+function sourceStatusHasRelevant(){
+ return Object.values(sourceStates).some(v=>v!=='off');
+}
+
+function sourceStatusScheduleCollapse(){
+ const mini=document.getElementById('dataSourceMini');
+ if(!mini)return;
+ clearTimeout(sourceStatusCollapseTimer);
+
+ if(!window.matchMedia('(max-width:700px)').matches){
+   mini.classList.remove('compact');
+   return;
+ }
+
+ if(sourceStatusHasLoading()){
+   mini.classList.remove('compact');
+   return;
+ }
+
+ if(!sourceStatusHasRelevant())return;
+
+ // Po zakończeniu pobierania przez moment widać nazwy/statusy,
+ // potem zostają same kolorowe kropki.
+ sourceStatusCollapseTimer=setTimeout(()=>{
+   mini.classList.add('compact');
+ },3200);
+}
+
+function expandSourceStatusTemporarily(){
+ const mini=document.getElementById('dataSourceMini');
+ if(!mini||!window.matchMedia('(max-width:700px)').matches)return;
+ mini.classList.remove('compact');
+ clearTimeout(sourceStatusCollapseTimer);
+ sourceStatusCollapseTimer=setTimeout(()=>{
+   if(!sourceStatusHasLoading())mini.classList.add('compact');
+ },6500);
+}
+
+(function installMobileSourceStatus(){
+ const run=()=>{placeMobileSourceStatus();sourceStatusScheduleCollapse();};
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run,{once:true});
+ else run();
+
+ window.addEventListener('resize',()=>{
+   clearTimeout(window.__sourceStatusResizeTimer);
+   window.__sourceStatusResizeTimer=setTimeout(run,120);
+ },{passive:true});
+
+ const mini=document.getElementById('dataSourceMini');
+ if(mini&&!mini.dataset.v40Tap){
+   mini.dataset.v40Tap='1';
+   mini.addEventListener('click',()=>{
+     if(mini.classList.contains('compact'))expandSourceStatusTemporarily();
+   });
+ }
+})();
 function setSourceState(id,state,detail=''){
  sourceStates[id]=state;
  const chip=document.querySelector(`.source-chip[data-source="${id}"]`);
@@ -9392,6 +9614,7 @@ function setSourceState(id,state,detail=''){
    }[state]||'');
  }
  updateSourceSummary();
+ sourceStatusScheduleCollapse();
 }
 function resetSourceStates(){
  for(const id of Object.keys(sourceStates))setSourceState(id,'off');
@@ -9399,6 +9622,16 @@ function resetSourceStates(){
 }
 
 function installSourceDetailClicks(){
+ const summary=document.getElementById('dataSourceSummary');
+ if(summary&&!summary.dataset.v40Ready){
+   summary.dataset.v40Ready='1';
+   summary.style.pointerEvents='auto';
+   summary.style.cursor='pointer';
+   summary.addEventListener('click',e=>{
+     e.stopPropagation();
+     expandSourceStatusTemporarily();
+   });
+ }
  document.querySelectorAll('.source-chip').forEach(chip=>{
    if(chip.dataset.detailReady==='1')return;
    chip.dataset.detailReady='1';

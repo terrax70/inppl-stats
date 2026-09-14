@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v3: compact far hotspot labels + linked forest interactions -->
+<!-- GitHub production v6: popup close clears locked forest focus -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -1930,10 +1930,52 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   flex:0 0 20px!important;
 }
 
+
+/* ===== v4 MOBILE SEARCH / TOUCH / PERFORMANCE ===== */
+.mobile-search-dock{display:none}
+@media(max-width:700px){
+  .mobile-search-dock{
+    display:block;position:fixed;z-index:1700;top:7px;left:7px;right:7px;
+    padding:5px;border-radius:15px;background:rgba(18,23,20,.94);
+    border:1px solid rgba(255,255,255,.12);box-shadow:0 6px 22px rgba(0,0,0,.30);
+    backdrop-filter:blur(10px)
+  }
+  .mobile-search-dock .locator-search-row{display:flex!important;width:100%;gap:5px!important;margin:0!important}
+  .mobile-search-dock .locator-search-wrap{flex:1;min-width:0}
+  .mobile-search-dock .locator-search-wrap input{
+    height:42px;font-size:14px!important;border-radius:11px!important;padding:0 13px!important
+  }
+  .mobile-search-dock #searchBtn{
+    width:42px!important;min-width:42px!important;height:42px!important;padding:0!important;
+    border-radius:11px!important;font-size:15px!important
+  }
+  .mobile-search-dock .search-results{
+    top:calc(100% + 7px)!important;max-height:min(45vh,320px)!important;font-size:12px!important
+  }
+  .panel{top:61px!important;max-height:calc(47vh - 8px)!important}
+  .panel.mobile-collapsed{top:61px!important}
+  .locator-card .locator-title{display:none!important}
+
+  .leaflet-popup-content-wrapper{border-radius:13px!important}
+  .leaflet-popup-content{margin:10px 11px!important;width:min(86vw,380px)!important}
+  .popup-card{max-height:46vh!important;font-size:11px!important}
+}
+
+
+/* ===== v5 reliable forest interaction ===== */
+#map.forest-hit,
+.leaflet-container.forest-hit{cursor:pointer!important}
+
+@media(hover:hover){
+  #map{cursor:grab}
+  #map:active{cursor:grabbing}
+}
+
 </style>
 </head>
 <body>
 <div id="map"></div>
+<div id="mobileSearchDock" class="mobile-search-dock" aria-label="Szukaj miejsca"></div>
 <div class="panel">
   <button id="togglePanel" class="head panel-toggle" type="button" aria-expanded="true">
     <div class="head-inner">
@@ -2291,7 +2333,12 @@ const RADAR_REPORTS=[]; const RADAR_NOW=new Date(); const RADAR_PUBLIC_COUNT=0;
 let radarScores={all:0,borowik:0,podgrzybek:0,kozlarz:0,maslak:0,kurka:0};
 
 
-const map=L.map('map',{zoomControl:false,preferCanvas:true}).setView(CENTER,6);
+const map=L.map('map',{
+ zoomControl:false,
+ preferCanvas:true,
+ tapTolerance:30,
+ bounceAtZoomLimits:false
+}).setView(CENTER,6);
 L.control.zoom({position:'bottomright'}).addTo(map);
 
 const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
@@ -2318,6 +2365,19 @@ function hideBdlFallback(){
 const analysisGroup=L.layerGroup().addTo(map);
 const topGroup=L.layerGroup().addTo(map);
 const hintGroup=L.layerGroup().addTo(map);
+const linkedHoverGroup=L.layerGroup().addTo(map);
+const linkedLockGroup=L.layerGroup().addTo(map);
+
+if(!map.getPane('linkedFocusPane')){
+  map.createPane('linkedFocusPane');
+}
+map.getPane('linkedFocusPane').style.zIndex='430';
+map.getPane('linkedFocusPane').style.pointerEvents='none';
+
+const linkedFocusRenderer=L.canvas({
+  padding:.22,
+  pane:'linkedFocusPane'
+});
 const reserveGroup=L.layerGroup().addTo(map);
 let speciesHintLayoutRAF=0;
 function scheduleSpeciesHintLayout(){
@@ -4721,90 +4781,97 @@ function clearLinkedAtlasClasses(){
  applyHintTypeFocus(null,false);
  linkedActiveTypes.clear();
 }
-function linkedFeatureStrongStyle(layer,locked){
- if(!layer)return;
- layer.setStyle({
-   weight:locked?3.8:3.0,
-   color:locked?'#ffe077':'#fff5a8',
-   opacity:1,
-   fillOpacity:locked?.70:.62
- });
- if(layer.bringToFront)layer.bringToFront();
+function drawLinkedFeature(group,f,locked=false){
+ if(!group)return;
+ group.clearLayers();
+ if(!f||!f.geometry)return;
+ L.geoJSON({type:'Feature',properties:{},geometry:f.geometry},{
+   renderer:linkedFocusRenderer,interactive:false,smoothFactor:1.8,
+   style:{
+     color:locked?'#ffe077':'#fff5a8',weight:locked?3.4:2.5,opacity:1,
+     fillColor:locked?'#ffe077':'#fff5a8',fillOpacity:locked?.17:.11
+   }
+ }).addTo(group);
 }
-function applyLockedForestContext(f,types){
- const center=f?f._center:null;
- const viewBounds=map.getBounds().pad(.08);
+function drawLockedForestContext(f,types){
+ linkedLockGroup.clearLayers();
+ if(!f||!f.geometry)return;
 
+ const viewBounds=map.getBounds().pad(.06);
+ const related=[];
  for(const row of analysisLayers){
-   const ly=row.layer,g=row.f;
-   if(!f||!center){
-     renderSingle(ly,g);
-     continue;
-   }
-
-   if(g===f){
-     linkedFeatureStrongStyle(ly,true);
-     continue;
-   }
-
-   const visible=viewBounds.contains(L.latLng(g._center[0],g._center[1]));
-   const related=visible&&featureMatchesAnyType(g,types)&&!g._blocked;
-
-   if(related){
-     const base=stablePotentialStyle(g,true);
-     ly.setStyle({
-       ...base,
-       weight:Math.max(1.8,base.weight||0),
-       color:'#70d98b',
-       opacity:.96,
-       fillOpacity:Math.max(.38,base.fillOpacity||0)
-     });
-   }else{
-     // Nie ukrywamy reszty mapy, tylko zostawiamy normalny styl.
-     renderSingle(ly,g);
-   }
+   const g=row.f;
+   if(g===f||g._blocked||!g._center)continue;
+   if(!viewBounds.contains(L.latLng(g._center[0],g._center[1])))continue;
+   if(featureMatchesAnyType(g,types))related.push(g);
  }
+
+ if(related.length){
+   L.geoJSON({
+     type:'FeatureCollection',
+     features:related.map(g=>({type:'Feature',properties:{_related:true},geometry:g.geometry}))
+   },{
+     renderer:linkedFocusRenderer,interactive:false,smoothFactor:2,
+     style:{color:'#70d98b',weight:1.7,opacity:.88,fillColor:'#70d98b',fillOpacity:.13}
+   }).addTo(linkedLockGroup);
+ }
+
+ L.geoJSON({type:'Feature',properties:{_clicked:true},geometry:f.geometry},{
+   renderer:linkedFocusRenderer,interactive:false,smoothFactor:1.8,
+   style:{color:'#ffe077',weight:3.6,opacity:1,fillColor:'#ffe077',fillOpacity:.20}
+ }).addTo(linkedLockGroup);
 }
+let linkedHoverRAF=0;
+let linkedHoverPending=null;
 function setLinkedHover(f,layer){
  linkedTransientFeature=f;
- const rows=linkedRowsForFeature(f);
- applyAtlasLinkedFocus(rows,false);
- linkedFeatureStrongStyle(layer,false);
+ linkedHoverPending={f,layer};
+ if(linkedHoverRAF)return;
+ linkedHoverRAF=requestAnimationFrame(()=>{
+   linkedHoverRAF=0;
+   const p=linkedHoverPending;
+   linkedHoverPending=null;
+   if(!p||linkedLockedFeature)return;
+   applyAtlasLinkedFocus(linkedRowsForFeature(p.f),false);
+   drawLinkedFeature(linkedHoverGroup,p.f,false);
+ });
 }
 function clearLinkedHover(layer,f){
  linkedTransientFeature=null;
+ linkedHoverPending=null;
+ if(linkedHoverRAF){cancelAnimationFrame(linkedHoverRAF);linkedHoverRAF=0;}
+ linkedHoverGroup.clearLayers();
+
  if(linkedLockedFeature){
-   const rows=linkedRowsForFeature(linkedLockedFeature);
-   applyAtlasLinkedFocus(rows,true);
-   applyLockedForestContext(linkedLockedFeature,new Set(rows.map(x=>x.type)));
+   applyAtlasLinkedFocus(linkedRowsForFeature(linkedLockedFeature),true);
  }else{
    clearLinkedAtlasClasses();
-   if(layer&&f)renderSingle(layer,f);
    updateAtlasHead();
  }
 }
 function lockLinkedFeature(f,layer){
  linkedLockedFeature=f;
  linkedLockedLayer=layer;
+ linkedHoverGroup.clearLayers();
  const rows=linkedRowsForFeature(f);
  const types=new Set(rows.map(x=>x.type));
  applyAtlasLinkedFocus(rows,true);
- applyLockedForestContext(f,types);
+ drawLockedForestContext(f,types);
 }
 function clearLinkedLock(){
  linkedLockedFeature=null;
  linkedLockedLayer=null;
  linkedTransientFeature=null;
+ linkedHoverPending=null;
+ if(linkedHoverRAF){cancelAnimationFrame(linkedHoverRAF);linkedHoverRAF=0;}
+ linkedHoverGroup.clearLayers();
+ linkedLockGroup.clearLayers();
  clearLinkedAtlasClasses();
- for(const {layer,f} of analysisLayers)renderSingle(layer,f);
  updateAtlasHead();
 }
 function reapplyLinkedVisualFocus(){
- if(linkedTransientFeature&&!linkedLockedFeature){
-   applyAtlasLinkedFocus(linkedRowsForFeature(linkedTransientFeature),false);
- }else if(linkedLockedFeature){
-   applyAtlasLinkedFocus(linkedRowsForFeature(linkedLockedFeature),true);
- }
+ if(linkedLockedFeature)applyAtlasLinkedFocus(linkedRowsForFeature(linkedLockedFeature),true);
+ else if(linkedTransientFeature)applyAtlasLinkedFocus(linkedRowsForFeature(linkedTransientFeature),false);
 }
 
 function atlasFeatureMatches(f,threshold=6.25){
@@ -4942,31 +5009,238 @@ function setupAtlasScrolling(){
  if(next)next.onclick=()=>strip.scrollBy({left: amount(),behavior:'smooth'});
 }
 
-function addAnalysisFeature(f){
- const gj=L.geoJSON(f,{renderer:perfCanvasRenderer,smoothFactor:1.8,style:{color:'transparent',weight:0,fillOpacity:0},
-   onEachFeature:(ft,ly)=>{
-     ly.on('click',e=>{
-       linkedLayerClickSuppressUntil=performance.now()+350;
-       try{if(e&&e.originalEvent)L.DomEvent.stopPropagation(e.originalEvent);}catch(_){}
+let interactionGrid=null;
+let interactionGridKey='';
+let interactionHoverFeature=null;
+let interactionHoverLayer=null;
+let interactionMoveRAF=0;
+let interactionPendingLatLng=null;
 
-       // Popup jest funkcją podstawową i nie może zależeć od efektów powiązanego podświetlania.
-       try{
-         L.popup({
-           maxWidth:Math.min(430,Math.floor(window.innerWidth*.92)),
-           autoPan:true,
-           closeButton:true
-         }).setLatLng(e.latlng).setContent(popupHtml(f)).openOn(map);
-       }catch(err){
-         console.error('Popup wydzielenia',err);
+function invalidateInteractionGrid(){
+ interactionGrid=null;
+ interactionGridKey='';
+}
+function interactionFeatureIsClickable(f){
+ if(!f||f._kind==='open'||!f.geometry)return false;
+ if(f._blocked)return true;
+ return atlasSelected.size ? atlasShowsFeature(f) : filterShowsFeature(f);
+}
+function buildInteractionGrid(){
+ const key=`${analysisLayers.length}|${allFeatures.length}|${ANALYSIS_CENTERS.length}`;
+ if(interactionGrid&&interactionGridKey===key)return interactionGrid;
+
+ // ~300–450 m. Każdy wydział trafia do komórek pokrywających jego bbox.
+ const cell=.0040;
+ const grid=new Map();
+
+ for(const row of analysisLayers){
+   const f=row.f,ly=row.layer;
+   if(!interactionFeatureIsClickable(f))continue;
+
+   let b=null;
+   try{b=ly.getBounds?.();}catch(_){}
+   if(!b||!b.isValid?.())continue;
+
+   const i0=Math.floor(b.getSouth()/cell);
+   const i1=Math.floor(b.getNorth()/cell);
+   const j0=Math.floor(b.getWest()/cell);
+   const j1=Math.floor(b.getEast()/cell);
+
+   // Bezpieczny limit na bardzo nietypowe ogromne poligony.
+   if((i1-i0+1)*(j1-j0+1)>400)continue;
+
+   for(let i=i0;i<=i1;i++){
+     for(let j=j0;j<=j1;j++){
+       const k=`${i}|${j}`;
+       if(!grid.has(k))grid.set(k,[]);
+       grid.get(k).push(row);
+     }
+   }
+ }
+
+ interactionGrid={cell,grid};
+ interactionGridKey=key;
+ return interactionGrid;
+}
+
+function hitTestAnalysis(latlng){
+ if(!latlng||!analysisLayers.length)return null;
+ const {cell,grid}=buildInteractionGrid();
+ const ci=Math.floor(latlng.lat/cell);
+ const cj=Math.floor(latlng.lng/cell);
+
+ const candidates=[];
+ const seen=new Set();
+
+ // Sąsiednie komórki chronią przed punktami leżącymi dokładnie na granicy.
+ for(let di=-1;di<=1;di++){
+   for(let dj=-1;dj<=1;dj++){
+     const rows=grid.get(`${ci+di}|${cj+dj}`)||[];
+     for(const row of rows){
+       if(seen.has(row.f))continue;
+       seen.add(row.f);
+       candidates.push(row);
+     }
+   }
+ }
+
+ const pt=[latlng.lat,latlng.lng];
+ let best=null;
+ let bestArea=Infinity;
+
+ for(const row of candidates){
+   const f=row.f,ly=row.layer;
+   if(!interactionFeatureIsClickable(f))continue;
+
+   try{
+     if(ly.getBounds&&!ly.getBounds().contains(latlng))continue;
+   }catch(_){}
+
+   if(!pointInGeom(pt,f.geometry))continue;
+
+   // W nakładających się geometrach wybierz najbardziej szczegółowy wydział.
+   const area=Number(f.properties?.sub_area);
+   const rank=Number.isFinite(area)&&area>0?area:999999;
+
+   if(rank<bestArea){
+     best={f,layer:ly};
+     bestArea=rank;
+   }
+ }
+ return best;
+}
+
+function clearMapHoverInteraction(){
+ const el=map.getContainer();
+ el.style.cursor='';el.classList.remove('forest-hit');
+
+ if(interactionHoverFeature&&!linkedLockedFeature){
+   try{clearLinkedHover(interactionHoverLayer,interactionHoverFeature);}catch(_){}
+ }
+ interactionHoverFeature=null;
+ interactionHoverLayer=null;
+}
+
+function installDesktopForestInteraction(){
+ const el=map.getContainer();
+ if(!el||el.dataset.forestMouseInstalled==='1')return;
+ el.dataset.forestMouseInstalled='1';
+
+ map.on('mousemove',e=>{
+   // Mysz/trackpad: hit-test max raz na klatkę i tylko gdy zmienił się wydział.
+   interactionPendingLatLng=e.latlng;
+   if(interactionMoveRAF)return;
+
+   interactionMoveRAF=requestAnimationFrame(()=>{
+     interactionMoveRAF=0;
+     const ll=interactionPendingLatLng;
+     interactionPendingLatLng=null;
+     if(!ll)return;
+
+     const hit=hitTestAnalysis(ll);
+     const same=hit&&interactionHoverFeature===hit.f;
+
+     if(hit){
+       el.style.cursor='pointer';el.classList.add('forest-hit');
+       if(!same){
+         if(interactionHoverFeature&&!linkedLockedFeature){
+           try{clearLinkedHover(interactionHoverLayer,interactionHoverFeature);}catch(_){}
+         }
+         interactionHoverFeature=hit.f;
+         interactionHoverLayer=hit.layer;
+
+         if(!linkedLockedFeature){
+           try{setLinkedHover(hit.f,hit.layer);}catch(err){console.warn('Map hover',err);}
+         }
        }
+     }else{
+       clearMapHoverInteraction();
+     }
+   });
+ });
 
-       // Powiązane podświetlanie jest dodatkiem — jego błąd nie zamknie menu.
-       try{lockLinkedFeature(f,ly);}catch(err){console.warn('Linked focus',err);}
-     });
-     ly.on('mouseover',()=>{try{setLinkedHover(f,ly);}catch(err){console.warn('Linked hover',err);}});
-     ly.on('mouseout',()=>{try{clearLinkedHover(ly,f);}catch(err){console.warn('Linked hover clear',err);renderSingle(ly,f);}});
-   }});
- gj.eachLayer(ly=>{analysisLayers.push({layer:ly,f});analysisGroup.addLayer(ly);});
+ el.addEventListener('mouseleave',clearMapHoverInteraction,{passive:true});
+}
+
+let mobileFeatureTapHandledUntil=0;
+
+function openFeatureDetails(f,ly,latlng){
+ if(!f)return;
+ linkedLayerClickSuppressUntil=performance.now()+450;
+
+ try{
+   L.popup({
+     maxWidth:Math.min(430,Math.floor(window.innerWidth*.92)),
+     autoPan:true,
+     autoPanPadding:[24,90],
+     closeButton:true
+   }).setLatLng(latlng||L.latLng(f._center[0],f._center[1]))
+     .setContent(popupHtml(f))
+     .openOn(map);
+ }catch(err){
+   console.error('Popup wydzielenia',err);
+ }
+
+ try{lockLinkedFeature(f,ly);}catch(err){console.warn('Linked focus',err);}
+}
+
+function findAnalysisFeatureAt(latlng){
+ return hitTestAnalysis(latlng);
+}
+
+let mobileTapStart=null;
+function installMobileFeatureTap(){
+ const el=map.getContainer();
+ if(!el||el.dataset.featureTapInstalled==='1')return;
+ el.dataset.featureTapInstalled='1';
+
+ el.addEventListener('pointerdown',e=>{
+   if(e.pointerType!=='touch')return;
+   if(e.target.closest('.leaflet-control,.panel,.mushroom-atlas,.mobile-search-dock,.leaflet-popup'))return;
+   mobileTapStart={x:e.clientX,y:e.clientY,t:performance.now(),center:map.getCenter(),zoom:map.getZoom()};
+ },{passive:true});
+
+ el.addEventListener('pointerup',e=>{
+   if(e.pointerType!=='touch'||!mobileTapStart)return;
+   const s=mobileTapStart;mobileTapStart=null;
+   if(e.target.closest('.leaflet-control,.panel,.mushroom-atlas,.mobile-search-dock,.leaflet-popup'))return;
+
+   const dist=Math.hypot(e.clientX-s.x,e.clientY-s.y);
+   const dt=performance.now()-s.t;
+   if(dist>26||dt>750)return;
+
+   const rect=el.getBoundingClientRect();
+   const cp=L.point(e.clientX-rect.left,e.clientY-rect.top);
+   const ll=map.containerPointToLatLng(cp);
+   const hit=findAnalysisFeatureAt(ll);
+   if(!hit)return;
+
+   mobileFeatureTapHandledUntil=performance.now()+500;
+
+   // Cofnij tylko drobne przypadkowe drgnięcie. Prawdziwy drag (>26 px) tu nie trafia.
+   const movedPx=map.latLngToContainerPoint(s.center).distanceTo(
+     map.latLngToContainerPoint(map.getCenter())
+   );
+   if(movedPx>1&&movedPx<30)map.setView(s.center,s.zoom,{animate:false});
+
+   requestAnimationFrame(()=>openFeatureDetails(hit.f,hit.layer,ll));
+ },{passive:true});
+
+ el.addEventListener('pointercancel',()=>{mobileTapStart=null;},{passive:true});
+}
+
+function addAnalysisFeature(f){
+ const gj=L.geoJSON(f,{
+   renderer:perfCanvasRenderer,
+   smoothFactor:1.8,
+   interactive:false,
+   style:{color:'transparent',weight:0,fillOpacity:0}
+ });
+ gj.eachLayer(ly=>{
+   analysisLayers.push({layer:ly,f});
+   analysisGroup.addLayer(ly);
+ });
+ invalidateInteractionGrid();
 }
 
 function atlasShowsFeature(f){
@@ -4980,6 +5254,7 @@ function renderSingle(ly,f){
 }
 function perfRenderNow(){
  perfRenderRAF=0;
+ invalidateInteractionGrid();
  topGroup.clearLayers();
  hintGroup.clearLayers();
  if(!allFeatures.length)return;
@@ -5005,7 +5280,7 @@ function perfRenderNow(){
    console.error('Hotspot labels render failed — mapa pozostaje aktywna',err);
    try{hintGroup.clearLayers();}catch(_){}
  }
- if(linkedLockedFeature)applyLockedForestContext(linkedLockedFeature,new Set(linkedRowsForFeature(linkedLockedFeature).map(x=>x.type)));
+ if(linkedLockedFeature)drawLockedForestContext(linkedLockedFeature,new Set(linkedRowsForFeature(linkedLockedFeature).map(x=>x.type)));
 }
 function render(){if(perfRenderRAF)cancelAnimationFrame(perfRenderRAF);perfRenderRAF=requestAnimationFrame(perfRenderNow);}
 
@@ -5496,6 +5771,8 @@ async function reverseName(lat,lon,index){
 }
 
 function clearAnalysisData(){
+ invalidateInteractionGrid();
+ clearMapHoverInteraction();
  linkedLockedFeature=null;
  linkedLockedLayer=null;
  linkedTransientFeature=null;
@@ -5581,23 +5858,47 @@ pickOnMapBtn.onclick=()=>{
  locatorHint.textContent=pickMode?'Kliknij teraz dowolny punkt na mapie Polski.':'Tryb wskazywania wyłączony.';
 };
 
-map.on('click',e=>{
- // Klik warstwy lasu może również dojść do mapy w tej samej klatce.
- // Nie pozwalamy mu natychmiast zamknąć właśnie otwartego popupu.
- if(performance.now()<linkedLayerClickSuppressUntil)return;
-
- if(linkedLockedFeature&&!pickMode){
+map.on('popupclose',()=>{
+ // Zamknięcie popupu (również X-em) kończy tryb "zablokowanego wydzielenia".
+ if(linkedLockedFeature){
    clearLinkedLock();
-   try{map.closePopup();}catch(_){}
-   return;
- }
- if(!pickMode||analysisRunning)return;
- pickMode=false;pickOnMapBtn.classList.remove('pick-active');pickOnMapBtn.textContent='Wskaż na mapie';
- const idx=selectedDraft.length;
- if(addDraft(`Punkt ${idx+1}`,e.latlng.lat,e.latlng.lng)){
-   reverseName(e.latlng.lat,e.latlng.lng,idx);
  }
 });
+
+map.on('click',e=>{
+ try{
+   const oe=e.originalEvent;
+   if(oe&&oe.target&&oe.target.closest&&oe.target.closest('.panel,.mushroom-atlas,.mobile-search-dock,.leaflet-control,.leaflet-popup'))return;
+ }catch(_){}
+
+ if(performance.now()<linkedLayerClickSuppressUntil)return;
+
+ // Tryb "Wskaż na mapie" ma pierwszeństwo przed wyborem wydzielenia.
+ if(pickMode&&!analysisRunning){
+   pickMode=false;
+   pickOnMapBtn.classList.remove('pick-active');
+   pickOnMapBtn.textContent='Wskaż na mapie';
+   const idx=selectedDraft.length;
+   if(addDraft(`Punkt ${idx+1}`,e.latlng.lat,e.latlng.lng)){
+     reverseName(e.latlng.lat,e.latlng.lng,idx);
+   }
+   return;
+ }
+
+ // Nie polegamy na zdarzeniach Canvas. Robimy dokładny hit-test po geometrii.
+ const hit=hitTestAnalysis(e.latlng);
+ if(hit){
+   openFeatureDetails(hit.f,hit.layer,e.latlng);
+   return;
+ }
+
+ // Klik w pustą mapę czyści zablokowane powiązanie.
+ if(linkedLockedFeature){
+   clearLinkedLock();
+   try{map.closePopup();}catch(_){}
+ }
+});
+
 
 useMyLocationBtn.onclick=()=>{
  if(!navigator.geolocation){
@@ -5650,6 +5951,22 @@ analyzeSelectedBtn.onclick=analyzeDraft;
 const panelEl=document.querySelector('.panel'),panelBody=document.getElementById('panelBody'),togglePanelBtn=document.getElementById('togglePanel'),panelChevron=document.getElementById('panelChevron');
 const toplistWrap=document.getElementById('toplistWrap'),toggleToplistBtn=document.getElementById('toggleToplist'),toggleToplistIcon=document.getElementById('toggleToplistIcon');
 
+const mobileSearchDock=document.getElementById('mobileSearchDock');
+const locatorCard=document.querySelector('.locator-card');
+const locatorActions=document.querySelector('.locator-actions');
+const locatorSearchRow=document.querySelector('.locator-search-row');
+let lastMobileLayout=null;
+
+function syncMobileSearchDock(){
+ const mobile=window.innerWidth<=700;
+ if(!mobileSearchDock||!locatorSearchRow||!locatorCard)return;
+ if(mobile){
+   if(locatorSearchRow.parentElement!==mobileSearchDock)mobileSearchDock.appendChild(locatorSearchRow);
+ }else if(locatorSearchRow.parentElement!==locatorCard){
+   locatorCard.insertBefore(locatorSearchRow,locatorActions||locatorCard.firstChild);
+ }
+}
+
 function setPanelCollapsed(collapsed){
  if(!panelEl||!panelBody||!togglePanelBtn)return;panelEl.classList.toggle('mobile-collapsed',collapsed);
  panelBody.style.maxHeight=collapsed?'0px':panelBody.scrollHeight+'px';togglePanelBtn.setAttribute('aria-expanded',String(!collapsed));if(panelChevron)panelChevron.style.transform=collapsed?'rotate(-90deg)':'rotate(0deg)';
@@ -5661,8 +5978,24 @@ function setToplistCollapsed(collapsed){
 }
 function syncToplistHeight(){if(toplistWrap&&!toplistWrap.classList.contains('collapsed'))toplistWrap.style.maxHeight=toplistWrap.scrollHeight+'px';}
 function applyMobileListMode(){
- const mobile=window.innerWidth<=700;if(panelEl)panelEl.classList.toggle('mobile-compact',mobile);
- if(mobile){setToplistCollapsed(true);setPanelCollapsed(true);}else{setToplistCollapsed(false);setPanelCollapsed(false);}
+ const mobile=window.innerWidth<=700;
+ if(panelEl)panelEl.classList.toggle('mobile-compact',mobile);
+ syncMobileSearchDock();
+
+ // Klawiatura ekranowa wywołuje resize. Nie traktujemy tego jako wejścia w mobile od nowa.
+ if(lastMobileLayout===mobile){
+   syncPanelHeight();
+   return;
+ }
+ lastMobileLayout=mobile;
+
+ if(mobile){
+   setToplistCollapsed(true);
+   setPanelCollapsed(true);
+ }else{
+   setToplistCollapsed(false);
+   setPanelCollapsed(false);
+ }
 }
 
 function syncSpeciesModeButtons(){
@@ -5736,7 +6069,18 @@ document.getElementById('toggleBDL').onclick=()=>{map.hasLayer(bdl)?map.removeLa
 document.getElementById('downloadKml').onclick=downloadTopKml;
 if(togglePanelBtn)togglePanelBtn.addEventListener('click',()=>{if(window.innerWidth<=700)setPanelCollapsed(!panelEl.classList.contains('mobile-collapsed'));});
 if(toggleToplistBtn)toggleToplistBtn.addEventListener('click',()=>setToplistCollapsed(!toplistWrap.classList.contains('collapsed')));
-window.addEventListener('resize',()=>{applyMobileListMode();syncToplistHeight();syncPanelHeight();if(allFeatures.length)render();});
+let uiResizeRAF=0;
+window.addEventListener('resize',()=>{
+ if(uiResizeRAF)cancelAnimationFrame(uiResizeRAF);
+ uiResizeRAF=requestAnimationFrame(()=>{
+   uiResizeRAF=0;
+   applyMobileListMode();
+   syncToplistHeight();
+   syncPanelHeight();
+   try{map.invalidateSize({pan:false});}catch(_){}
+   try{scheduleSpeciesHintLayout();}catch(_){}
+ });
+});
 
 
 const atlasPanel=document.getElementById('mushroomAtlas');
@@ -5774,6 +6118,8 @@ syncSpeciesModeButtons();
 updateSpeciesMeta();
 computeRadarScores();
 applyMobileListMode();
+installDesktopForestInteraction();
+installMobileFeatureTap();
 renderDraft();
 syncAreaMeta();
 map.setView(CENTER,6);

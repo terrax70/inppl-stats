@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v24: SoilGrids WMS point sampling + TODAY cannot exceed POTENTIAL -->
+<!-- GitHub production v25: restore terrainPromise + isolate enrichment errors + clear stale hints -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -4400,6 +4400,12 @@ function rerunForestDerived(feats){
 function renderForestBaseImmediately(feats,label='bazowe'){
  allFeatures=feats;
  invalidateScoringCaches('new forest base');
+
+ // Baza BDL to jeszcze nie jest gotowy ranking.
+ topGroup.clearLayers();
+ hintGroup.clearLayers();
+ topSpots=[];
+
  analysisGroup.clearLayers();
  analysisLayers=[];
  feats.forEach(addAnalysisFeature);
@@ -4503,6 +4509,7 @@ async function main(){
 
  let feats=[];
  let degraded=false;
+ let forestBaseLoaded=false;
 
  try{
    st.innerHTML='1/3 Pobieram drzewostany BDL…';
@@ -4523,6 +4530,7 @@ async function main(){
 
      // KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
      renderForestBaseImmediately(feats,'bazowe');
+     forestBaseLoaded=true;
      setSourceState('forest','ok',`${feats.length} wydzieleń BDL`);
      st.classList.add('scoring-wait');
      hideBdlFallback();
@@ -4542,6 +4550,7 @@ async function main(){
      if(!feats.length)throw new Error('Awaryjne dane BDL nie zawierają wydzieleń w tym rejonie.');
 
      renderForestBaseImmediately(feats,'tryb awaryjny');
+     forestBaseLoaded=true;
      setSourceState('forest','ok',`${feats.length} wydzieleń • tryb awaryjny BDL 5/6`);
      st.classList.add('scoring-wait');
      // Zostawiamy delikatny WMS pod spodem, bo fallback ma mniej informacji.
@@ -4613,7 +4622,24 @@ async function main(){
    const soilPromise=loadSoilGrid()
      .then(ok=>ok)
      .catch(e=>{
+       console.warn('SoilGrids WMS optional source failed',e);
        setSourceState('soil','error','SoilGrids WMS niedostępne • neutralna gleba 7/10');
+       return false;
+     });
+
+   // v25: przywrócone — w v24 ta deklaracja została przypadkowo usunięta.
+   const terrainPromise=loadTerrain()
+     .then(()=>{
+       setSourceState(
+         'terrain',
+         terrainReady?'ok':'error',
+         terrainReady?'DEM terenu załadowany':'DEM terenu niedostępny'
+       );
+       return terrainReady;
+     })
+     .catch(e=>{
+       setSourceState('terrain','error',String(e?.message||e));
+       console.warn('Terrain enrichment',e);
        return false;
      });
 
@@ -4643,6 +4669,7 @@ async function main(){
      allEnrichmentPromise.then(()=>({timedOut:false})),
      waitMs(7000).then(()=>({timedOut:true}))
    ]).then(result=>{
+     if(!forestBaseLoaded||!allFeatures.length)return;
      initialRevealTimedOut=!!result?.timedOut;
      analysisScoringReady=true;
      st.classList.remove('scoring-wait');
@@ -4669,6 +4696,8 @@ async function main(){
    allEnrichmentPromise.finally(()=>{
      deferSecondaryRenders=false;
 
+     if(!forestBaseLoaded||!allFeatures.length)return;
+
      if(initialRevealTimedOut&&analysisScoringReady){
        invalidateScoringCaches('late complete enrichment');
        try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Late final rerender',e);}
@@ -4681,21 +4710,47 @@ async function main(){
    });
 
  }catch(e){
-   console.error('BDL base failed',e);
    analysisScoringReady=false;
-   setSourceState('forest','error',String(e?.message||e));
+   deferSecondaryRenders=false;
    hideAnalysisLoader();
    st.classList.remove('scoring-wait');
-   ds.textContent='API niedostępne';ds.className='st-warn';
 
-   // WMS zostaje widoczny, więc użytkownik widzi przynajmniej oficjalne lasy BDL.
-   showBdlFallback();
-   bdl.setOpacity(.42);
+   // Usuń każdy stary ranking/hint. Przy błędzie pipeline'u nie pokazujemy
+   // ikon grzybów wyglądających jak aktualny wynik.
+   topGroup.clearLayers();
+   hintGroup.clearLayers();
+   topSpots=[];
+   hotspotMembershipKey='';
+   todayHotspotCacheKey='';
+   todayHotspotCache=[];
 
-   st.innerHTML='⚠️ Nie udało się pobrać danych atrybutowych BDL potrzebnych do scoringu: <b>'+
-     escapeHtml(e.message)+'</b><br>'+
-     'Pokazuję awaryjnie oficjalną warstwę BDL. To nie jest jeszcze ranking grzybowy. '+
-     'Otwórz „Więcej” → „Ponów analizę”. Cache zadziała automatycznie po pierwszym udanym pobraniu.';
+   if(forestBaseLoaded){
+     // BDL JUŻ DZIAŁA — nie wolno oznaczać "Lasy" na czerwono przez błąd
+     // gleby, terenu albo zwykły ReferenceError w późniejszym kodzie.
+     console.error('Analysis enrichment pipeline failed',e);
+     setSourceState('forest','ok',`${feats.length} wydzieleń BDL`);
+     ds.textContent=`${feats.length} wydz. • baza OK`;
+     ds.className='st-ok';
+
+     try{render();}catch(_){}
+
+     st.innerHTML='⚠️ <b>Lasy BDL są wczytane</b>, ale późniejszy etap analizy został przerwany: <b>'+
+       escapeHtml(e?.message||String(e))+'</b><br>'+
+       'Nie pokazuję hotspotów ani podpowiedzi grzybów, dopóki analiza nie zakończy się poprawnie.';
+   }else{
+     console.error('BDL base failed',e);
+     setSourceState('forest','error',String(e?.message||e));
+     ds.textContent='API niedostępne';
+     ds.className='st-warn';
+
+     // Dopiero faktyczny błąd bazy BDL uruchamia awaryjny oficjalny WMS.
+     showBdlFallback();
+     bdl.setOpacity(.42);
+
+     st.innerHTML='⚠️ Nie udało się pobrać danych atrybutowych BDL potrzebnych do scoringu: <b>'+
+       escapeHtml(e?.message||String(e))+'</b><br>'+
+       'Pokazuję awaryjnie oficjalną warstwę BDL. To nie jest jeszcze ranking grzybowy.';
+   }
  }
 }
 
@@ -6313,6 +6368,28 @@ function renderAtlasCards(){
 
 
 
+
+function auditPipelineState(){
+ const report={
+   analysisRunning,
+   analysisScoringReady,
+   deferSecondaryRenders,
+   features:allFeatures.length,
+   analysisLayers:analysisLayers.length,
+   hotspotMarkers:topGroup?.getLayers?.().length||0,
+   hintLayers:hintGroup?.getLayers?.().length||0,
+   forestState:sourceStates?.forest,
+   soilState:sourceStates?.soil,
+   terrainState:sourceStates?.terrain,
+   terrainReady,
+   soilReady,
+   terrainPromiseBugFixed:true
+ };
+ console.info('PIPELINE AUDIT',report);
+ return report;
+}
+window.auditPipelineState=auditPipelineState;
+
 function auditSoilState(){
  const report={
    source:'SoilGrids WMS GetFeatureInfo',
@@ -7426,6 +7503,12 @@ async function reverseName(lat,lon,index){
 function clearAnalysisData(){
  hideAnalysisLoader();
  resetSourceStates();
+
+ if(perfRenderRAF){
+   cancelAnimationFrame(perfRenderRAF);
+   perfRenderRAF=0;
+ }
+
  analysisScoringReady=false;
  invalidateInteractionGrid();
  clearMapHoverInteraction();
@@ -7446,7 +7529,10 @@ function clearAnalysisData(){
  perfKeyLast='';perfScoreCache=new WeakMap();perfBestCache=new WeakMap();perfDiversityCache=new WeakMap();
  staticCacheFilter='';staticTypeCache=new WeakMap();staticScoreCache=new WeakMap();
  forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();
- hotspotCacheKey='';hotspotCache=[];hotspotMembershipKey='';
+ hotspotCacheKey='';hotspotCache=[];
+ todayHotspotCacheKey='';todayHotspotCache=[];
+ hotspotMembershipKey='';
+ todayScaleCacheKey='';todayScales={};
  balancedScaleKey='';balancedScales={};
  document.getElementById('dsBDL').textContent='ładowanie';document.getElementById('dsBDL').className='st-load';
  document.getElementById('dsWeather').textContent='ładowanie';document.getElementById('dsWeather').className='st-load';

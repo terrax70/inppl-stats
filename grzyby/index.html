@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v55: expanded visual extremes for worst and best areas -->
+<!-- GitHub production v56: audited and balanced color scale calibration -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -7663,56 +7663,54 @@ function balancedClass(f){
  return 0;
 }
 
-// v55 — maksymalne rozciągnięcie wizualne skali bez ruszania logiki danych.
-// Problem zgłoszony przez użytkownika:
-// - nadal za mała różnica między skrajnie słabymi i najlepszymi miejscami,
-// - potrzeba "poszerzenia" skali w obie strony.
+// v56 — audyt i kalibracja skali kolorów.
+// Wnioski po porównaniu screenów dla tego samego obszaru:
+// - v55 za mocno rozciągała skrajności,
+// - najlepsze miejsca bywały zbyt ciężkie wizualnie (za ciemne / za grube obrysy),
+// - słabe miejsca były zbyt słabe i za mało czytelne.
 //
-// Rozwiązanie:
-// - dalej zachowujemy 5 klas semantycznych i wspólną legendę dla wszystkich trybów,
-// - ale zamiast 10 pasów mamy teraz 12 pasów wizualnych,
-// - skrajnie słabe miejsca są bardziej wyblakłe i neutralne,
-// - skrajnie dobre miejsca są wyraźnie bardziej nasycone, ciemniejsze i mają mocniejszy obrys.
-//
-// Dzięki temu użytkownik łatwiej zobaczy zarówno "to jest słabe", jak i "to jest absolutny TOP".
+// Cel v56:
+// - zachować wspólną semantykę i jednolitą legendę,
+// - zachować 12 pasów dla czytelności,
+// - ale ZŁAGODZIĆ górę skali i PODNIEŚĆ dół skali,
+// - tak aby mapa była bardziej zbalansowana między trybami.
 
 const UNIFIED_MAP_LEVELS=[
-  { label:'odpuść',     fill:'#eeeae2', border:'#cfc4b6', fillOpacity:.020, weight:.00, opacity:.00 },
-  { label:'rezerwowo',  fill:'#d8b8a8', border:'#aa7d69', fillOpacity:.090, weight:.00, opacity:.10 },
-  { label:'średnio',    fill:'#cd8a45', border:'#935c34', fillOpacity:.190, weight:.18, opacity:.28 },
-  { label:'warto',      fill:'#a8a446', border:'#6f6c2e', fillOpacity:.360, weight:.78, opacity:.72 },
-  { label:'TOP',        fill:'#118746', border:'#064726', fillOpacity:.760, weight:1.55, opacity:1.00 }
+  { label:'odpuść',     fill:'#ece9e0', border:'#cbbfad', fillOpacity:.055, weight:.00, opacity:.00 },
+  { label:'rezerwowo',  fill:'#d7b39d', border:'#ad7f68', fillOpacity:.145, weight:.10, opacity:.18 },
+  { label:'średnio',    fill:'#ca8850', border:'#935c34', fillOpacity:.265, weight:.42, opacity:.48 },
+  { label:'warto',      fill:'#a39f46', border:'#6c6b30', fillOpacity:.455, weight:.92, opacity:.74 },
+  { label:'TOP',        fill:'#23904a', border:'#135f33', fillOpacity:.695, weight:1.75, opacity:.98 }
 ];
 
-// 12 pasów: 0-2 odpuść, 3-4 rezerwowo, 5-6 średnio, 7-8 warto, 9-11 TOP.
 const UNIFIED_COLOR_BANDS=[
-  '#f3f1ec', // 0 odpuść min
-  '#e9e2d6', // 1 odpuść mid
-  '#d9c9bc', // 2 odpuść max
-  '#d8b8a8', // 3 rezerwowo min
-  '#c89278', // 4 rezerwowo max
-  '#cd8a45', // 5 średnio min
-  '#ad6525', // 6 średnio max
-  '#a8a446', // 7 warto min
-  '#748f3d', // 8 warto max
-  '#56b95b', // 9 top min
-  '#1f964b', // 10 top mid
-  '#046b33'  // 11 top max
+  '#f2efe8',
+  '#e8dfd2',
+  '#d5c2b0',
+  '#d7b39d',
+  '#c78f72',
+  '#ca8850',
+  '#ae6a32',
+  '#a39f46',
+  '#718c41',
+  '#54ab5d',
+  '#2a914d',
+  '#116f38'
 ];
 
 const UNIFIED_STROKE_BANDS=[
-  {weight:0.00, opacity:0.00}, // 0
-  {weight:0.00, opacity:0.00}, // 1
-  {weight:0.00, opacity:0.00}, // 2
-  {weight:0.04, opacity:0.08}, // 3
-  {weight:0.14, opacity:0.18}, // 4
-  {weight:0.26, opacity:0.32}, // 5
-  {weight:0.52, opacity:0.50}, // 6
-  {weight:0.92, opacity:0.72}, // 7
-  {weight:1.36, opacity:0.86}, // 8
-  {weight:2.05, opacity:0.96}, // 9
-  {weight:2.65, opacity:1.00}, // 10
-  {weight:3.25, opacity:1.00}  // 11
+  {weight:0.00, opacity:0.00},
+  {weight:0.00, opacity:0.00},
+  {weight:0.04, opacity:0.08},
+  {weight:0.10, opacity:0.18},
+  {weight:0.18, opacity:0.26},
+  {weight:0.30, opacity:0.38},
+  {weight:0.54, opacity:0.52},
+  {weight:0.82, opacity:0.70},
+  {weight:1.15, opacity:0.82},
+  {weight:1.50, opacity:0.90},
+  {weight:1.85, opacity:0.96},
+  {weight:2.25, opacity:1.00}
 ];
 
 function mixHexColor(a,b,t){
@@ -7730,61 +7728,36 @@ function mixHexColor(a,b,t){
 
 function unifiedWithinClassProgress(f,c,today=false,score=NaN){
  if(!Number.isFinite(score)||c<0||c>4)return .5;
-
  if(!atlasSelected.size && currentFilter!=='diversity'){
    const area=featureAreaName(f);
-
    if(today && currentFilter==='all'){
      const s=buildTodayScales()[area];
      if(s){
-       const cuts=[
-         s.min??0,
-         Math.max(s.q20??5.15,5.15),
-         Math.max(s.q45??6.15,6.15),
-         Math.max(s.q70??7.05,7.05),
-         Math.max(s.q93??8.15,8.15),
-         s.max??10
-       ];
+       const cuts=[s.min??0,Math.max(s.q20??5.15,5.15),Math.max(s.q45??6.15,6.15),Math.max(s.q70??7.05,7.05),Math.max(s.q93??8.15,8.15),s.max??10];
        const lo=cuts[c]??0,hi=cuts[c+1]??10;
        return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
      }
    }
-
    if(!today){
      const s=buildBalancedScales()[area];
      if(s){
-       const cuts=[
-         s.min??0,
-         Math.max(s.q20??5.55,5.55),
-         Math.max(s.q45??6.35,6.35),
-         Math.max(s.q70??7.05,7.05),
-         Math.max(s.q88??7.65,7.65),
-         s.max??10
-       ];
+       const cuts=[s.min??0,Math.max(s.q20??5.55,5.55),Math.max(s.q45??6.35,6.35),Math.max(s.q70??7.05,7.05),Math.max(s.q88??7.65,7.65),s.max??10];
        const lo=cuts[c]??0,hi=cuts[c+1]??10;
        return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
      }
    }
  }
-
  const lo=today?4.8:5.3;
  const hi=today?9.1:9.5;
  return Math.max(0,Math.min(1,(score-lo)/(hi-lo)));
 }
 
-// Celowo nieliniowe mapowanie: mocniej rozciąga oba krańce.
 function unifiedBandIndex(c,progress=.5){
  c=Math.max(0,Math.min(4,Number(c)||0));
  progress=Math.max(0,Math.min(1,Number(progress)||0));
-
- // transformacja rozszerzająca skrajności
  let p=progress;
- if(p<.5){
-   p=.5*Math.pow(p/.5,.78);
- }else{
-   p=1-.5*Math.pow((1-p)/.5,.78);
- }
-
+ if(p<.5) p=.5*Math.pow(p/.5,.90);
+ else p=1-.5*Math.pow((1-p)/.5,.90);
  const spans=[3,2,2,2,3];
  const offsets=[0,3,5,7,9];
  const span=spans[c];
@@ -7794,60 +7767,33 @@ function unifiedBandIndex(c,progress=.5){
 
 function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  c=Math.max(0,Math.min(4,Number(c)||0));
- const p=UNIFIED_MAP_LEVELS[c];
  const progress=unifiedWithinClassProgress(f,c,today,score);
  const band=unifiedBandIndex(c,progress);
  const fill=UNIFIED_COLOR_BANDS[band];
  const stroke=UNIFIED_STROKE_BANDS[band];
-
- let border=stroke.weight>0
-   ? mixHexColor(fill,'#0d1813', .58 + (band/11)*.18)
-   : 'transparent';
-
- // Większy rozrzut wypełnień na krańcach.
- let fillOpacity;
- if(band<=2){
-   fillOpacity=[0.010,0.020,0.040][band];
- }else if(band<=4){
-   fillOpacity=[0.085,0.130][band-3];
- }else if(band<=6){
-   fillOpacity=[0.205,0.270][band-5];
- }else if(band<=8){
-   fillOpacity=[0.390,0.500][band-7];
- }else{
-   fillOpacity=[0.670,0.760,0.840][band-9];
- }
-
+ let border=stroke.weight>0 ? mixHexColor(fill,'#14231b', .40 + (band/11)*.14) : 'transparent';
+ const fillOpacityByBand=[0.030,0.050,0.080,0.120,0.165,0.225,0.300,0.400,0.520,0.605,0.680,0.745];
+ let fillOpacity=fillOpacityByBand[band] ?? 0.22;
  let weight=stroke.weight;
  let opacity=stroke.opacity;
-
  if(open){
-   fillOpacity=Math.min(.68, fillOpacity*.84);
-   weight=weight>0?Math.max(.14,weight*.88):0;
-   opacity=weight>0?Math.max(.14,opacity*.88):0;
+   fillOpacity=Math.max(.045, Math.min(.66, fillOpacity*.88));
+   weight=weight>0?Math.max(.10,weight*.90):0;
+   opacity=weight>0?Math.max(.12,opacity*.90):0;
  }
-
  if(f?._hotspotIndex){
    if(f._hotspotBest){
-     weight=Math.max(weight,2.20);
-     opacity=Math.max(opacity,.96);
-     border=border==='transparent' ? '#31543d' : mixHexColor(border,'#032916',.62);
-     fillOpacity=Math.min(.86,fillOpacity+.03);
+     weight=Math.max(weight,1.90);
+     opacity=Math.max(opacity,.94);
+     border=border==='transparent' ? '#345740' : mixHexColor(border,'#09361f',.46);
+     fillOpacity=Math.min(.79,fillOpacity+.025);
    }else{
-     weight=Math.max(weight,1.00);
-     opacity=Math.max(opacity,.72);
-     if(border==='transparent')border='#5d7461';
+     weight=Math.max(weight,.92);
+     opacity=Math.max(opacity,.68);
+     if(border==='transparent')border='#667a67';
    }
  }
-
- return {
-   color:border,
-   weight,
-   fillColor:fill,
-   fillOpacity:Math.min(.86,fillOpacity),
-   opacity:Math.min(1,opacity),
-   ...(open?{dashArray:'5 4',lineCap:'butt'}:{})
- };
+ return { color:border, weight, fillColor:fill, fillOpacity:Math.min(.79,fillOpacity), opacity:Math.min(1,opacity), ...(open?{dashArray:'5 4',lineCap:'butt'}:{}) };
 }
 
 function unifiedLegendGradient(){
@@ -7870,10 +7816,7 @@ function setLegendWords(words){
 function currentLegendTitle(){
  if(currentFilter==='diversity')return 'Różnorodność grzybów';
  if(atlasSelected.size>1)return `Dopasowanie ${atlasSelected.size} gatunków`;
- if(atlasSelected.size===1){
-   const only=[...atlasSelected][0];
-   return HUMAN_NAMES[only]||'Wybrany gatunek';
- }
+ if(atlasSelected.size===1){ const only=[...atlasSelected][0]; return HUMAN_NAMES[only]||'Wybrany gatunek'; }
  if(currentFilter!=='all')return HUMAN_NAMES[currentFilter]||'Wybrany gatunek';
  return 'Najlepsze miejsce';
 }
@@ -7891,6 +7834,21 @@ function updateScoreLegend(){
  bar.style.background=unifiedLegendGradient();
  setLegendWords(UNIFIED_MAP_LEVELS.map(x=>x.label));
 }
+
+function auditColorScaleCalibration(){
+ const fillOpacityByBand=[0.030,0.050,0.080,0.120,0.165,0.225,0.300,0.400,0.520,0.605,0.680,0.745];
+ const rows=UNIFIED_COLOR_BANDS.map((color,i)=>({
+   band:i,
+   group:UNIFIED_MAP_LEVELS[i<=2?0:i<=4?1:i<=6?2:i<=8?3:4]?.label||'—',
+   color,
+   fillOpacity:fillOpacityByBand[i],
+   strokeWeight:UNIFIED_STROKE_BANDS[i].weight,
+   strokeOpacity:UNIFIED_STROKE_BANDS[i].opacity
+ }));
+ const report={ version:'v56', intent:'soften upper extreme, lift lower extreme, keep shared legend', bands:rows };
+ console.table(rows); console.info('COLOR SCALE CALIBRATION AUDIT',report); return report;
+}
+window.auditColorScaleCalibration=auditColorScaleCalibration;
 function balancedClassLabel(c){
  c=Math.max(0,Math.min(4,Number(c)||0));
  return UNIFIED_MAP_LEVELS[c]?.label||'—';
@@ -7902,11 +7860,8 @@ function openPotentialStyleFromClass(f,c,today=false,score=NaN){
 }
 
 function stablePotentialStyle(f,show=true){
- if(!show){
-   return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
- }
- const c=balancedClass(f);
- const score=stableAnchorScore(f);
+ if(!show){ return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0}; }
+ const c=balancedClass(f); const score=stableAnchorScore(f);
  if(f._kind==='open')return openPotentialStyleFromClass(f,c,false,score);
  return unifiedMapStyleForClass(f,c,{ today:false, score, open:false });
 }
@@ -8036,14 +7991,9 @@ function todayBalancedClass(f,sOverride=NaN){
 }
 
 function todayPotentialStyle(f,show=true){
- if(!show){
-   return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
- }
- const score=todayScoreForStyle(f);
- const c=todayBalancedClass(f,score);
- if(topOnly&&c<3){
-   return { color:'transparent', weight:0, fillColor:'#f3f1ec', fillOpacity:.006, opacity:.02 };
- }
+ if(!show){ return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0}; }
+ const score=todayScoreForStyle(f); const c=todayBalancedClass(f,score);
+ if(topOnly&&c<3){ return { color:'transparent', weight:0, fillColor:'#f2efe8', fillOpacity:.012, opacity:.03 }; }
  if(f._kind==='open')return openPotentialStyleFromClass(f,c,true,score);
  return unifiedMapStyleForClass(f,c,{ today:true, score, open:false });
 }
@@ -10516,25 +10466,18 @@ window.auditBestVisualMapping=auditBestVisualMapping;
 
 
 function auditScoreSpectrum(){
- const rows=allFeatures
-   .filter(f=>!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f)))
-   .map(f=>{
-     const score=mapMode==='today'?todayScoreForStyle(f):stableAnchorScore(f);
-     const cls=mapMode==='today'?todayBalancedClass(f,score):balancedClass(f);
-     const progress=unifiedWithinClassProgress(f,cls,mapMode==='today',score);
-     const band=unifiedBandIndex(cls,progress);
-     const style=unifiedMapStyleForClass(f,cls,{ today:mapMode==='today', score, open:f._kind==='open' });
-     return {
-       area:featureAreaName(f), score:Number(score.toFixed(2)), class:cls, classLabel:UNIFIED_MAP_LEVELS[cls]?.label||'—',
-       band, strokeWeight:Number(style.weight.toFixed(2)), strokeOpacity:Number(style.opacity.toFixed(2)),
-       fillOpacity:Number(style.fillOpacity.toFixed(3)), color:style.fillColor, border:style.color,
-       hotspot:f._hotspotLabel||'', kind:f._kind||'forest'
-     };
-   })
-   .sort((a,b)=>b.class-a.class||b.band-a.band||b.score-a.score);
+ const rows=allFeatures.filter(f=>!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f))).map(f=>{
+   const score=mapMode==='today'?todayScoreForStyle(f):stableAnchorScore(f);
+   const cls=mapMode==='today'?todayBalancedClass(f,score):balancedClass(f);
+   const progress=unifiedWithinClassProgress(f,cls,mapMode==='today',score);
+   const band=unifiedBandIndex(cls,progress);
+   const style=unifiedMapStyleForClass(f,cls,{ today:mapMode==='today', score, open:f._kind==='open' });
+   return { area:featureAreaName(f), score:Number(score.toFixed(2)), class:cls, classLabel:UNIFIED_MAP_LEVELS[cls]?.label||'—', band, strokeWeight:Number(style.weight.toFixed(2)), strokeOpacity:Number(style.opacity.toFixed(2)), fillOpacity:Number(style.fillOpacity.toFixed(3)), color:style.fillColor, border:style.color, hotspot:f._hotspotLabel||'', kind:f._kind||'forest' };
+ }).sort((a,b)=>b.class-a.class||b.band-a.band||b.score-a.score);
  const report={ mode:mapMode, filter:currentFilter, atlas:[...atlasSelected], hotspots:activeHotspots().length, top:rows.slice(0,50) };
  console.table(report.top); console.info('UNIFIED MAP SCALE AUDIT',report); return report;
 }
+window.auditScoreSpectrum=auditScoreSpectrum;
 window.auditScoreSpectrum=auditScoreSpectrum;
 window.auditScoreSpectrum=auditScoreSpectrum;
 window.auditScoreSpectrum=auditScoreSpectrum;
@@ -10545,41 +10488,22 @@ window.auditScoreSpectrum=auditScoreSpectrum;
 
 function auditLegendAndVisibility(){
  updateScoreLegend();
- const rows=allFeatures
-   .filter(f=>!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f)))
-   .map(f=>{
-     const score=mapMode==='today'?todayScoreForStyle(f):stableAnchorScore(f);
-     const cls=mapMode==='today'?todayBalancedClass(f,score):balancedClass(f);
-     const progress=unifiedWithinClassProgress(f,cls,mapMode==='today',score);
-     const band=unifiedBandIndex(cls,progress);
-     return {f,score,cls,band};
-   });
-
- const classCounts=[0,0,0,0,0];
- const bandCounts=new Array(12).fill(0);
+ const rows=allFeatures.filter(f=>!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f))).map(f=>{
+   const score=mapMode==='today'?todayScoreForStyle(f):stableAnchorScore(f);
+   const cls=mapMode==='today'?todayBalancedClass(f,score):balancedClass(f);
+   const progress=unifiedWithinClassProgress(f,cls,mapMode==='today',score);
+   const band=unifiedBandIndex(cls,progress);
+   return {f,score,cls,band};
+ });
+ const classCounts=[0,0,0,0,0], bandCounts=new Array(12).fill(0);
  for(const x of rows){ classCounts[x.cls]++; bandCounts[x.band]++; }
  const total=Math.max(1,rows.length);
- const distribution=UNIFIED_MAP_LEVELS.map((lvl,i)=>({
-   class:i,label:lvl.label,count:classCounts[i]||0,pct:Number((((classCounts[i]||0)/total)*100).toFixed(1)),color:lvl.fill
- }));
- const bandDistribution=UNIFIED_COLOR_BANDS.map((color,i)=>({
-   band:i,
-   group:UNIFIED_MAP_LEVELS[i<=2?0:i<=4?1:i<=6?2:i<=8?3:4]?.label||'—',
-   count:bandCounts[i]||0,
-   pct:Number((((bandCounts[i]||0)/total)*100).toFixed(1)),
-   color,
-   strokeWeight:UNIFIED_STROKE_BANDS[i].weight,
-   strokeOpacity:UNIFIED_STROKE_BANDS[i].opacity
- }));
- const report={
-   mode:mapMode,filter:currentFilter,atlas:[...atlasSelected],
-   legendTitle:document.getElementById('scoreLegendTitle')?.textContent||'',
-   legendWords:[...document.querySelectorAll('#scoreLegendWords span')].map(x=>x.textContent.trim()),
-   hotspotCount:activeHotspots().length, analyzed:rows.length, distribution, bandDistribution,
-   note:'v55: 12 pasów wizualnych; słabe miejsca bardziej wyblakłe, top mocniej dociśnięty kolorem i ramką.'
- };
+ const distribution=UNIFIED_MAP_LEVELS.map((lvl,i)=>({class:i,label:lvl.label,count:classCounts[i]||0,pct:Number((((classCounts[i]||0)/total)*100).toFixed(1)),color:lvl.fill}));
+ const bandDistribution=UNIFIED_COLOR_BANDS.map((color,i)=>({band:i,group:UNIFIED_MAP_LEVELS[i<=2?0:i<=4?1:i<=6?2:i<=8?3:4]?.label||'—',count:bandCounts[i]||0,pct:Number((((bandCounts[i]||0)/total)*100).toFixed(1)),color,strokeWeight:UNIFIED_STROKE_BANDS[i].weight,strokeOpacity:UNIFIED_STROKE_BANDS[i].opacity}));
+ const report={mode:mapMode,filter:currentFilter,atlas:[...atlasSelected],legendTitle:document.getElementById('scoreLegendTitle')?.textContent||'',legendWords:[...document.querySelectorAll('#scoreLegendWords span')].map(x=>x.textContent.trim()),hotspotCount:activeHotspots().length,analyzed:rows.length,distribution,bandDistribution,note:'v56: skala nadal wspólna, ale góra uspokojona i dół podniesiony względem v55.'};
  console.table(distribution); console.table(bandDistribution); console.info('UNIFIED LEGEND + VISIBILITY AUDIT',report); return report;
 }
+window.auditLegendAndVisibility=auditLegendAndVisibility;
 window.auditLegendAndVisibility=auditLegendAndVisibility;
 window.auditLegendAndVisibility=auditLegendAndVisibility;
 window.auditLegendAndVisibility=auditLegendAndVisibility;

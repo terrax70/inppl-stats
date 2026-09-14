@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v17: dynamic atlas widths + stable one-step final scoring reveal -->
+<!-- GitHub production v18: mode-aware hotspots — TODAY dynamic, POTENTIAL stable -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2230,7 +2230,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
     <button class="mode active" data-mode="today">Dziś</button>
     <button class="mode" data-mode="habitat">Potencjał</button>
   </div>
-  <div class="ui-mode-help"><b>Dziś</b> uwzględnia pogodę i sezon. <b>Potencjał</b> pokazuje stałą jakość siedliska.</div>
+  <div class="ui-mode-help"><b>Dziś</b> uwzględnia pogodę i sezon — również hotspoty wskazują najlepsze miejsca teraz. <b>Potencjał</b> pokazuje stałą jakość siedliska i stałe hotspoty.</div>
 
   <div class="weather-card">
     <div class="weather-head">
@@ -4108,6 +4108,8 @@ function invalidateScoringCaches(reason=''){
  forestContextCache=new WeakMap();
  hotspotCacheKey='';
  hotspotCache=[];
+ todayHotspotCacheKey='';
+ todayHotspotCache=[];
  balancedScaleKey='';
  balancedScales={};
  atlasSpeciesScaleCache.clear();
@@ -4320,6 +4322,8 @@ let forestGrid=null;
 let forestContextCache=new WeakMap();
 let hotspotCacheKey='';
 let hotspotCache=[];
+let todayHotspotCacheKey='';
+let todayHotspotCache=[];
 let balancedScaleKey='';
 let balancedScales={};
 
@@ -4414,6 +4418,7 @@ function resetStaticCachesIfNeeded(){
  if(staticCacheFilter===k)return;
  staticCacheFilter=k;staticTypeCache=new WeakMap();staticScoreCache=new WeakMap();
  forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();hotspotCacheKey='';hotspotCache=[];
+ todayHotspotCacheKey='';todayHotspotCache=[];
  balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();hotspotMembershipKey='';
  todayScaleCacheKey='';todayScales={};
  perfKeyLast='';perfScoreCache=new WeakMap();perfBestCache=new WeakMap();perfDiversityCache=new WeakMap();
@@ -4619,6 +4624,167 @@ function buildHotspots(){
  hotspotCache=all;hotspotCacheKey=key;return all;
 }
 
+
+function todayLocalHotspots(areaName,maxHotspots){
+ const features=stableCandidateFeatures(areaName);
+ if(!features.length)return [];
+
+ const scored=features.map(f=>({
+   f,
+   s:todayScoreForStyle(f),
+   cls:todayBalancedClass(f),
+   ctx:forestContextInfo(f),
+   key:stableFeatureKey(f)
+ }))
+ .filter(x=>Number.isFinite(x.s))
+ .sort((a,b)=>(b.cls-a.cls)||(b.s-a.s)||a.key.localeCompare(b.key));
+
+ const membersPool=scored.filter(x=>x.cls>=2&&x.s>=6.5);
+ const seedsPool=scored.filter(x=>x.cls>=3&&x.s>=7.7);
+
+ // DZIŚ nie wymuszamy hotspotu "najlepszego ze słabych".
+ if(!seedsPool.length)return [];
+
+ const broadMode=!atlasSelected.size&&(currentFilter==='all'||currentFilter==='diversity');
+ const minSeedDistance=broadMode?.68:.56;
+ const assignRadius=broadMode?.78:.58;
+ const seeds=[];
+
+ for(const x of seedsPool){
+   if(seeds.every(s=>hav(s.f._center,x.f._center)>=minSeedDistance)){
+     seeds.push(x);
+     if(seeds.length>=maxHotspots)break;
+   }
+ }
+
+ const groups=seeds.map(seed=>({seed,members:[]}));
+
+ for(const x of membersPool){
+   let bi=-1,bd=Infinity;
+   for(let i=0;i<seeds.length;i++){
+     const d=hav(x.f._center,seeds[i].f._center);
+     if(d<bd){bd=d;bi=i;}
+   }
+   if(bi>=0&&bd<=assignRadius)groups[bi].members.push(x);
+ }
+
+ const hs=[];
+
+ for(const g of groups){
+   if(!g.members.length)g.members=[g.seed];
+
+   const uniq=new Map();
+   for(const x of g.members)uniq.set(stableFeatureKey(x.f),x);
+
+   const members=[...uniq.values()]
+     .sort((a,b)=>(b.cls-a.cls)||(b.s-a.s)||a.key.localeCompare(b.key));
+
+   const bestX=members[0];
+   if(bestX.cls<3)continue;
+
+   const memberFeatures=members.map(x=>x.f);
+   const areaHa=members.reduce((a,x)=>a+featureAreaHa(x.f),0);
+   const avgToday=members.reduce((a,x)=>a+x.s*featureAreaHa(x.f),0)/Math.max(.01,areaHa);
+   const avgCtx=members.reduce((a,x)=>a+x.ctx.score,0)/members.length;
+
+   const weights=members.map(x=>
+     Math.max(.25,(x.s-5.7)**2) *
+     (1+.28*x.cls) *
+     Math.max(.4,Math.min(2.5,featureAreaHa(x.f)/2))
+   );
+   const wsum=weights.reduce((a,b)=>a+b,0)||1;
+   const lat=members.reduce((a,x,i)=>a+x.f._center[0]*weights[i],0)/wsum;
+   const lon=members.reduce((a,x,i)=>a+x.f._center[1]*weights[i],0)/wsum;
+
+   const areaScore=piecewise(areaHa,[[0,3],[3,5],[10,7],[25,8.5],[60,9.5],[120,10]]);
+   const clusterScore=clamp(.52*avgToday+.31*bestX.s+.12*avgCtx+.05*areaScore);
+
+   if(broadMode&&areaHa<2.2&&members.length<2&&bestX.cls<4)continue;
+
+   hs.push({
+     areaName,
+     areaCode:AREA_META[areaName]?.code||areaName[0],
+     areaColor:AREA_META[areaName]?.color||'#fff',
+     _center:[lat,lon],
+     _bounds:L.latLngBounds(memberFeatures.map(f=>f._center)),
+     members:memberFeatures,
+     best:bestX.f,
+     stableBestScore:stableAnchorScore(bestX.f),
+     stableAvgScore:members.reduce((a,x)=>a+stableAnchorScore(x.f)*featureAreaHa(x.f),0)/Math.max(.01,areaHa),
+     todayBestScore:bestX.s,
+     todayAvgScore:avgToday,
+     bestTodayClass:bestX.cls,
+     forestContext:avgCtx,
+     clusterScore,
+     bestScore:bestX.s,
+     avgScore:avgToday,
+     areaHa,
+     count:memberFeatures.length,
+     _distance:hav(ANALYSIS_CENTERS.find(a=>a.name===areaName)?.point||CENTER,[lat,lon]),
+     dynamicToday:true
+   });
+ }
+
+ hs.sort((a,b)=>
+   (b.clusterScore-a.clusterScore)||
+   (b.todayBestScore-a.todayBestScore)||
+   (b.areaHa-a.areaHa)||
+   stableFeatureKey(a.best).localeCompare(stableFeatureKey(b.best))
+ );
+
+ return hs.slice(0,maxHotspots);
+}
+
+function buildTodayHotspots(){
+ prepareForestGrid();
+
+ const key=[
+   'today-hotspots',
+   scoringRevision,
+   currentFilter,
+   atlasSelectionKey(),
+   allFeatures.length,
+   openFeatures.length,
+   weatherReady?1:0,
+   soilReady?1:0,
+   terrainReady?1:0,
+   window.innerWidth<=700?'m':'d'
+ ].join('|');
+
+ if(todayHotspotCacheKey===key)return todayHotspotCache;
+
+ const perArea=window.innerWidth<=700?9:13;
+ const all=[];
+
+ for(const area of ANALYSIS_CENTERS){
+   const hs=todayLocalHotspots(area.name,perArea);
+   hs.forEach((h,i)=>h.localIndex=i+1);
+   all.push(...hs);
+ }
+
+ all.sort((a,b)=>
+   ANALYSIS_CENTERS.findIndex(x=>x.name===a.areaName)-
+   ANALYSIS_CENTERS.findIndex(x=>x.name===b.areaName) ||
+   a.localIndex-b.localIndex
+ );
+
+ todayHotspotCache=all;
+ todayHotspotCacheKey=key;
+ return all;
+}
+
+function activeHotspots(){
+ return mapMode==='today' ? buildTodayHotspots() : buildHotspots();
+}
+
+function currentHotspotType(h){
+ if(mapMode==='habitat')return stableHotspotType(h);
+ if(atlasSelected.size)return atlasAggregateScore(h.best,true).bestType;
+ if(currentFilter==='all')return bestTypeFor(h.best);
+ if(currentFilter==='diversity')return null;
+ return currentFilter;
+}
+
 function stableHotspotType(h){if(atlasSelected.size)return atlasBestTypeForFeature(h.best);return currentFilter==='all'?stableAllType(h.best):(currentFilter==='diversity'?null:currentFilter);}
 function hotspotTodayInfo(h){
  let fireArea=0,worthArea=0,total=0,weighted=0,bestRank=0,bestScore=0;
@@ -4632,16 +4798,25 @@ function hotspotTodayInfo(h){
 }
 
 function applyHotspotMembership(){
- const key=`clean-membership|${currentFilter}|${atlasSelectionKey()}|${allFeatures.length}|${openFeatures.length}`;
- if(hotspotMembershipKey===key)return buildHotspots();
- for(const f of allFeatures){f._hotspotIndex=0;f._hotspotLabel='';f._hotspotBest=false;f._hotspotRank=0;}
- const hs=buildHotspots();
+ const key=`active-membership|${mapMode}|${scoringRevision}|${currentFilter}|${atlasSelectionKey()}|${allFeatures.length}|${openFeatures.length}`;
+ if(hotspotMembershipKey===key)return activeHotspots();
+
+ for(const f of allFeatures){
+   f._hotspotIndex=0;f._hotspotLabel='';f._hotspotBest=false;f._hotspotRank=0;
+ }
+
+ const hs=activeHotspots();
+
  hs.forEach((h,i)=>{
    const label=hotspotLabel(h),today=hotspotTodayInfo(h);
-   for(const f of h.members){f._hotspotIndex=i+1;f._hotspotLabel=label;f._hotspotRank=today.rank;}
+   for(const f of h.members){
+     f._hotspotIndex=i+1;f._hotspotLabel=label;f._hotspotRank=today.rank;
+   }
    h.best._hotspotBest=true;h.best._hotspotLabel=label;
  });
- hotspotMembershipKey=key;return hs;
+
+ hotspotMembershipKey=key;
+ return hs;
 }
 
 // --- 3. Zbalansowana kolorystyka ------------------------------------------------------------
@@ -5111,9 +5286,16 @@ function popupHtml(f){
 }
 
 function hotspotPopup(h){
- const today=hotspotTodayInfo(h),vm=VERDICT_META[today.rank],t=stableHotspotType(h),species=t?(HUMAN_NAMES[t]||t):'Różnorodność',label=hotspotLabel(h);
+ const today=hotspotTodayInfo(h),vm=VERDICT_META[today.rank],t=currentHotspotType(h),species=t?(HUMAN_NAMES[t]||t):'Różnorodność',label=hotspotLabel(h);
  const ctx=Number.isFinite(h.forestContext)?h.forestContext:forestContextInfo(h.best).score;
  const ctxLabel=ctx>=8?'duży / zwarty kompleks':ctx>=6?'dobry kontekst leśny':'mały / rozproszony las';
+ const dynamic=mapMode==='today';
+ const scoreLine=dynamic
+   ? `<div class="popup-factline"><b>Ocena hotspotu DZIŚ:</b> ${(h.todayBestScore??today.bestScore).toFixed(1)}/10 • średnio ${(h.todayAvgScore??today.avg).toFixed(1)}/10</div>`
+   : `<div class="popup-factline"><b>Stały potencjał hotspotu:</b> ${h.stableBestScore.toFixed(1)}/10 • średnio ${h.stableAvgScore.toFixed(1)}/10</div>`;
+ const footer=dynamic
+   ? `Położenie hotspotu DZIŚ może zmienić się wraz z pogodą, sezonem i aktualnymi danymi.`
+   : `Hotspot POTENCJAŁU jest oparty na trwałych cechach siedliska.`;
 
  const likelyTypes=hotspotHintTypes(h,12).filter(Boolean);
  const speciesList=likelyTypes.length
@@ -5134,13 +5316,13 @@ function hotspotPopup(h){
 
  return `<div class="popup-card"><div class="popup-title">📌 Hotspot ${label} • ${h.areaName}</div>`+
    `<div class="popup-verdict ${vm.cls}">${vm.label} DZISIAJ</div><div><b>${species}</b></div>`+
-   `<div class="popup-factline"><b>Stały potencjał hotspotu:</b> ${h.stableBestScore.toFixed(1)}/10 • średnio ${h.stableAvgScore.toFixed(1)}/10</div>`+
+   scoreLine+
    `<div class="popup-factline">🔥 dziś: ${today.fireShare.toFixed(0)}% powierzchni • ✅+🔥 dziś: ${today.worthShare.toFixed(0)}%</div>`+
    `<div><b>${h.count}</b> wydzieleń • <b>${h.areaHa.toFixed(1)} ha</b> • ${h._distance.toFixed(1)} km od centrum ${h.areaName}</div>`+
    `<div class="popup-factline">🌲 <b>Kontekst lasu:</b> ${ctx.toFixed(1)}/10 • ${ctxLabel}</div>`+
    speciesList+
    `<div class="popup-mini" style="margin-top:7px"><b>Hotspot = lokalny TOP, nie granica występowania grzybów.</b> Sąsiednie zielone wydzielenia też mogą być bardzo dobre.<br>`+
-   `Numer i położenie hotspotu są stałe. Pogoda/sezon zmieniają wyłącznie ocenę „dzisiaj”.</div></div>`;
+   `${footer}</div></div>`;
 }
 
 
@@ -5458,6 +5640,47 @@ function renderAtlasCards(){
 }
 
 
+
+
+function auditModeCombinations(){
+ const savedFilter=currentFilter;
+ const savedMode=mapMode;
+ const rows=[];
+
+ for(const filter of ['all','diversity']){
+   currentFilter=filter;
+   resetStaticCachesIfNeeded();
+
+   for(const mode of ['today','habitat']){
+     mapMode=mode;
+     hotspotMembershipKey='';
+     todayHotspotCacheKey='';
+
+     const hs=activeHotspots();
+     const weakToday=mode==='today'
+       ? hs.filter(h=>todayBalancedClass(h.best)<3)
+       : [];
+
+     rows.push({
+       filter,
+       mode,
+       hotspots:hs.length,
+       weakTodayHotspots:weakToday.length,
+       firstFiveClasses:hs.slice(0,5).map(h=>mode==='today'?todayBalancedClass(h.best):balancedClass(h.best))
+     });
+   }
+ }
+
+ currentFilter=savedFilter;
+ mapMode=savedMode;
+ resetStaticCachesIfNeeded();
+ hotspotMembershipKey='';
+ todayHotspotCacheKey='';
+
+ console.table(rows);
+ return rows;
+}
+window.auditModeCombinations=auditModeCombinations;
 
 function auditScoringCache(){
  const sample=allFeatures.find(f=>!f._blocked&&f._kind!=='open')||null;
@@ -6046,7 +6269,7 @@ function renderSpeciesHints(){
  const placed=[];
 
  // Najmocniejsze hotspoty układamy pierwsze.
- const visible=buildHotspots()
+ const visible=activeHotspots()
    .filter(h=>bounds.contains(L.latLng(h._center[0],h._center[1])))
    .sort((a,b)=>(b.clusterScore-a.clusterScore)||(a.localIndex-b.localIndex));
 
@@ -6098,19 +6321,70 @@ function renderSpeciesHints(){
 }
 
 function buildTop(){
- const title=document.getElementById('topTitleText');if(title)title.textContent='Stałe hotspoty — status zmienia się, miejsce nie';
- const hotspots=buildHotspots();topSpots=hotspots;const box=document.getElementById('toplist');box.innerHTML='';let lastArea='';
+ const dynamic=mapMode==='today';
+ const title=document.getElementById('topTitleText');
+ if(title)title.textContent=dynamic
+   ? 'Hotspoty DZIŚ — najlepsze miejsca teraz'
+   : 'Hotspoty POTENCJAŁU — stałe najlepsze miejsca';
+
+ const hotspots=activeHotspots();
+ topSpots=hotspots;
+
+ const box=document.getElementById('toplist');
+ box.innerHTML='';
+ let lastArea='';
+
  for(const h of hotspots){
-   if(h.areaName!==lastArea){const sep=document.createElement('div');sep.style.cssText='padding:8px 16px 4px;font-size:10px;font-weight:950;color:#cfd8d2;border-top:1px solid rgba(255,255,255,.06)';const meta=AREA_META[h.areaName]||{color:'#aaa'};sep.innerHTML=`<span style="color:${meta.color}">●</span> ${h.areaName} — stały ranking`;box.appendChild(sep);lastArea=h.areaName;}
-   const today=hotspotTodayInfo(h),vm=VERDICT_META[today.rank],t=stableHotspotType(h),name=t?(HUMAN_NAMES[t]||t):'Różnorodność',label=hotspotLabel(h);
-   const marker=L.marker(h._center,{icon:L.divIcon({className:'',html:`<div class="top-pin" style="border-color:${vm.color};box-shadow:0 0 0 3px ${h.areaColor},0 2px 8px #0009">${label}</div>`,iconAnchor:[12,12]})}).bindPopup(hotspotPopup(h)).addTo(topGroup);
-   const d=document.createElement('div');d.className='topitem';
+   if(h.areaName!==lastArea){
+     const sep=document.createElement('div');
+     sep.style.cssText='padding:8px 16px 4px;font-size:10px;font-weight:950;color:#cfd8d2;border-top:1px solid rgba(255,255,255,.06)';
+     const meta=AREA_META[h.areaName]||{color:'#aaa'};
+     sep.innerHTML=`<span style="color:${meta.color}">●</span> ${h.areaName} — ${dynamic?'ranking dzisiaj':'stały ranking'}`;
+     box.appendChild(sep);
+     lastArea=h.areaName;
+   }
+
+   const today=hotspotTodayInfo(h),vm=VERDICT_META[today.rank],t=currentHotspotType(h);
+   const name=t?(HUMAN_NAMES[t]||t):'Różnorodność',label=hotspotLabel(h);
+
+   const marker=L.marker(h._center,{
+     icon:L.divIcon({
+       className:'',
+       html:`<div class="top-pin" style="border-color:${vm.color};box-shadow:0 0 0 3px ${h.areaColor},0 2px 8px #0009">${label}</div>`,
+       iconAnchor:[12,12]
+     })
+   }).bindPopup(hotspotPopup(h)).addTo(topGroup);
+
+   const score=dynamic?(h.todayBestScore??today.bestScore):h.stableBestScore;
+   const sub=dynamic
+     ? `dziś średnio ${(h.todayAvgScore??today.avg).toFixed(1)}/10 • ✅+🔥 ${today.worthShare.toFixed(0)}% • ${h.areaHa.toFixed(1)} ha`
+     : `potencjał ${h.stableBestScore.toFixed(1)}/10 • dziś ✅+🔥 ${today.worthShare.toFixed(0)}% • ${h.areaHa.toFixed(1)} ha`;
+
+   const d=document.createElement('div');
+   d.className='topitem';
    d.innerHTML=`<div class="num" style="background:${vm.color};color:white">${label}</div><div><div class="tmain">📌 ${name} • ${vm.short}</div>`+
-     `<div class="tsub">potencjał ${h.stableBestScore.toFixed(1)}/10 • dziś ✅+🔥 ${today.worthShare.toFixed(0)}% • ${h.areaHa.toFixed(1)} ha</div></div><div class="tscore">${h.stableBestScore.toFixed(1)}</div>`;
-   d.title=`Stały hotspot ${label}: jakość całego obszaru ${h.clusterScore.toFixed(1)}/10; kontekst kompleksu ${h.forestContext.toFixed(1)}/10; ${h.areaHa.toFixed(1)} ha`;
-   d.onclick=()=>{map.fitBounds(h._bounds,{padding:[60,60],maxZoom:16});marker.openPopup();};box.appendChild(d);
+     `<div class="tsub">${sub}</div></div><div class="tscore">${score.toFixed(1)}</div>`;
+
+   d.title=dynamic
+     ? `Hotspot DZIŚ ${label}: wynik klastra ${h.clusterScore.toFixed(1)}/10; kontekst lasu ${h.forestContext.toFixed(1)}/10; ${h.areaHa.toFixed(1)} ha`
+     : `Hotspot POTENCJAŁU ${label}: jakość całego obszaru ${h.clusterScore.toFixed(1)}/10; kontekst kompleksu ${h.forestContext.toFixed(1)}/10; ${h.areaHa.toFixed(1)} ha`;
+
+   d.onclick=()=>{map.fitBounds(h._bounds,{padding:[60,60],maxZoom:16});marker.openPopup();};
+   box.appendChild(d);
  }
- updateAreaComparison();syncToplistHeight();syncPanelHeight();
+
+ if(!hotspots.length){
+   const empty=document.createElement('div');
+   empty.style.cssText='padding:12px 16px;color:#9eaaa3;font-size:10px';
+   empty.textContent=dynamic
+     ? 'Dzisiaj model nie znalazł wystarczająco mocnego hotspotu w tym rejonie.'
+     : 'Brak hotspotów dla aktualnego filtra.';
+   box.appendChild(empty);
+ }
+
+ updateAreaComparison();
+ syncToplistHeight();
+ syncPanelHeight();
 }
 
 // --- 5. Porównanie rejonów ------------------------------------------------------------------
@@ -6125,7 +6399,7 @@ function areaSummary(areaName){
  const stableGoodShare=total?100*stableGood/total:0,stableStrongShare=total?100*stableStrong/total:0,todayWorthShare=total?100*todayWorth/total:0,todayFireShare=total?100*todayFire/total:0;
  const potentialIndex=Math.max(0,Math.min(100,.46*stableGoodShare+.18*stableStrongShare+.36*(avgStable*10)));
  const todayIndex=Math.max(0,Math.min(100,.46*todayWorthShare+.20*todayFireShare+.34*(avgToday*10)));
- return {name:areaName,total,potentialIndex,todayIndex,avgStable,avgToday,stableGoodShare,stableStrongShare,todayWorthShare,todayFireShare,hotspots:buildHotspots().filter(h=>h.areaName===areaName).length};
+ return {name:areaName,total,potentialIndex,todayIndex,avgStable,avgToday,stableGoodShare,stableStrongShare,todayWorthShare,todayFireShare,hotspots:activeHotspots().filter(h=>h.areaName===areaName).length};
 }
 
 function updateAreaComparison(){
@@ -6650,9 +6924,17 @@ document.getElementById('speciesModeBest').onclick=()=>setSpeciesDisplayMode('al
 document.getElementById('speciesModeDiversity').onclick=()=>setSpeciesDisplayMode('diversity');
 
 document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{
- document.querySelectorAll('.mode').forEach(x=>x.classList.remove('active'));b.classList.add('active');mapMode=b.dataset.mode;
- // celowo NIE resetujemy stałych hotspotów: zmienia się tylko status DZIŚ/HABITAT
- ensurePerfCache();render();if(centerWeather)updateWeatherCard();
+ document.querySelectorAll('.mode').forEach(x=>x.classList.remove('active'));
+ b.classList.add('active');
+ mapMode=b.dataset.mode;
+
+ // POTENCJAŁ i DZIŚ mają od v18 różne hotspoty.
+ hotspotMembershipKey='';
+ todayHotspotCacheKey='';
+
+ ensurePerfCache();
+ render();
+ if(centerWeather)updateWeatherCard();
 });
 document.getElementById('fit').onclick=()=>{
  if(ANALYSIS_CENTERS.length)map.fitBounds(allRadiusBounds(),{padding:[20,20]});

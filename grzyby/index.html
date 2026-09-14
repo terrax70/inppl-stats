@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v33: biological calibration — hosts, seasons, stable soil/terrain, strict symbionts, scoped BEST priors -->
+<!-- GitHub production v34: BEST habitat-domain balance — forest/open quotas + grassland/edge relevance fix -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -4492,9 +4492,27 @@ function speciesEffective(type,f){
 }
 function featureRelevant(type,f){
  const m=SPECIES_META[type];if(!m)return false;
- if(m.ecology==='mycorrhiza'||m.ecology==='wood')return f._kind!=='open';
- if(m.ecology==='grassland')return f._kind==='open'||Number(f._openNear)<.16;
- if(m.ecology==='edge')return true;
+
+ if(m.ecology==='mycorrhiza'||m.ecology==='wood'){
+   return f._kind!=='open';
+ }
+
+ if(m.ecology==='grassland'){
+   // Pieczarka / czernidłak / purchawka mają własne poligony OSM.
+   // Nie przypisujemy ich do wydzielenia leśnego tylko dlatego,
+   // że gdzieś obok znajduje się łąka.
+   return f._kind==='open';
+ }
+
+ if(m.ecology==='edge'){
+   if(f._kind==='open')return true;
+
+   const d=Number(f._openNear);
+   // Kania może wejść do wyniku lasu tylko przy rzeczywistym skraju/polanie
+   // albo w wydzieleniu zaburzonym.
+   return (Number.isFinite(d)&&d<=.32)||!!f._ko;
+ }
+
  return true;
 }
 function computeLocalRanks(){
@@ -6071,6 +6089,75 @@ function stableCandidateFeatures(areaName){
  });
 }
 
+
+function bestHabitatDomain(f){
+ return f?._kind==='open'?'open':'forest';
+}
+
+function bestOpenSeedLimit(maxHotspots){
+ // BEST ma przede wszystkim odpowiadać "gdzie jechać na grzyby",
+ // ale nie ma ignorować łąk/polan. Otwarte siedliska dostają osobną,
+ // ograniczoną pulę zamiast przejmować cały ranking.
+ return Math.max(1,Math.floor(maxHotspots*.25));
+}
+
+function chooseBalancedBestSeeds(pool,maxHotspots,minSeedDistance){
+ const bestAll=!atlasSelected.size&&currentFilter==='all';
+
+ if(!bestAll){
+   const out=[];
+   for(const x of pool){
+     if(out.every(s=>hav(s.f._center,x.f._center)>=minSeedDistance)){
+       out.push(x);
+       if(out.length>=maxHotspots)break;
+     }
+   }
+   return out;
+ }
+
+ const openLimit=bestOpenSeedLimit(maxHotspots);
+ const forestTarget=Math.max(1,maxHotspots-openLimit);
+ const forest=pool.filter(x=>bestHabitatDomain(x.f)==='forest');
+ const open=pool.filter(x=>bestHabitatDomain(x.f)==='open');
+
+ const out=[];
+
+ const addFrom=(rows,limit)=>{
+   let added=0;
+   for(const x of rows){
+     if(added>=limit||out.length>=maxHotspots)break;
+     if(out.every(s=>hav(s.f._center,x.f._center)>=minSeedDistance)){
+       out.push(x);
+       added++;
+     }
+   }
+ };
+
+ // Najpierw większość miejsc leśnych, potem osobna pula terenów otwartych.
+ addFrom(forest,forestTarget);
+ addFrom(open,openLimit);
+
+ // Jeśli jedna domena nie ma wystarczająco dobrych kandydatów,
+ // uzupełniamy pozostałymi LEŚNYMI. Nie pozwalamy otwartym siedliskom
+ // ponownie zdominować BEST.
+ if(out.length<maxHotspots){
+   for(const x of forest){
+     if(out.includes(x))continue;
+     if(out.every(s=>hav(s.f._center,x.f._center)>=minSeedDistance)){
+       out.push(x);
+       if(out.length>=maxHotspots)break;
+     }
+   }
+ }
+
+ return out;
+}
+
+function sameBestHabitatDomain(a,b){
+ if(atlasSelected.size||currentFilter!=='all')return true;
+ return bestHabitatDomain(a)===bestHabitatDomain(b);
+}
+
 function stableLocalHotspots(areaName,maxHotspots){
  const features=stableCandidateFeatures(areaName);if(!features.length)return [];
  const scored=features.map(f=>({f,s:stableAnchorScore(f),ctx:forestContextInfo(f),key:stableFeatureKey(f)}))
@@ -6078,19 +6165,31 @@ function stableLocalHotspots(areaName,maxHotspots){
  const memberN=Math.max(12,Math.ceil(scored.length*.45)),seedN=Math.max(5,Math.ceil(scored.length*.18));
  let membersPool=scored.slice(0,memberN).filter(x=>x.s>=5.55),seedsPool=scored.slice(0,seedN).filter(x=>x.s>=6.15);
  if(!atlasSelected.size&&(currentFilter==='all'||currentFilter==='diversity')){
-   const dense=seedsPool.filter(x=>x.f._kind==='open'||(x.ctx.score>=6&&x.ctx.near90>=20));if(dense.length>=3)seedsPool=dense;
+   const dense=seedsPool.filter(
+     x=>x.f._kind==='open'||(x.ctx.score>=6&&x.ctx.near90>=20)
+   );
+   if(dense.length>=3)seedsPool=dense;
  }
  const broadMode=!atlasSelected.size&&(currentFilter==='all'||currentFilter==='diversity');
  const minSeedDistance=broadMode?.68:.56;
  const assignRadius=broadMode?.78:.58;
- const seeds=[];
- for(const x of (seedsPool.length?seedsPool:scored.slice(0,Math.min(20,scored.length)))){
-   if(seeds.every(s=>hav(s.f._center,x.f._center)>=minSeedDistance)){seeds.push(x);if(seeds.length>=maxHotspots)break;}
- }
- if(!seeds.length&&scored.length)seeds.push(scored[0]);
+ let seeds=chooseBalancedBestSeeds(
+   seedsPool.length?seedsPool:scored.slice(0,Math.min(30,scored.length)),
+   maxHotspots,
+   minSeedDistance
+ );
+
+ if(!seeds.length&&scored.length)seeds=[scored[0]];
  const groups=seeds.map(seed=>({seed,members:[]}));
  for(const x of membersPool){
-   let bi=-1,bd=Infinity;for(let i=0;i<seeds.length;i++){const d=hav(x.f._center,seeds[i].f._center);if(d<bd){bd=d;bi=i;}}
+   let bi=-1,bd=Infinity;
+
+   for(let i=0;i<seeds.length;i++){
+     if(!sameBestHabitatDomain(x.f,seeds[i].f))continue;
+     const d=hav(x.f._center,seeds[i].f._center);
+     if(d<bd){bd=d;bi=i;}
+   }
+
    if(bi>=0&&bd<=assignRadius)groups[bi].members.push(x);
  }
  const hs=[];
@@ -6169,23 +6268,23 @@ function todayLocalHotspots(areaName,maxHotspots){
  const broadMode=!atlasSelected.size&&(currentFilter==='all'||currentFilter==='diversity');
  const minSeedDistance=broadMode?.68:.56;
  const assignRadius=broadMode?.78:.58;
- const seeds=[];
-
- for(const x of seedsPool){
-   if(seeds.every(s=>hav(s.f._center,x.f._center)>=minSeedDistance)){
-     seeds.push(x);
-     if(seeds.length>=maxHotspots)break;
-   }
- }
+ const seeds=chooseBalancedBestSeeds(
+   seedsPool,
+   maxHotspots,
+   minSeedDistance
+ );
 
  const groups=seeds.map(seed=>({seed,members:[]}));
 
  for(const x of membersPool){
    let bi=-1,bd=Infinity;
+
    for(let i=0;i<seeds.length;i++){
+     if(!sameBestHabitatDomain(x.f,seeds[i].f))continue;
      const d=hav(x.f._center,seeds[i].f._center);
      if(d<bd){bd=d;bi=i;}
    }
+
    if(bi>=0&&bd<=assignRadius)groups[bi].members.push(x);
  }
 
@@ -7262,6 +7361,74 @@ window.auditSoilState=auditSoilState;
 
 
 
+
+
+function auditBestHabitatBalance(){
+ const savedFilter=currentFilter;
+ const savedMode=mapMode;
+ const savedAtlas=[...atlasSelected];
+
+ atlasSelected.clear();
+ currentFilter='all';
+ mapMode='today';
+ resetStaticCachesIfNeeded();
+ invalidateScoringCaches('audit best habitat balance');
+
+ const hs=buildTodayHotspots();
+ const forestHs=hs.filter(h=>bestHabitatDomain(h.best)==='forest');
+ const openHs=hs.filter(h=>bestHabitatDomain(h.best)==='open');
+
+ let grasslandOnForest=0;
+ let edgeDeepForest=0;
+
+ for(const f of allFeatures){
+   if(f._blocked)continue;
+
+   if(f._kind!=='open'){
+     for(const t of ['pieczarka_polna','czernidlak','purchawka_oczkowana']){
+       if(featureRelevant(t,f))grasslandOnForest++;
+     }
+
+     for(const t of ['kania','kania_gwiazdzista']){
+       const d=Number(f._openNear);
+       if(featureRelevant(t,f)&&Number.isFinite(d)&&d>.32&&!f._ko)edgeDeepForest++;
+     }
+   }
+ }
+
+ const byType={};
+ for(const h of hs){
+   const t=currentHotspotType(h)||'diversity';
+   byType[t]=(byType[t]||0)+1;
+ }
+
+ const report={
+   hotspots:hs.length,
+   forestHotspots:forestHs.length,
+   openHotspots:openHs.length,
+   openShare:hs.length?Number((openHs.length/hs.length).toFixed(3)):0,
+   configuredOpenLimitPerArea:'25%',
+   grasslandSpeciesRelevantOnForest:grasslandOnForest,
+   edgeSpeciesRelevantDeepInsideForest:edgeDeepForest,
+   hotspotTypes:Object.entries(byType).sort((a,b)=>b[1]-a[1]),
+   invariants:{
+     grasslandOnlyOnOpen:grasslandOnForest===0,
+     edgeOnlyNearRealEdge:edgeDeepForest===0,
+     openHotspotsDoNotDominate:hs.length===0||openHs.length<=Math.ceil(hs.length*.35)
+   }
+ };
+
+ atlasSelected.clear();
+ for(const t of savedAtlas)atlasSelected.add(t);
+ currentFilter=savedFilter;
+ mapMode=savedMode;
+ resetStaticCachesIfNeeded();
+ invalidateScoringCaches('restore after audit');
+
+ console.info('BEST HABITAT BALANCE AUDIT',report);
+ return report;
+}
+window.auditBestHabitatBalance=auditBestHabitatBalance;
 
 function auditBiologicalCalibration(){
  const day=doy(new Date());
@@ -8915,7 +9082,7 @@ function updateSpeciesMeta(){
        : 'Przy kilku gatunkach mapa pokazuje SUMĘ ich terenów: dodanie kolejnego grzyba nigdy nie usuwa miejsc dobrych dla wcześniej zaznaczonych. Każdy gatunek zachowuje własną skalę kolorów; mocniejszy obrys oznacza, że w tym samym miejscu dobrze pasuje kilka zaznaczonych gatunków.'} Najedź na wydzielenie — atlas pokaże, które grzyby konkretnie tu pasują.</span>`;
    return;
  }
- box.innerHTML='<b>🍄 Najlepsze miejsce = najlepszy gatunek osobno dla każdego wydzielenia</b><br><span style="opacity:.82">W trybie DZIŚ mapa sprawdza każdy modelowany gatunek i wybiera ten, który ma tu najwyższy wynik teraz. W Potencjale wybiera gatunek o najlepszym stałym siedlisku. Gatunek może więc być inny w sąsiednich wydzieleniach.</span>';
+ box.innerHTML='<b>🍄 Najlepsze miejsce = najlepszy gatunek dla danego siedliska</b><br><span style="opacity:.82">Las porównuje gatunki leśne, łąka/polana gatunki otwarte, a kanie tylko realne skraje. Hotspoty są dodatkowo równoważone, żeby kilka świetnych łąk nie wyparło całego rankingu leśnego. W DZIŚ dochodzi sezon i pogoda.</span>';
 }
 document.getElementById('speciesSelect').onchange=async e=>{
  atlasHoverTypes.clear();

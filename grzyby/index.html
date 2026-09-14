@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v38: unified hotspot / species-rack / feature details popup -->
+<!-- GitHub production v39: unified fixed details panel — no popup autopan / no map jump -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2459,6 +2459,66 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
+
+<style id="v39-unified-fixed-details">
+.place-details-panel{
+  position:fixed;top:68px;right:180px;z-index:5400;
+  width:min(392px,calc(100vw - 560px));max-height:calc(100vh - 230px);
+  opacity:0;transform:translateX(14px);pointer-events:none;
+  transition:opacity .16s ease,transform .18s ease;
+  font-family:Inter,Segoe UI,Arial,sans-serif;
+}
+.place-details-panel.open{opacity:1;transform:none;pointer-events:auto}
+.place-details-shell{
+  display:flex;flex-direction:column;max-height:inherit;overflow:hidden;
+  background:#fff;color:#263029;border:1px solid rgba(29,54,38,.18);
+  border-radius:16px;box-shadow:0 18px 46px rgba(0,0,0,.28);
+}
+.place-details-toolbar{
+  flex:0 0 auto;min-height:43px;display:flex;align-items:center;justify-content:space-between;
+  gap:10px;padding:8px 9px 8px 12px;background:linear-gradient(180deg,#f8faf8,#f0f4f1);
+  border-bottom:1px solid #dfe7e1;position:sticky;top:0;z-index:3;
+}
+.place-details-toolbar-text{min-width:0}
+.place-details-toolbar-kicker{font-size:8px;font-weight:950;letter-spacing:.09em;text-transform:uppercase;color:#7a8a80}
+.place-details-toolbar-title{margin-top:1px;font-size:12px;line-height:1.15;font-weight:950;color:#243129;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.place-details-close{
+  width:32px!important;height:32px!important;min-width:32px!important;padding:0!important;
+  border-radius:10px!important;display:grid!important;place-items:center!important;
+  border:1px solid #d3ddd6!important;background:#fff!important;color:#334139!important;
+  font-size:21px!important;line-height:1!important;font-weight:700!important;cursor:pointer!important;
+}
+.place-details-close:hover{background:#edf3ef!important}
+.place-details-body{min-height:0;overflow:auto;overscroll-behavior:contain;padding:10px;scrollbar-width:thin}
+.place-details-body .popup-card{max-height:none!important;overflow:visible!important;padding-right:0!important}
+.place-details-body .unified-place-popup{min-width:0!important;width:auto!important}
+.place-details-body .unified-popup-kicker{display:none}
+.place-details-body .unified-popup-head{margin-bottom:5px}
+.place-details-body .unified-popup-grid{margin:6px 0}
+.place-details-body .unified-place-block{margin-top:7px}
+.place-details-body .unified-hotspot-species{grid-template-columns:1fr!important}
+.place-details-body .unified-hotspot-species .hotspot-species-row:nth-child(n+5){display:none}
+.place-details-body .popup-more{margin-top:7px!important}
+.place-details-body .popup-more summary{padding:4px 0}
+.place-details-body .popup-verdict{font-size:15px!important;margin:4px 0 6px!important;padding:6px 9px!important}
+@media(max-width:900px) and (min-width:701px){
+  .place-details-panel{right:10px;width:min(380px,calc(100vw - 370px))}
+}
+@media(max-width:700px){
+  .place-details-panel{top:auto;left:7px;right:7px;bottom:132px;width:auto;max-height:min(46vh,430px);transform:translateY(14px)}
+  .place-details-panel.open{transform:none}
+  .place-details-shell{border-radius:14px}
+  .place-details-toolbar{min-height:40px;padding:6px 7px 6px 10px}
+  .place-details-toolbar-title{font-size:11px}
+  .place-details-close{width:30px!important;height:30px!important;min-width:30px!important;font-size:20px!important}
+  .place-details-body{padding:8px}
+  .place-details-body .unified-popup-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:420px){
+  .place-details-panel{bottom:124px;max-height:48vh}
+}
+</style>
+
 </head>
 
 <style>
@@ -2497,6 +2557,20 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 
 <body>
 <div id="map"></div>
+
+<div id="placeDetailsPanel" class="place-details-panel" aria-hidden="true">
+  <div class="place-details-shell">
+    <div class="place-details-toolbar">
+      <div class="place-details-toolbar-text">
+        <div class="place-details-toolbar-kicker">Szczegóły mapy</div>
+        <div id="placeDetailsTitle" class="place-details-toolbar-title">Wybrane miejsce</div>
+      </div>
+      <button id="placeDetailsClose" class="place-details-close" type="button" aria-label="Zamknij szczegóły" title="Zamknij">×</button>
+    </div>
+    <div id="placeDetailsBody" class="place-details-body"></div>
+  </div>
+</div>
+
 <div id="mobileSearchDock" class="mobile-search-dock" aria-label="Szukaj miejsca"></div>
 <div id="dataSourceMini" class="data-source-mini">
   <div id="dataSourceSummary" class="data-source-summary" data-state="off">
@@ -7496,10 +7570,10 @@ function unifiedPopupHtml(f,h=null){
 
    const hsRows=unifiedHotspotSpeciesRows(h,8);
    if(hsRows.length){
-     hotspotSpecies=`<div class="unified-place-block"><div class="unified-place-title">🍄 Grzyby pasujące do całego hotspotu</div><div class="unified-hotspot-species">${hsRows.map(x=>{
+     hotspotSpecies=`<details class="popup-more unified-place-block"><summary>🍄 Grzyby pasujące do całego hotspotu (${hsRows.length})</summary><div class="unified-hotspot-species">${hsRows.map(x=>{
        const sm=SPECIES_META[x.type]||{};
        return `<div class="hotspot-species-row"><img src="${atlasSvg(x.type)}" alt="${escapeHtml(sm.label||x.type)}"><div><div class="hs-name">${escapeHtml(sm.label||x.type)}</div><div class="hs-latin">${escapeHtml(sm.scientific||'')}</div></div><div class="hs-score">${x.best.toFixed(1)}</div></div>`;
-     }).join('')}</div></div>`;
+     }).join('')}</div></details>`;
    }
  }
 
@@ -7554,6 +7628,60 @@ function unifiedPopupHtml(f,h=null){
    `</div>`;
 }
 
+
+
+function closeUnifiedDetails(clearLock=true){
+ const panel=document.getElementById('placeDetailsPanel');
+ if(panel){panel.classList.remove('open');panel.setAttribute('aria-hidden','true');}
+ try{map.closePopup();}catch(_){}
+ if(clearLock&&linkedLockedFeature){
+   try{clearLinkedLock();}catch(err){console.warn('Close linked focus',err);}
+ }
+}
+
+function openUnifiedDetails(f,h=null){
+ if(!f&&h)f=h.best;
+ if(!f)return;
+ if(!h)h=hotspotForFeature(f);
+
+ const panel=document.getElementById('placeDetailsPanel');
+ const body=document.getElementById('placeDetailsBody');
+ const title=document.getElementById('placeDetailsTitle');
+ if(!panel||!body)return;
+
+ try{map.closePopup();}catch(_){}
+ body.innerHTML=unifiedPopupHtml(f,h);
+
+ if(title){
+   const t=unifiedFeatureType(f);
+   title.textContent=h
+     ? `Hotspot ${hotspotLabel(h)} • ${h.areaName}`
+     : (t?(HUMAN_NAMES[t]||'Wybrane miejsce'):'Wybrane miejsce');
+ }
+
+ panel.classList.add('open');
+ panel.setAttribute('aria-hidden','false');
+ body.scrollTop=0;
+
+ linkedLayerClickSuppressUntil=performance.now()+450;
+ try{lockLinkedFeature(f,analysisLayerForFeature(f));}catch(err){console.warn('Unified linked focus',err);}
+}
+
+(function installUnifiedDetailsPanel(){
+ const closeBtn=document.getElementById('placeDetailsClose');
+ if(closeBtn&&!closeBtn.dataset.bound){
+   closeBtn.dataset.bound='1';
+   closeBtn.addEventListener('click',e=>{
+     e.preventDefault();e.stopPropagation();closeUnifiedDetails(true);
+   });
+ }
+ document.addEventListener('keydown',e=>{
+   if(e.key==='Escape'){
+     const panel=document.getElementById('placeDetailsPanel');
+     if(panel?.classList.contains('open'))closeUnifiedDetails(true);
+   }
+ });
+})();
 
 function atlasScoresForFeature(f,onlySelected=false){
  const pool=onlySelected?[...atlasSelected]:ATLAS_ITEMS.map(x=>x.type);
@@ -8730,22 +8858,7 @@ let mobileFeatureTapHandledUntil=0;
 
 function openFeatureDetails(f,ly,latlng){
  if(!f)return;
- linkedLayerClickSuppressUntil=performance.now()+450;
-
- try{
-   L.popup({
-     maxWidth:Math.min(430,Math.floor(window.innerWidth*.92)),
-     autoPan:true,
-     autoPanPadding:[24,90],
-     closeButton:true
-   }).setLatLng(latlng||L.latLng(f._center[0],f._center[1]))
-     .setContent(unifiedPopupHtml(f,hotspotForFeature(f)))
-     .openOn(map);
- }catch(err){
-   console.error('Popup wydzielenia',err);
- }
-
- try{lockLinkedFeature(f,ly);}catch(err){console.warn('Linked focus',err);}
+ openUnifiedDetails(f,hotspotForFeature(f));
 }
 
 function findAnalysisFeatureAt(latlng){
@@ -8760,14 +8873,14 @@ function installMobileFeatureTap(){
 
  el.addEventListener('pointerdown',e=>{
    if(e.pointerType!=='touch')return;
-   if(e.target.closest('.leaflet-control,.panel,.mushroom-atlas,.mobile-search-dock,.leaflet-popup'))return;
+   if(e.target.closest('.leaflet-control,.panel,.mushroom-atlas,.mobile-search-dock,.place-details-panel,.leaflet-popup'))return;
    mobileTapStart={x:e.clientX,y:e.clientY,t:performance.now(),center:map.getCenter(),zoom:map.getZoom()};
  },{passive:true});
 
  el.addEventListener('pointerup',e=>{
    if(e.pointerType!=='touch'||!mobileTapStart)return;
    const s=mobileTapStart;mobileTapStart=null;
-   if(e.target.closest('.leaflet-control,.panel,.mushroom-atlas,.mobile-search-dock,.leaflet-popup'))return;
+   if(e.target.closest('.leaflet-control,.panel,.mushroom-atlas,.mobile-search-dock,.place-details-panel,.leaflet-popup'))return;
 
    const dist=Math.hypot(e.clientX-s.x,e.clientY-s.y);
    const dt=performance.now()-s.t;
@@ -9071,16 +9184,11 @@ function renderSpeciesHints(){
        iconSize:[metrics.w,metrics.h],
        iconAnchor:rackIconAnchor(metrics,placement)
      })
-   }).bindPopup(unifiedPopupHtml(h.best,h),{
-     maxWidth:Math.min(430,Math.floor(window.innerWidth*.92)),
-     autoPan:true,
-     autoPanPadding:[24,90],
-     closeButton:true
    }).addTo(hintGroup);
 
-   rackMarker.on('popupopen',()=>{
-     linkedLayerClickSuppressUntil=performance.now()+450;
-     try{lockLinkedFeature(h.best,analysisLayerForFeature(h.best));}catch(err){console.warn('Rack linked focus',err);}
+   rackMarker.on('click',e=>{
+     try{e.originalEvent?.stopPropagation?.();}catch(_){}
+     openUnifiedDetails(h.best,h);
    });
 
    placed.push(placement.rect);
@@ -9116,21 +9224,17 @@ function buildTop(){
    const name=t?(HUMAN_NAMES[t]||t):'Różnorodność',label=hotspotLabel(h);
 
    const marker=L.marker(h._center,{
+     bubblingMouseEvents:false,
      icon:L.divIcon({
        className:'',
        html:`<div class="top-pin" style="border-color:${vm.color};box-shadow:0 0 0 3px ${h.areaColor},0 2px 8px #0009">${label}</div>`,
        iconAnchor:[12,12]
      })
-   }).bindPopup(unifiedPopupHtml(h.best,h),{
-     maxWidth:Math.min(430,Math.floor(window.innerWidth*.92)),
-     autoPan:true,
-     autoPanPadding:[24,90],
-     closeButton:true
    }).addTo(topGroup);
 
-   marker.on('popupopen',()=>{
-     linkedLayerClickSuppressUntil=performance.now()+450;
-     try{lockLinkedFeature(h.best,analysisLayerForFeature(h.best));}catch(err){console.warn('Hotspot linked focus',err);}
+   marker.on('click',e=>{
+     try{e.originalEvent?.stopPropagation?.();}catch(_){}
+     openUnifiedDetails(h.best,h);
    });
 
    const score=dynamic?(h.todayBestScore??today.bestScore):h.stableBestScore;
@@ -9147,7 +9251,7 @@ function buildTop(){
      ? `Hotspot DZIŚ ${label}: wynik klastra ${h.clusterScore.toFixed(1)}/10; kontekst lasu ${h.forestContext.toFixed(1)}/10; ${h.areaHa.toFixed(1)} ha`
      : `Hotspot POTENCJAŁU ${label}: jakość całego obszaru ${h.clusterScore.toFixed(1)}/10; kontekst kompleksu ${h.forestContext.toFixed(1)}/10; ${h.areaHa.toFixed(1)} ha`;
 
-   d.onclick=()=>{map.fitBounds(h._bounds,{padding:[60,60],maxZoom:16});marker.openPopup();};
+   d.onclick=()=>{openUnifiedDetails(h.best,h);};
    box.appendChild(d);
  }
 
@@ -9512,6 +9616,7 @@ async function reverseName(lat,lon,index){
 function clearAnalysisData(){
  hideAnalysisLoader();
  resetSourceStates();
+ try{closeUnifiedDetails(true);}catch(_){}
 
  if(perfRenderRAF){
    cancelAnimationFrame(perfRenderRAF);
@@ -9612,8 +9717,8 @@ pickOnMapBtn.onclick=()=>{
 };
 
 map.on('popupclose',()=>{
- // Zamknięcie popupu (również X-em) kończy tryb "zablokowanego wydzielenia".
- if(linkedLockedFeature){
+ const panel=document.getElementById('placeDetailsPanel');
+ if(linkedLockedFeature&&!panel?.classList.contains('open')){
    clearLinkedLock();
  }
 });
@@ -9621,7 +9726,7 @@ map.on('popupclose',()=>{
 map.on('click',e=>{
  try{
    const oe=e.originalEvent;
-   if(oe&&oe.target&&oe.target.closest&&oe.target.closest('.panel,.mushroom-atlas,.mobile-search-dock,.leaflet-control,.leaflet-popup'))return;
+   if(oe&&oe.target&&oe.target.closest&&oe.target.closest('.panel,.mushroom-atlas,.mobile-search-dock,.place-details-panel,.leaflet-control,.leaflet-popup'))return;
  }catch(_){}
 
  if(performance.now()<linkedLayerClickSuppressUntil)return;
@@ -9647,8 +9752,10 @@ map.on('click',e=>{
 
  // Klik w pustą mapę czyści zablokowane powiązanie.
  if(linkedLockedFeature){
-   clearLinkedLock();
-   try{map.closePopup();}catch(_){}
+   closeUnifiedDetails(true);
+ }else{
+   const panel=document.getElementById('placeDetailsPanel');
+   if(panel?.classList.contains('open'))closeUnifiedDetails(false);
  }
 });
 

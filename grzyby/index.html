@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production build: cache + retries + stale fallback -->
+<!-- GitHub production v3: compact far hotspot labels + linked forest interactions -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -1875,6 +1875,61 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   font-weight:800;
 }
 
+
+/* ===== v3 atlas header collision fix ===== */
+.atlas-group-head{
+  position:relative!important;
+  display:grid!important;
+  grid-template-columns:24px minmax(0,1fr)!important;
+  gap:6px!important;
+  padding-left:7px!important;
+  padding-right:31px!important;
+}
+.atlas-group-head > span:nth-child(2){
+  min-width:0!important;
+  display:block!important;
+}
+.atlas-group-title{
+  display:block!important;
+  min-width:0!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  text-align:left!important;
+  padding-right:0!important;
+}
+.atlas-group-check{
+  position:absolute!important;
+  right:6px!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+  margin:0!important;
+  z-index:3!important;
+}
+.atlas-group-card.group-single{
+  width:122px!important;
+  flex-basis:122px!important;
+}
+@media(max-width:700px){
+  .atlas-group-card.group-single{
+    width:116px!important;
+    flex-basis:116px!important;
+  }
+  .atlas-group-title{font-size:9.6px!important}
+}
+.hotspot-rack-compact{
+  width:28px!important;
+  min-width:28px!important;
+  height:28px!important;
+  padding:3px!important;
+  border-radius:9px!important;
+}
+.hotspot-rack-compact .hotspot-icon-chip{
+  width:20px!important;
+  height:20px!important;
+  flex:0 0 20px!important;
+}
+
 </style>
 </head>
 <body>
@@ -2245,8 +2300,20 @@ const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
 
 const bdl=L.tileLayer.wms(
  'https://mapserver.bdl.lasy.gov.pl/arcgis/services/WMS_BDL_mapa_drzewostanow/MapServer/WMSServer',
- {layers:'3,4,5,6,9,10,11,12',format:'image/png',transparent:true,opacity:.45,attribution:'Bank Danych o Lasach'}
+ {layers:'3,4,5,6,9,10,11,12',format:'image/png',transparent:true,opacity:.38,attribution:'Bank Danych o Lasach'}
 );
+
+// Awaryjna warstwa obrazkowa BDL. Nie daje scoringu, ale działa niezależnie
+// od zapytań Feature API i dzięki temu użytkownik nie widzi "pustego lasu".
+let bdlFallbackVisible=false;
+function showBdlFallback(){
+ if(!map.hasLayer(bdl))bdl.addTo(map);
+ bdlFallbackVisible=true;
+}
+function hideBdlFallback(){
+ if(map.hasLayer(bdl))map.removeLayer(bdl);
+ bdlFallbackVisible=false;
+}
 
 const analysisGroup=L.layerGroup().addTo(map);
 const topGroup=L.layerGroup().addTo(map);
@@ -2326,7 +2393,7 @@ L.control.layers({'OpenStreetMap':osm}, {
  'Rezerwaty / zakazy':reserveGroup,
  'iNaturalist / GBIF — obserwacje':obsGroup,
  'OSM — łąki / polany / pastwiska':openGroup,
- 'BDL — mapa drzewostanów':bdl,
+ 'BDL — oficjalna warstwa awaryjna':bdl,
  'Wybrane rejony':selectionGroup
 },{collapsed:true}).addTo(map);
 
@@ -3446,95 +3513,211 @@ function visualStyle(raw,pct,show=true){
 }
 function kmlEsc(s){return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
 computeRadarScores();
+
+function prepareBaseForestFeatures(rows){
+ let feats=dedup(rows).filter(f=>f.geometry);
+ feats.forEach(f=>{
+   f._kind='forest';
+   f._center=geomCenter(f.geometry);
+   const a=nearestAreaInfo(f._center);
+   f._distance=a.distance;
+   f._centerName=a.name;
+   f._blocked=false;
+ });
+ feats=feats.filter(f=>inAnalysisArea(f._center,.15));
+ for(const f of feats)f._scores=calcScores(f);
+ addDiversityBonus(feats);
+ addEcologyContext(feats);
+ return feats;
+}
+function rerunForestDerived(feats){
+ for(const f of feats)f._scores=calcScores(f);
+ addDiversityBonus(feats);
+ addEcologyContext(feats);
+ staticCacheFilter='';
+ resetStaticCachesIfNeeded();
+}
+function renderForestBaseImmediately(feats,label='bazowe'){
+ allFeatures=feats;
+ analysisGroup.clearLayers();
+ analysisLayers=[];
+ feats.forEach(addAnalysisFeature);
+ document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}`;
+ document.getElementById('dsBDL').className='st-ok';
+ try{render();}catch(e){
+   console.error('Render bazowy',e);
+   analysisLayers.forEach(o=>{try{renderSingle(o.layer,o.f)}catch(_){}});
+ }
+}
+async function loadHabitatEnrichment(feats){
+ const results=await Promise.allSettled([
+   fetchPaged(5,'adress_forest,site_type_cd,species_cd_d,species_age,part_cd,sub_area,stand_struct_cd,silviculture_cd,forest_func_cd,rotation_age,prot_category_cd',false),
+   fetchPaged(6,'adress_forest,site_type_cd,species_cd_d,species_age,part_cd,sub_area,stand_struct_cd,silviculture_cd,forest_func_cd,rotation_age,prot_category_cd',false)
+ ]);
+ const habMap=new Map();
+ if(results[0].status==='fulfilled')results[0].value.forEach(f=>habMap.set('pgl|'+f.properties.adress_forest,f.properties));
+ if(results[1].status==='fulfilled')results[1].value.forEach(f=>habMap.set('other|'+f.properties.adress_forest,f.properties));
+ if(!habMap.size)return false;
+
+ for(const f of feats){
+   const h=habMap.get(f._src+'|'+String(f.properties?.adress_forest||''));
+   if(h)f.properties={...h,...f.properties,site_type_cd:h.site_type_cd};
+ }
+ rerunForestDerived(feats);
+ return true;
+}
+async function loadKoEnrichment(feats){
+ try{
+   const rs=await Promise.allSettled([
+     fetchPaged(9,'adress_forest',false),
+     fetchPaged(10,'adress_forest',false)
+   ]);
+   const keys=new Set();
+   if(rs[0].status==='fulfilled')rs[0].value.forEach(f=>keys.add('pgl|'+String(f.properties?.adress_forest||'').trim()));
+   if(rs[1].status==='fulfilled')rs[1].value.forEach(f=>keys.add('other|'+String(f.properties?.adress_forest||'').trim()));
+   if(!keys.size)return false;
+   for(const f of feats){
+     const k=f._src+'|'+String(f.properties?.adress_forest||'').trim();
+     f._ko=keys.has(k);
+   }
+   rerunForestDerived(feats);
+   return true;
+ }catch(e){
+   console.warn('KO/KDO enrichment',e);
+   return false;
+ }
+}
+async function loadReserveEnrichment(feats){
+ try{
+   await loadReserves();
+   feats.forEach(f=>f._blocked=inReserve(f));
+   staticCacheFilter='';
+   resetStaticCachesIfNeeded();
+   return true;
+ }catch(e){
+   console.warn('Rezerwaty enrichment',e);
+   return false;
+ }
+}
+async function fallbackForestFromLayers56(){
+ const rs=await Promise.allSettled([
+   fetchPaged(5,'adress_forest,site_type_cd,species_cd_d,species_age,part_cd,sub_area,stand_struct_cd,silviculture_cd,forest_func_cd,rotation_age,prot_category_cd',true),
+   fetchPaged(6,'adress_forest,site_type_cd,species_cd_d,species_age,part_cd,sub_area,stand_struct_cd,silviculture_cd,forest_func_cd,rotation_age,prot_category_cd',true)
+ ]);
+ const out=[];
+ if(rs[0].status==='fulfilled')rs[0].value.forEach(f=>{f._src='pgl';out.push(f);});
+ if(rs[1].status==='fulfilled')rs[1].value.forEach(f=>{f._src='other';out.push(f);});
+ return out;
+}
+
 async function main(){
  if(!ANALYSIS_CENTERS.length){
-  document.getElementById('status').textContent='📍 Najpierw wybierz przynajmniej jeden rejon.';
-  return;
+   document.getElementById('status').textContent='📍 Najpierw wybierz przynajmniej jeden rejon.';
+   return;
  }
- const st=document.getElementById('status');
- const weatherPromise=loadWeather();
- try{
-   st.innerHTML='1/4 Pobieram typy siedlisk…';
-   const [habP,habO]=await Promise.all([
-     fetchPaged(5,'adress_forest,site_type_cd,species_cd_d,species_age,part_cd,sub_area,stand_struct_cd,silviculture_cd,forest_func_cd,rotation_age,prot_category_cd',false),
-     fetchPaged(6,'adress_forest,site_type_cd,species_cd_d,species_age,part_cd,sub_area,stand_struct_cd,silviculture_cd,forest_func_cd,rotation_age,prot_category_cd',false)
-   ]);
-   const habMap=new Map();
-   habP.forEach(f=>habMap.set('pgl|'+f.properties.adress_forest,f.properties));
-   habO.forEach(f=>habMap.set('other|'+f.properties.adress_forest,f.properties));
 
-   st.innerHTML=`2/4 Pobieram drzewostany dla ${ANALYSIS_CENTERS.length} rejonów po ${RADIUS_KM} km…`;
-   const [pgl,other]=await Promise.all([
+ const st=document.getElementById('status');
+ const ds=document.getElementById('dsBDL');
+
+ // Pogoda od początku działa równolegle i NIGDY nie blokuje lasów.
+ const weatherPromise=loadWeather()
+   .then(()=>{try{if(centerWeather)updateWeatherCard();}catch(_){}})
+   .catch(e=>console.warn('Weather background',e));
+
+ // Jeśli Feature API BDL się przytka, użytkownik i tak widzi oficjalny raster/WMS.
+ showBdlFallback();
+ ds.textContent='pobieram drzewostany…';ds.className='st-load';
+
+ let feats=[];
+ let degraded=false;
+
+ try{
+   st.innerHTML='1/3 Pobieram drzewostany BDL…';
+
+   // Najważniejsze warstwy idą PIERWSZE. Siedlisko, KO/KDO i rezerwaty są enrichmentem.
+   const baseResults=await Promise.allSettled([
      fetchPaged(11,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_rank_order,stand_struct_cd,rotation_age'),
      fetchPaged(12,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_rank_order,stand_struct_cd,rotation_age')
    ]);
-   pgl.forEach(f=>f._src='pgl'); other.forEach(f=>f._src='other');
 
-   // KO/KDO: opcjonalnie, jeżeli serwer zwróci warstwy.
-   let ko=[],koKeys=new Set();
-   try{
-     const [k1,k2]=await Promise.all([
-       fetchPaged(9,'*'),fetchPaged(10,'*')
-     ]);
-     k1.forEach(f=>{f._src='pgl';f._ko=true}); k2.forEach(f=>{f._src='other';f._ko=true});
-     ko=[...k1,...k2];
-     koKeys=new Set(ko.map(f=>f._src+'|'+String(f.properties?.adress_forest||'').trim()).filter(x=>!x.endsWith('|')));
-   }catch(e){console.warn('KO/KDO:',e);}
+   const baseRows=[];
+   if(baseResults[0].status==='fulfilled')baseResults[0].value.forEach(f=>{f._src='pgl';baseRows.push(f);});
+   if(baseResults[1].status==='fulfilled')baseResults[1].value.forEach(f=>{f._src='other';baseRows.push(f);});
 
-   st.innerHTML='3/4 Łączę wiek, gatunek i siedlisko; liczę punkty…';
-   let feats=dedup([...pgl,...other,...ko]).filter(f=>f.geometry);
-   feats.forEach(f=>{
-     f._kind='forest';
-     const k=f._src+'|'+String(f.properties?.adress_forest||'').trim();
-     if(koKeys.has(k))f._ko=true;
-   });
-   feats=feats.filter(f=>{
-     f._center=geomCenter(f.geometry);
-     const a=nearestAreaInfo(f._center);
-     f._distance=a.distance;
-     f._centerName=a.name;
-     return inAnalysisArea(f._center,.15);
-   });
-   for(const f of feats){
-     const h=habMap.get(f._src+'|'+(f.properties?.adress_forest||''));
-     if(h)f.properties={...h,...f.properties,site_type_cd:h.site_type_cd};
-     f._scores=calcScores(f);
+   if(baseRows.length){
+     feats=prepareBaseForestFeatures(baseRows);
+     if(!feats.length)throw new Error('BDL zwróciło dane, ale poza wybranym obszarem.');
+
+     // KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
+     renderForestBaseImmediately(feats,'bazowe');
+     hideBdlFallback();
+     st.innerHTML=`✅ Mapa bazowa gotowa: <b>${feats.length}</b> wydzieleń. Uzupełniam siedliska i ochronę w tle…`;
+
+   }else{
+     // Druga ścieżka: layer 11/12 nie działa -> próbujemy geometrii 5/6.
+     degraded=true;
+     ds.textContent='awaryjne 5/6';ds.className='st-warn';
+     st.innerHTML='⚠️ Warstwy drzewostanów 11/12 nie odpowiedziały. Próbuję awaryjnych wydzieleń 5/6…';
+
+     const fallbackRows=await fallbackForestFromLayers56();
+     if(!fallbackRows.length)throw new Error('BDL Feature API nie zwróciło warstw 11/12 ani 5/6.');
+
+     feats=prepareBaseForestFeatures(fallbackRows);
+     if(!feats.length)throw new Error('Awaryjne dane BDL nie zawierają wydzieleń w tym rejonie.');
+
+     renderForestBaseImmediately(feats,'tryb awaryjny');
+     // Zostawiamy delikatny WMS pod spodem, bo fallback ma mniej informacji.
+     if(map.hasLayer(bdl))bdl.setOpacity(.18);
+     st.innerHTML=`⚠️ Tryb awaryjny: pokazuję <b>${feats.length}</b> wydzieleń z BDL 5/6. Dokładność rankingu może być trochę niższa.`;
    }
 
-   st.innerHTML='4/4 Sprawdzam rezerwaty i strefy przejściowe…';
-   try{await loadReserves();}catch(e){console.warn('Rezerwaty opcjonalne',e);}
-   feats.forEach(f=>f._blocked=inReserve(f));
-   addDiversityBonus(feats);
-   addEcologyContext(feats);
-   allFeatures=feats;
+   // Enrichmenty nie blokują już widoku.
+   const habitatPromise=loadHabitatEnrichment(feats)
+     .then(ok=>{
+       if(ok){
+         render();
+         ds.textContent=`${feats.length} wydz. • pełne`;
+         ds.className='st-ok';
+       }
+       return ok;
+     })
+     .catch(e=>{console.warn('Habitat enrichment',e);return false;});
 
-   // BDL jest warstwą bazową: rysujemy ją natychmiast.
-   // Pogoda nie może blokować mapy.
-   document.getElementById('dsBDL').textContent=feats.length+' wydz.';document.getElementById('dsBDL').className='st-ok';
-   feats.forEach(addAnalysisFeature);
-   try{ render(); }catch(e){ console.error('Render główny',e); analysisLayers.forEach(o=>{try{renderSingle(o.layer,o.f)}catch(_){}}); }
+   const koPromise=loadKoEnrichment(feats)
+     .then(ok=>{if(ok)render();return ok;})
+     .catch(e=>{console.warn('KO enrichment',e);return false;});
 
-   // Dodatkowe źródła dociągają się w tle. Każde z nich po zakończeniu przelicza ranking.
-   weatherPromise
-     .then(()=>{try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Weather refresh',e);}})
-     .catch(e=>console.warn('Weather background',e));
+   const reservePromise=loadReserveEnrichment(feats)
+     .then(ok=>{if(ok)render();return ok;})
+     .catch(e=>{console.warn('Reserve enrichment',e);return false;});
 
+   // Pozostałe źródła też tylko w tle.
    (async()=>{
      try{await loadOpenHabitats();}catch(e){console.warn('Open habitats background',e);}
      await Promise.allSettled([loadSoilGrid(),loadTerrain(),ensureObservations(currentFilter)]);
      try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Background refresh',e);}
    })();
 
+   Promise.allSettled([habitatPromise,koPromise,reservePromise,weatherPromise]).then(()=>{
+     const blocked=feats.filter(f=>f._blocked).length;
+     const quality=degraded?'tryb awaryjny BDL':'pełny model BDL';
+     st.innerHTML=`✅ Przeanalizowano <b>${feats.length}</b> drzewostanów • ${quality}. `+
+       (reserves.length?`Wczytano ${reserves.length} obszarów ochronnych; ${blocked} wydzieleń wyłączono z rankingu.`:
+        `Warstwa ochronna może być niedostępna — sprawdzaj lokalne zakazy przed zbiorem.`);
+   });
 
-   const blocked=feats.filter(f=>f._blocked).length;
-   st.innerHTML=`✅ Przeanalizowano <b>${feats.length}</b> drzewostanów w wybranych rejonach. Kolory pokazują <b>zbalansowaną ocenę stałego potencjału</b>; hotspoty są stałe, a tryb DZIŚ zmienia tylko bieżącą ocenę warunków. `+
-     (reserves.length?` Wczytano <b>${reserves.length}</b> obszarów rezerwatowych; ${blocked} drzewostanów wyłączono z rankingu.`:
-     ` <span style="color:#ffc66d">Nie udało się potwierdzić warstwy rezerwatów — sprawdzaj zakazy przed zbiorem.</span>`);
  }catch(e){
-   console.error(e);
-   const db=document.getElementById('dsBDL');db.textContent='błąd';db.className='st-warn';
-   st.innerHTML='❌ BDL chwilowo nie odpowiedziało: '+escapeHtml(e.message)+
-     '<br><b>Mapa bazowa OSM nadal działa.</b> Otwórz „Więcej” → „Ponów analizę”. Jeżeli ten rejon był już wcześniej otwierany, strona automatycznie spróbuje użyć lokalnego cache.';
+   console.error('BDL base failed',e);
+   ds.textContent='API niedostępne';ds.className='st-warn';
+
+   // WMS zostaje widoczny, więc użytkownik widzi przynajmniej oficjalne lasy BDL.
+   showBdlFallback();
+   bdl.setOpacity(.42);
+
+   st.innerHTML='⚠️ Nie udało się pobrać danych atrybutowych BDL potrzebnych do scoringu: <b>'+
+     escapeHtml(e.message)+'</b><br>'+
+     'Pokazuję awaryjnie oficjalną warstwę BDL. To nie jest jeszcze ranking grzybowy. '+
+     'Otwórz „Więcej” → „Ponów analizę”. Cache zadziała automatycznie po pierwszym udanym pobraniu.';
  }
 }
 
@@ -4473,6 +4656,7 @@ let linkedLockedFeature=null;
 let linkedLockedLayer=null;
 let linkedTransientFeature=null;
 let linkedActiveTypes=new Set();
+let linkedLayerClickSuppressUntil=0;
 
 function linkedRowsForFeature(f){
  return atlasFeatureMatches(f,6.25).slice().sort((a,b)=>b.score-a.score);
@@ -4549,27 +4733,34 @@ function linkedFeatureStrongStyle(layer,locked){
 }
 function applyLockedForestContext(f,types){
  const center=f?f._center:null;
+ const viewBounds=map.getBounds().pad(.08);
+
  for(const row of analysisLayers){
    const ly=row.layer,g=row.f;
    if(!f||!center){
      renderSingle(ly,g);
      continue;
    }
+
    if(g===f){
      linkedFeatureStrongStyle(ly,true);
      continue;
    }
-   const near=hav(center,g._center)<=1.45;
-   if(near&&featureMatchesAnyType(g,types)&&!g._blocked){
+
+   const visible=viewBounds.contains(L.latLng(g._center[0],g._center[1]));
+   const related=visible&&featureMatchesAnyType(g,types)&&!g._blocked;
+
+   if(related){
      const base=stablePotentialStyle(g,true);
      ly.setStyle({
        ...base,
-       weight:Math.max(1.7,base.weight||0),
+       weight:Math.max(1.8,base.weight||0),
        color:'#70d98b',
-       opacity:.92,
-       fillOpacity:Math.max(.34,base.fillOpacity||0)
+       opacity:.96,
+       fillOpacity:Math.max(.38,base.fillOpacity||0)
      });
    }else{
+     // Nie ukrywamy reszty mapy, tylko zostawiamy normalny styl.
      renderSingle(ly,g);
    }
  }
@@ -4755,12 +4946,25 @@ function addAnalysisFeature(f){
  const gj=L.geoJSON(f,{renderer:perfCanvasRenderer,smoothFactor:1.8,style:{color:'transparent',weight:0,fillOpacity:0},
    onEachFeature:(ft,ly)=>{
      ly.on('click',e=>{
+       linkedLayerClickSuppressUntil=performance.now()+350;
        try{if(e&&e.originalEvent)L.DomEvent.stopPropagation(e.originalEvent);}catch(_){}
-       lockLinkedFeature(f,ly);
-       try{L.popup({maxWidth:Math.min(420,Math.floor(window.innerWidth*.92)),autoPan:true}).setLatLng(e.latlng).setContent(popupHtml(f)).openOn(map);}catch(err){console.warn('Lazy popup',err);}
+
+       // Popup jest funkcją podstawową i nie może zależeć od efektów powiązanego podświetlania.
+       try{
+         L.popup({
+           maxWidth:Math.min(430,Math.floor(window.innerWidth*.92)),
+           autoPan:true,
+           closeButton:true
+         }).setLatLng(e.latlng).setContent(popupHtml(f)).openOn(map);
+       }catch(err){
+         console.error('Popup wydzielenia',err);
+       }
+
+       // Powiązane podświetlanie jest dodatkiem — jego błąd nie zamknie menu.
+       try{lockLinkedFeature(f,ly);}catch(err){console.warn('Linked focus',err);}
      });
-     ly.on('mouseover',()=>{setLinkedHover(f,ly);});
-     ly.on('mouseout',()=>{clearLinkedHover(ly,f);});
+     ly.on('mouseover',()=>{try{setLinkedHover(f,ly);}catch(err){console.warn('Linked hover',err);}});
+     ly.on('mouseout',()=>{try{clearLinkedHover(ly,f);}catch(err){console.warn('Linked hover clear',err);renderSingle(ly,f);}});
    }});
  gj.eachLayer(ly=>{analysisLayers.push({layer:ly,f});analysisGroup.addLayer(ly);});
 }
@@ -4839,66 +5043,189 @@ function hotspotLabelKey(h){
 }
 function hotspotRackTypes(h){
  const z=map.getZoom();
- const limit=z<=11?3:(z<=13?4:5);
- return hotspotHintTypes(h,Math.max(limit,6)).filter(Boolean);
+ // Pobieramy trochę więcej kandydatów, ale ilość faktycznie pokazywana
+ // zależy od zoomu i jest liczona osobno.
+ const limit=z<=11?4:(z<=13?5:6);
+ return hotspotHintTypes(h,limit).filter(Boolean);
 }
 function hotspotRackDirection(h){
- // Stała strona zależna wyłącznie od numeru hotspotu.
- // Nie zmienia się po przesuwaniu mapy ani po ponownym renderze.
  const n=Math.max(0,(h.localIndex||1)-1);
  return ['top','right','left','bottom'][n%4];
 }
-function hotspotRackIconAnchor(dir,w,h){
- if(dir==='right')return [-24,h/2];
- if(dir==='left')return [w+24,h/2];
- if(dir==='bottom')return [w/2,-24];
- return [w/2,h+24];
+function hotspotRackView(types,z){
+ if(z<=11){
+   return {visible:types.slice(0,1),showMore:false,compact:true};
+ }
+ if(z===12){
+   return {visible:types.slice(0,2),showMore:false,compact:false};
+ }
+ if(z===13){
+   return {visible:types.slice(0,2),showMore:types.length>2,compact:false};
+ }
+ return {visible:types.slice(0,4),showMore:types.length>4,compact:false};
 }
-function hotspotRackHtml(h,types){
- const z=map.getZoom();
- const visible=z<=11?types.slice(0,2):z<=13?types.slice(0,3):types.slice(0,4);
- const remaining=Math.max(0,types.length-visible.length);
+function hotspotRackMetrics(view){
+ if(view.compact)return {w:28,h:28};
+ const count=view.visible.length;
+ return {
+   w:8+count*24+(view.showMore?27:0),
+   h:28
+ };
+}
+function hotspotRackHtml(h,types,view){
+ const remaining=Math.max(0,types.length-view.visible.length);
  const key=escapeHtml(hotspotLabelKey(h));
+
+ if(view.compact){
+   const t=view.visible[0];
+   return `<div class="hotspot-icon-rack hotspot-rack-compact" data-hotspot-key="${key}" title="${escapeHtml(HUMAN_NAMES[t]||t)}">
+     <span class="hotspot-icon-chip" data-type="${escapeHtml(t)}">
+       <img src="${atlasSvg(t)}" alt="${escapeHtml(shortHintName(t))}">
+     </span>
+   </div>`;
+ }
+
  return `<div class="hotspot-icon-rack" data-hotspot-key="${key}">
-   ${visible.map(t=>`
+   ${view.visible.map(t=>`
      <span class="hotspot-icon-chip" data-type="${escapeHtml(t)}" title="${escapeHtml(HUMAN_NAMES[t]||t)}">
        <img src="${atlasSvg(t)}" alt="${escapeHtml(shortHintName(t))}">
      </span>`).join('')}
-   ${remaining?`<span class="hotspot-icon-more">+${remaining}</span>`:''}
+   ${view.showMore&&remaining?`<span class="hotspot-icon-more">+${remaining}</span>`:''}
  </div>`;
+}
+function hotspotUiObstacleRects(){
+ const mapEl=map.getContainer();
+ const mr=mapEl.getBoundingClientRect();
+ const out=[];
+ for(const sel of ['.panel','.mushroom-atlas','.leaflet-control-layers','.leaflet-control-zoom']){
+   for(const el of document.querySelectorAll(sel)){
+     if(!el||!el.offsetParent)continue;
+     const r=el.getBoundingClientRect();
+     out.push({x:r.left-mr.left,y:r.top-mr.top,w:r.width,h:r.height});
+   }
+ }
+ return out;
+}
+function hotspotRectOverlap(a,b,pad=2){
+ const x=Math.max(0,Math.min(a.x+a.w+pad,b.x+b.w+pad)-Math.max(a.x-pad,b.x-pad));
+ const y=Math.max(0,Math.min(a.y+a.h+pad,b.y+b.h+pad)-Math.max(a.y-pad,b.y-pad));
+ return x*y;
+}
+function hotspotOverflow(r,size,margin=5){
+ return Math.max(0,margin-r.x)+Math.max(0,margin-r.y)+
+   Math.max(0,r.x+r.w-(size.x-margin))+Math.max(0,r.y+r.h-(size.y-margin));
+}
+function chooseRackPlacement(h,metrics,placed,pins,obstacles,mapSize){
+ const p=map.latLngToContainerPoint(h._center);
+ const dirs={
+   top:[0,-1],right:[1,0],bottom:[0,1],left:[-1,0],
+   tr:[.75,-.75],br:[.75,.75],bl:[-.75,.75],tl:[-.75,-.75]
+ };
+ const pref=hotspotRackDirection(h);
+ const order={
+   top:['top','tr','tl','right','left','br','bl','bottom'],
+   right:['right','tr','br','top','bottom','tl','bl','left'],
+   left:['left','tl','bl','top','bottom','tr','br','right'],
+   bottom:['bottom','br','bl','right','left','tr','tl','top']
+ }[pref]||['top','right','left','bottom','tr','tl','br','bl'];
+
+ const distances=map.getZoom()<=11?[29,38,48,60]:[34,46,60,78];
+ let best=null,bestCost=Infinity;
+
+ for(let ri=0;ri<distances.length;ri++){
+   const d=distances[ri];
+   for(let oi=0;oi<order.length;oi++){
+     const [dx,dy]=dirs[order[oi]];
+     const cx=p.x+dx*(metrics.w/2+d);
+     const cy=p.y+dy*(metrics.h/2+d);
+     const rect={x:cx-metrics.w/2,y:cy-metrics.h/2,w:metrics.w,h:metrics.h};
+
+     let cost=d+oi*7+ri*5;
+     cost+=hotspotOverflow(rect,mapSize)*2400;
+
+     for(const r of placed)cost+=hotspotRectOverlap(rect,r,3)*900;
+     for(const r of obstacles)cost+=hotspotRectOverlap(rect,r,3)*1400;
+
+     // Nie zasłaniaj kółek hotspotów. Własne kółko pomijamy.
+     for(const pin of pins){
+       if(pin.key===hotspotLabelKey(h))continue;
+       cost+=hotspotRectOverlap(rect,pin.rect,3)*240;
+     }
+
+     if(cost<bestCost){
+       bestCost=cost;
+       best={rect,offsetX:cx-p.x,offsetY:cy-p.y,cost};
+     }
+   }
+ }
+ return best;
+}
+function rackIconAnchor(metrics,placement){
+ // top-left markera = punkt hotspotu - iconAnchor
+ // chcemy top-left = hotspot + offset - połowa rozmiaru
+ return [
+   metrics.w/2-placement.offsetX,
+   metrics.h/2-placement.offsetY
+ ];
 }
 function renderSpeciesHints(){
  hintGroup.clearLayers();
  if(!allFeatures.length)return;
 
  const bounds=map.getBounds().pad(.12);
- const hotspots=buildHotspots();
+ const z=map.getZoom();
+ const mapSize=map.getSize();
+ const obstacles=hotspotUiObstacleRects();
+ const placed=[];
 
- for(const h of hotspots){
-   const ll=L.latLng(h._center[0],h._center[1]);
-   if(!bounds.contains(ll))continue;
+ // Najmocniejsze hotspoty układamy pierwsze.
+ const visible=buildHotspots()
+   .filter(h=>bounds.contains(L.latLng(h._center[0],h._center[1])))
+   .sort((a,b)=>(b.clusterScore-a.clusterScore)||(a.localIndex-b.localIndex));
 
+ const pins=visible.map(h=>{
+   const p=map.latLngToContainerPoint(h._center);
+   return {key:hotspotLabelKey(h),rect:{x:p.x-18,y:p.y-18,w:36,h:36}};
+ });
+
+ for(const h of visible){
    const types=hotspotRackTypes(h);
    if(!types.length)continue;
 
-   const z=map.getZoom();
-   const count=z<=11?Math.min(2,types.length):z<=13?Math.min(3,types.length):Math.min(4,types.length);
-   const w=count*25+(types.length>count?28:0)+8;
-   const hh=28;
-   const dir=hotspotRackDirection(h);
-   const html=hotspotRackHtml(h,types);
+   const view=hotspotRackView(types,z);
+   if(!view.visible.length)continue;
+   const metrics=hotspotRackMetrics(view);
+   const placement=chooseRackPlacement(h,metrics,placed,pins,obstacles,mapSize);
+   if(!placement)continue;
 
+   // Przy mocnym oddaleniu wolimy brak jednej małej etykiety niż nachodzenie.
+   if(z<=11){
+     let collides=false;
+     for(const r of placed){
+       if(hotspotRectOverlap(placement.rect,r,2)>4){collides=true;break;}
+     }
+     if(!collides){
+       for(const r of obstacles){
+         if(hotspotRectOverlap(placement.rect,r,2)>4){collides=true;break;}
+       }
+     }
+     if(collides)continue;
+   }
+
+   const labelHtml=hotspotRackHtml(h,types,view);
    L.marker(h._center,{
      interactive:false,
      keyboard:false,
      zIndexOffset:-48,
      icon:L.divIcon({
        className:'',
-       html,
-       iconSize:[w,hh],
-       iconAnchor:hotspotRackIconAnchor(dir,w,hh)
+       html:labelHtml,
+       iconSize:[metrics.w,metrics.h],
+       iconAnchor:rackIconAnchor(metrics,placement)
      })
    }).addTo(hintGroup);
+
+   placed.push(placement.rect);
  }
  if(typeof reapplyLinkedVisualFocus==='function')reapplyLinkedVisualFocus();
 }
@@ -5255,6 +5582,10 @@ pickOnMapBtn.onclick=()=>{
 };
 
 map.on('click',e=>{
+ // Klik warstwy lasu może również dojść do mapy w tej samej klatce.
+ // Nie pozwalamy mu natychmiast zamknąć właśnie otwartego popupu.
+ if(performance.now()<linkedLayerClickSuppressUntil)return;
+
  if(linkedLockedFeature&&!pickMode){
    clearLinkedLock();
    try{map.closePopup();}catch(_){}

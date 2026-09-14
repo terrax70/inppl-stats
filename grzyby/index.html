@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v30: BEST+TODAY same-species scoring + usable dynamic thresholds -->
+<!-- GitHub production v31: scoring consistency audit + locked scores + robust atlas wheel + soil interpolation fix -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2443,6 +2443,22 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 @media(max-width:700px){.source-detail-box{top:420px;right:7px;width:min(280px,calc(100vw - 14px))}}
 </style>
 
+
+<style id="v31-linked-score-and-wheel-fix">
+/* Punkty są widoczne zarówno przy hoverze, jak i po zablokowaniu wydzielenia kliknięciem. */
+.atlas-mini.linked-locked .atlas-mini-score{
+  display:block!important;
+}
+.atlas-mini.linked-locked .atlas-mini-check{
+  top:53px!important;
+}
+
+/* Podczas kółka myszy wyłączamy snap, żeby pasek nie odbijał do tej samej grupy. */
+.atlas-strip.wheel-scrolling{
+  scroll-snap-type:none!important;
+}
+</style>
+
 </head>
 <body>
 <div id="map"></div>
@@ -4059,14 +4075,34 @@ async function loadSoilGrid(){
 }
 function soilAt(c){
  if(!soilReady||!soilSamples.length)return null;
- let sw=0,acc={ph:0,soc:0,sand:0,clay:0};
- for(const s of soilSamples){
-   const d=Math.max(.35,hav(c,[s.lat,s.lon])),w=1/(d*d);
-   sw+=w;
-   for(const k of Object.keys(acc))if(Number.isFinite(s[k]))acc[k]+=w*s[k];
+
+ const acc={ph:0,soc:0,sand:0,clay:0};
+ const wsum={ph:0,soc:0,sand:0,clay:0};
+
+ // WCS jest pobierane osobno dla każdego analizowanego rejonu.
+ // Ograniczenie chroni przed użyciem np. SOC z rejonu oddalonego o 100 km,
+ // gdy lokalny raster danej właściwości był częściowy.
+ const local=soilSamples
+   .map(s=>({s,d:hav(c,[s.lat,s.lon])}))
+   .filter(x=>x.d<=18);
+
+ if(!local.length)return null;
+
+ for(const {s,d} of local){
+   const w=1/(Math.max(.35,d)**2);
+
+   for(const k of Object.keys(acc)){
+     if(!Number.isFinite(s[k]))continue;
+     acc[k]+=w*s[k];
+     wsum[k]+=w;
+   }
  }
- for(const k of Object.keys(acc))acc[k]/=sw||1;
- return acc;
+
+ for(const k of Object.keys(acc)){
+   acc[k]=wsum[k]>0 ? acc[k]/wsum[k] : NaN;
+ }
+
+ return Number.isFinite(acc.ph)?acc:null;
 }
 
 function radarRateScore(x){
@@ -4437,8 +4473,18 @@ function showObsLayer(type){
    }).bindPopup(`<b>${HUMAN_NAMES[type]}</b><br>${new Date(o.date).toLocaleDateString('pl-PL')}<br>${o.source}`).addTo(obsGroup);
  }
 }
+
+function observationEvidenceActive(type){
+ // Obserwacje są dodatkową korektą tylko w jawnym trybie jednego gatunku.
+ // Dzięki temu BEST / Różnorodność / atlas nie zależą od kolejności wcześniejszych kliknięć.
+ return atlasSelected.size===0 &&
+        currentFilter===type &&
+        !!obsLoaded[type];
+}
+
 function historyInfo(type,f){
- const arr=observationData[type]||[]; if(!arr.length)return {bonus:0,nearest:Infinity,count2:0};
+ const arr=observationEvidenceActive(type)?(observationData[type]||[]):[];
+ if(!arr.length)return {bonus:0,nearest:Infinity,count2:0};
  let nearest=Infinity,count2=0,signal=0;
  const now=Date.now();
  for(const o of arr){
@@ -4461,7 +4507,8 @@ function fallbackSeason(type,day){
  return curve?piecewise(day,curve):50;
 }
 function seasonScore(type){
- const arr=observationData[type]||[],today=doy(new Date());
+ const arr=observationEvidenceActive(type)?(observationData[type]||[]):[];
+ const today=doy(new Date());
  const fallback=fallbackSeason(type,today);
 
  if(arr.length>=8){
@@ -4722,7 +4769,7 @@ function whatCanGrowHere(f){
  const rows=[];
  for(const t of PICK_TYPES){
    if(!featureRelevant(t,f))continue;
-   rows.push([speciesEffective(t,f),t]);
+   rows.push([speciesDisplayScore(t,f),t]);
  }
  return rows.sort((a,b)=>b[0]-a[0]).slice(0,5);
 }
@@ -5369,22 +5416,53 @@ function bestTodayInfo(f){
  return best;
 }
 
+
+function speciesDisplayScore(type,f){
+ if(!featureRelevant(type,f))return 0;
+ const potential=stableScoreForType(type,f);
+ if(mapMode==='habitat')return potential;
+ return clamp(Math.min(speciesEffective(type,f),potential));
+}
+
 function diversityData(f){
  ensurePerfCache();
  if(perfDiversityCache.has(f))return perfDiversityCache.get(f);
+
  const rows=[];
  for(const t of PICK_TYPES){
    if(!featureRelevant(t,f))continue;
-   const potential=staticSuitability(t,f),today=speciesEffective(t,f);
-   const qualifies=mapMode==='habitat'?potential>=7.2:(potential>=7.2&&today>=6.8);
-   if(qualifies)rows.push({type:t,potential,today,score:mapMode==='habitat'?potential:today});
+
+   const potential=stableScoreForType(t,f);
+   const today=mapMode==='habitat'?potential:speciesDisplayScore(t,f);
+   const qualifies=mapMode==='habitat'
+     ? potential>=7.2
+     : (potential>=7.2&&today>=6.8);
+
+   if(qualifies){
+     rows.push({
+       type:t,
+       potential,
+       today,
+       score:mapMode==='habitat'?potential:today
+     });
+   }
  }
+
  rows.sort((a,b)=>b.score-a.score);
  const count=rows.length;
- const avg=count?rows.slice(0,Math.min(6,count)).reduce((a,x)=>a+x.score,0)/Math.min(6,count):0;
- let score=piecewise(count,[[0,0],[1,2.5],[2,3.8],[3,4.8],[4,5.7],[5,6.5],[6,7.2],[8,8.1],[10,8.8],[12,9.3],[14,9.7],[16,10]]);
+ const avg=count
+   ? rows.slice(0,Math.min(6,count)).reduce((a,x)=>a+x.score,0)/Math.min(6,count)
+   : 0;
+
+ let score=piecewise(count,[
+   [0,0],[1,2.5],[2,3.8],[3,4.8],[4,5.7],[5,6.5],[6,7.2],
+   [8,8.1],[10,8.8],[12,9.3],[14,9.7],[16,10]
+ ]);
  if(count)score=clamp(score+(avg-8)*.10);
- const out={count,score,rows};perfDiversityCache.set(f,out);return out;
+
+ const out={count,score,rows};
+ perfDiversityCache.set(f,out);
+ return out;
 }
 
 function bestTypeFor(f){
@@ -5511,7 +5589,7 @@ function atlasAggregateScore(f,dynamic=false){
  for(const t of selected){
    let s=0;
    if(featureRelevant(t,f)){
-     s=dynamic ? speciesEffective(t,f) : stableSpeciesPotential(t,f);
+     s=dynamic ? speciesDisplayScore(t,f) : stableScoreForType(t,f);
      if(!Number.isFinite(s))s=0;
    }
    rows.push({type:t,score:s});
@@ -6540,11 +6618,13 @@ function hotspotPopup(h){
 function atlasScoresForFeature(f,onlySelected=false){
  const pool=onlySelected?[...atlasSelected]:ATLAS_ITEMS.map(x=>x.type);
  const rows=[];
+
  for(const t of pool){
    if(!featureRelevant(t,f))continue;
-   const s=speciesEffective(t,f);
+   const s=speciesDisplayScore(t,f);
    if(Number.isFinite(s))rows.push({type:t,score:s});
  }
+
  return rows.sort((a,b)=>b.score-a.score);
 }
 
@@ -6903,6 +6983,118 @@ function auditSoilState(){
 window.auditSoilState=auditSoilState;
 
 
+
+function auditScoringLogic(){
+ const forest=allFeatures.filter(f=>!f._blocked&&f._kind!=='open');
+ const sample=forest.length<=350
+   ? forest
+   : forest.filter((_,i)=>i%Math.ceil(forest.length/350)===0).slice(0,350);
+
+ let todayAbovePotential=0;
+ let nonFiniteScores=0;
+ let badBestSelection=0;
+
+ const oldFilter=currentFilter;
+ const oldMode=mapMode;
+
+ // Test niezależny od aktualnej kombinacji UI:
+ // dla próby wydzieleń sprawdzamy sufit DZIŚ <= POTENCJAŁ.
+ for(const f of sample){
+   for(const t of PICK_TYPES){
+     if(!featureRelevant(t,f))continue;
+
+     const potential=stableScoreForType(t,f);
+     const dyn=speciesEffective(t,f);
+     const capped=Math.min(dyn,potential);
+
+     if(!Number.isFinite(potential)||!Number.isFinite(dyn)||!Number.isFinite(capped)){
+       nonFiniteScores++;
+       continue;
+     }
+     if(capped>potential+1e-8)todayAbovePotential++;
+   }
+ }
+
+ // BEST+DZIŚ: wybrany gatunek musi być faktycznym maksimum practical score
+ // po ograniczeniu jego własnym potencjałem.
+ currentFilter='all';
+ mapMode='today';
+ resetStaticCachesIfNeeded();
+ ensurePerfCache();
+
+ for(const f of sample){
+   const got=bestTodayInfo(f);
+   let expectedType=null,expected=-Infinity;
+
+   for(const t of PICK_TYPES){
+     if(!featureRelevant(t,f))continue;
+     const s=Math.min(practicalAllScore(t,f),stableScoreForType(t,f));
+     if(s>expected){
+       expected=s;
+       expectedType=t;
+     }
+   }
+
+   if(expectedType&&(
+     got.type!==expectedType ||
+     Math.abs(got.score-expected)>1e-7
+   )){
+     badBestSelection++;
+   }
+ }
+
+ const soilRanges=soilSamples.map(s=>({
+   ph:s.ph,
+   sand:s.sand,
+   soc:s.soc
+ }));
+ const implausibleSoil=soilRanges.filter(s=>
+   (Number.isFinite(s.ph)&&(s.ph<2||s.ph>10)) ||
+   (Number.isFinite(s.sand)&&(s.sand<0||s.sand>100)) ||
+   (Number.isFinite(s.soc)&&(s.soc<0||s.soc>1000))
+ ).length;
+
+ const hot=buildTodayHotspots();
+ const weakHotspots=hot.filter(h=>
+   todayBalancedClass(h.best)<3 ||
+   balancedClass(h.best)<3
+ ).length;
+
+ currentFilter=oldFilter;
+ mapMode=oldMode;
+ resetStaticCachesIfNeeded();
+
+ const report={
+   sampledForestFeatures:sample.length,
+   speciesChecked:PICK_TYPES.length,
+   invariants:{
+     todayNeverAboveSameSpeciesPotential:todayAbovePotential===0,
+     bestTodayReallyChoosesMaximum:badBestSelection===0,
+     finiteScores:nonFiniteScores===0,
+     soilValuesPlausible:implausibleSoil===0,
+     todayHotspotsOnGreenPotential:weakHotspots===0
+   },
+   violations:{
+     todayAbovePotential,
+     badBestSelection,
+     nonFiniteScores,
+     implausibleSoil,
+     weakHotspots
+   },
+   deterministicObservationRule:
+     'iNaturalist/GBIF wpływa tylko w jawnym trybie pojedynczego gatunku; BEST/Różnorodność nie zależą od wcześniejszych kliknięć',
+   notes:[
+     'ALL_MODE_WEIGHT pozostaje celowym biasem rekomendacyjnym: gatunki szerokie/niszowe nie dominują trybu BEST.',
+     'Pogoda jest regionalnym indeksem wspólnym dla gatunków; różnice gatunkowe w DZIŚ wynikają głównie z sezonu i siedliska.',
+     'Mapa prognozuje przydatność siedliska/warunków, nie obecność konkretnej grzybni.'
+   ]
+ };
+
+ console.info('SCORING LOGIC AUDIT',report);
+ return report;
+}
+window.auditScoringLogic=auditScoringLogic;
+
 function auditBestTodayMode(){
  const savedFilter=currentFilter;
  const savedMode=mapMode;
@@ -7097,9 +7289,30 @@ function setupAtlasScrolling(){
      }
    },{passive:true});
  }
+ let atlasWheelTimer=0;
  strip.addEventListener('wheel',e=>{
-   if(Math.abs(e.deltaY)>Math.abs(e.deltaX)||Math.abs(e.deltaX)>0){
-     e.preventDefault();strip.scrollLeft+=(Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY);
+   let delta=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
+   if(!delta)return;
+
+   // deltaMode: 0=piksele, 1=linie, 2=strony.
+   if(e.deltaMode===1)delta*=18;
+   else if(e.deltaMode===2)delta*=Math.max(280,strip.clientWidth*.8);
+
+   // Niektóre myszy/trackpady wysyłają bardzo małe delty.
+   if(Math.abs(delta)<14)delta=Math.sign(delta)*14;
+
+   const max=Math.max(0,strip.scrollWidth-strip.clientWidth);
+   const before=strip.scrollLeft;
+   const target=Math.max(0,Math.min(max,before+delta));
+
+   // Atlas przejmuje kółko tylko wtedy, gdy faktycznie może przewinąć
+   // w żądanym kierunku. Na samym końcu nie "zjada" bez sensu scrolla.
+   if(Math.abs(target-before)>.25){
+     e.preventDefault();
+     strip.classList.add('wheel-scrolling');
+     strip.scrollLeft=target;
+     clearTimeout(atlasWheelTimer);
+     atlasWheelTimer=setTimeout(()=>strip.classList.remove('wheel-scrolling'),180);
    }
  },{passive:false});
 

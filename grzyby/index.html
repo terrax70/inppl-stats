@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v27: MapServer value_list parser + correct SoilGrids scaling + Overpass fallback -->
+<!-- GitHub production v28: SoilGrids WCS GeoTIFF transport + browser TIFF parser + Overpass fallback -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2457,7 +2457,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
     <div class="source-chip" data-source="habitat" data-state="off"><span class="source-dot"></span><span>Siedliska</span></div>
     <div class="source-chip" data-source="weather" data-state="off"><span class="source-dot"></span><span>Pogoda</span></div>
     <div class="source-chip" data-source="reserve" data-state="off"><span class="source-dot"></span><span>Ochrona</span></div>
-    <div class="source-chip" data-source="soil" data-state="off"><span class="source-dot"></span><span>Gleba WMS</span></div>
+    <div class="source-chip" data-source="soil" data-state="off"><span class="source-dot"></span><span>Gleba WCS</span></div>
     <div class="source-chip" data-source="terrain" data-state="off"><span class="source-dot"></span><span>Teren</span></div>
     <div class="source-chip" data-source="open" data-state="off"><span class="source-dot"></span><span>OSM</span></div>
     <div class="source-chip" data-source="obs" data-state="off"><span class="source-dot"></span><span>Historia</span></div>
@@ -2697,16 +2697,15 @@ let weatherSamples=[];
 let weatherReady=false;
 let centerWeather=null;
 let soilSamples=[], soilReady=false, soilCoverage=0;
-const SOIL_WMS_ENABLED=true;
-// ISRIC obecnie publikuje skrócone endpointy WxS np. /mapserv/phh2o.
-// Stary wariant ?map=/map/phh2o.map zostaje jako fallback.
-const SOIL_WMS_BASE='https://maps.isric.org/mapserv';
-let soilLastError='';
-const SOIL_WMS_PROPERTIES=[
-  {key:'ph',map:'phh2o',layer:'phh2o_0-5cm_mean',factor:10},
-  {key:'sand',map:'sand',layer:'sand_0-5cm_mean',factor:10},
-  {key:'soc',map:'soc',layer:'soc_0-5cm_mean',factor:10}
+const SOIL_WCS_ENABLED=true;
+const SOIL_WCS_BASE='https://maps.isric.org/mapserv';
+const SOIL_WCS_GRID=7;
+const SOIL_WCS_PROPERTIES=[
+  {key:'ph',map:'phh2o',coverage:'phh2o_0-5cm_mean',factor:10},
+  {key:'sand',map:'sand',coverage:'sand_0-5cm_mean',factor:10},
+  {key:'soc',map:'soc',coverage:'soc_0-5cm_mean',factor:10}
 ];
+let soilLastError='';
 let terrainReady=false;
 let obsReady=false;
 let openFeatures=[], openReady=false;
@@ -3605,137 +3604,231 @@ function soilSamplingPoints(){
  return pts;
 }
 
-function soilWmsInfoUrls(def,lat,lon){
- // WMS 1.1.1: EPSG:4326 = lon,lat.
- const span=.012;
- const bbox=[lon-span,lat-span,lon+span,lat+span].join(',');
-
+function soilWcsUrls(def,bb,size=SOIL_WCS_GRID){
  const common={
-   SERVICE:'WMS',
-   VERSION:'1.1.1',
-   REQUEST:'GetFeatureInfo',
-   LAYERS:def.layer,
-   QUERY_LAYERS:def.layer,
-   STYLES:'',
-   SRS:'EPSG:4326',
-   BBOX:bbox,
-   WIDTH:'101',
-   HEIGHT:'101',
-   FORMAT:'image/png',
-   INFO_FORMAT:'text/plain',
-   FEATURE_COUNT:'1',
-   X:'50',
-   Y:'50'
+   SERVICE:'WCS',
+   VERSION:'1.0.0',
+   REQUEST:'GetCoverage',
+   COVERAGE:def.coverage,
+   CRS:'EPSG:4326',
+   RESPONSE_CRS:'EPSG:4326',
+   BBOX:[bb[0],bb[1],bb[2],bb[3]].join(','),
+   WIDTH:String(size),
+   HEIGHT:String(size),
+   FORMAT:'GEOTIFF_INT16'
  };
-
  const q1=new URLSearchParams(common);
  const q2=new URLSearchParams({map:`/map/${def.map}.map`,...common});
-
  return [
-   `${SOIL_WMS_BASE}/${encodeURIComponent(def.map)}?${q1}`,
-   `${SOIL_WMS_BASE}?${q2}`
+   `${SOIL_WCS_BASE}/${encodeURIComponent(def.map)}?${q1}`,
+   `${SOIL_WCS_BASE}?${q2}`
  ];
 }
 
-function parseSoilWmsValue(text){
- if(!text)return NaN;
+async function fetchArrayBufferWithTimeout(url,timeoutMs=14000){
+ const ctrl=new AbortController();
+ const timer=setTimeout(()=>ctrl.abort(),timeoutMs);
+ try{
+   const r=await fetch(url,{signal:ctrl.signal,mode:'cors'});
+   if(!r.ok){
+     const err=new Error(`HTTP ${r.status}`);
+     err.status=r.status;
+     throw err;
+   }
+   const ct=(r.headers.get('content-type')||'').toLowerCase();
+   if(ct.includes('xml')||ct.includes('text')){
+     const txt=await r.text();
+     throw new Error('WCS: '+txt.replace(/\s+/g,' ').slice(0,320));
+   }
+   return await r.arrayBuffer();
+ }finally{
+   clearTimeout(timer);
+ }
+}
 
- const cleaned=String(text).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+function tiffTypeSize(type){
+ return ({1:1,2:1,3:2,4:4,5:8,6:1,7:1,8:2,9:4,10:8,11:4,12:8})[type]||0;
+}
 
- // To jest normalny brak danych dla pojedynczego piksela, nie błąd usługi.
- if(/Search returned no results/i.test(cleaned)){
-   return NaN;
+function parseTiffDirectory(buffer){
+ const dv=new DataView(buffer);
+ if(dv.byteLength<16)throw new Error('GeoTIFF: zbyt krótka odpowiedź');
+
+ const a=dv.getUint8(0),b=dv.getUint8(1);
+ const le=a===0x49&&b===0x49;
+ const be=a===0x4d&&b===0x4d;
+ if(!le&&!be)throw new Error('WCS nie zwrócił TIFF');
+
+ const little=le;
+ if(dv.getUint16(2,little)!==42)throw new Error('GeoTIFF: nieobsługiwany wariant TIFF');
+
+ const ifdOffset=dv.getUint32(4,little);
+ if(ifdOffset+2>dv.byteLength)throw new Error('GeoTIFF: uszkodzony IFD');
+
+ const count=dv.getUint16(ifdOffset,little);
+ const tags=new Map();
+
+ function readScalar(type,off){
+   if(type===1||type===2||type===6||type===7)return dv.getUint8(off);
+   if(type===3)return dv.getUint16(off,little);
+   if(type===4)return dv.getUint32(off,little);
+   if(type===8)return dv.getInt16(off,little);
+   if(type===9)return dv.getInt32(off,little);
+   if(type===11)return dv.getFloat32(off,little);
+   if(type===12)return dv.getFloat64(off,little);
+   throw new Error('GeoTIFF: nieobsługiwany typ '+type);
  }
 
- if(/ServiceException|ExceptionReport|msWMSFeatureInfo|error/i.test(cleaned)){
-   throw new Error('ISRIC WMS: '+cleaned.slice(0,260));
+ for(let i=0;i<count;i++){
+   const p=ifdOffset+2+i*12;
+   if(p+12>dv.byteLength)break;
+   const tag=dv.getUint16(p,little);
+   const type=dv.getUint16(p+2,little);
+   const n=dv.getUint32(p+4,little);
+   const size=tiffTypeSize(type);
+   if(!size||!n)continue;
+
+   const bytes=size*n;
+   const dataOff=bytes<=4 ? p+8 : dv.getUint32(p+8,little);
+   if(dataOff<0||dataOff+bytes>dv.byteLength)continue;
+
+   if(type===2){
+     let s='';
+     for(let j=0;j<n&&dataOff+j<dv.byteLength;j++){
+       const c=dv.getUint8(dataOff+j);
+       if(!c)break;
+       s+=String.fromCharCode(c);
+     }
+     tags.set(tag,s);
+     continue;
+   }
+
+   const vals=[];
+   for(let j=0;j<n;j++)vals.push(readScalar(type,dataOff+j*size));
+   tags.set(tag,n===1?vals[0]:vals);
  }
 
- // MapServer raster query standardowo zwraca value_list i value_0.
- const patterns=[
-   /value_list\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i,
-   /value_0\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i,
-   /GRAY_INDEX\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i,
-   /Band1\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i,
-   /pixel(?:\s+value)?\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i
- ];
+ return {dv,little,tags};
+}
 
- for(const rx of patterns){
-   const m=cleaned.match(rx);
-   if(m){
-     const n=Number(m[1]);
-     if(Number.isFinite(n))return n;
+async function inflateTiffBytes(bytes,compression){
+ if(compression===1)return bytes;
+
+ // TIFF Deflate / Adobe Deflate. MapServer najczęściej używa 1 albo 8.
+ if((compression===8||compression===32946)&&typeof DecompressionStream!=='undefined'){
+   for(const fmt of ['deflate','deflate-raw']){
+     try{
+       const ds=new DecompressionStream(fmt);
+       const ab=await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
+       return new Uint8Array(ab);
+     }catch(_){}
    }
  }
 
- throw new Error('Nie rozpoznano odpowiedzi WMS: '+cleaned.slice(0,320));
+ throw new Error('GeoTIFF: nieobsługiwana kompresja '+compression);
 }
 
-async function fetchSoilWmsValue(def,lat,lon){
- const urls=soilWmsInfoUrls(def,lat,lon);
+async function parseSoilGeoTiff(buffer){
+ const {dv,little,tags}=parseTiffDirectory(buffer);
+ const width=Number(tags.get(256)||0);
+ const height=Number(tags.get(257)||0);
+ const bits=Array.isArray(tags.get(258))?Number(tags.get(258)[0]):Number(tags.get(258)||16);
+ const compression=Number(tags.get(259)||1);
+ const sampleFormat=Array.isArray(tags.get(339))?Number(tags.get(339)[0]):Number(tags.get(339)||2);
+ const samplesPerPixel=Number(tags.get(277)||1);
+ const noDataRaw=tags.get(42113);
+ const noData=Number.parseFloat(String(noDataRaw??'NaN'));
+
+ if(!width||!height)throw new Error('GeoTIFF: brak rozmiaru rastra');
+ if(bits!==16)throw new Error('GeoTIFF: oczekiwano INT16, jest '+bits+' bit');
+ if(samplesPerPixel!==1)throw new Error('GeoTIFF: oczekiwano 1 pasma');
+
+ let offsets=tags.get(273), counts=tags.get(279);
+ if(offsets==null||counts==null){
+   offsets=tags.get(324); // tiled TIFF fallback
+   counts=tags.get(325);
+ }
+ offsets=Array.isArray(offsets)?offsets:[offsets];
+ counts=Array.isArray(counts)?counts:[counts];
+
+ if(!offsets.length||offsets[0]==null||!counts.length||counts[0]==null){
+   throw new Error('GeoTIFF: brak danych strip/tile');
+ }
+
+ const chunks=[];
+ let total=0;
+ for(let i=0;i<offsets.length;i++){
+   const off=Number(offsets[i]);
+   const cnt=Number(counts[Math.min(i,counts.length-1)]);
+   if(!Number.isFinite(off)||!Number.isFinite(cnt)||off<0||off+cnt>dv.byteLength)continue;
+   const raw=new Uint8Array(buffer,off,cnt);
+   const dec=await inflateTiffBytes(raw,compression);
+   chunks.push(dec);
+   total+=dec.length;
+ }
+
+ const joined=new Uint8Array(total);
+ let at=0;
+ for(const c of chunks){joined.set(c,at);at+=c.length;}
+
+ const needed=width*height*2;
+ if(joined.length<needed){
+   throw new Error(`GeoTIFF: za mało danych (${joined.length}/${needed} B)`);
+ }
+
+ const rd=new DataView(joined.buffer,joined.byteOffset,joined.byteLength);
+ const values=new Float64Array(width*height);
+
+ for(let i=0;i<values.length;i++){
+   let v;
+   if(sampleFormat===1)v=rd.getUint16(i*2,little);
+   else v=rd.getInt16(i*2,little);
+
+   if(Number.isFinite(noData)&&v===noData)values[i]=NaN;
+   else values[i]=v;
+ }
+
+ return {width,height,values};
+}
+
+async function fetchSoilWcsRaster(def,bb){
+ const urls=soilWcsUrls(def,bb);
  let lastErr=null;
 
  for(let i=0;i<urls.length;i++){
-   const url=urls[i];
    try{
-     const txt=await prodFetchText(url,{
-       timeoutMs:8000,
-       tries:1,
-       policy:{ttl:120*86400e3,stale:365*86400e3}
-     });
-
-     const raw=parseSoilWmsValue(txt);
-
-     // "Search returned no results" = brak piksela w tym miejscu.
-     // Nie spamujemy fallbackiem i konsolą.
-     if(!Number.isFinite(raw))return NaN;
-
-     return raw/(def.factor||1);
+     const ab=await fetchArrayBufferWithTimeout(urls[i],14000);
+     const raster=await parseSoilGeoTiff(ab);
+     return raster;
    }catch(e){
      lastErr=e;
-     console.warn(
-       `Soil WMS ${def.key} endpoint ${i+1}/${urls.length} failed`,
-       e,
-       url
-     );
+     console.warn(`Soil WCS ${def.key} endpoint ${i+1}/${urls.length} failed`,e,urls[i]);
    }
  }
-
- throw lastErr||new Error('SoilGrids WMS: oba endpointy zawiodły');
+ throw lastErr||new Error('SoilGrids WCS: oba endpointy zawiodły');
 }
 
-async function fetchSoilWmsPoint(lat,lon){
- const vals=await Promise.allSettled(
-   SOIL_WMS_PROPERTIES.map(def=>fetchSoilWmsValue(def,lat,lon))
- );
+function soilRasterToSamples(raster,bb,def){
+ const out=[];
+ const {width,height,values}=raster;
 
- const out={lat,lon,ph:NaN,sand:NaN,soc:NaN,clay:NaN};
- const errs=[];
+ for(let y=0;y<height;y++){
+   for(let x=0;x<width;x++){
+     const raw=values[y*width+x];
+     if(!Number.isFinite(raw))continue;
 
- vals.forEach((r,i)=>{
-   const def=SOIL_WMS_PROPERTIES[i];
-
-   if(r.status==='fulfilled'){
-     if(Number.isFinite(r.value))out[def.key]=r.value;
-     return;
+     // Środek komórki. W obrazie pierwszy wiersz jest północą.
+     const lon=bb[0]+(x+.5)/width*(bb[2]-bb[0]);
+     const lat=bb[3]-(y+.5)/height*(bb[3]-bb[1]);
+     out.push({lat,lon,key:def.key,value:raw/(def.factor||1)});
    }
-
-   errs.push(`${def.key}: ${r.reason?.message||'błąd'}`);
- });
-
- if(!Number.isFinite(out.ph)){
-   // Jeśli były prawdziwe błędy requestów, zachowaj je do diagnostyki.
-   // Sam brak piksela nie robi czerwonego "WMS error".
-   if(errs.length)soilLastError=errs.join(' | ').slice(0,700);
-   return null;
  }
-
  return out;
 }
 
 async function loadSoilGrid(){
  const el=document.getElementById('dsSoil');
- el.textContent='WMS…';
+ el.textContent='WCS…';
  el.className='st-load';
 
  soilReady=false;
@@ -3743,71 +3836,84 @@ async function loadSoilGrid(){
  soilSamples=[];
  soilLastError='';
 
- if(!SOIL_WMS_ENABLED){
+ if(!SOIL_WCS_ENABLED){
    el.textContent='wyłączone';
    el.className='st-warn';
-   setSourceState('soil','off','Gleba WMS wyłączona • neutralna gleba 7/10');
+   setSourceState('soil','off','Gleba WCS wyłączona • neutralna gleba 7/10');
    return false;
  }
 
  try{
-   const points=soilSamplingPoints();
-   const tasks=points.map(([lat,lon])=>()=>fetchSoilWmsPoint(lat,lon));
+   const bbs=analysisBboxes();
+   const tasks=[];
 
-   // Każdy punkt pobiera 3 właściwości, więc 3 punkty równolegle = maks. 9 requestów.
+   // Tylko 3 requesty na rejon: pH, piasek, SOC.
+   for(const bb of bbs){
+     for(const def of SOIL_WCS_PROPERTIES){
+       tasks.push(async()=>{
+         const raster=await fetchSoilWcsRaster(def,bb);
+         return {def,bb,raster};
+       });
+     }
+   }
+
    const rows=await runLimited(tasks,3);
-   const valid=rows.filter(Boolean);
+   const validRows=rows.filter(Boolean);
+   const expected=bbs.length*SOIL_WCS_PROPERTIES.length;
 
-   soilCoverage=points.length?valid.length/points.length:0;
-   const minNeeded=Math.max(2,Math.ceil(points.length*.55));
-   soilReady=valid.length>=minNeeded;
+   // Złóż 3 właściwości w wspólną siatkę punktów.
+   const pointMap=new Map();
+
+   for(const row of validRows){
+     for(const s of soilRasterToSamples(row.raster,row.bb,row.def)){
+       const k=s.lat.toFixed(5)+','+s.lon.toFixed(5);
+       if(!pointMap.has(k))pointMap.set(k,{lat:s.lat,lon:s.lon,ph:NaN,sand:NaN,soc:NaN,clay:NaN});
+       pointMap.get(k)[s.key]=s.value;
+     }
+   }
+
+   const points=[...pointMap.values()];
+   const withPh=points.filter(x=>Number.isFinite(x.ph));
+   const withSand=points.filter(x=>Number.isFinite(x.sand)).length;
+   const withSoc=points.filter(x=>Number.isFinite(x.soc)).length;
+
+   soilCoverage=expected?validRows.length/expected:0;
+
+   // pH jest kluczowe; wymagamy go dla min. 45% oczekiwanych komórek.
+   const expectedCells=bbs.length*SOIL_WCS_GRID*SOIL_WCS_GRID;
+   const minPh=Math.max(4,Math.ceil(expectedCells*.45));
+   soilReady=withPh.length>=minPh;
 
    if(soilReady){
-     soilSamples=valid;
-     const withSand=valid.filter(x=>Number.isFinite(x.sand)).length;
-     const withSoc=valid.filter(x=>Number.isFinite(x.soc)).length;
-     const partial=valid.length<points.length;
-
-     el.textContent=`${valid.length}/${points.length} pkt${partial?' • częściowe':''}`;
+     soilSamples=withPh;
+     el.textContent=`${withPh.length}/${expectedCells} kom.`;
      el.className='st-ok';
-
      setSourceState(
        'soil',
        'ok',
-       `SoilGrids WMS • pH ${valid.length}/${points.length} • piasek ${withSand}/${points.length} • SOC ${withSoc}/${points.length}`
+       `SoilGrids WCS • pH ${withPh.length}/${expectedCells} • piasek ${withSand}/${expectedCells} • SOC ${withSoc}/${expectedCells}`
      );
-
-     invalidateScoringCaches('SoilGrids WMS ready');
+     invalidateScoringCaches('SoilGrids WCS ready');
      if(allFeatures.length&&!deferSecondaryRenders)render();
      return true;
    }
 
    soilSamples=[];
    soilCoverage=0;
-   el.textContent=valid.length?`${valid.length}/${points.length} pkt • za mało`:'brak';
+   soilLastError=`za mało komórek pH (${withPh.length}/${expectedCells})`;
+   el.textContent='za mało danych';
    el.className='st-warn';
-   const trueError=!!soilLastError;
-   const detail=trueError
-     ? `SoilGrids WMS: ${soilLastError}`
-     : `SoilGrids WMS: tylko ${valid.length}/${points.length} punktów z danymi`;
-
-   console.warn('SoilGrids WMS insufficient data',detail);
-
-   setSourceState(
-     'soil',
-     trueError?'error':'off',
-     detail+' • model używa neutralnej gleby 7/10'
-   );
+   setSourceState('soil','error',`SoilGrids WCS: ${soilLastError} • neutralna gleba 7/10`);
    return false;
  }catch(e){
    soilLastError=String(e?.message||e);
-   console.warn('SoilGrids WMS fatal',e);
+   console.warn('SoilGrids WCS fatal',e);
    soilReady=false;
    soilCoverage=0;
    soilSamples=[];
-   el.textContent='WMS niedostępne';
+   el.textContent='WCS niedostępne';
    el.className='st-warn';
-   setSourceState('soil','error',`SoilGrids WMS: ${soilLastError||e?.message||'niedostępne'} • neutralna gleba 7/10`);
+   setSourceState('soil','error',`SoilGrids WCS: ${soilLastError} • neutralna gleba 7/10`);
    return false;
  }
 }
@@ -4708,8 +4814,8 @@ async function main(){
    setSourceState('reserve','load','Sprawdzam rezerwaty i obszary ochronne');
    setSourceState(
      'soil',
-     SOIL_WMS_ENABLED?'load':'off',
-     SOIL_WMS_ENABLED?'Pobieram SoilGrids przez WMS':'Gleba WMS wyłączona • neutralna 7/10'
+     SOIL_WCS_ENABLED?'load':'off',
+     SOIL_WCS_ENABLED?'Pobieram SoilGrids przez WCS':'Gleba WCS wyłączona • neutralna 7/10'
    );
    setSourceState('terrain','load','Pobieram model wysokości terenu');
    setSourceState('open','load','Pobieram łąki, polany i pastwiska OSM');
@@ -4752,7 +4858,7 @@ async function main(){
        return false;
      });
 
-   updateAnalysisLoader('Dociągam glebę WMS, teren, OSM i pozostałe dane…');
+   updateAnalysisLoader('Dociągam glebę WCS, teren, OSM i pozostałe dane…');
 
    const openPromise=loadOpenHabitats()
      .then(()=>{
@@ -4764,8 +4870,8 @@ async function main(){
    const soilPromise=loadSoilGrid()
      .then(ok=>ok)
      .catch(e=>{
-       console.warn('SoilGrids WMS optional source failed',e);
-       setSourceState('soil','error','SoilGrids WMS niedostępne • neutralna gleba 7/10');
+       console.warn('SoilGrids WCS optional source failed',e);
+       setSourceState('soil','error','SoilGrids WCS niedostępne • neutralna gleba 7/10');
        return false;
      });
 
@@ -5125,7 +5231,7 @@ function evidenceConfidence(type,f){
  if(p.site_type_cd)c+=8;if(Number(p.species_age)>0)c+=6;
  if(m.ecology==='mycorrhiza'){if(host>=.9)c+=16;else if(host>=.65)c+=10;else if(host>=.4)c+=5;}
  else if(m.ecology==='wood')c+=10;else c+=10;
- if(soilReady&&soilAt(f._center)){c+=13;notes.push('gleba SoilGrids');}
+ if(soilReady&&soilAt(f._center)){c+=13;notes.push('gleba SoilGrids WCS');}
  if(terrainReady&&Number.isFinite(f._elev)){c+=7;notes.push('teren DEM');}
  if(mapMode==='today'&&weatherReady){c+=14;notes.push('aktualna pogoda');}else if(mapMode==='habitat')c+=5;
  const local=Number.isFinite(hist.nearest)&&hist.nearest<=2;
@@ -6128,7 +6234,7 @@ function popupHtmlBase(f){
    `<div class="factor"><span>Host gate</span><b>${Math.round(hostGate(type,f)*100)}%</b></div>`+
    `<div class="factor"><span>Gleba</span><b>${soilSuitability(type,f).toFixed(1)}</b></div>`+
    `<div class="factor"><span>Mikroteren</span><b>${moistureTerrainScore(type,f).toFixed(1)}</b></div></div>`+
-   (soilRaw?`<div class="popup-mini" style="margin-top:6px">SoilGrids: pH ${soilRaw.ph.toFixed(1)} • SOC ${soilRaw.soc.toFixed(1)} • piasek ${soilRaw.sand.toFixed(1)}</div>`:'')+
+   (soilRaw?`<div class="popup-mini" style="margin-top:6px">SoilGrids WCS: pH ${soilRaw.ph.toFixed(1)} • SOC ${soilRaw.soc.toFixed(1)} • piasek ${soilRaw.sand.toFixed(1)}</div>`:'')+
    (Number.isFinite(hist.nearest)?`<div class="popup-mini">Najbliższa publiczna obserwacja: ${hist.nearest.toFixed(1)} km</div>`:'')+`</details>`+
    `<details class="popup-more"><summary>🍄 Co jeszcze może tu pasować?</summary>${what.slice(0,5).map(([s,t])=>`<div class="what-row"><span>${HUMAN_NAMES[t]}</span><b>${s.toFixed(1)}/10</b></div>`).join('')}</details>`+
    `<details class="popup-more"><summary>ℹ️ Źródła / techniczne</summary><div class="popup-mini">Źródło geometrii: ${src}. Klasa jest heurystyczną rekomendacją terenową, nie gwarancją owocników.</div></details></div>`;
@@ -6534,8 +6640,9 @@ window.auditPipelineState=auditPipelineState;
 
 function auditSoilState(){
  const report={
-   source:'SoilGrids WMS GetFeatureInfo',
-   soilWmsEnabled:SOIL_WMS_ENABLED,
+   source:'SoilGrids WCS 1.0 GetCoverage / GEOTIFF_INT16',
+   soilWcsEnabled:SOIL_WCS_ENABLED,
+   grid:SOIL_WCS_GRID+'x'+SOIL_WCS_GRID,
    soilReady,
    soilCoverage:Number((soilCoverage||0).toFixed(3)),
    samples:soilSamples.length,
@@ -6543,9 +6650,6 @@ function auditSoilState(){
    scoringUsesSoil:soilReady&&soilSamples.length>0,
    fallbackWhenUnavailable:'neutral 7/10',
    lastError:soilLastError||null,
-   endpointStyle:'https://maps.isric.org/mapserv/{property} + legacy ?map= fallback',
-   parserFields:['value_list','value_0','GRAY_INDEX','Band1'],
-   conversion:'raw / 10 for phh2o, sand and soc',
    values:soilSamples.slice(0,8).map(x=>({
      lat:Number(x.lat.toFixed(4)),
      lon:Number(x.lon.toFixed(4)),

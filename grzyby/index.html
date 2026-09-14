@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v20: live source indicators + partial reveal + one final refresh -->
+<!-- GitHub production v21: vertical source status + resilient SoilGrids retry -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2371,6 +2371,61 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
+
+<style id="v21-source-status-vertical">
+.data-source-mini{
+  top:68px!important;
+  right:10px!important;
+  max-width:160px!important;
+  align-items:stretch!important;
+}
+.data-source-summary{
+  align-self:stretch!important;
+  justify-content:flex-start!important;
+  white-space:nowrap!important;
+}
+.data-source-list{
+  display:flex!important;
+  flex-direction:column!important;
+  flex-wrap:nowrap!important;
+  align-items:stretch!important;
+  justify-content:flex-start!important;
+  gap:4px!important;
+  max-width:none!important;
+}
+.source-chip{
+  min-width:112px!important;
+  justify-content:flex-start!important;
+  white-space:nowrap!important;
+}
+
+/* Telefon: wyszukiwarka + zwinięty nagłówek zajmują górę ekranu.
+   Status zaczyna się pod nimi, więc nic na siebie nie nachodzi. */
+@media(max-width:700px){
+  .data-source-mini{
+    top:126px!important;
+    right:7px!important;
+    max-width:132px!important;
+  }
+  .data-source-summary{
+    font-size:8.5px!important;
+    padding:5px 7px!important;
+  }
+  .source-chip{
+    min-width:104px!important;
+    font-size:8px!important;
+    padding:4px 6px!important;
+  }
+}
+
+/* Bardzo niski ekran: odrobinę ciaśniej, żeby status nie wpadł w atlas. */
+@media(max-width:700px) and (max-height:700px){
+  .data-source-mini{top:118px!important;gap:3px!important}
+  .data-source-list{gap:3px!important}
+  .source-chip{padding:3px 6px!important}
+}
+</style>
+
 </head>
 <body>
 <div id="map"></div>
@@ -3418,7 +3473,7 @@ async function fetchSoilPoint(lat,lon){
  const q=new URLSearchParams({lat:String(lat),lon:String(lon),value:'mean'});
  props.forEach(x=>q.append('property',x));
  q.append('depth','0-5cm'); q.append('depth','5-15cm');
- const j=await fetchJsonWithTimeout('https://rest.isric.org/soilgrids/v2.0/properties/query?'+q,12000,2), layers=j.properties?.layers||[];
+ const j=await fetchJsonWithTimeout('https://rest.isric.org/soilgrids/v2.0/properties/query?'+q,16000,2), layers=j.properties?.layers||[];
  const get=n=>soilPhysical(layers.find(x=>x.name===n));
  return {lat,lon,ph:get('phh2o'),soc:get('soc'),sand:get('sand'),clay:get('clay')};
 }
@@ -3436,24 +3491,61 @@ async function runLimited(tasks,limit=5){
 async function loadSoilGrid(){
  const el=document.getElementById('dsSoil'); el.textContent='ładowanie';el.className='st-load';
  try{
-   const tasks=[],N=ANALYSIS_CENTERS.length>=3?3:4;
+   const points=[],N=ANALYSIS_CENTERS.length>=3?3:4;
+
    for(const bb of analysisBboxes()){
      for(let iy=0;iy<N;iy++)for(let ix=0;ix<N;ix++){
        const lat=bb[1]+(bb[3]-bb[1])*iy/(N-1);
        const lon=bb[0]+(bb[2]-bb[0])*ix/(N-1);
-       // rogi kwadratu daleko poza kołem są zbędne
        if(!inAnalysisArea([lat,lon],3.0))continue;
-       tasks.push(()=>fetchSoilPoint(lat,lon));
+       points.push([lat,lon]);
      }
    }
-   soilSamples=(await runLimited(tasks,6)).filter(Boolean);
-   soilReady=soilSamples.length>=12;
-   el.textContent=soilReady?soilSamples.length+'/'+tasks.length+' pkt':'brak';
-   el.className=soilReady?'st-ok':'st-warn';
+
+   // SoilGrids bywa wrażliwy na bursty. 4 równoległe zapytania są szybsze
+   // niż sekwencyjne, ale mniej podatne na 429/5xx niż wcześniejsze 6.
+   const firstTasks=points.map(([lat,lon])=>()=>fetchSoilPoint(lat,lon));
+   const first=await runLimited(firstTasks,4);
+
+   // Retry TYLKO punktów, które nie wyszły w pierwszej turze.
+   const failed=[];
+   first.forEach((v,i)=>{if(!v)failed.push(i);});
+
+   if(failed.length){
+     await waitMs(700);
+     const retryTasks=failed.map(i=>{
+       const [lat,lon]=points[i];
+       return ()=>fetchSoilPoint(lat,lon);
+     });
+     const retried=await runLimited(retryTasks,2);
+     failed.forEach((idx,j)=>{
+       if(retried[j])first[idx]=retried[j];
+     });
+   }
+
+   soilSamples=first.filter(Boolean);
+
+   // Nie wymagamy już magicznego "12/12".
+   // Jeśli mamy >=55% siatki i co najmniej 4 punkty, interpolacja jest użyteczna.
+   const minNeeded=Math.max(4,Math.ceil(points.length*.55));
+   soilReady=soilSamples.length>=minNeeded;
+
+   if(soilReady){
+     const partial=soilSamples.length<points.length;
+     el.textContent=`${soilSamples.length}/${points.length} pkt${partial?' • częściowe':''}`;
+     el.className='st-ok';
+   }else{
+     el.textContent=soilSamples.length?`${soilSamples.length}/${points.length} pkt • za mało`:'brak';
+     el.className='st-warn';
+   }
+
    invalidateScoringCaches('SoilGrids');
    if(allFeatures.length&&!deferSecondaryRenders)render();
  }catch(e){
-   console.warn('SoilGrids',e);soilReady=false;el.textContent='niedostępne';el.className='st-warn';
+   console.warn('SoilGrids',e);
+   soilReady=false;
+   el.textContent='niedostępne';
+   el.className='st-warn';
  }
 }
 function soilAt(c){
@@ -4329,7 +4421,14 @@ async function main(){
 
    const soilPromise=loadSoilGrid()
      .then(()=>{
-       setSourceState('soil',soilReady?'ok':'error',soilReady?`${soilSamples.length} punktów SoilGrids`:'SoilGrids niedostępne');
+       const soilEl=document.getElementById('dsSoil');
+       setSourceState(
+         'soil',
+         soilReady?'ok':'error',
+         soilReady
+           ? `SoilGrids używane • ${soilSamples.length} punktów${soilEl?.textContent?.includes('częściowe')?' • dane częściowe':''}`
+           : `SoilGrids: za mało poprawnych punktów (${soilSamples.length})`
+       );
        return soilReady;
      })
      .catch(e=>{setSourceState('soil','error',String(e?.message||e));return false;});
@@ -4396,7 +4495,7 @@ async function main(){
      if(initialRevealTimedOut&&analysisScoringReady){
        invalidateScoringCaches('late complete enrichment');
        try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Late final rerender',e);}
-       showDataRefreshToast();
+       showDataRefreshToast('✅ Wszystkie dostępne dane zakończone — mapa przeliczona ponownie');
 
        const blocked=feats.filter(f=>f._blocked).length;
        st.innerHTML=`✅ Dane zakończone • <b>${feats.length}</b> drzewostanów. `+

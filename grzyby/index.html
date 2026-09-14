@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v18: mode-aware hotspots — TODAY dynamic, POTENTIAL stable -->
+<!-- GitHub production v19: hover-responsive atlas width + faster bounded loading + fullscreen loader -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2147,10 +2147,137 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
+
+<style id="v19-atlas-hover-layout-final">
+/* Ostateczna reguła ma taką samą / większą specyficzność niż stare klasy grup. */
+.atlas-group-card.group-single,
+.atlas-group-card.group-two,
+.atlas-group-card.group-three,
+.atlas-group-card.group-four-plus{
+  --atlas-visible:var(--atlas-members,1);
+  --atlas-card-w:98px;
+  width:max(116px,calc(var(--atlas-visible) * var(--atlas-card-w) + 18px))!important;
+  min-width:0!important;
+  flex:0 0 max(116px,calc(var(--atlas-visible) * var(--atlas-card-w) + 18px))!important;
+  flex-basis:max(116px,calc(var(--atlas-visible) * var(--atlas-card-w) + 18px))!important;
+  transition:width .14s ease,flex-basis .14s ease,opacity .12s ease,border-color .12s ease!important;
+}
+
+/* Grid również musi zmienić liczbę kolumn — samo zwężenie kontenera nie wystarcza. */
+.atlas-group-card .atlas-mini-grid{
+  grid-template-columns:repeat(var(--atlas-visible),minmax(0,1fr))!important;
+}
+
+.atlas-group-card[data-visible-count="1"]{--atlas-card-w:100px}
+.atlas-group-card[data-visible-count="2"]{--atlas-card-w:98px}
+.atlas-group-card[data-visible-count="3"]{--atlas-card-w:96px}
+
+@media(max-width:900px){
+  .atlas-group-card.group-single,
+  .atlas-group-card.group-two,
+  .atlas-group-card.group-three,
+  .atlas-group-card.group-four-plus{
+    --atlas-card-w:92px;
+    width:max(110px,calc(var(--atlas-visible) * var(--atlas-card-w) + 16px))!important;
+    flex-basis:max(110px,calc(var(--atlas-visible) * var(--atlas-card-w) + 16px))!important;
+  }
+}
+@media(max-width:700px){
+  .atlas-group-card.group-single,
+  .atlas-group-card.group-two,
+  .atlas-group-card.group-three,
+  .atlas-group-card.group-four-plus{
+    --atlas-card-w:80px;
+    width:max(100px,calc(var(--atlas-visible) * var(--atlas-card-w) + 14px))!important;
+    flex-basis:max(100px,calc(var(--atlas-visible) * var(--atlas-card-w) + 14px))!important;
+  }
+}
+</style>
+
+
+<style id="v19-analysis-loader-style">
+.analysis-loader{
+  position:fixed;
+  inset:0;
+  z-index:5000;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background:rgba(8,12,10,.48);
+  backdrop-filter:blur(2px);
+  pointer-events:auto;
+}
+.analysis-loader.show{display:flex}
+.analysis-loader-card{
+  min-width:min(420px,calc(100vw - 34px));
+  max-width:min(520px,calc(100vw - 34px));
+  padding:24px 26px;
+  border-radius:18px;
+  background:rgba(20,27,23,.96);
+  border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 18px 54px rgba(0,0,0,.45);
+  color:#edf4ef;
+  text-align:center;
+}
+.analysis-spinner{
+  width:46px;
+  height:46px;
+  margin:0 auto 14px;
+  border-radius:50%;
+  border:5px solid rgba(255,255,255,.13);
+  border-top-color:#76d58d;
+  animation:analysisSpin .85s linear infinite;
+}
+@keyframes analysisSpin{to{transform:rotate(360deg)}}
+.analysis-loader-title{
+  font-size:20px;
+  line-height:1.1;
+  font-weight:900;
+  margin-bottom:7px;
+}
+.analysis-loader-text{
+  min-height:18px;
+  font-size:12px;
+  line-height:1.4;
+  color:#b7c5bc;
+}
+.analysis-loader-progress{
+  margin-top:14px;
+  height:5px;
+  overflow:hidden;
+  border-radius:999px;
+  background:rgba(255,255,255,.09);
+}
+.analysis-loader-progress > i{
+  display:block;
+  width:35%;
+  height:100%;
+  border-radius:inherit;
+  background:linear-gradient(90deg,#5bcf77,#b1df68);
+  animation:analysisProgress 1.25s ease-in-out infinite alternate;
+}
+@keyframes analysisProgress{
+  from{transform:translateX(-55%)}
+  to{transform:translateX(235%)}
+}
+@media(max-width:700px){
+  .analysis-loader-card{padding:20px 18px;border-radius:16px}
+  .analysis-loader-title{font-size:18px}
+}
+</style>
+
 </head>
 <body>
 <div id="map"></div>
 <div id="mobileSearchDock" class="mobile-search-dock" aria-label="Szukaj miejsca"></div>
+<div id="analysisLoader" class="analysis-loader" aria-live="polite" aria-busy="true">
+  <div class="analysis-loader-card">
+    <div class="analysis-spinner"></div>
+    <div class="analysis-loader-title">Analizuję teren…</div>
+    <div id="analysisLoaderText" class="analysis-loader-text">Pobieram dane lasów i warunków.</div>
+    <div class="analysis-loader-progress"><i></i></div>
+  </div>
+</div>
 <div class="panel">
   <button id="togglePanel" class="head panel-toggle" type="button" aria-expanded="true">
     <div class="head-inner">
@@ -3169,7 +3296,7 @@ async function fetchSoilPoint(lat,lon){
  const q=new URLSearchParams({lat:String(lat),lon:String(lon),value:'mean'});
  props.forEach(x=>q.append('property',x));
  q.append('depth','0-5cm'); q.append('depth','5-15cm');
- const j=await fetchJsonWithTimeout('https://rest.isric.org/soilgrids/v2.0/properties/query?'+q,18000,3), layers=j.properties?.layers||[];
+ const j=await fetchJsonWithTimeout('https://rest.isric.org/soilgrids/v2.0/properties/query?'+q,12000,2), layers=j.properties?.layers||[];
  const get=n=>soilPhysical(layers.find(x=>x.name===n));
  return {lat,lon,ph:get('phh2o'),soc:get('soc'),sand:get('sand'),clay:get('clay')};
 }
@@ -3197,12 +3324,12 @@ async function loadSoilGrid(){
        tasks.push(()=>fetchSoilPoint(lat,lon));
      }
    }
-   soilSamples=(await runLimited(tasks,4)).filter(Boolean);
+   soilSamples=(await runLimited(tasks,6)).filter(Boolean);
    soilReady=soilSamples.length>=12;
    el.textContent=soilReady?soilSamples.length+'/'+tasks.length+' pkt':'brak';
    el.className=soilReady?'st-ok':'st-warn';
    invalidateScoringCaches('SoilGrids');
-   if(allFeatures.length)render();
+   if(allFeatures.length&&!deferSecondaryRenders)render();
  }catch(e){
    console.warn('SoilGrids',e);soilReady=false;el.textContent='niedostępne';el.className='st-warn';
  }
@@ -3568,7 +3695,7 @@ async function ensureObservations(type){
  el.textContent=arr.length+' obserw.';el.className=arr.length?'st-ok':'st-warn';
  showObsLayer(type);
  invalidateScoringCaches('observations '+type);
- if(allFeatures.length)render();
+ if(allFeatures.length&&!deferSecondaryRenders)render();
  if(centerWeather)updateWeatherCard();
 }
 function showObsLayer(type){
@@ -3671,7 +3798,7 @@ async function loadOpenHabitats(){
    }
    el.textContent=openReady?feats.length+' obsz.':'brak';el.className=openReady?'st-ok':'st-warn';
    invalidateScoringCaches('OSM open habitats');
-   render();
+   if(!deferSecondaryRenders)render();
  }catch(e){
    console.warn('Open habitats',e);openReady=false;el.textContent='niedostępne';el.className='st-warn';
  }
@@ -3736,7 +3863,7 @@ async function loadTerrain(){
    terrainReady=allFeatures.some(f=>Number.isFinite(f._elev));
    el.textContent=terrainReady?pts.length+' pkt':'brak';el.className=terrainReady?'st-ok':'st-warn';
    invalidateScoringCaches('terrain DEM');
-   if(allFeatures.length)render();
+   if(allFeatures.length&&!deferSecondaryRenders)render();
  }catch(e){
    console.warn('Terrain',e);terrainReady=false;
    el.textContent='niedostępne';el.className='st-warn';
@@ -3939,6 +4066,8 @@ async function main(){
    return;
  }
 
+ showAnalysisLoader('Pobieram drzewostany BDL…');
+
  const st=document.getElementById('status');
  const ds=document.getElementById('dsBDL');
 
@@ -3975,7 +4104,8 @@ async function main(){
      renderForestBaseImmediately(feats,'bazowe');
      st.classList.add('scoring-wait');
      hideBdlFallback();
-     st.innerHTML=`✅ Mapa bazowa gotowa: <b>${feats.length}</b> wydzieleń. Liczę końcowe kolory z pogody, siedlisk, gleby i terenu…`;
+     updateAnalysisLoader('Drzewostany gotowe. Liczę siedliska, pogodę i ochronę…');
+     st.innerHTML=`✅ Mapa bazowa gotowa: <b>${feats.length}</b> wydzieleń. Liczę końcowe kolory…`;
 
    }else{
      // Druga ścieżka: layer 11/12 nie działa -> próbujemy geometrii 5/6.
@@ -3993,7 +4123,8 @@ async function main(){
      st.classList.add('scoring-wait');
      // Zostawiamy delikatny WMS pod spodem, bo fallback ma mniej informacji.
      if(map.hasLayer(bdl))bdl.setOpacity(.18);
-     st.innerHTML=`⚠️ Tryb awaryjny: pokazuję <b>${feats.length}</b> wydzieleń z BDL 5/6. Końcowy ranking pojawi się po zebraniu pozostałych danych.`;
+     updateAnalysisLoader('Tryb awaryjny BDL. Dociągam pogodę i dane siedliskowe…');
+     st.innerHTML=`⚠️ Tryb awaryjny: pokazuję <b>${feats.length}</b> wydzieleń z BDL 5/6. Końcowy ranking pojawi się za chwilę.`;
    }
 
    // Enrichmenty nie blokują już widoku.
@@ -4016,20 +4147,33 @@ async function main(){
      .then(ok=>{if(ok)render();return ok;})
      .catch(e=>{console.warn('Reserve enrichment',e);return false;});
 
-   // Źródła dokładnościowe są nadal pobierane równolegle,
-   // ale nie zmieniamy po każdym z nich kolorów na oczach użytkownika.
-   const secondaryPromise=(async()=>{
-     try{await loadOpenHabitats();}catch(e){console.warn('Open habitats background',e);}
-     await Promise.allSettled([loadSoilGrid(),loadTerrain(),ensureObservations(currentFilter)]);
-     return true;
-   })();
+   // Źródła dokładnościowe lecą wszystkie równolegle.
+   // Nie blokujemy użytkownika przez wolne SoilGrids / Overpass przez 20–30 s.
+   deferSecondaryRenders=true;
+   updateAnalysisLoader('Dociągam glebę, teren i otwarte siedliska…');
 
-   Promise.allSettled([habitatPromise,koPromise,reservePromise,weatherPromise,secondaryPromise]).then(()=>{
-     // Dopiero teraz pokazujemy finalne kolory i hotspoty.
+   const secondaryPromise=Promise.allSettled([
+     loadOpenHabitats(),
+     loadSoilGrid(),
+     loadTerrain(),
+     ensureObservations(currentFilter)
+   ]);
+
+   // Czekamy na komplet danych dodatkowych maks. 6 s.
+   // Jeśli któreś API jest wolne, pokażemy mapę z tym, co już mamy.
+   const secondaryBudget=Promise.race([
+     secondaryPromise,
+     waitMs(6000).then(()=>({timedOut:true}))
+   ]);
+
+   Promise.allSettled([habitatPromise,koPromise,reservePromise,weatherPromise,secondaryBudget]).then(()=>{
      analysisScoringReady=true;
      st.classList.remove('scoring-wait');
-     invalidateScoringCaches('initial full-data barrier');
+
+     // Jeden finalny render — bez późniejszych skoków kolorów.
+     invalidateScoringCaches('initial fast barrier');
      try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Final initial rerender',e);}
+     hideAnalysisLoader();
 
      const blocked=feats.filter(f=>f._blocked).length;
      const quality=degraded?'tryb awaryjny BDL':'pełny model BDL';
@@ -4038,9 +4182,20 @@ async function main(){
         `Warstwa ochronna może być niedostępna — sprawdzaj lokalne zakazy przed zbiorem.`);
    });
 
+   // Późne dane mogą skończyć się już po pokazaniu mapy.
+   // Zapisujemy je do modelu, ale NIE przemalowujemy mapy użytkownikowi pod ręką.
+   secondaryPromise.finally(()=>{
+     deferSecondaryRenders=false;
+     const ds=document.getElementById('status');
+     if(ds&&analysisScoringReady){
+       ds.dataset.extraReady='1';
+     }
+   });
+
  }catch(e){
    console.error('BDL base failed',e);
    analysisScoringReady=false;
+   hideAnalysisLoader();
    st.classList.remove('scoring-wait');
    ds.textContent='API niedostępne';ds.className='st-warn';
 
@@ -6475,6 +6630,23 @@ let searchTimer=null;
 let searchSeq=0;
 let analysisRunning=false;
 let analysisScoringReady=true;
+let deferSecondaryRenders=false;
+
+function showAnalysisLoader(text='Pobieram dane…'){
+ const el=document.getElementById('analysisLoader');
+ const tx=document.getElementById('analysisLoaderText');
+ if(tx)tx.textContent=text;
+ if(el)el.classList.add('show');
+}
+function updateAnalysisLoader(text){
+ const tx=document.getElementById('analysisLoaderText');
+ if(tx)tx.textContent=text;
+}
+function hideAnalysisLoader(){
+ const el=document.getElementById('analysisLoader');
+ if(el)el.classList.remove('show');
+}
+function waitMs(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 let autoAnalyzeTimer=null;
 let autoAnalyzeQueued=false;
 
@@ -6638,6 +6810,7 @@ async function reverseName(lat,lon,index){
 }
 
 function clearAnalysisData(){
+ hideAnalysisLoader();
  analysisScoringReady=false;
  invalidateInteractionGrid();
  clearMapHoverInteraction();

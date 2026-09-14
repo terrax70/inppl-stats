@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v57: visual cutoff + species-score confidence fading -->
+<!-- GitHub production v58: verdict-map consistency + hidden-area hit-test fix -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -6696,6 +6696,30 @@ function singleSpeciesTodayClass(type,f){
  return v.score>=4.8?1:0;
 }
 
+
+// v58 — rekomendacja tekstowa MUSI być spójna z tym, co użytkownik widzi na mapie.
+// Surowe wyniki BEST są wysoko skalibrowane (np. 8.0 może wypaść lokalnie słabo),
+// więc sam absolutny score nie może automatycznie dawać „WARTO SPRAWDZIĆ”.
+function currentMapClassForFeature(f){
+ if(!f)return 0;
+ if(mapMode==='today'){
+   const score=todayScoreForStyle(f);
+   return todayBalancedClass(f,score);
+ }
+ return balancedClass(f);
+}
+
+function verdictRankCapFromMapClass(c){
+ c=Math.max(0,Math.min(4,Number(c)||0));
+ // mapa: 0 odpuść, 1 rezerwowo, 2 średnio, 3 warto, 4 TOP
+ // werdykt: 0 odpuść, 1 rezerwowo, 2 warto, 3 jedź
+ // „średnio” nadal nie może oznaczać „warto sprawdzić”.
+ if(c>=4)return 3;
+ if(c>=3)return 2;
+ if(c>=1)return 1;
+ return 0;
+}
+
 function verdictFor(f){
  if(currentFilter==='diversity'){
    const d=diversityData(f),rank=d.score>=8.7?3:d.score>=7.2?2:d.score>=5.5?1:0;
@@ -6704,24 +6728,42 @@ function verdictFor(f){
 
  const type=currentFilter==='all'?bestTypeFor(f):currentFilter;
 
- // Jawny pojedynczy gatunek korzysta z tej samej semantyki co pojedynczy wybór w atlasie.
+ // Pojedynczy gatunek ma własną, absolutną semantykę i jego kolor jest już
+ // bezpośrednio powiązany z tym werdyktem.
  if(currentFilter!=='all'){
    return speciesVerdictForType(type,f);
  }
 
- const score=effectiveScore(f),habitat=staticSuitability(type,f),fruit=fruitingConditions(type,f),conf=evidenceConfidence(type,f);
- let rank=0;
+ const score=effectiveScore(f);
+ const habitat=staticSuitability(type,f);
+ const fruit=fruitingConditions(type,f);
+ const conf=evidenceConfidence(type,f);
+ let absoluteRank=0;
+
  if(mapMode==='habitat'){
-   if(score>=8.9&&conf.value>=45)rank=3;
-   else if(score>=7.8)rank=2;
-   else if(score>=6.5)rank=1;
+   if(score>=8.9&&conf.value>=45)absoluteRank=3;
+   else if(score>=7.8)absoluteRank=2;
+   else if(score>=6.5)absoluteRank=1;
  }else{
-   if(score>=9.0&&habitat>=8.6&&fruit>=82&&conf.value>=45)rank=3;
-   else if(score>=8.0&&habitat>=7.8&&fruit>=66)rank=2;
-   else if(score>=6.6)rank=1;
+   if(score>=9.0&&habitat>=8.6&&fruit>=82&&conf.value>=45)absoluteRank=3;
+   else if(score>=8.0&&habitat>=7.8&&fruit>=66)absoluteRank=2;
+   else if(score>=6.6)absoluteRank=1;
  }
- if(f?._kind==='open'&&type)rank=Math.min(rank,openHabitatVerdictCap(type,f));
- return {rank,score,type,habitat,fruit,conf};
+
+ if(f?._kind==='open'&&type){
+   absoluteRank=Math.min(absoluteRank,openHabitatVerdictCap(type,f));
+ }
+
+ // KLUCZOWA ZMIANA v58:
+ // BEST musi przejść dwa testy naraz:
+ // 1) warunki biologiczne / wynik absolutny,
+ // 2) pozycję tego miejsca na aktualnej mapie.
+ // Dzięki temu niewidoczne / słabe lokalnie wydzielenie nie pokaże „WARTO”.
+ const mapClass=currentMapClassForFeature(f);
+ const mapRankCap=verdictRankCapFromMapClass(mapClass);
+ const rank=Math.min(absoluteRank,mapRankCap);
+
+ return {rank,score,type,habitat,fruit,conf,absoluteRank,mapClass,mapRankCap};
 }
 
 function reasonsFor(type,f){
@@ -7842,6 +7884,7 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  // 1) Najniższy ogon skali: najgorsze wydzielenia po prostu znikają.
  const cutoff=baseVisualCutoffForBand(band,f);
  if(cutoff.hidden){
+   if(f)f._visualHidden=true;
    return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
  }
  fillOpacity*=cutoff.multiplier;
@@ -7854,6 +7897,7 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  if(speciesVisual.active&&!(f?._hotspotIndex)){
    const s=speciesVisual.strength;
    if(s<=.015){
+     if(f)f._visualHidden=true;
      return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
    }
    const fillMult=.08+.92*Math.pow(s,1.45);
@@ -7890,6 +7934,7 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
    }
  }
 
+ if(f)f._visualHidden=false;
  return {
    color:border,
    weight,
@@ -8097,7 +8142,10 @@ function todayBalancedClass(f,sOverride=NaN){
 function todayPotentialStyle(f,show=true){
  if(!show){ return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0}; }
  const score=todayScoreForStyle(f); const c=todayBalancedClass(f,score);
- if(topOnly&&c<3){ return { color:'transparent', weight:0, fillColor:'#f2efe8', fillOpacity:.012, opacity:.03 }; }
+ if(topOnly&&c<3){
+   if(f)f._visualHidden=true;
+   return { color:'transparent', weight:0, fillColor:'#f2efe8', fillOpacity:.012, opacity:.03 };
+ }
  if(f._kind==='open')return openPotentialStyleFromClass(f,c,true,score);
  return unifiedMapStyleForClass(f,c,{ today:true, score, open:false });
 }
@@ -8146,7 +8194,7 @@ function popupHtmlBase(f){
  const mainLine=f._kind==='open'?`🌿 <b>Teren otwarty OSM:</b> ${p.open_type||'teren otwarty'}${p.name?' • '+p.name:''} • ${openHabitatAreaHa(f).toFixed(2)} ha`:
    `🌲 <b>${p.species_cd||p.gat_grp||'?'}</b> • ${p.species_age??'?'} lat • ${p.site_type_cd||'?'} • ${p.sub_area??'?'} ha`;
  const goodHtml=reasons.good.map(x=>`<div class="reason-good">✅ ${x}</div>`).join(''),warnHtml=reasons.warn.map(x=>`<div class="reason-warn">⚠️ ${x}</div>`).join('');
- const stable=stableAnchorScore(f),cls=balancedClass(f),hs=f._hotspotIndex?` • należy do hotspotu ${f._hotspotLabel||''}`:' • poza numerowanym hotspotem';
+ const stable=stableAnchorScore(f),cls=currentMapClassForFeature(f),hs=f._hotspotIndex?` • należy do hotspotu ${f._hotspotLabel||''}`:' • poza numerowanym hotspotem';
  return `<div class="popup-card">`+
    `<div class="popup-mini" style="margin-bottom:5px">🌲 Stały potencjał: <b>${stable.toFixed(1)}/10</b> • klasa mapy: <b>${balancedClassLabel(cls)}</b>${hs}</div>`+
    `<div class="popup-title">${m?.label||type} <i>${m?.scientific||''}</i></div>`+
@@ -8347,7 +8395,7 @@ function unifiedPopupHtml(f,h=null){
  const v=unifiedFeatureVerdict(f);
  const conf=v.conf||{value:35,label:'niska'};
  const stable=stableAnchorScore(f);
- const cls=balancedClass(f);
+ const cls=currentMapClassForFeature(f);
  const featureVm=VERDICT_META[v.rank]||VERDICT_META[0];
  const modeLabel=mapMode==='today'?'DZIŚ':'POTENCJAŁ';
  const src=f._kind==='open'?'OpenStreetMap':(f._src==='pgl'?'PGL LP':(f._src==='other'?'poza PGL LP':'KO/KDO'));
@@ -8471,7 +8519,7 @@ function unifiedPopupHtml(f,h=null){
        <div class="u-core-stat"><span>Ocena tego miejsca</span><b>${v.score.toFixed(1)}/10</b></div>
        <div class="u-core-stat"><span>Stały potencjał</span><b>${stable.toFixed(1)}/10</b></div>
        <div class="u-core-stat"><span>Pewność danych</span><b>${escapeHtml(conf.label)} • ${conf.value}/100</b></div>
-       <div class="u-core-stat"><span>Klasa mapy</span><b>${escapeHtml(balancedClassLabel(cls))}</b></div>
+       <div class="u-core-stat"><span>Klasa mapy ${modeLabel}</span><b>${escapeHtml(balancedClassLabel(cls))}</b></div>
      </div>
    </div>
 
@@ -10114,7 +10162,11 @@ function interactionFeatureIsClickable(f){
  if(!analysisScoringReady)return false;
  if(!f||!f.geometry)return false;
  if(f._blocked)return true;
- return atlasSelected.size ? atlasShowsFeature(f) : filterShowsFeature(f);
+ if(!(atlasSelected.size ? atlasShowsFeature(f) : filterShowsFeature(f)))return false;
+ // v58: jeżeli wydzielenie zostało CELOWO ukryte przez cutoff wizualny,
+ // nie może zachowywać się jak niewidzialny przycisk na mapie.
+ if(f._visualHidden===true)return false;
+ return true;
 }
 function buildInteractionGrid(){
  const key=`${analysisLayers.length}|${allFeatures.length}|${ANALYSIS_CENTERS.length}`;
@@ -10697,6 +10749,52 @@ function auditVisualCutoffAndSpeciesFade(){
  return report;
 }
 window.auditVisualCutoffAndSpeciesFade=auditVisualCutoffAndSpeciesFade;
+
+
+function auditVerdictMapConsistency(){
+ const rows=allFeatures
+   .filter(f=>!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f)))
+   .map(f=>{
+     const score=mapMode==='today'?todayScoreForStyle(f):stableAnchorScore(f);
+     const mapClass=currentMapClassForFeature(f);
+     const v=atlasSelected.size?atlasVerdictFor(f):verdictFor(f);
+     const progress=unifiedWithinClassProgress(f,mapClass,mapMode==='today',score);
+     const band=unifiedBandIndex(mapClass,progress);
+     const cutoff=baseVisualCutoffForBand(band,f);
+     return {
+       area:featureAreaName(f),
+       score:Number(score.toFixed(2)),
+       mapClass,
+       mapLabel:balancedClassLabel(mapClass),
+       band,
+       hidden:cutoff.hidden||f._visualHidden===true,
+       verdictRank:v.rank,
+       verdict:VERDICT_META[v.rank]?.label||'?',
+       absoluteRank:Number.isFinite(v.absoluteRank)?v.absoluteRank:null,
+       hotspot:f._hotspotLabel||''
+     };
+   });
+
+ const contradictions=rows.filter(x=>
+   (x.hidden&&x.verdictRank>=2) ||
+   (x.mapClass<=2&&x.verdictRank>=2)
+ );
+ const rankCounts=[0,0,0,0].map((_,i)=>rows.filter(x=>x.verdictRank===i).length);
+ const report={
+   mode:mapMode,
+   filter:currentFilter,
+   atlas:[...atlasSelected],
+   analyzed:rows.length,
+   rankCounts:{odpusc:rankCounts[0],rezerwowo:rankCounts[1],warto:rankCounts[2],jedz:rankCounts[3]},
+   contradictions:contradictions.length,
+   contradictionRows:contradictions.slice(0,30),
+   note:'W BEST v58 „WARTO” wymaga zarówno odpowiednich warunków biologicznych, jak i klasy mapy >= warto.'
+ };
+ console.table(contradictions.slice(0,30));
+ console.info('VERDICT ↔ MAP CONSISTENCY AUDIT',report);
+ return report;
+}
+window.auditVerdictMapConsistency=auditVerdictMapConsistency;
 
 function auditPerformanceOptimization(){
  const rounded={};

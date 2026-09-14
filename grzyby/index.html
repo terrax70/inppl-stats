@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v13: season-gated TODAY colors + fixed fruit normalization -->
+<!-- GitHub production v15: atlas selection state audit + stale hover filter fix -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -4200,7 +4200,11 @@ function verdictFor(f){
  const score=effectiveScore(f),habitat=staticSuitability(type,f),fruit=fruitingConditions(type,f),conf=evidenceConfidence(type,f);
  let rank=0;
  if(mapMode==='habitat'){if(score>=8.9&&conf.value>=45)rank=3;else if(score>=7.8)rank=2;else if(score>=6.5)rank=1;}
- else{if(score>=8.4&&habitat>=8.5&&fruit>=78&&conf.value>=45)rank=3;else if(score>=7.5&&habitat>=7.6&&fruit>=62)rank=2;else if(score>=6.3)rank=1;}
+ else{
+   if(score>=9.0&&habitat>=8.6&&fruit>=82&&conf.value>=45)rank=3;
+   else if(score>=8.0&&habitat>=7.8&&fruit>=66)rank=2;
+   else if(score>=6.6)rank=1;
+ }
  return {rank,score,type,habitat,fruit,conf};
 }
 
@@ -4812,6 +4816,9 @@ function stablePotentialStyle(f,show=true){
  return {color:p.border,weight:p.w,fillColor:p.fill,fillOpacity:p.fo,opacity:p.op};
 }
 
+let todayScaleCacheKey='';
+let todayScales={};
+
 function todayScoreForStyle(f){
  if(atlasSelected.size){
    return atlasAggregateScore(f,true).score;
@@ -4822,32 +4829,112 @@ function todayScoreForStyle(f){
  return effectiveScore(f);
 }
 
+function buildTodayScales(){
+ ensurePerfCache();
+ const dayKey=new Date().toISOString().slice(0,10);
+ const key=[
+   currentFilter,
+   atlasSelectionKey(),
+   allFeatures.length,
+   openFeatures.length,
+   weatherReady?1:0,
+   weatherSamples.length,
+   dayKey
+ ].join('|');
+
+ if(todayScaleCacheKey===key)return todayScales;
+
+ const out={};
+
+ for(const area of ANALYSIS_CENTERS){
+   const rows=allFeatures
+     .filter(f=>{
+       if(f._blocked||featureAreaName(f)!==area.name)return false;
+
+       if(atlasSelected.size){
+         return [...atlasSelected].some(t=>featureRelevant(t,f));
+       }
+
+       if(currentFilter==='all')return f._kind!=='open';
+       if(currentFilter==='diversity')return true;
+       return featureRelevant(currentFilter,f);
+     })
+     .map(todayScoreForStyle)
+     .filter(Number.isFinite)
+     .sort((a,b)=>a-b);
+
+   out[area.name]=rows.length ? {
+     q20:quantileSorted(rows,.20),
+     q45:quantileSorted(rows,.45),
+     q70:quantileSorted(rows,.70),
+     q88:quantileSorted(rows,.88),
+     q93:quantileSorted(rows,.93),
+     q97:quantileSorted(rows,.97),
+     min:rows[0],
+     max:rows.at(-1)
+   } : {
+     q20:5.2,q45:6.4,q70:7.4,q88:8.4,q93:8.8,q97:9.2,min:0,max:10
+   };
+ }
+
+ todayScales=out;
+ todayScaleCacheKey=key;
+ return out;
+}
+
+function todayBalancedClass(f){
+ const s=todayScoreForStyle(f);
+ const scale=buildTodayScales()[featureAreaName(f)]||{
+   q20:5.2,q45:6.4,q70:7.4,q88:8.4,q93:8.8,q97:9.2
+ };
+
+ // Tryb szeroki ("najlepszy grzyb" / różnorodność / wiele gatunków)
+ // ma naturalnie wyższe wyniki, bo wybieramy maksimum z wielu gatunków.
+ // Dlatego ciemna zieleń wymaga tutaj wejścia do lokalnego TOP ~7%.
+ const broad=
+   (!atlasSelected.size&&(currentFilter==='all'||currentFilter==='diversity')) ||
+   atlasSelected.size>1;
+
+ const darkQ=broad?scale.q93:scale.q88;
+
+ // Absolutne minima pilnują biologii:
+ // poza sezonem lokalny "najlepszy" las nie stanie się zielony tylko dlatego,
+ // że wszystkie inne lasy są jeszcze gorsze.
+ if(s>=Math.max(darkQ,8.95))return 4;
+ if(s>=Math.max(scale.q70,8.05))return 3;
+ if(s>=Math.max(scale.q45,6.85))return 2;
+ if(s>=Math.max(scale.q20,5.55))return 1;
+ return 0;
+}
+
 function todayPotentialStyle(f,show=true){
  if(!show)return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
 
  const s=todayScoreForStyle(f);
+ const c=todayBalancedClass(f);
 
- // Kolory "DZIŚ" są absolutne, a nie percentylowe:
- // poza sezonem cały rejon może być po prostu słaby.
- let p;
- if(s<4.6)      p={fill:'#d4d4d4',border:'#aaaaaa',fo:.018,w:.10,op:.08};
- else if(s<5.8) p={fill:'#e7c98a',border:'#b59358',fo:.12,w:.24,op:.28};
- else if(s<6.8) p={fill:'#c6c86f',border:'#90934e',fo:.24,w:.34,op:.47};
- else if(s<7.8) p={fill:'#7eae5b',border:'#587d42',fo:.43,w:.55,op:.70};
- else if(s<8.7) p={fill:'#39a456',border:'#24723f',fo:.63,w:.82,op:.90};
- else            p={fill:'#08753e',border:'#034f2b',fo:.80,w:1.22,op:1};
+ const palette=[
+   {fill:'#d7d7d7',border:'#b8b8b8',fo:.020,w:.10,op:.07},
+   {fill:'#e7d789',border:'#b29d54',fo:.11,w:.20,op:.24},
+   {fill:'#c3c96e',border:'#89904d',fo:.24,w:.31,op:.44},
+   {fill:'#65a85d',border:'#437a43',fo:.46,w:.55,op:.72},
+   {fill:'#08713d',border:'#034d2a',fo:.74,w:.92,op:.97}
+ ];
+ let p=palette[c];
 
- if(topOnly&&s<7.2){
+ if(topOnly&&c<3){
    return {color:'#999',weight:.10,fillColor:'#d0d0d0',fillOpacity:.012,opacity:.04};
  }
 
- // Numer hotspotu zostaje stały, ale sam kolor nadal pokazuje "dzisiaj".
+ // Hotspot pozostaje widoczny jako obrys/marker, ale nie wymusza ciemnej zieleni.
  let weight=p.w,border=p.border,fillOpacity=p.fo,opacity=p.op;
+
  if(f._hotspotIndex){
-   weight=Math.max(weight,f._hotspotBest?1.9:1.0);
-   if(f._hotspotBest&&s>=7.0)border='#063e27';
-   opacity=Math.max(opacity,s>=6.0?.72:.28);
+   weight=Math.max(weight,f._hotspotBest?1.85:.95);
+   if(f._hotspotBest&&c>=3)border='#063e27';
+   opacity=Math.max(opacity,c>=2?.62:.22);
  }
+
  return {color:border,weight,fillColor:p.fill,fillOpacity,opacity};
 }
 
@@ -5039,8 +5126,17 @@ function applyHintTypeFocus(types,locked=false){
 function applyAtlasLinkedFocus(rows,locked=false){
  const types=new Set(rows.map(x=>x.type));
  const scoreMap=new Map(rows.map(x=>[x.type,x.score]));
- atlasHoverTypes=new Set(types);
- applyAtlasHoverFilter(types);
+
+ // TYLKO chwilowy hover nad lasem może fizycznie ukrywać niepasujące karty.
+ // Kliknięte/zablokowane wydzielenie jedynie podświetla/przygasza atlas,
+ // ale nigdy nie usuwa gatunków z listy.
+ if(locked){
+   atlasHoverTypes.clear();
+   applyAtlasHoverFilter(null);
+ }else{
+   atlasHoverTypes=new Set(types);
+   applyAtlasHoverFilter(types);
+ }
 
  document.querySelectorAll('#atlasStrip .atlas-mini[data-type]').forEach(card=>{
    const t=card.dataset.type,hit=types.has(t);
@@ -5069,6 +5165,7 @@ function clearLinkedAtlasClasses(){
    const sc=card.querySelector('.atlas-mini-score');
    if(sc)sc.textContent='';
  });
+ atlasHoverTypes.clear();
  applyAtlasHoverFilter(null);
  applyHintTypeFocus(null,false);
  linkedActiveTypes.clear();
@@ -5201,12 +5298,17 @@ function updateAtlasHead(){
  else{const names=[...atlasSelected].map(t=>HUMAN_NAMES[t]||t);info.innerHTML='<span class="atlas-selected-summary">Wybrane '+atlasSelected.size+':</span> '+escapeHtml(names.join(', '));}
 }
 function toggleAtlasType(t){
+ atlasHoverTypes.clear();
+ applyAtlasHoverFilter(null);
  currentFilter='all';atlasSelected.has(t)?atlasSelected.delete(t):atlasSelected.add(t);
  syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();
  if(allFeatures.length)render();else{const hint=document.getElementById('locatorHint');if(hint)hint.textContent=atlasSelected.size?'🍄 Wybrane gatunki zapisane. Wybierz lokalizację — mapa użyje tego zestawu.':'📍 Wybierz lokalizację — analiza ruszy automatycznie.';}
 }
 function toggleAtlasGroup(groupId){
- const g=ATLAS_GROUPS.find(x=>x.id===groupId);if(!g)return;currentFilter='all';
+ const g=ATLAS_GROUPS.find(x=>x.id===groupId);if(!g)return;
+ atlasHoverTypes.clear();
+ applyAtlasHoverFilter(null);
+ currentFilter='all';
  const allSelected=g.members.every(t=>atlasSelected.has(t));
  if(allSelected)g.members.forEach(t=>atlasSelected.delete(t));else g.members.forEach(t=>atlasSelected.add(t));
  clearAtlasHover();syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();if(allFeatures.length)render();
@@ -5215,11 +5317,20 @@ function syncAtlasSelectionUI(){
  const root=document.getElementById('atlasStrip');if(!root)return;
  root.querySelectorAll('.atlas-mini[data-type]').forEach(card=>{const selected=atlasSelected.has(card.dataset.type);card.classList.toggle('selected',selected);const check=card.querySelector('.atlas-mini-check');if(check)check.textContent=selected?'✓':'+';});
  root.querySelectorAll('.atlas-group-card[data-group]').forEach(group=>{const g=ATLAS_GROUPS.find(x=>x.id===group.dataset.group);if(!g)return;const n=g.members.filter(t=>atlasSelected.has(t)).length;group.classList.toggle('group-selected',n===g.members.length);group.classList.toggle('group-partial',n>0&&n<g.members.length);const check=group.querySelector('.atlas-group-check');if(check)check.textContent=n===g.members.length?'✓':n>0?`${n}/${g.members.length}`:'+';});
- if(atlasHoverTypes&&atlasHoverTypes.size)applyAtlasHoverFilter(atlasHoverTypes);
+
+ // Invariant: ukrywanie kart jest dozwolone wyłącznie podczas AKTYWNEGO
+ // hoveru nad wydzieleniem. Zmiana wyboru gatunków nigdy nie może przywracać
+ // starego, nieaktualnego filtra.
+ const transientHoverActive=!!linkedTransientFeature&&!linkedLockedFeature&&atlasHoverTypes.size>0;
+ if(transientHoverActive)applyAtlasHoverFilter(atlasHoverTypes);
+ else{
+   atlasHoverTypes.clear();
+   applyAtlasHoverFilter(null);
+ }
 }
 function renderAtlasCards(){
  const root=document.getElementById('atlasStrip');if(!root)return;
- if(root.dataset.ready==='groups-v7species'){syncAtlasSelectionUI();return;}
+ if(root.dataset.ready==='groups-v15audit'){syncAtlasSelectionUI();return;}
  root.innerHTML=ATLAS_GROUPS.map(g=>{
    const cls=
      g.members.length===1?'group-single':
@@ -5231,11 +5342,45 @@ function renderAtlasCards(){
     <div class="atlas-family-note">Wspólny typ siedliska; każdy gatunek nadal ma własną ocenę w modelu.</div>
    </section>`;
  }).join('');
- root.dataset.ready='groups-v7species';
+ root.dataset.ready='groups-v15audit';
  root.querySelectorAll('.atlas-mini[data-type]').forEach(card=>{card.onclick=e=>{e.stopPropagation();if(performance.now()<atlasSuppressClickUntil)return;clearAtlasHover();toggleAtlasType(card.dataset.type);};});
  root.querySelectorAll('[data-group-toggle]').forEach(btn=>{btn.onclick=e=>{e.stopPropagation();if(performance.now()<atlasSuppressClickUntil)return;toggleAtlasGroup(btn.dataset.groupToggle);};});
  syncAtlasSelectionUI();
 }
+
+
+function auditAtlasState(){
+ const cards=[...document.querySelectorAll('#atlasStrip .atlas-mini[data-type]')];
+ const cardTypes=cards.map(x=>x.dataset.type);
+ const expected=ATLAS_GROUPS.flatMap(g=>g.members);
+ const duplicateCards=cardTypes.filter((t,i,a)=>a.indexOf(t)!==i);
+ const missingCards=expected.filter(t=>!cardTypes.includes(t));
+ const hidden=cards.filter(x=>x.classList.contains('filtered-out')).map(x=>x.dataset.type);
+ const hoverShouldFilter=!!linkedTransientFeature&&!linkedLockedFeature&&atlasHoverTypes.size>0;
+
+ const report={
+   expectedCount:expected.length,
+   cardCount:cards.length,
+   selectedCount:atlasSelected.size,
+   duplicateCards:[...new Set(duplicateCards)],
+   missingCards,
+   hiddenCards:hidden,
+   transientHoverActive:hoverShouldFilter,
+   lockedFeature:!!linkedLockedFeature,
+   staleFilter:hidden.length>0&&!hoverShouldFilter
+ };
+
+ if(report.staleFilter){
+   console.warn('ATLAS AUDIT: wykryto stary filtr — automatyczna naprawa',report);
+   atlasHoverTypes.clear();
+   applyAtlasHoverFilter(null);
+   report.autoHealed=true;
+ }else{
+   console.info('ATLAS AUDIT',report);
+ }
+ return report;
+}
+window.auditAtlasState=auditAtlasState;
 
 function clearAtlasSelection(){
  atlasSelected.clear();
@@ -5248,6 +5393,20 @@ function clearAtlasSelection(){
 function setupAtlasScrolling(){
  const strip=document.getElementById('atlasStrip');if(!strip||strip.dataset.scrollReady==='1')return;
  strip.dataset.scrollReady='1';
+
+ const atlasShell=document.getElementById('mushroomAtlas');
+ if(atlasShell&&atlasShell.dataset.hoverResetReady!=='1'){
+   atlasShell.dataset.hoverResetReady='1';
+   atlasShell.addEventListener('pointerenter',()=>{
+     // Gdy użytkownik wchodzi do atlasu, ma zawsze dostać pełną listę.
+     if(interactionHoverFeature&&!linkedLockedFeature){
+       clearMapHoverInteraction();
+     }else{
+       atlasHoverTypes.clear();
+       applyAtlasHoverFilter(null);
+     }
+   },{passive:true});
+ }
  strip.addEventListener('wheel',e=>{
    if(Math.abs(e.deltaY)>Math.abs(e.deltaX)||Math.abs(e.deltaX)>0){
      e.preventDefault();strip.scrollLeft+=(Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY);
@@ -6065,6 +6224,8 @@ async function reverseName(lat,lon,index){
 function clearAnalysisData(){
  invalidateInteractionGrid();
  clearMapHoverInteraction();
+ atlasHoverTypes.clear();
+ applyAtlasHoverFilter(null);
  linkedLockedFeature=null;
  linkedLockedLayer=null;
  linkedTransientFeature=null;
@@ -6306,6 +6467,8 @@ function syncSpeciesModeButtons(){
 }
 
 async function setSpeciesDisplayMode(mode){
+ atlasHoverTypes.clear();
+ applyAtlasHoverFilter(null);
  clearAtlasHover();
  atlasSelected.clear();
  currentFilter=mode==='diversity'?'diversity':'all';
@@ -6334,6 +6497,8 @@ function updateSpeciesMeta(){
  box.innerHTML='<b>🍄 Wybierz gatunki z paska na dole mapy</b><br><span style="opacity:.82">Możesz zaznaczyć kilka naraz. Bez wyboru działa standardowy tryb „najlepszy gatunek dla miejsca”.</span>';
 }
 document.getElementById('speciesSelect').onchange=async e=>{
+ atlasHoverTypes.clear();
+ applyAtlasHoverFilter(null);
  atlasSelected.clear();renderAtlasCards();updateAtlasHead();
  currentFilter=e.target.value;resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();updateRadarCard();if(centerWeather)updateWeatherCard();render();
  if(currentFilter!=='all'&&currentFilter!=='diversity')await ensureObservations(currentFilter);

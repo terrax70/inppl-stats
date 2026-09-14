@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v29: GeoTIFF RATIONAL/SRATIONAL + LZW/PackBits + predictor support -->
+<!-- GitHub production v30: BEST+TODAY same-species scoring + usable dynamic thresholds -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -5174,6 +5174,7 @@ let scoringRevision=0;
 let perfKeyLast='';
 let perfScoreCache=new WeakMap();
 let perfBestCache=new WeakMap();
+let perfBestTodayInfoCache=new WeakMap();
 let perfDiversityCache=new WeakMap();
 let perfRenderRAF=0;
 
@@ -5184,6 +5185,7 @@ function invalidateScoringCaches(reason=''){
  perfKeyLast='';
  perfScoreCache=new WeakMap();
  perfBestCache=new WeakMap();
+ perfBestTodayInfoCache=new WeakMap();
  perfDiversityCache=new WeakMap();
 
  // Stały scoring / hotspoty.
@@ -5217,7 +5219,11 @@ function perfKey(){
 function ensurePerfCache(){
  const k=perfKey();
  if(k!==perfKeyLast){
-   perfKeyLast=k;perfScoreCache=new WeakMap();perfBestCache=new WeakMap();perfDiversityCache=new WeakMap();
+   perfKeyLast=k;
+   perfScoreCache=new WeakMap();
+   perfBestCache=new WeakMap();
+   perfBestTodayInfoCache=new WeakMap();
+   perfDiversityCache=new WeakMap();
  }
  return k;
 }
@@ -5320,6 +5326,49 @@ function practicalAllScore(type,f){
  return clamp(s*(ALL_MODE_WEIGHT[type]||1));
 }
 
+
+function bestTodayInfo(f){
+ ensurePerfCache();
+ if(perfBestTodayInfoCache.has(f))return perfBestTodayInfoCache.get(f);
+
+ let best={
+   type:null,
+   score:0,
+   rawToday:0,
+   potential:0,
+   potentialClass:0
+ };
+
+ for(const t of PICK_TYPES){
+   if(!featureRelevant(t,f))continue;
+
+   // Wynik bieżący dla konkretnego gatunku.
+   const rawToday=practicalAllScore(t,f);
+
+   // Stały potencjał TEGO SAMEGO gatunku, razem z kontekstem kompleksu leśnego.
+   const potential=stableScoreForType(t,f);
+
+   // DZIŚ nie może przekroczyć potencjału tego samego gatunku.
+   const score=Math.min(rawToday,potential);
+   const potentialClass=atlasSingleSpeciesClass(t,f);
+
+   if(
+     score>best.score ||
+     (Math.abs(score-best.score)<1e-9 && potential>best.potential) ||
+     (Math.abs(score-best.score)<1e-9 && Math.abs(potential-best.potential)<1e-9 && String(t)<String(best.type))
+   ){
+     best={type:t,score,rawToday,potential,potentialClass};
+   }
+ }
+
+ if(!best.type){
+   best={type:'borowik',score:0,rawToday:0,potential:0,potentialClass:0};
+ }
+
+ perfBestTodayInfoCache.set(f,best);
+ return best;
+}
+
 function diversityData(f){
  ensurePerfCache();
  if(perfDiversityCache.has(f))return perfDiversityCache.get(f);
@@ -5341,23 +5390,32 @@ function diversityData(f){
 function bestTypeFor(f){
  ensurePerfCache();
  if(perfBestCache.has(f))return perfBestCache.get(f);
- let best='borowik',score=-1;
- for(const t of PICK_TYPES){
-   if(!featureRelevant(t,f))continue;
-   const s=practicalAllScore(t,f);
-   if(s>score){score=s;best=t;}
- }
- perfBestCache.set(f,best);return best;
+
+ const best=mapMode==='today'
+   ? bestTodayInfo(f).type
+   : stableAllType(f);
+
+ perfBestCache.set(f,best);
+ return best;
 }
 
 function effectiveScore(f){
  ensurePerfCache();
  if(perfScoreCache.has(f))return perfScoreCache.get(f);
+
  let v;
- if(currentFilter==='all')v=practicalAllScore(bestTypeFor(f),f);
- else if(currentFilter==='diversity')v=diversityData(f).score;
- else v=speciesEffective(currentFilter,f);
- perfScoreCache.set(f,v);return v;
+ if(currentFilter==='all'){
+   v=mapMode==='today'
+     ? bestTodayInfo(f).score
+     : stableAnchorScore(f);
+ }else if(currentFilter==='diversity'){
+   v=diversityData(f).score;
+ }else{
+   v=speciesEffective(currentFilter,f);
+ }
+
+ perfScoreCache.set(f,v);
+ return v;
 }
 
 function radarForCurrentFilter(){return currentFilter==='all'||currentFilter==='diversity'?radarScores.all:radarForType(currentFilter);}
@@ -5524,7 +5582,11 @@ function resetStaticCachesIfNeeded(){
  todayHotspotCacheKey='';todayHotspotCache=[];
  balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();hotspotMembershipKey='';
  todayScaleCacheKey='';todayScales={};
- perfKeyLast='';perfScoreCache=new WeakMap();perfBestCache=new WeakMap();perfDiversityCache=new WeakMap();
+ perfKeyLast='';
+ perfScoreCache=new WeakMap();
+ perfBestCache=new WeakMap();
+ perfBestTodayInfoCache=new WeakMap();
+ perfDiversityCache=new WeakMap();
 }
 
 function stableHabitatScore(type,f){
@@ -5732,22 +5794,37 @@ function todayLocalHotspots(areaName,maxHotspots){
  const features=stableCandidateFeatures(areaName);
  if(!features.length)return [];
 
- const scored=features.map(f=>({
-   f,
-   s:todayScoreForStyle(f),
-   cls:todayBalancedClass(f),
-   potential:stableAnchorScore(f),
-   potentialClass:balancedClass(f),
-   ctx:forestContextInfo(f),
-   key:stableFeatureKey(f)
- }))
+ const scored=features.map(f=>{
+   const info=(!atlasSelected.size&&currentFilter==='all')?bestTodayInfo(f):null;
+   const overallPotentialClass=balancedClass(f);
+
+   return {
+     f,
+     s:todayScoreForStyle(f),
+     cls:todayBalancedClass(f),
+     potential:info?info.potential:stableAnchorScore(f),
+     potentialClass:info?Math.min(info.potentialClass,overallPotentialClass):overallPotentialClass,
+     type:info?.type||null,
+     ctx:forestContextInfo(f),
+     key:stableFeatureKey(f)
+   };
+ })
  .filter(x=>Number.isFinite(x.s))
  .sort((a,b)=>(b.cls-a.cls)||(b.s-a.s)||a.key.localeCompare(b.key));
 
- // Hotspot DZIŚ musi być sensowny także siedliskowo.
- // Pogoda nie może awansować jasnego/słabego miejsca do A1.
- const membersPool=scored.filter(x=>x.cls>=2&&x.potentialClass>=2&&x.s>=6.5);
- const seedsPool=scored.filter(x=>x.cls>=3&&x.potentialClass>=3&&x.potential>=7.05&&x.s>=7.7);
+ // Hotspot DZIŚ zawsze musi leżeć na dobrym Potencjale.
+ // Dla "Najlepszego miejsca" próg bieżący jest niższy niż dawniej,
+ // bo score DZIŚ jest już celowo niższy od Potencjału.
+ const bestAll=!atlasSelected.size&&currentFilter==='all';
+ const memberMin=bestAll?6.10:6.50;
+ const seedMin=bestAll?7.05:7.70;
+
+ const membersPool=scored.filter(
+   x=>x.cls>=2&&x.potentialClass>=2&&x.s>=memberMin
+ );
+ const seedsPool=scored.filter(
+   x=>x.cls>=3&&x.potentialClass>=3&&x.potential>=7.05&&x.s>=seedMin
+ );
 
  // DZIŚ nie wymuszamy hotspotu "najlepszego ze słabych".
  if(!seedsPool.length)return [];
@@ -5787,7 +5864,9 @@ function todayLocalHotspots(areaName,maxHotspots){
      .sort((a,b)=>(b.cls-a.cls)||(b.s-a.s)||a.key.localeCompare(b.key));
 
    const bestX=members[0];
-   if(bestX.cls<3||bestX.potentialClass<3||bestX.potential<7.05)continue;
+   const bestAll=!atlasSelected.size&&currentFilter==='all';
+   const minToday=bestAll?7.05:7.70;
+   if(bestX.cls<3||bestX.potentialClass<3||bestX.potential<7.05||bestX.s<minToday)continue;
 
    const memberFeatures=members.map(x=>x.f);
    const areaHa=members.reduce((a,x)=>a+featureAreaHa(x.f),0);
@@ -5887,7 +5966,7 @@ function activeHotspots(){
 function currentHotspotType(h){
  if(mapMode==='habitat')return stableHotspotType(h);
  if(atlasSelected.size)return atlasAggregateScore(h.best,true).bestType;
- if(currentFilter==='all')return bestTypeFor(h.best);
+ if(currentFilter==='all')return bestTodayInfo(h.best).type;
  if(currentFilter==='diversity')return null;
  return currentFilter;
 }
@@ -6189,13 +6268,17 @@ let todayScaleCacheKey='';
 let todayScales={};
 
 function todayScoreForStyle(f){
+ // "Najlepsze miejsce" ma własną spójną ścieżkę:
+ // wybierz gatunek najlepszy DZIŚ i porównaj go z potencjałem TEGO SAMEGO gatunku.
+ if(!atlasSelected.size&&currentFilter==='all'){
+   return clamp(bestTodayInfo(f).score);
+ }
+
  let raw;
  if(atlasSelected.size)raw=atlasAggregateScore(f,true).score;
  else if(currentFilter==='diversity')raw=diversityData(f).score;
  else raw=effectiveScore(f);
 
- // StableAnchor zawiera również jakość/ciągłość kompleksu leśnego.
- // Wynik DZIŚ nie może być wyższy niż stały potencjał miejsca.
  const potential=stableAnchorScore(f);
  return clamp(Math.min(raw,potential));
 }
@@ -6260,26 +6343,38 @@ function todayBalancedClass(f){
    q20:5.2,q45:6.4,q70:7.4,q88:8.4,q93:8.8,q97:9.2
  };
 
- // Tryb szeroki ("najlepszy grzyb" / różnorodność / wiele gatunków)
- // ma naturalnie wyższe wyniki, bo wybieramy maksimum z wielu gatunków.
- // Dlatego ciemna zieleń wymaga tutaj wejścia do lokalnego TOP ~7%.
- const broad=
-   (!atlasSelected.size&&(currentFilter==='all'||currentFilter==='diversity')) ||
-   atlasSelected.size>1;
+ let todayClass=0;
 
+ if(!atlasSelected.size&&currentFilter==='all'){
+   // BEST + DZIŚ:
+   // wynik jest już dyskontem Potencjału, więc nie wymagamy absurdalnych 8.05+
+   // tylko po to, żeby dostać zwykłą zieloną klasę.
+   //
+   // Jednocześnie nadal wymagamy sensownego wyniku absolutnego.
+   if(s>=Math.max(scale.q93,8.15))todayClass=4;
+   else if(s>=Math.max(scale.q70,7.05))todayClass=3;
+   else if(s>=Math.max(scale.q45,6.15))todayClass=2;
+   else if(s>=Math.max(scale.q20,5.15))todayClass=1;
+
+   const info=bestTodayInfo(f);
+
+   // Podwójny sufit:
+   // 1. potencjał tego samego wybranego dziś gatunku,
+   // 2. kolor widoczny w ogólnym trybie POTENCJAŁ.
+   return Math.min(todayClass,info.potentialClass,balancedClass(f));
+ }
+
+ // Pozostałe tryby zachowują wcześniejszą ostrzejszą skalę.
+ const broad=
+   (!atlasSelected.size&&currentFilter==='diversity') ||
+   atlasSelected.size>1;
  const darkQ=broad?scale.q93:scale.q88;
 
- // Absolutne minima pilnują biologii:
- // poza sezonem lokalny "najlepszy" las nie stanie się zielony tylko dlatego,
- // że wszystkie inne lasy są jeszcze gorsze.
- let todayClass=0;
  if(s>=Math.max(darkQ,8.95))todayClass=4;
  else if(s>=Math.max(scale.q70,8.05))todayClass=3;
  else if(s>=Math.max(scale.q45,6.85))todayClass=2;
  else if(s>=Math.max(scale.q20,5.55))todayClass=1;
 
- // POTENCJAŁ jest sufitem klasy wizualnej.
- // DZIŚ może być taki sam lub słabszy, nigdy "bardziej zielony" niż POTENCJAŁ.
  return Math.min(todayClass,balancedClass(f));
 }
 
@@ -6348,7 +6443,10 @@ function diversityPopup(f){
 }
 
 function popupHtmlBase(f){
- const type=currentFilter==='all'?bestTypeFor(f):currentFilter,m=SPECIES_META[type],p=f.properties||{};
+ const type=currentFilter==='all'
+   ? (mapMode==='today'?bestTodayInfo(f).type:stableAllType(f))
+   : currentFilter,
+   m=SPECIES_META[type],p=f.properties||{};
  const v=verdictFor(f),vm=VERDICT_META[v.rank],conf=v.conf,reasons=reasonsFor(type,f);
  const soilRaw=soilAt(f._center),hist=historyInfo(type,f),what=whatCanGrowHere(f);
  const src=f._kind==='open'?'OpenStreetMap':(f._src==='pgl'?'PGL LP':(f._src==='other'?'poza PGL LP':'KO/KDO'));
@@ -6803,6 +6901,63 @@ function auditSoilState(){
  return report;
 }
 window.auditSoilState=auditSoilState;
+
+
+function auditBestTodayMode(){
+ const savedFilter=currentFilter;
+ const savedMode=mapMode;
+
+ currentFilter='all';
+ mapMode='today';
+ resetStaticCachesIfNeeded();
+ ensurePerfCache();
+
+ const rows=allFeatures
+   .filter(f=>!f._blocked&&f._kind!=='open')
+   .map(f=>{
+     const info=bestTodayInfo(f);
+     return {
+       f,
+       score:todayScoreForStyle(f),
+       cls:todayBalancedClass(f),
+       type:info.type,
+       potential:info.potential,
+       potentialClass:info.potentialClass,
+       overallPotentialClass:balancedClass(f)
+     };
+   });
+
+ const scores=rows.map(x=>x.score).filter(Number.isFinite).sort((a,b)=>a-b);
+ const hot=buildTodayHotspots();
+
+ const report={
+   forestFeatures:rows.length,
+   scoreMin:scores.length?Number(scores[0].toFixed(2)):null,
+   scoreMedian:scores.length?Number(quantileSorted(scores,.5).toFixed(2)):null,
+   scoreQ70:scores.length?Number(quantileSorted(scores,.7).toFixed(2)):null,
+   scoreMax:scores.length?Number(scores.at(-1).toFixed(2)):null,
+   class0:rows.filter(x=>x.cls===0).length,
+   class1:rows.filter(x=>x.cls===1).length,
+   class2:rows.filter(x=>x.cls===2).length,
+   class3:rows.filter(x=>x.cls===3).length,
+   class4:rows.filter(x=>x.cls===4).length,
+   todayHotspots:hot.length,
+   violationsTodayGreenerThanPotential:rows.filter(
+     x=>x.cls>Math.min(x.potentialClass,x.overallPotentialClass)
+   ).length,
+   mostCommonBestSpecies:Object.entries(
+     rows.reduce((acc,x)=>(acc[x.type]=(acc[x.type]||0)+1,acc),{})
+   ).sort((a,b)=>b[1]-a[1]).slice(0,8)
+ };
+
+ currentFilter=savedFilter;
+ mapMode=savedMode;
+ resetStaticCachesIfNeeded();
+
+ console.info('BEST + TODAY AUDIT',report);
+ return report;
+}
+window.auditBestTodayMode=auditBestTodayMode;
 
 function auditTodayPotentialConsistency(){
  const rows=allFeatures.filter(f=>!f._blocked&&f._kind!=='open');
@@ -8196,7 +8351,7 @@ function updateSpeciesMeta(){
        : 'Przy kilku gatunkach mapa pokazuje SUMĘ ich terenów: dodanie kolejnego grzyba nigdy nie usuwa miejsc dobrych dla wcześniej zaznaczonych. Każdy gatunek zachowuje własną skalę kolorów; mocniejszy obrys oznacza, że w tym samym miejscu dobrze pasuje kilka zaznaczonych gatunków.'} Najedź na wydzielenie — atlas pokaże, które grzyby konkretnie tu pasują.</span>`;
    return;
  }
- box.innerHTML='<b>🍄 Wybierz gatunki z paska na dole mapy</b><br><span style="opacity:.82">Możesz zaznaczyć kilka naraz. Bez wyboru działa standardowy tryb „najlepszy gatunek dla miejsca”.</span>';
+ box.innerHTML='<b>🍄 Najlepsze miejsce = najlepszy gatunek osobno dla każdego wydzielenia</b><br><span style="opacity:.82">W trybie DZIŚ mapa sprawdza każdy modelowany gatunek i wybiera ten, który ma tu najwyższy wynik teraz. W Potencjale wybiera gatunek o najlepszym stałym siedlisku. Gatunek może więc być inny w sąsiednich wydzieleniach.</span>';
 }
 document.getElementById('speciesSelect').onchange=async e=>{
  atlasHoverTypes.clear();

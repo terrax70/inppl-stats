@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v35: peak-shaped phenology calibration — seasonNow means closeness to typical fruiting peak -->
+<!-- GitHub production v36: fine phenology + distinct/clickable OSM open habitats + urban park cap -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -5520,6 +5520,43 @@ for(const [type,curve] of Object.entries(PHENOLOGY_V35)){
  if(SPECIES_META[type])SPECIES_META[type].season=curve;
 }
 
+// v36 — fine tuning po audycie dnia 257.
+// Nie zmienia szerokiego sezonu występowania; obniża jedynie "bliskość szczytu"
+// dla kilku gatunków, które w połowie września były zbyt wysoko.
+const PHENOLOGY_V36_TUNING={
+ ceglastopory:[
+   [145,3],[175,18],[205,50],[235,74],[260,82],[285,74],[310,42],[330,10]
+ ],
+ ponury:[
+   [135,4],[165,18],[195,50],[225,76],[250,70],[275,62],[300,36],[320,10]
+ ],
+ maslak_zolty:[
+   [165,3],[190,16],[220,45],[245,70],[265,82],[285,80],[305,60],[325,24],[340,5]
+ ],
+ maslak_sitarz:[
+   [150,4],[180,18],[210,45],[235,65],[260,75],[285,76],[310,52],[330,15]
+ ],
+ maslak_pstry:[
+   [155,4],[185,18],[215,45],[240,66],[265,76],[290,76],[315,48],[335,12]
+ ],
+ purchawka_oczkowana:[
+   [145,4],[180,16],[215,40],[240,62],[265,76],[290,78],[315,52],[335,15]
+ ],
+ czernidlak:[
+   [115,8],[145,18],[180,36],[220,58],[255,72],[285,82],[315,78],[345,42],[365,15]
+ ],
+ kurka:[
+   [130,5],[155,24],[180,62],[205,95],[230,100],[250,72],[275,55],[300,32],[325,10]
+ ],
+ siedzun_sosnowy:[
+   [180,3],[200,14],[220,36],[240,60],[260,78],[280,86],[300,74],[320,42],[330,15]
+ ]
+};
+
+for(const [type,curve] of Object.entries(PHENOLOGY_V36_TUNING)){
+ if(SPECIES_META[type])SPECIES_META[type].season=curve;
+}
+
 // Ścisłe związki gospodarza: bez właściwego rodzaju drzewa wynik ma być niski.
 // Gospodarz w sąsiednim wydzieleniu nadal jest dopuszczany, bo BDL pokazuje
 // przede wszystkim gatunek dominujący, a nie każdy pojedynczy składnik drzewostanu.
@@ -6178,6 +6215,49 @@ function stableCandidateFeatures(areaName){
 }
 
 
+
+function openHabitatTag(f){
+ return String(f?.properties?.open_type||'').toLowerCase();
+}
+
+function openHabitatIsUrbanLike(f){
+ if(f?._kind!=='open')return false;
+ const tag=openHabitatTag(f);
+ return tag==='park'||tag==='recreation_ground';
+}
+
+function bestOpenHotspotEligible(f){
+ if(f?._kind!=='open')return false;
+ // Park miejski/trawnik rekreacyjny nadal może być pokazany i kliknięty,
+ // ale domyślnie nie dostaje numerowanego hotspotu "gdzie jechać".
+ return !openHabitatIsUrbanLike(f);
+}
+
+function bestOpenPotentialClass(f){
+ const s=stableAnchorScore(f);
+ let c=0;
+ if(s>=8.35)c=4;
+ else if(s>=7.45)c=3;
+ else if(s>=6.55)c=2;
+ else if(s>=5.65)c=1;
+
+ // W domyślnym BEST miejskie parki/rekreacja nie wyglądają jak TOP las.
+ if(openHabitatIsUrbanLike(f))c=Math.min(c,2);
+ return c;
+}
+
+function bestOpenTodayClass(f){
+ const s=todayScoreForStyle(f);
+ let c=0;
+ if(s>=8.10)c=4;
+ else if(s>=7.05)c=3;
+ else if(s>=6.05)c=2;
+ else if(s>=5.10)c=1;
+
+ if(openHabitatIsUrbanLike(f))c=Math.min(c,2);
+ return Math.min(c,bestOpenPotentialClass(f));
+}
+
 function bestHabitatDomain(f){
  return f?._kind==='open'?'open':'forest';
 }
@@ -6206,7 +6286,9 @@ function chooseBalancedBestSeeds(pool,maxHotspots,minSeedDistance){
  const openLimit=bestOpenSeedLimit(maxHotspots);
  const forestTarget=Math.max(1,maxHotspots-openLimit);
  const forest=pool.filter(x=>bestHabitatDomain(x.f)==='forest');
- const open=pool.filter(x=>bestHabitatDomain(x.f)==='open');
+ const open=pool.filter(
+   x=>bestHabitatDomain(x.f)==='open'&&bestOpenHotspotEligible(x.f)
+ );
 
  const out=[];
 
@@ -6690,6 +6772,11 @@ function balancedClass(f){
  }
 
  const s=stableAnchorScore(f);
+
+ if(!atlasSelected.size&&currentFilter==='all'&&f._kind==='open'){
+   return bestOpenPotentialClass(f);
+ }
+
  const scale=buildBalancedScales()[featureAreaName(f)]||{
    q20:5.5,q45:6.4,q70:7.2,q88:8
  };
@@ -6706,10 +6793,51 @@ function balancedClassLabel(c){
  return ['słabsze','poniżej średniej','przeciętne','dobre','lokalny TOP'][c]||'—';
 }
 
+
+function openPotentialStyleFromClass(f,c,today=false){
+ const palettes=today ? [
+   {fill:'#d8d5c6',border:'#a9a58f',fo:.018,w:.18,op:.12},
+   {fill:'#ddd694',border:'#9f9658',fo:.10,w:.34,op:.42},
+   {fill:'#b7bd68',border:'#737b43',fo:.20,w:.52,op:.62},
+   {fill:'#789d50',border:'#486331',fo:.35,w:.75,op:.80},
+   {fill:'#376f43',border:'#23472d',fo:.52,w:1.00,op:.94}
+ ] : [
+   {fill:'#d9d6c8',border:'#aaa691',fo:.018,w:.18,op:.12},
+   {fill:'#e0d999',border:'#a59a5b',fo:.10,w:.34,op:.42},
+   {fill:'#bdc46f',border:'#7a8148',fo:.21,w:.52,op:.62},
+   {fill:'#7fa359',border:'#4e6938',fo:.36,w:.75,op:.81},
+   {fill:'#3d7749',border:'#274d31',fo:.54,w:1.00,op:.95}
+ ];
+
+ const p=palettes[c]||palettes[0];
+ let weight=p.w,border=p.border,fillOpacity=p.fo,opacity=p.op;
+
+ if(f._hotspotIndex){
+   weight=Math.max(weight,f._hotspotBest?1.95:1.05);
+   opacity=Math.max(opacity,.84);
+ }
+
+ return {
+   color:border,
+   weight,
+   fillColor:p.fill,
+   fillOpacity,
+   opacity,
+   dashArray:'5 4',
+   lineCap:'butt'
+ };
+}
+
 function stablePotentialStyle(f,show=true){
  if(!show)return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
 
- const c=balancedClass(f),palette=[
+ const c=balancedClass(f);
+
+ if(!atlasSelected.size&&currentFilter==='all'&&f._kind==='open'){
+   return openPotentialStyleFromClass(f,c,false);
+ }
+
+ const palette=[
    {fill:'#d7d7d7',border:'#b8b8b8',fo:.025,w:.10,op:.07},
    {fill:'#eadf91',border:'#b7a65d',fo:.11,w:.20,op:.25},
    {fill:'#c7cf78',border:'#929b55',fo:.22,w:.30,op:.43},
@@ -6871,6 +6999,10 @@ function todayBalancedClass(f){
 
  let todayClass=0;
 
+ if(!atlasSelected.size&&currentFilter==='all'&&f._kind==='open'){
+   return bestOpenTodayClass(f);
+ }
+
  if(!atlasSelected.size&&currentFilter==='all'){
    // BEST + DZIŚ:
    // wynik jest już dyskontem Potencjału, więc nie wymagamy absurdalnych 8.05+
@@ -6909,6 +7041,10 @@ function todayPotentialStyle(f,show=true){
 
  const s=todayScoreForStyle(f);
  const c=todayBalancedClass(f);
+
+ if(!atlasSelected.size&&currentFilter==='all'&&f._kind==='open'){
+   return openPotentialStyleFromClass(f,c,true);
+ }
 
  const palette=[
    {fill:'#d7d7d7',border:'#b8b8b8',fo:.020,w:.10,op:.07},
@@ -6976,7 +7112,7 @@ function popupHtmlBase(f){
  const v=verdictFor(f),vm=VERDICT_META[v.rank],conf=v.conf,reasons=reasonsFor(type,f);
  const soilRaw=soilAt(f._center),hist=historyInfo(type,f),what=whatCanGrowHere(f);
  const src=f._kind==='open'?'OpenStreetMap':(f._src==='pgl'?'PGL LP':(f._src==='other'?'poza PGL LP':'KO/KDO'));
- const mainLine=f._kind==='open'?`🌿 <b>${p.open_type||'teren otwarty'}</b>${p.name?' • '+p.name:''}`:
+ const mainLine=f._kind==='open'?`🌿 <b>Teren otwarty OSM:</b> ${p.open_type||'teren otwarty'}${p.name?' • '+p.name:''}`:
    `🌲 <b>${p.species_cd||p.gat_grp||'?'}</b> • ${p.species_age??'?'} lat • ${p.site_type_cd||'?'} • ${p.sub_area??'?'} ha`;
  const goodHtml=reasons.good.map(x=>`<div class="reason-good">✅ ${x}</div>`).join(''),warnHtml=reasons.warn.map(x=>`<div class="reason-warn">⚠️ ${x}</div>`).join('');
  const stable=stableAnchorScore(f),cls=balancedClass(f),hs=f._hotspotIndex?` • należy do hotspotu ${f._hotspotLabel||''}`:' • poza numerowanym hotspotem';
@@ -7461,18 +7597,65 @@ function phenologyBand(v){
 }
 
 function phenologyPeakCount(day){
- return PICK_TYPES.filter(t=>fallbackSeason(t,day)>=90).length;
+ return PICK_TYPES.filter(t=>Number(fallbackSeason(t,day).toFixed(1))>=90).length;
 }
+
+
+function auditOpenHabitatIntegration(){
+ const opens=allFeatures.filter(f=>f._kind==='open'&&!f._blocked);
+ const clickable=opens.filter(interactionFeatureIsClickable);
+ const urban=opens.filter(openHabitatIsUrbanLike);
+
+ const savedFilter=currentFilter;
+ const savedMode=mapMode;
+ const savedAtlas=[...atlasSelected];
+
+ atlasSelected.clear();
+ currentFilter='all';
+ mapMode='habitat';
+ resetStaticCachesIfNeeded();
+ invalidateScoringCaches('audit open habitat integration');
+
+ const urbanClasses=urban.map(f=>balancedClass(f));
+ const openHotspots=activeHotspots().filter(h=>h.best?._kind==='open');
+ const urbanHotspots=openHotspots.filter(h=>openHabitatIsUrbanLike(h.best));
+
+ const report={
+   openFeatures:opens.length,
+   clickableOpenFeatures:clickable.length,
+   urbanLikeOpenFeatures:urban.length,
+   maxUrbanPotentialClass:urbanClasses.length?Math.max(...urbanClasses):null,
+   openHotspots:openHotspots.length,
+   urbanOpenHotspots:urbanHotspots.length,
+   invariants:{
+     openFeaturesClickable:opens.length===0||clickable.length===opens.length,
+     urbanParksNotDarkTop:urbanClasses.every(c=>c<=2),
+     urbanParksNotNumberedHotspots:urbanHotspots.length===0
+   }
+ };
+
+ atlasSelected.clear();
+ for(const t of savedAtlas)atlasSelected.add(t);
+ currentFilter=savedFilter;
+ mapMode=savedMode;
+ resetStaticCachesIfNeeded();
+ invalidateScoringCaches('restore after open audit');
+
+ console.info('OPEN HABITAT INTEGRATION AUDIT',report);
+ return report;
+}
+window.auditOpenHabitatIntegration=auditOpenHabitatIntegration;
 
 function auditPhenologyCalibration(dayOverride=null){
  const day=Number.isFinite(dayOverride)?dayOverride:doy(new Date());
 
  const rows=PICK_TYPES.map(type=>{
-   const season=fallbackSeason(type,day);
+   const raw=fallbackSeason(type,day);
+   const season=Number(raw.toFixed(1));
    return {
      type,
      name:SPECIES_META[type]?.label||type,
-     season:Number(season.toFixed(1)),
+     season,
      band:phenologyBand(season)
    };
  }).sort((a,b)=>b.season-a.season);
@@ -7498,7 +7681,9 @@ function auditPhenologyCalibration(dayOverride=null){
      bayBoleteStrongInSeptember:
        fallbackSeason('podgrzybek',257)>=80,
      summerCepPastPeakInMidSeptember:
-       fallbackSeason('borowik_usiatkowany',257)<70
+       fallbackSeason('borowik_usiatkowany',257)<70,
+     midSeptemberGoodBandNotTooFlat:
+       (()=>{const n=PICK_TYPES.filter(t=>Number(fallbackSeason(t,257).toFixed(1))>=75).length;return n>=10&&n<=14;})()
    },
    species:rows
  };
@@ -8043,7 +8228,7 @@ function invalidateInteractionGrid(){
 }
 function interactionFeatureIsClickable(f){
  if(!analysisScoringReady)return false;
- if(!f||f._kind==='open'||!f.geometry)return false;
+ if(!f||!f.geometry)return false;
  if(f._blocked)return true;
  return atlasSelected.size ? atlasShowsFeature(f) : filterShowsFeature(f);
 }
@@ -8069,7 +8254,8 @@ function buildInteractionGrid(){
    const j1=Math.floor(b.getEast()/cell);
 
    // Bezpieczny limit na bardzo nietypowe ogromne poligony.
-   if((i1-i0+1)*(j1-j0+1)>400)continue;
+   // Open OSM może być większy niż pojedyncze wydzielenie leśne.
+   if((i1-i0+1)*(j1-j0+1)>(f._kind==='open'?900:400))continue;
 
    for(let i=i0;i<=i1;i++){
      for(let j=j0;j<=j1;j++){

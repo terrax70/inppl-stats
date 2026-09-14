@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v31: scoring consistency audit + locked scores + robust atlas wheel + soil interpolation fix -->
+<!-- GitHub production v32: correct tiled GeoTIFF layout + soil value validation + detailed soil audit -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -3860,8 +3860,41 @@ async function inflateTiffBytes(bytes,compression){
  throw new Error('GeoTIFF: nieobsługiwana kompresja '+compression);
 }
 
+function tiffDecode16Block(bytes,count,little,sampleFormat,predictor,rowWidth){
+ const rd=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+ if(bytes.byteLength<count*2){
+   throw new Error(`GeoTIFF: blok za krótki (${bytes.byteLength}/${count*2} B)`);
+ }
+
+ const raw=new Uint16Array(count);
+ for(let i=0;i<count;i++)raw[i]=rd.getUint16(i*2,little);
+
+ if(predictor===2){
+   if(!rowWidth||rowWidth<1)throw new Error('GeoTIFF: brak szerokości dla predictor=2');
+
+   for(let row=0;row*rowWidth<count;row++){
+     const base=row*rowWidth;
+     const end=Math.min(count,base+rowWidth);
+     for(let i=base+1;i<end;i++){
+       raw[i]=(raw[i]+raw[i-1])&0xffff;
+     }
+   }
+ }else if(predictor!==1){
+   throw new Error('GeoTIFF: nieobsługiwany predictor '+predictor);
+ }
+
+ const out=new Float64Array(count);
+ for(let i=0;i<count;i++){
+   out[i]=sampleFormat===1
+     ? raw[i]
+     : (raw[i]>=0x8000?raw[i]-0x10000:raw[i]);
+ }
+ return out;
+}
+
 async function parseSoilGeoTiff(buffer){
  const {dv,little,tags}=parseTiffDirectory(buffer);
+
  const width=Number(tags.get(256)||0);
  const height=Number(tags.get(257)||0);
  const bits=Array.isArray(tags.get(258))?Number(tags.get(258)[0]):Number(tags.get(258)||16);
@@ -3876,72 +3909,120 @@ async function parseSoilGeoTiff(buffer){
  if(bits!==16)throw new Error('GeoTIFF: oczekiwano INT16, jest '+bits+' bit');
  if(samplesPerPixel!==1)throw new Error('GeoTIFF: oczekiwano 1 pasma');
 
- let offsets=tags.get(273), counts=tags.get(279);
- if(offsets==null||counts==null){
-   offsets=tags.get(324); // tiled TIFF fallback
-   counts=tags.get(325);
- }
- offsets=Array.isArray(offsets)?offsets:[offsets];
- counts=Array.isArray(counts)?counts:[counts];
+ const values=new Float64Array(width*height);
+ values.fill(NaN);
 
- if(!offsets.length||offsets[0]==null||!counts.length||counts[0]==null){
-   throw new Error('GeoTIFF: brak danych strip/tile');
- }
+ const tileOffsets=tags.get(324);
+ const tileCounts=tags.get(325);
+ const isTiled=tileOffsets!=null&&tileCounts!=null;
 
- const chunks=[];
- let total=0;
- for(let i=0;i<offsets.length;i++){
-   const off=Number(offsets[i]);
-   const cnt=Number(counts[Math.min(i,counts.length-1)]);
-   if(!Number.isFinite(off)||!Number.isFinite(cnt)||off<0||off+cnt>dv.byteLength)continue;
-   const raw=new Uint8Array(buffer,off,cnt);
-   const dec=await inflateTiffBytes(raw,compression);
-   chunks.push(dec);
-   total+=dec.length;
- }
+ if(isTiled){
+   const tileWidth=Number(tags.get(322)||0);
+   const tileHeight=Number(tags.get(323)||0);
+   if(!tileWidth||!tileHeight)throw new Error('GeoTIFF: tiled bez TileWidth/TileLength');
 
- const joined=new Uint8Array(total);
- let at=0;
- for(const c of chunks){joined.set(c,at);at+=c.length;}
+   const offsets=Array.isArray(tileOffsets)?tileOffsets:[tileOffsets];
+   const counts=Array.isArray(tileCounts)?tileCounts:[tileCounts];
+   const tilesAcross=Math.ceil(width/tileWidth);
+   const tilesDown=Math.ceil(height/tileHeight);
+   const expectedTiles=tilesAcross*tilesDown;
 
- const needed=width*height*2;
- if(joined.length<needed){
-   throw new Error(`GeoTIFF: za mało danych (${joined.length}/${needed} B)`);
- }
+   if(offsets.length<expectedTiles){
+     throw new Error(`GeoTIFF: za mało kafli (${offsets.length}/${expectedTiles})`);
+   }
 
- const rd=new DataView(joined.buffer,joined.byteOffset,joined.byteLength);
- const raw16=new Uint16Array(width*height);
+   for(let ti=0;ti<expectedTiles;ti++){
+     const off=Number(offsets[ti]);
+     const cnt=Number(counts[Math.min(ti,counts.length-1)]);
+     if(!Number.isFinite(off)||!Number.isFinite(cnt)||off<0||off+cnt>dv.byteLength){
+       throw new Error('GeoTIFF: błędny offset kafla '+ti);
+     }
 
- for(let i=0;i<raw16.length;i++){
-   raw16[i]=rd.getUint16(i*2,little);
- }
+     const compressed=new Uint8Array(buffer,off,cnt);
+     const decoded=await inflateTiffBytes(compressed,compression);
 
- // Predictor 2 = horizontal differencing.
- if(predictor===2){
-   for(let y=0;y<height;y++){
-     const row=y*width;
-     for(let x=1;x<width;x++){
-       raw16[row+x]=(raw16[row+x]+raw16[row+x-1])&0xffff;
+     // Kafel ma pełny rozmiar tileWidth*tileHeight także na krawędzi rastra.
+     const tileSamples=tileWidth*tileHeight;
+     const block=tiffDecode16Block(
+       decoded,
+       tileSamples,
+       little,
+       sampleFormat,
+       predictor,
+       tileWidth
+     );
+
+     const tileX=ti%tilesAcross;
+     const tileY=Math.floor(ti/tilesAcross);
+
+     for(let y=0;y<tileHeight;y++){
+       const gy=tileY*tileHeight+y;
+       if(gy>=height)break;
+
+       for(let x=0;x<tileWidth;x++){
+         const gx=tileX*tileWidth+x;
+         if(gx>=width)break;
+
+         const v=block[y*tileWidth+x];
+         values[gy*width+gx]=(Number.isFinite(noData)&&v===noData)?NaN:v;
+       }
      }
    }
- }else if(predictor!==1){
-   throw new Error('GeoTIFF: nieobsługiwany predictor '+predictor);
+
+   return {
+     width,height,values,compression,predictor,sampleFormat,
+     layout:'tiled',
+     tileWidth,tileHeight
+   };
  }
 
- const values=new Float64Array(width*height);
- for(let i=0;i<values.length;i++){
-   let v;
-   if(sampleFormat===1){
-     v=raw16[i];
-   }else{
-     v=raw16[i]>=0x8000?raw16[i]-0x10000:raw16[i];
+ // Strip TIFF
+ let stripOffsets=tags.get(273);
+ let stripCounts=tags.get(279);
+ if(stripOffsets==null||stripCounts==null){
+   throw new Error('GeoTIFF: brak StripOffsets/StripByteCounts i brak TileOffsets');
+ }
+
+ const offsets=Array.isArray(stripOffsets)?stripOffsets:[stripOffsets];
+ const counts=Array.isArray(stripCounts)?stripCounts:[stripCounts];
+ const rowsPerStrip=Math.max(1,Number(tags.get(278)||height));
+
+ for(let si=0;si<offsets.length;si++){
+   const startRow=si*rowsPerStrip;
+   if(startRow>=height)break;
+
+   const rows=Math.min(rowsPerStrip,height-startRow);
+   const expectedSamples=rows*width;
+
+   const off=Number(offsets[si]);
+   const cnt=Number(counts[Math.min(si,counts.length-1)]);
+   if(!Number.isFinite(off)||!Number.isFinite(cnt)||off<0||off+cnt>dv.byteLength){
+     throw new Error('GeoTIFF: błędny offset strip '+si);
    }
 
-   if(Number.isFinite(noData)&&v===noData)values[i]=NaN;
-   else values[i]=v;
+   const compressed=new Uint8Array(buffer,off,cnt);
+   const decoded=await inflateTiffBytes(compressed,compression);
+   const block=tiffDecode16Block(
+     decoded,
+     expectedSamples,
+     little,
+     sampleFormat,
+     predictor,
+     width
+   );
+
+   for(let i=0;i<expectedSamples;i++){
+     const v=block[i];
+     const gi=startRow*width+i;
+     values[gi]=(Number.isFinite(noData)&&v===noData)?NaN:v;
+   }
  }
 
- return {width,height,values,compression,predictor,sampleFormat};
+ return {
+   width,height,values,compression,predictor,sampleFormat,
+   layout:'strips',
+   rowsPerStrip
+ };
 }
 
 async function fetchSoilWcsRaster(def,bb){
@@ -3953,7 +4034,8 @@ async function fetchSoilWcsRaster(def,bb){
      const ab=await fetchArrayBufferWithTimeout(urls[i],14000);
      const raster=await parseSoilGeoTiff(ab);
      console.debug(
-       `Soil WCS ${def.key}: ${raster.width}x${raster.height}, compression=${raster.compression}, predictor=${raster.predictor}, sampleFormat=${raster.sampleFormat}`
+       `Soil WCS ${def.key}: ${raster.width}x${raster.height}, layout=${raster.layout}, compression=${raster.compression}, predictor=${raster.predictor}, sampleFormat=${raster.sampleFormat}`+
+       (raster.layout==='tiled'?`, tile=${raster.tileWidth}x${raster.tileHeight}`:` rowsPerStrip=${raster.rowsPerStrip}`)
      );
      return raster;
    }catch(e){
@@ -3962,6 +4044,14 @@ async function fetchSoilWcsRaster(def,bb){
    }
  }
  throw lastErr||new Error('SoilGrids WCS: oba endpointy zawiodły');
+}
+
+function soilValuePlausible(key,v){
+ if(!Number.isFinite(v))return false;
+ if(key==='ph')return v>=2&&v<=10;
+ if(key==='sand')return v>=0&&v<=100;
+ if(key==='soc')return v>=0&&v<=1000;
+ return true;
 }
 
 function soilRasterToSamples(raster,bb,def){
@@ -3973,10 +4063,16 @@ function soilRasterToSamples(raster,bb,def){
      const raw=values[y*width+x];
      if(!Number.isFinite(raw))continue;
 
+     const value=raw/(def.factor||1);
+
+     // Twarda walidacja chroni scoring przed błędem parsera/no-data.
+     if(!soilValuePlausible(def.key,value))continue;
+
      // Środek komórki. W obrazie pierwszy wiersz jest północą.
      const lon=bb[0]+(x+.5)/width*(bb[2]-bb[0]);
      const lat=bb[3]-(y+.5)/height*(bb[3]-bb[1]);
-     out.push({lat,lon,key:def.key,value:raw/(def.factor||1)});
+
+     out.push({lat,lon,key:def.key,value});
    }
  }
  return out;
@@ -4033,10 +4129,12 @@ async function loadSoilGrid(){
    const withSand=points.filter(x=>Number.isFinite(x.sand)).length;
    const withSoc=points.filter(x=>Number.isFinite(x.soc)).length;
 
-   soilCoverage=expected?validRows.length/expected:0;
+   // Faktyczne pokrycie gleby = udział poprawnych komórek pH,
+   // a nie tylko informacja, czy HTTP request zakończył się 200.
+   const expectedCells=bbs.length*SOIL_WCS_GRID*SOIL_WCS_GRID;
+   soilCoverage=expectedCells?withPh.length/expectedCells:0;
 
    // pH jest kluczowe; wymagamy go dla min. 45% oczekiwanych komórek.
-   const expectedCells=bbs.length*SOIL_WCS_GRID*SOIL_WCS_GRID;
    const minPh=Math.max(4,Math.ceil(expectedCells*.45));
    soilReady=withPh.length>=minPh;
 
@@ -6956,6 +7054,18 @@ function auditPipelineState(){
 }
 window.auditPipelineState=auditPipelineState;
 
+
+function finiteStats(arr){
+ const a=arr.filter(Number.isFinite).sort((x,y)=>x-y);
+ if(!a.length)return {n:0,min:null,median:null,max:null};
+ return {
+   n:a.length,
+   min:Number(a[0].toFixed(3)),
+   median:Number(quantileSorted(a,.5).toFixed(3)),
+   max:Number(a[a.length-1].toFixed(3))
+ };
+}
+
 function auditSoilState(){
  const report={
    source:'SoilGrids WCS 1.0 GetCoverage / GEOTIFF_INT16',
@@ -6969,6 +7079,11 @@ function auditSoilState(){
    scoringUsesSoil:soilReady&&soilSamples.length>0,
    fallbackWhenUnavailable:'neutral 7/10',
    lastError:soilLastError||null,
+   ranges:{
+     ph:finiteStats(soilSamples.map(x=>x.ph)),
+     sand:finiteStats(soilSamples.map(x=>x.sand)),
+     soc:finiteStats(soilSamples.map(x=>x.soc))
+   },
    values:soilSamples.slice(0,8).map(x=>({
      lat:Number(x.lat.toFixed(4)),
      lon:Number(x.lon.toFixed(4)),
@@ -7043,11 +7158,10 @@ function auditScoringLogic(){
    }
  }
 
- const soilRanges=soilSamples.map(s=>({
-   ph:s.ph,
-   sand:s.sand,
-   soc:s.soc
- }));
+ const soilRanges=soilSamples.map(s=>({ph:s.ph,sand:s.sand,soc:s.soc}));
+ const implausiblePh=soilRanges.filter(s=>Number.isFinite(s.ph)&&(s.ph<2||s.ph>10)).length;
+ const implausibleSand=soilRanges.filter(s=>Number.isFinite(s.sand)&&(s.sand<0||s.sand>100)).length;
+ const implausibleSoc=soilRanges.filter(s=>Number.isFinite(s.soc)&&(s.soc<0||s.soc>1000)).length;
  const implausibleSoil=soilRanges.filter(s=>
    (Number.isFinite(s.ph)&&(s.ph<2||s.ph>10)) ||
    (Number.isFinite(s.sand)&&(s.sand<0||s.sand>100)) ||
@@ -7079,6 +7193,9 @@ function auditScoringLogic(){
      badBestSelection,
      nonFiniteScores,
      implausibleSoil,
+     implausiblePh,
+     implausibleSand,
+     implausibleSoc,
      weakHotspots
    },
    deterministicObservationRule:

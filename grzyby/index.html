@@ -6720,6 +6720,62 @@ function verdictRankCapFromMapClass(c){
  return 0;
 }
 
+
+// v59 — rozdzielamy DWA znaczenia punktacji:
+// 1) rawSpeciesScore = biologiczne dopasowanie gatunku do siedliska/warunków,
+// 2) practicalSpeciesScore = "czy naprawdę warto iść właśnie TU".
+//
+// Problem: miejsce mogło być lokalnie klasą ODPUŚĆ, ale gatunek nadal pokazywał 8.2/10.
+// To było matematycznie możliwe (wysokie dopasowanie biologiczne w słabym lokalnie miejscu),
+// lecz dla użytkownika mylące. Dlatego wynik pokazywany w panelu/atlasie jest teraz
+// procentowo dyskontowany klasą + pasem mapy. Model i hotspoty nadal używają surowych danych.
+const PRACTICAL_SPECIES_MULTIPLIERS=[
+  .44,.49,.55,   // odpuść
+  .62,.68,       // rezerwowo
+  .74,.80,       // średnio
+  .86,.91,       // warto
+  .95,.98,1.00   // TOP
+];
+
+function currentMapBandForFeature(f){
+ if(!f)return {class:0,band:0,progress:0,score:0};
+ const today=mapMode==='today';
+ const score=today?todayScoreForStyle(f):stableAnchorScore(f);
+ const c=today?todayBalancedClass(f,score):balancedClass(f);
+ const progress=unifiedWithinClassProgress(f,c,today,score);
+ const band=unifiedBandIndex(c,progress);
+ return {class:c,band,progress,score};
+}
+
+function practicalLocationMultiplier(f){
+ const info=currentMapBandForFeature(f);
+ const m=PRACTICAL_SPECIES_MULTIPLIERS[info.band] ?? 1;
+ return {...info,multiplier:m};
+}
+
+function practicalSpeciesScore(type,f,rawScore=NaN){
+ const raw=Number.isFinite(rawScore)?rawScore:speciesDisplayScore(type,f);
+ if(!Number.isFinite(raw))return 0;
+ const q=practicalLocationMultiplier(f);
+ return clamp(raw*q.multiplier);
+}
+
+function practicalSpeciesScoreInfo(type,f,rawScore=NaN){
+ const raw=Number.isFinite(rawScore)?rawScore:speciesDisplayScore(type,f);
+ const q=practicalLocationMultiplier(f);
+ const practical=Number.isFinite(raw)?clamp(raw*q.multiplier):0;
+ return {
+   type,
+   raw:Number.isFinite(raw)?raw:0,
+   practical,
+   multiplier:q.multiplier,
+   class:q.class,
+   band:q.band,
+   progress:q.progress,
+   mapScore:q.score
+ };
+}
+
 function verdictFor(f){
  if(currentFilter==='diversity'){
    const d=diversityData(f),rank=d.score>=8.7?3:d.score>=7.2?2:d.score>=5.5?1:0;
@@ -8340,16 +8396,21 @@ function unifiedFeatureSpeciesRows(f,primaryType=null,limit=null){
    if(type===primaryType)continue;
    if(!featureRelevant(type,f))continue;
 
-   const score=speciesDisplayScore(type,f);
+   const rawScore=speciesDisplayScore(type,f);
    const potential=stableScoreForType(type,f);
 
-   // "Może tu rosnąć" = gatunek ma biologiczny sens dla tego typu miejsca
-   // i model nie ocenia go skrajnie słabo. Nie ograniczamy już listy do 6.
-   if(!Number.isFinite(score)||score<4.8)continue;
+   // Lista "może tu rosnąć" nadal bazuje na biologicznym sensie gatunku.
+   // Wyświetlany wynik jest jednak praktyczny: czy warto iść dokładnie TU.
+   if(!Number.isFinite(rawScore)||rawScore<4.8)continue;
 
+   const info=practicalSpeciesScoreInfo(type,f,rawScore);
    rows.push({
      type,
-     score,
+     score:info.practical,
+     rawScore,
+     multiplier:info.multiplier,
+     mapClass:info.class,
+     mapBand:info.band,
      potential,
      season:seasonScore(type)
    });
@@ -8357,6 +8418,7 @@ function unifiedFeatureSpeciesRows(f,primaryType=null,limit=null){
 
  rows.sort((a,b)=>
    b.score-a.score ||
+   b.rawScore-a.rawScore ||
    b.potential-a.potential ||
    (HUMAN_NAMES[a.type]||a.type).localeCompare(HUMAN_NAMES[b.type]||b.type,'pl')
  );
@@ -8372,13 +8434,16 @@ function unifiedSpeciesGridHtml(rows){
    const sm=SPECIES_META[x.type]||{};
    const cls=unifiedScoreClass(x.score);
    const width=Math.max(0,Math.min(100,x.score*10));
-   return `<div class="u-species-card ${cls}">
+   const raw=Number.isFinite(x.rawScore)?x.rawScore:x.score;
+   const pct=Number.isFinite(x.multiplier)?Math.round(x.multiplier*100):100;
+   const title=`Ocena praktyczna ${x.score.toFixed(1)}/10 • dopasowanie biologiczne ${raw.toFixed(1)}/10 • lokalna korekta ${pct}%`;
+   return `<div class="u-species-card ${cls}" title="${escapeHtml(title)}">
      <img src="${atlasSvg(x.type)}" alt="${escapeHtml(sm.label||x.type)}">
      <div>
        <div class="u-species-name">${escapeHtml(sm.label||x.type)}</div>
        <div class="u-species-latin">${escapeHtml(sm.scientific||'')}</div>
      </div>
-     <div class="u-species-score ${cls}" title="${x.score>=6.8?'Po wybraniu gatunku to miejsce powinno być widoczne jako warte sprawdzenia':x.score>=5.5?'Po wybraniu gatunku to miejsce będzie widoczne jako rezerwowe':'Słabsze dopasowanie'}">${x.score.toFixed(1)}</div>
+     <div class="u-species-score ${cls}">${x.score.toFixed(1)}</div>
      <div class="u-species-bar"><span style="width:${width.toFixed(0)}%"></span></div>
    </div>`;
  }).join('')}</div>`;
@@ -8395,6 +8460,10 @@ function unifiedPopupHtml(f,h=null){
  const v=unifiedFeatureVerdict(f);
  const conf=v.conf||{value:35,label:'niska'};
  const stable=stableAnchorScore(f);
+ const primaryScoreInfo=(type&&currentFilter!=='diversity')
+   ? practicalSpeciesScoreInfo(type,f,v.score)
+   : null;
+ const displayedPrimaryScore=primaryScoreInfo?primaryScoreInfo.practical:v.score;
  const cls=currentMapClassForFeature(f);
  const featureVm=VERDICT_META[v.rank]||VERDICT_META[0];
  const modeLabel=mapMode==='today'?'DZIŚ':'POTENCJAŁ';
@@ -8436,7 +8505,7 @@ function unifiedPopupHtml(f,h=null){
    primaryHtml=`<div class="u-primary-species">
      <img src="${atlasSvg(type)}" alt="${escapeHtml(m.label||type)}">
      <div><div class="u-primary-name">${escapeHtml(m.label||type)}</div><div class="u-primary-latin">${escapeHtml(m.scientific||'')}</div></div>
-     <div class="u-primary-score">${v.score.toFixed(1)}<small>/10</small></div>
+     <div class="u-primary-score">${displayedPrimaryScore.toFixed(1)}<small>/10</small></div>
    </div>`;
 
    const reasons=reasonsFor(type,f);
@@ -8494,7 +8563,9 @@ function unifiedPopupHtml(f,h=null){
      `<div class="factor"><span>Potencjał siedliska</span><b>${v.habitat.toFixed(1)}/10</b></div>`+
      (mapMode==='today'?`<div class="factor"><span>Warunki teraz</span><b>${(v.fruit/10).toFixed(1)}/10</b></div>`:'')+
      (mapMode==='today'?`<div class="factor"><span>Sezon gatunku</span><b>${(seasonScore(type)/10).toFixed(1)}/10</b></div>`:'')+
-     `<div class="factor"><span>Wynik miejsca</span><b>${v.score.toFixed(1)}/10</b></div>`+
+     `<div class="factor"><span>Dopasowanie biologiczne</span><b>${v.score.toFixed(1)}/10</b></div>`+
+     (primaryScoreInfo?`<div class="factor"><span>Korekta lokalna</span><b>${Math.round(primaryScoreInfo.multiplier*100)}%</b></div>`:'')+
+     (primaryScoreInfo?`<div class="factor"><span>Ocena praktyczna</span><b>${displayedPrimaryScore.toFixed(1)}/10</b></div>`:'')+
      `<div class="factor"><span>Dopasowanie gospodarza</span><b>${Math.round(hostGate(type,f)*100)}%</b></div>`+
      `<div class="factor"><span>Gleba</span><b>${soilSuitability(type,f).toFixed(1)}</b></div>`+
      `<div class="factor"><span>Mikroteren</span><b>${moistureTerrainScore(type,f).toFixed(1)}</b></div></div>`+
@@ -8516,7 +8587,7 @@ function unifiedPopupHtml(f,h=null){
      <div class="popup-verdict ${featureVm.cls}" style="margin-top:7px">${featureVm.label} • ${modeLabel}</div>
 
      <div class="u-core-stats">
-       <div class="u-core-stat"><span>Ocena tego miejsca</span><b>${v.score.toFixed(1)}/10</b></div>
+       <div class="u-core-stat"><span>Ocena praktyczna</span><b>${displayedPrimaryScore.toFixed(1)}/10</b></div>
        <div class="u-core-stat"><span>Stały potencjał</span><b>${stable.toFixed(1)}/10</b></div>
        <div class="u-core-stat"><span>Pewność danych</span><b>${escapeHtml(conf.label)} • ${conf.value}/100</b></div>
        <div class="u-core-stat"><span>Klasa mapy ${modeLabel}</span><b>${escapeHtml(balancedClassLabel(cls))}</b></div>
@@ -8527,7 +8598,7 @@ function unifiedPopupHtml(f,h=null){
      <div class="u-section-head">
        <div>
          <div class="u-section-title">${currentFilter==='all'?'🍄 Najlepszy gatunek w tym miejscu':'🍄 Główny wynik dla tego miejsca'}</div>
-         <div class="u-section-sub">Wynik i opis zawsze odnoszą się do dokładnie klikniętego wydzielenia.</div>
+         <div class="u-section-sub">Pokazany wynik to ocena praktyczna wyjazdu do tego wydzielenia; surowe dopasowanie biologiczne jest w szczegółach.</div>
        </div>
      </div>
      ${primaryHtml}
@@ -9116,7 +9187,11 @@ function applyHintTypeFocus(types,locked=false){
 }
 function applyAtlasLinkedFocus(rows,locked=false){
  const types=new Set(rows.map(x=>x.type));
- const scoreMap=new Map(rows.map(x=>[x.type,x.score]));
+ const focusFeature=locked?linkedLockedFeature:linkedTransientFeature;
+ const scoreMap=new Map(rows.map(x=>[
+   x.type,
+   focusFeature?practicalSpeciesScore(x.type,focusFeature,x.score):x.score
+ ]));
 
  // TYLKO chwilowy hover nad lasem może fizycznie ukrywać niepasujące karty.
  // Kliknięte/zablokowane wydzielenie jedynie podświetla/przygasza atlas,
@@ -10795,6 +10870,46 @@ function auditVerdictMapConsistency(){
  return report;
 }
 window.auditVerdictMapConsistency=auditVerdictMapConsistency;
+
+
+function auditPracticalSpeciesScores(){
+ const f=linkedLockedFeature;
+ if(!f){
+   const out={ok:false,reason:'Najpierw kliknij wydzielenie, aby audyt miał konkretny punkt odniesienia.'};
+   console.warn('PRACTICAL SPECIES SCORE AUDIT',out);
+   return out;
+ }
+
+ const map=practicalLocationMultiplier(f);
+ const rows=PICK_TYPES
+   .filter(t=>featureRelevant(t,f))
+   .map(t=>{
+     const raw=speciesDisplayScore(t,f);
+     const practical=practicalSpeciesScore(t,f,raw);
+     return {
+       type:HUMAN_NAMES[t]||t,
+       raw:Number(raw.toFixed(2)),
+       practical:Number(practical.toFixed(2)),
+       multiplierPct:Math.round(map.multiplier*100),
+       mapClass:balancedClassLabel(map.class),
+       mapBand:map.band
+     };
+   })
+   .sort((a,b)=>b.practical-a.practical);
+
+ const report={
+   mode:mapMode,
+   filter:currentFilter,
+   mapClass:balancedClassLabel(map.class),
+   mapBand:map.band,
+   multiplierPct:Math.round(map.multiplier*100),
+   rows
+ };
+ console.table(rows);
+ console.info('PRACTICAL SPECIES SCORE AUDIT',report);
+ return report;
+}
+window.auditPracticalSpeciesScores=auditPracticalSpeciesScores;
 
 function auditPerformanceOptimization(){
  const rounded={};

@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="Interaktywna mapa potencjalnych siedlisk grzybów w Polsce na podstawie danych BDL, pogody, terenu i otwartych źródeł."/>
@@ -9,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v25: restore terrainPromise + isolate enrichment errors + clear stale hints -->
+<!-- GitHub production v26: SoilGrids WMS dual-endpoint diagnostics + favicon fix -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2426,6 +2427,22 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
+
+<style id="v26-source-detail">
+.source-chip{pointer-events:auto!important;cursor:pointer}
+.source-detail-box{
+ position:fixed;right:10px;top:390px;z-index:5150;
+ width:min(360px,calc(100vw - 20px));
+ display:none;padding:9px 10px;border-radius:10px;
+ background:rgba(18,24,20,.96);border:1px solid rgba(255,255,255,.13);
+ box-shadow:0 6px 20px rgba(0,0,0,.28);color:#dbe5de;
+ font:10px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+ white-space:normal;word-break:break-word;
+}
+.source-detail-box.show{display:block}
+@media(max-width:700px){.source-detail-box{top:420px;right:7px;width:min(280px,calc(100vw - 14px))}}
+</style>
+
 </head>
 <body>
 <div id="map"></div>
@@ -2446,6 +2463,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
     <div class="source-chip" data-source="obs" data-state="off"><span class="source-dot"></span><span>Historia</span></div>
   </div>
 </div>
+<div id="sourceDetailBox" class="source-detail-box"></div>
 <div id="dataRefreshToast" class="data-refresh-toast">✅ Dane pełne — mapa została zaktualizowana</div>
 <div id="analysisLoader" class="analysis-loader" aria-live="polite" aria-busy="true">
   <div class="analysis-loader-card">
@@ -2680,7 +2698,10 @@ let weatherReady=false;
 let centerWeather=null;
 let soilSamples=[], soilReady=false, soilCoverage=0;
 const SOIL_WMS_ENABLED=true;
+// ISRIC obecnie publikuje skrócone endpointy WxS np. /mapserv/phh2o.
+// Stary wariant ?map=/map/phh2o.map zostaje jako fallback.
 const SOIL_WMS_BASE='https://maps.isric.org/mapserv';
+let soilLastError='';
 const SOIL_WMS_PROPERTIES=[
   {key:'ph',map:'phh2o',layer:'phh2o_0-5cm_mean',factor:10},
   {key:'sand',map:'sand',layer:'sand_0-5cm_mean',factor:10},
@@ -3584,18 +3605,12 @@ function soilSamplingPoints(){
  return pts;
 }
 
-function soilWmsInfoUrl(def,lat,lon){
- // WMS 1.1.1 zachowuje kolejność lon,lat dla EPSG:4326.
+function soilWmsInfoUrls(def,lat,lon){
+ // WMS 1.1.1: EPSG:4326 = lon,lat.
  const span=.012;
- const bbox=[
-   lon-span,
-   lat-span,
-   lon+span,
-   lat+span
- ].join(',');
+ const bbox=[lon-span,lat-span,lon+span,lat+span].join(',');
 
- const q=new URLSearchParams({
-   map:`/map/${def.map}.map`,
+ const common={
    SERVICE:'WMS',
    VERSION:'1.1.1',
    REQUEST:'GetFeatureInfo',
@@ -3611,47 +3626,83 @@ function soilWmsInfoUrl(def,lat,lon){
    FEATURE_COUNT:'1',
    X:'50',
    Y:'50'
- });
- return `${SOIL_WMS_BASE}?${q}`;
+ };
+
+ const q1=new URLSearchParams(common);
+ const q2=new URLSearchParams({map:`/map/${def.map}.map`,...common});
+
+ return [
+   `${SOIL_WMS_BASE}/${encodeURIComponent(def.map)}?${q1}`,
+   `${SOIL_WMS_BASE}?${q2}`
+ ];
 }
 
 function parseSoilWmsValue(text){
  if(!text)return NaN;
 
- // Typowe odpowiedzi MapServer:
- // GRAY_INDEX = '62'
- // value_0 = '62'
- // Band1 = '62'
+ const cleaned=String(text).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+
+ // Jeśli serwer zwraca wyjątek OGC, pokaż go zamiast udawać "brak danych".
+ if(/ServiceException|ExceptionReport|msWMSFeatureInfo|error/i.test(cleaned)){
+   throw new Error('ISRIC WMS: '+cleaned.slice(0,220));
+ }
+
  const patterns=[
-   /GRAY_INDEX\s*=\s*['"]?(-?\d+(?:\.\d+)?)/i,
-   /value(?:_0)?\s*=\s*['"]?(-?\d+(?:\.\d+)?)/i,
-   /Band1\s*=\s*['"]?(-?\d+(?:\.\d+)?)/i
+   /GRAY_INDEX\s*[:=]\s*['"]?(-?\d+(?:\.\d+)?)/i,
+   /value(?:_0)?\s*[:=]\s*['"]?(-?\d+(?:\.\d+)?)/i,
+   /Band1\s*[:=]\s*['"]?(-?\d+(?:\.\d+)?)/i,
+   /pixel(?:\s+value)?\s*[:=]\s*['"]?(-?\d+(?:\.\d+)?)/i
  ];
+
  for(const rx of patterns){
-   const m=text.match(rx);
+   const m=cleaned.match(rx);
    if(m){
      const n=Number(m[1]);
      if(Number.isFinite(n))return n;
    }
  }
- return NaN;
+
+ // Czasem MapServer odpowiada po prostu pojedynczą liczbą.
+ const nums=cleaned.match(/-?\d+(?:\.\d+)?/g)||[];
+ if(nums.length===1){
+   const n=Number(nums[0]);
+   if(Number.isFinite(n))return n;
+ }
+
+ throw new Error('Nie rozpoznano odpowiedzi WMS: '+cleaned.slice(0,180));
 }
 
 async function fetchSoilWmsValue(def,lat,lon){
- const txt=await prodFetchText(soilWmsInfoUrl(def,lat,lon),{
-   timeoutMs:8500,
-   tries:2,
-   policy:{ttl:120*86400e3,stale:365*86400e3}
- });
- const raw=parseSoilWmsValue(txt);
- if(!Number.isFinite(raw))return NaN;
+ const urls=soilWmsInfoUrls(def,lat,lon);
+ let lastErr=null;
 
- // SoilGrids map values są przechowywane jako integer.
- // phh2o: pH*10, sand: g/kg -> /10 = %, soc: dg/kg -> /10 = g/kg.
- if(def.key==='ph')return raw>14?raw/10:raw;
- if(def.key==='sand')return raw>100?raw/10:raw;
- if(def.key==='soc')return raw>250?raw/10:raw;
- return raw/(def.factor||1);
+ for(let i=0;i<urls.length;i++){
+   const url=urls[i];
+   try{
+     const txt=await prodFetchText(url,{
+       timeoutMs:8000,
+       tries:1,
+       policy:{ttl:120*86400e3,stale:365*86400e3}
+     });
+
+     const raw=parseSoilWmsValue(txt);
+     if(!Number.isFinite(raw))throw new Error('WMS zwrócił wartość nienumeryczną');
+
+     if(def.key==='ph')return raw>14?raw/10:raw;
+     if(def.key==='sand')return raw>100?raw/10:raw;
+     if(def.key==='soc')return raw>250?raw/10:raw;
+     return raw/(def.factor||1);
+   }catch(e){
+     lastErr=e;
+     console.warn(
+       `Soil WMS ${def.key} endpoint ${i+1}/${urls.length} failed`,
+       e,
+       url
+     );
+   }
+ }
+
+ throw lastErr||new Error('SoilGrids WMS: oba endpointy zawiodły');
 }
 
 async function fetchSoilWmsPoint(lat,lon){
@@ -3660,15 +3711,23 @@ async function fetchSoilWmsPoint(lat,lon){
  );
 
  const out={lat,lon,ph:NaN,sand:NaN,soc:NaN,clay:NaN};
+ const errs=[];
 
  vals.forEach((r,i)=>{
-   if(r.status!=='fulfilled'||!Number.isFinite(r.value))return;
-   out[SOIL_WMS_PROPERTIES[i].key]=r.value;
+   const def=SOIL_WMS_PROPERTIES[i];
+   if(r.status==='fulfilled'&&Number.isFinite(r.value)){
+     out[def.key]=r.value;
+   }else{
+     errs.push(`${def.key}: ${r.reason?.message||'brak wartości'}`);
+   }
  });
 
- // pH jest najważniejszym składnikiem modelu gleby.
- // Bez pH punkt nie jest użyteczny.
- return Number.isFinite(out.ph)?out:null;
+ if(!Number.isFinite(out.ph)){
+   soilLastError=errs.join(' | ').slice(0,500);
+   return null;
+ }
+
+ return out;
 }
 
 async function loadSoilGrid(){
@@ -3679,6 +3738,7 @@ async function loadSoilGrid(){
  soilReady=false;
  soilCoverage=0;
  soilSamples=[];
+ soilLastError='';
 
  if(!SOIL_WMS_ENABLED){
    el.textContent='wyłączone';
@@ -3723,16 +3783,21 @@ async function loadSoilGrid(){
    soilCoverage=0;
    el.textContent=valid.length?`${valid.length}/${points.length} pkt • za mało`:'brak';
    el.className='st-warn';
-   setSourceState('soil','error','SoilGrids WMS: za mało poprawnych punktów • neutralna gleba 7/10');
+   const detail=soilLastError
+     ? `SoilGrids WMS: ${soilLastError}`
+     : `SoilGrids WMS: tylko ${valid.length}/${points.length} poprawnych punktów`;
+   console.warn('SoilGrids WMS insufficient data',detail);
+   setSourceState('soil','error',detail+' • neutralna gleba 7/10');
    return false;
  }catch(e){
-   console.warn('SoilGrids WMS',e);
+   soilLastError=String(e?.message||e);
+   console.warn('SoilGrids WMS fatal',e);
    soilReady=false;
    soilCoverage=0;
    soilSamples=[];
    el.textContent='WMS niedostępne';
    el.className='st-warn';
-   setSourceState('soil','error','SoilGrids WMS niedostępne • neutralna gleba 7/10');
+   setSourceState('soil','error',`SoilGrids WMS: ${soilLastError||e?.message||'niedostępne'} • neutralna gleba 7/10`);
    return false;
  }
 }
@@ -6400,6 +6465,8 @@ function auditSoilState(){
    reliability:Number(soilReliability().toFixed(3)),
    scoringUsesSoil:soilReady&&soilSamples.length>0,
    fallbackWhenUnavailable:'neutral 7/10',
+   lastError:soilLastError||null,
+   endpointStyle:'https://maps.isric.org/mapserv/{property} + legacy ?map= fallback',
    values:soilSamples.slice(0,8).map(x=>({
      lat:Number(x.lat.toFixed(4)),
      lon:Number(x.lon.toFixed(4)),
@@ -7302,7 +7369,27 @@ function setSourceState(id,state,detail=''){
 }
 function resetSourceStates(){
  for(const id of Object.keys(sourceStates))setSourceState(id,'off');
+ installSourceDetailClicks();
 }
+
+function installSourceDetailClicks(){
+ document.querySelectorAll('.source-chip').forEach(chip=>{
+   if(chip.dataset.detailReady==='1')return;
+   chip.dataset.detailReady='1';
+   chip.addEventListener('click',()=>{
+     const box=document.getElementById('sourceDetailBox');
+     const source=chip.dataset.source||'?';
+     const detail=chip.title||'Brak dodatkowych informacji';
+     console.info(`Źródło ${source}:`,detail);
+     if(!box)return;
+     box.innerHTML=`<b>${escapeHtml(chip.textContent.trim())}</b><br>${escapeHtml(detail)}`;
+     box.classList.add('show');
+     clearTimeout(window.__sourceDetailTimer);
+     window.__sourceDetailTimer=setTimeout(()=>box.classList.remove('show'),7000);
+   });
+ });
+}
+
 function updateSourceSummary(){
  const vals=Object.values(sourceStates);
  const relevant=vals.filter(x=>x!=='off');

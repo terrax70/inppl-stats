@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v34: BEST habitat-domain balance — forest/open quotas + grassland/edge relevance fix -->
+<!-- GitHub production v35: peak-shaped phenology calibration — seasonNow means closeness to typical fruiting peak -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -4463,7 +4463,7 @@ function staticSuitability(type,f){
 }
 function seasonGate(season){
  return piecewise(season,[
-   [0,.01],[15,.04],[30,.14],[45,.36],[60,.66],[75,.90],[90,1],[100,1]
+   [0,.01],[15,.04],[30,.13],[45,.34],[60,.62],[75,.86],[90,.98],[100,1]
  ]);
 }
 function fruitingConditions(type,f){
@@ -5430,6 +5430,94 @@ for(const [type,cfg] of Object.entries(BIOLOGY_CALIBRATION_V33)){
    strong:[...(SPECIES_META[type].strong||[])],
    secondary:[...(SPECIES_META[type].secondary||[])]
  };
+}
+
+// v35 — kalibracja fenologii na "bliskość typowego szczytu".
+// 0–20  poza typowym okresem / bardzo mała szansa
+// 20–50 początek lub schyłek sezonu
+// 50–75 wyraźnie w sezonie
+// 75–90 dobry okres
+// 90–100 okolice typowego szczytu
+//
+// Wcześniej połowa września dawała ~90–100 prawie całemu atlasowi,
+// więc sezon słabo różnicował tryb DZIŚ.
+const PHENOLOGY_V35={
+ borowik:[
+   [140,2],[165,15],[190,50],[220,78],[245,92],[270,88],[295,65],[320,25],[340,5]
+ ],
+ ceglastopory:[
+   [145,3],[175,20],[205,55],[235,82],[260,88],[285,78],[310,45],[330,10]
+ ],
+ ponury:[
+   [135,4],[165,20],[195,55],[225,82],[250,78],[275,68],[300,40],[320,10]
+ ],
+ kozlarz_babka:[
+   [150,4],[180,20],[210,55],[235,80],[260,90],[285,85],[310,60],[335,25],[350,5]
+ ],
+ podgrzybek:[
+   [155,2],[185,12],[215,35],[240,68],[260,92],[280,100],[305,92],[330,60],[350,20],[365,5]
+ ],
+ maslak_zolty:[
+   [165,3],[190,18],[220,50],[245,78],[265,92],[285,88],[305,65],[325,25],[340,5]
+ ],
+ maslak_sitarz:[
+   [150,4],[180,20],[210,50],[235,75],[260,86],[285,82],[310,55],[330,15]
+ ],
+ maslak_pstry:[
+   [155,4],[185,20],[215,50],[240,76],[265,88],[290,82],[315,50],[335,12]
+ ],
+ opienka_ciemna:[
+   [210,1],[235,5],[250,14],[265,38],[285,72],[305,96],[325,100],[345,65],[360,25]
+ ],
+ opienka_miodowa:[
+   [220,1],[245,3],[260,8],[275,28],[295,70],[315,96],[335,100],[350,70],[365,25]
+ ],
+ kania:[
+   [165,4],[190,18],[220,50],[245,78],[265,92],[285,95],[310,82],[335,40],[350,8]
+ ],
+ kania_gwiazdzista:[
+   [190,2],[220,12],[245,45],[270,82],[295,92],[320,75],[345,25]
+ ],
+ czernidlak:[
+   [115,8],[145,20],[180,40],[220,65],[255,82],[285,92],[315,85],[345,45],[365,15]
+ ],
+ pieczarka_polna:[
+   [120,6],[150,20],[185,45],[220,72],[250,88],[275,95],[305,82],[330,45],[345,10]
+ ],
+ purchawka_oczkowana:[
+   [145,4],[180,18],[215,45],[240,72],[265,88],[290,85],[315,55],[335,15]
+ ],
+ kurka:[
+   [130,5],[155,25],[180,65],[205,95],[230,100],[250,82],[275,60],[300,35],[325,10]
+ ],
+ borowik_usiatkowany:[
+   [115,8],[140,35],[165,75],[190,100],[215,95],[240,72],[265,45],[290,20],[315,5]
+ ],
+ borowik_sosnowy:[
+   [115,5],[140,25],[165,60],[190,82],[215,75],[240,82],[265,88],[290,78],[315,45],[335,12]
+ ],
+ maslak_zwyczajny:[
+   [155,3],[185,15],[215,45],[240,75],[260,92],[285,98],[310,80],[335,35],[350,8]
+ ],
+ rydz:[
+   [185,2],[210,10],[235,35],[255,72],[275,92],[295,100],[315,78],[335,35],[350,8]
+ ],
+ kozlarz_czerwony:[
+   [155,4],[185,18],[215,50],[240,78],[265,92],[290,86],[315,55],[335,18]
+ ],
+ kozlarz_pomaranczowozolty:[
+   [160,4],[190,18],[215,50],[240,78],[265,92],[290,84],[315,50],[335,15]
+ ],
+ mleczaj_swierkowy:[
+   [190,2],[215,10],[235,35],[255,70],[275,90],[295,96],[315,72],[335,30]
+ ],
+ siedzun_sosnowy:[
+   [180,3],[200,15],[220,40],[240,68],[260,88],[280,92],[300,78],[320,45],[330,15]
+ ]
+};
+
+for(const [type,curve] of Object.entries(PHENOLOGY_V35)){
+ if(SPECIES_META[type])SPECIES_META[type].season=curve;
 }
 
 // Ścisłe związki gospodarza: bez właściwego rodzaju drzewa wynik ma być niski.
@@ -7363,6 +7451,64 @@ window.auditSoilState=auditSoilState;
 
 
 
+
+function phenologyBand(v){
+ if(v>=90)return 'szczyt';
+ if(v>=75)return 'dobry okres';
+ if(v>=50)return 'w sezonie';
+ if(v>=20)return 'początek/schyłek';
+ return 'poza sezonem';
+}
+
+function phenologyPeakCount(day){
+ return PICK_TYPES.filter(t=>fallbackSeason(t,day)>=90).length;
+}
+
+function auditPhenologyCalibration(dayOverride=null){
+ const day=Number.isFinite(dayOverride)?dayOverride:doy(new Date());
+
+ const rows=PICK_TYPES.map(type=>{
+   const season=fallbackSeason(type,day);
+   return {
+     type,
+     name:SPECIES_META[type]?.label||type,
+     season:Number(season.toFixed(1)),
+     band:phenologyBand(season)
+   };
+ }).sort((a,b)=>b.season-a.season);
+
+ const peak=rows.filter(x=>x.season>=90);
+ const good=rows.filter(x=>x.season>=75);
+ const active=rows.filter(x=>x.season>=50);
+
+ const report={
+   dayOfYear:day,
+   peakCount:peak.length,
+   goodPeriodCount:good.length,
+   activeSeasonCount:active.length,
+   peakSpecies:peak.map(x=>x.name),
+   invariants:{
+     notMostAtlasAtPeak:peak.length<=Math.ceil(rows.length*.25),
+     clearPhenologySpread:(rows[0]?.season||0)-(rows.at(-1)?.season||0)>=50,
+     armillariaStillLaterInMidSeptember:
+       fallbackSeason('opienka_ciemna',257)<50 &&
+       fallbackSeason('opienka_miodowa',257)<35,
+     chanterellePastSummerPeakInMidSeptember:
+       fallbackSeason('kurka',257)<85,
+     bayBoleteStrongInSeptember:
+       fallbackSeason('podgrzybek',257)>=80,
+     summerCepPastPeakInMidSeptember:
+       fallbackSeason('borowik_usiatkowany',257)<70
+   },
+   species:rows
+ };
+
+ console.table(rows);
+ console.info('PHENOLOGY AUDIT',report);
+ return report;
+}
+window.auditPhenologyCalibration=auditPhenologyCalibration;
+
 function auditBestHabitatBalance(){
  const savedFilter=currentFilter;
  const savedMode=mapMode;
@@ -7477,7 +7623,10 @@ function auditBiologicalCalibration(){
      stableSpeciesPotential.toString().includes('soilSuitability'),
 
    potentialUsesTerrain:
-     stableSpeciesPotential.toString().includes('moistureTerrainScore')
+     stableSpeciesPotential.toString().includes('moistureTerrainScore'),
+
+   phenologyPeakNotFlat:
+     phenologyPeakCount(doy(new Date()))<=Math.ceil(PICK_TYPES.length*.25)
  };
 
  const report={

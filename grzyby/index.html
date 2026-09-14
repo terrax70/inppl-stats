@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v46: conservative performance audit + granular scoring caches -->
+<!-- GitHub production v47: linked-context optimization + reusable details DOM -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2818,8 +2818,8 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
-<style id="v46-performance-only">
-/* v46: wyłącznie optymalizacja — bez zmiany layoutu i progów punktacji. */
+<style id="v47-performance-only">
+/* v47: wyłącznie optymalizacja linked/panel — bez zmiany layoutu i progów punktacji. */
 </style>
 </head>
 
@@ -5544,6 +5544,7 @@ function renderForestBaseImmediately(feats,label='bazowe'){
 
  analysisGroup.clearLayers();
  analysisLayers=[];
+ try{invalidateLinkedContextGeometryCache();}catch(_){}
  feats.forEach(addAnalysisFeature);
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}`;
  document.getElementById('dsBDL').className='st-ok';
@@ -6224,6 +6225,8 @@ function invalidateScoringCaches(reason=''){
  // Kluczowy fragment: skala kolorów DZIŚ też musi zostać policzona od nowa.
  todayScaleCacheKey='';
  todayScales={};
+
+ try{invalidateLinkedContextDynamicCache();}catch(_){}
 
  if(reason)console.debug('Scoring cache invalidated:',reason,'rev',scoringRevision);
 }
@@ -8245,35 +8248,116 @@ function unifiedDetailsTitleFor(f,h=null){
  return t?(HUMAN_NAMES[t]||'Wybrane miejsce'):'Wybrane miejsce';
 }
 
+
+// v47 — cache DOM tylko dla aktywnego klikniętego miejsca.
+let unifiedDetailsDomCacheFeature=null;
+let unifiedDetailsDomCache=new Map();
+let unifiedDetailsMountedStateKey='';
+let unifiedDetailsMountedFeature=null;
+
+function unifiedDetailsStateKey(f,h=null){
+ return [
+   scoringRevision,
+   mapMode,
+   currentFilter,
+   atlasSelectionKey(),
+   hotspotMembershipKey,
+   f?._hotspotLabel||'',
+   h?hotspotLabel(h):'',
+   h?linkedFeatureUid(h.best):0
+ ].join('|');
+}
+
+function resetUnifiedDetailsDomCache(){
+ unifiedDetailsDomCacheFeature=null;
+ unifiedDetailsDomCache.clear();
+ unifiedDetailsMountedStateKey='';
+ unifiedDetailsMountedFeature=null;
+}
+
+function stashUnifiedDetailsMountedDom(body){
+ if(
+   !body ||
+   !unifiedDetailsMountedFeature ||
+   !unifiedDetailsMountedStateKey ||
+   unifiedDetailsMountedFeature!==unifiedDetailsDomCacheFeature
+ )return;
+
+ const frag=document.createDocumentFragment();
+ while(body.firstChild)frag.appendChild(body.firstChild);
+
+ unifiedDetailsDomCache.set(unifiedDetailsMountedStateKey,frag);
+
+ while(unifiedDetailsDomCache.size>6){
+   const firstKey=unifiedDetailsDomCache.keys().next().value;
+   unifiedDetailsDomCache.delete(firstKey);
+ }
+}
+
 function renderUnifiedDetailsContent(f,h=null,{preserveScroll=false,flash=false}={}){
  const panel=document.getElementById('placeDetailsPanel');
  const body=document.getElementById('placeDetailsBody');
  const title=document.getElementById('placeDetailsTitle');
  if(!panel||!body||!f)return false;
 
- // Hotspot musi być liczony na nowo, bo po zmianie DZIŚ/POTENCJAŁ,
- // filtra lub atlasu przynależność wydzielenia może się zmienić.
  h=h||hotspotForFeature(f);
+ const stateKey=unifiedDetailsStateKey(f,h);
+
+ if(unifiedDetailsDomCacheFeature!==f){
+   unifiedDetailsDomCacheFeature=f;
+   unifiedDetailsDomCache.clear();
+   unifiedDetailsMountedStateKey='';
+   unifiedDetailsMountedFeature=null;
+ }
+
+ // Ten sam feature + ten sam stan = panel jest już aktualny.
+ if(unifiedDetailsMountedFeature===f&&unifiedDetailsMountedStateKey===stateKey){
+   if(title)title.textContent=unifiedDetailsTitleFor(f,h);
+
+   if(flash){
+     body.classList.remove('details-refreshed');
+     requestAnimationFrame(()=>body.classList.add('details-refreshed'));
+   }
+   return true;
+ }
 
  let oldScroll=0;
  let openSummaries=[];
+
  if(preserveScroll){
    oldScroll=body.scrollTop;
    openSummaries=[...body.querySelectorAll('details[open] > summary')]
      .map(x=>x.textContent.trim());
  }
 
- body.innerHTML=unifiedPopupHtml(f,h);
+ if(unifiedDetailsMountedFeature===f&&unifiedDetailsMountedStateKey){
+   stashUnifiedDetailsMountedDom(body);
+ }else{
+   body.replaceChildren();
+ }
+
+ const cachedFrag=unifiedDetailsDomCache.get(stateKey);
+
+ if(cachedFrag&&cachedFrag.childNodes.length){
+   body.appendChild(cachedFrag);
+   unifiedDetailsDomCache.delete(stateKey);
+ }else{
+   body.innerHTML=unifiedPopupHtml(f,h);
+ }
+
+ unifiedDetailsMountedFeature=f;
+ unifiedDetailsMountedStateKey=stateKey;
+
  if(title)title.textContent=unifiedDetailsTitleFor(f,h);
 
  if(preserveScroll){
-   // Zachowujemy otwarte sekcje techniczne i pozycję przewijania,
-   // żeby zmiana trybu nie "wyrzucała" użytkownika na górę panelu.
    for(const d of body.querySelectorAll('details')){
      const summary=d.querySelector(':scope > summary');
      if(summary&&openSummaries.includes(summary.textContent.trim()))d.open=true;
    }
-   body.scrollTop=Math.min(oldScroll,Math.max(0,body.scrollHeight-body.clientHeight));
+
+   // Bez wymuszania layoutu przez scrollHeight/clientHeight.
+   body.scrollTop=oldScroll;
  }else{
    body.scrollTop=0;
  }
@@ -8395,8 +8479,281 @@ let linkedTransientFeature=null;
 let linkedActiveTypes=new Set();
 let linkedLayerClickSuppressUntil=0;
 
+// v47 — cache wyłącznie dla wizualnego kontekstu klikniętego wydzielenia.
+// Nie wpływa na scoring mapy ani wybór hotspotów.
+let linkedRowsCache=new WeakMap();
+
+let linkedContextGrid=null;
+let linkedContextGridKey='';
+const LINKED_CONTEXT_CELL=.0060;
+
+let linkedContextResultCache=new WeakMap(); // feature -> Map(state+bounds+types -> related[])
+let linkedContextLayerCache=new Map();      // key -> gotowa warstwa Leaflet
+let linkedContextCurrentLayer=null;
+let linkedContextClickedLayer=null;
+let linkedContextClickedFeature=null;
+let linkedContextCurrentKey='';
+let linkedContextAtlasSignature='';
+
+let linkedFeatureUidMap=new WeakMap();
+let linkedFeatureUidSeq=1;
+
+let linkedContextPerfLast={
+  candidates:0,
+  related:0,
+  queryMs:0,
+  layerMs:0,
+  resultCacheHit:false,
+  layerCacheHit:false,
+  layerReused:false,
+  totalMs:0
+};
+
+function linkedFeatureUid(f){
+ if(!f)return 0;
+ if(!linkedFeatureUidMap.has(f))linkedFeatureUidMap.set(f,linkedFeatureUidSeq++);
+ return linkedFeatureUidMap.get(f);
+}
+
+function linkedTypesKey(types){
+ return [...(types||[])].sort().join(',');
+}
+
+function linkedBoundsKey(bounds){
+ if(!bounds)return '';
+ return [
+   bounds.getSouth().toFixed(5),
+   bounds.getWest().toFixed(5),
+   bounds.getNorth().toFixed(5),
+   bounds.getEast().toFixed(5)
+ ].join('|');
+}
+
+function linkedRowsStateKey(){
+ return `${scoringRevision}|${mapMode}`;
+}
+
+function invalidateLinkedContextDynamicCache(){
+ linkedRowsCache=new WeakMap();
+ linkedContextResultCache=new WeakMap();
+
+ if(linkedContextCurrentLayer){
+   try{linkedLockGroup.removeLayer(linkedContextCurrentLayer);}catch(_){}
+ }
+ linkedContextCurrentLayer=null;
+ linkedContextCurrentKey='';
+
+ for(const layer of linkedContextLayerCache.values()){
+   if(layer){
+     try{if(linkedLockGroup.hasLayer(layer))linkedLockGroup.removeLayer(layer);}catch(_){}
+   }
+ }
+ linkedContextLayerCache.clear();
+ linkedContextAtlasSignature='';
+}
+
+function invalidateLinkedContextGeometryCache(){
+ invalidateLinkedContextDynamicCache();
+ linkedContextGrid=null;
+ linkedContextGridKey='';
+ linkedFeatureUidMap=new WeakMap();
+ linkedFeatureUidSeq=1;
+
+ if(linkedContextClickedLayer){
+   try{linkedLockGroup.removeLayer(linkedContextClickedLayer);}catch(_){}
+ }
+ linkedContextClickedLayer=null;
+ linkedContextClickedFeature=null;
+}
+
+function ensureLinkedContextGrid(){
+ const first=analysisLayers[0]?.f;
+ const last=analysisLayers[analysisLayers.length-1]?.f;
+ const key=[
+   analysisLayers.length,
+   allFeatures.length,
+   first?linkedFeatureUid(first):0,
+   last?linkedFeatureUid(last):0
+ ].join('|');
+
+ if(linkedContextGrid&&linkedContextGridKey===key)return linkedContextGrid;
+
+ const grid=new Map();
+ for(const row of analysisLayers){
+   const f=row.f;
+   if(!f?._center)continue;
+   const i=Math.floor(f._center[0]/LINKED_CONTEXT_CELL);
+   const j=Math.floor(f._center[1]/LINKED_CONTEXT_CELL);
+   const k=`${i}|${j}`;
+   if(!grid.has(k))grid.set(k,[]);
+   grid.get(k).push(f);
+ }
+
+ linkedContextGrid=grid;
+ linkedContextGridKey=key;
+ return grid;
+}
+
+function linkedContextCandidates(bounds){
+ const grid=ensureLinkedContextGrid();
+ if(!bounds||!grid)return [];
+
+ const south=bounds.getSouth();
+ const west=bounds.getWest();
+ const north=bounds.getNorth();
+ const east=bounds.getEast();
+
+ const i0=Math.floor(south/LINKED_CONTEXT_CELL);
+ const i1=Math.floor(north/LINKED_CONTEXT_CELL);
+ const j0=Math.floor(west/LINKED_CONTEXT_CELL);
+ const j1=Math.floor(east/LINKED_CONTEXT_CELL);
+
+ const out=[];
+ const seen=new Set();
+
+ for(let i=i0;i<=i1;i++){
+   for(let j=j0;j<=j1;j++){
+     const rows=grid.get(`${i}|${j}`)||[];
+     for(const f of rows){
+       const id=linkedFeatureUid(f);
+       if(seen.has(id))continue;
+       seen.add(id);
+
+       // Zachowujemy wcześniejszą semantykę 1:1:
+       // środek wydzielenia musi leżeć w powiększonym viewport.
+       const c=f._center;
+       if(
+         c &&
+         c[0]>=south && c[0]<=north &&
+         c[1]>=west  && c[1]<=east
+       ){
+         out.push(f);
+       }
+     }
+   }
+ }
+ return out;
+}
+
+function linkedContextResultFor(f,types,bounds){
+ let mapForFeature=linkedContextResultCache.get(f);
+ if(!mapForFeature){
+   mapForFeature=new Map();
+   linkedContextResultCache.set(f,mapForFeature);
+ }
+
+ const key=[
+   scoringRevision,
+   mapMode,
+   linkedTypesKey(types),
+   linkedBoundsKey(bounds)
+ ].join('|');
+
+ if(mapForFeature.has(key)){
+   return {
+     key,
+     related:mapForFeature.get(key),
+     cacheHit:true,
+     candidates:0,
+     queryMs:0
+   };
+ }
+
+ const q0=performance.now();
+ const candidates=linkedContextCandidates(bounds);
+ const related=[];
+
+ for(const g of candidates){
+   if(g===f||g._blocked||!g._center)continue;
+   if(featureMatchesAnyType(g,types))related.push(g);
+ }
+
+ const queryMs=performance.now()-q0;
+ mapForFeature.set(key,related);
+
+ if(mapForFeature.size>8){
+   const firstKey=mapForFeature.keys().next().value;
+   mapForFeature.delete(firstKey);
+ }
+
+ return {
+   key,
+   related,
+   cacheHit:false,
+   candidates:candidates.length,
+   queryMs
+ };
+}
+
+function linkedContextLayerFor(key,related){
+ if(linkedContextLayerCache.has(key)){
+   const layer=linkedContextLayerCache.get(key);
+   linkedContextLayerCache.delete(key);
+   linkedContextLayerCache.set(key,layer);
+   return {layer,cacheHit:true};
+ }
+
+ const layer=related.length ? L.geoJSON({
+   type:'FeatureCollection',
+   features:related.map(g=>({
+     type:'Feature',
+     properties:{_related:true},
+     geometry:g.geometry
+   }))
+ },{
+   renderer:linkedFocusRenderer,
+   interactive:false,
+   smoothFactor:2,
+   style:{
+     color:'#70d98b',
+     weight:1.7,
+     opacity:.88,
+     fillColor:'#70d98b',
+     fillOpacity:.13
+   }
+ }) : null;
+
+ linkedContextLayerCache.set(key,layer);
+
+ while(linkedContextLayerCache.size>6){
+   const oldestKey=linkedContextLayerCache.keys().next().value;
+   const oldestLayer=linkedContextLayerCache.get(oldestKey);
+   if(oldestLayer&&oldestLayer!==linkedContextCurrentLayer){
+     try{linkedLockGroup.removeLayer(oldestLayer);}catch(_){}
+   }
+   linkedContextLayerCache.delete(oldestKey);
+ }
+
+ return {layer,cacheHit:false};
+}
+
+function linkedRowsSignature(rows){
+ return (rows||[])
+   .map(x=>`${x.type}:${Number(x.score||0).toFixed(2)}`)
+   .join('|');
+}
+
 function linkedRowsForFeature(f){
- return atlasFeatureMatches(f,6.25).slice().sort((a,b)=>b.score-a.score);
+ if(!f)return [];
+
+ let byState=linkedRowsCache.get(f);
+ if(!byState){
+   byState=new Map();
+   linkedRowsCache.set(f,byState);
+ }
+
+ const key=linkedRowsStateKey();
+ if(byState.has(key))return byState.get(key);
+
+ const rows=atlasFeatureMatches(f,6.25).slice().sort((a,b)=>b.score-a.score);
+ byState.set(key,rows);
+
+ if(byState.size>5){
+   const firstKey=byState.keys().next().value;
+   byState.delete(firstKey);
+ }
+
+ return rows;
 }
 function featureMatchesAnyType(f,types){
  if(!types||!types.size)return false;
@@ -8484,32 +8841,74 @@ function drawLinkedFeature(group,f,locked=false){
  }).addTo(group);
 }
 function drawLockedForestContext(f,types){
- linkedLockGroup.clearLayers();
  if(!f||!f.geometry)return;
 
+ const t0=performance.now();
  const viewBounds=map.getBounds().pad(.06);
- const related=[];
- for(const row of analysisLayers){
-   const g=row.f;
-   if(g===f||g._blocked||!g._center)continue;
-   if(!viewBounds.contains(L.latLng(g._center[0],g._center[1])))continue;
-   if(featureMatchesAnyType(g,types))related.push(g);
- }
 
- if(related.length){
-   L.geoJSON({
-     type:'FeatureCollection',
-     features:related.map(g=>({type:'Feature',properties:{_related:true},geometry:g.geometry}))
+ // Żółty obrys klikniętego miejsca jest stały — tworzymy go tylko raz.
+ if(linkedContextClickedFeature!==f||!linkedContextClickedLayer){
+   if(linkedContextClickedLayer){
+     try{linkedLockGroup.removeLayer(linkedContextClickedLayer);}catch(_){}
+   }
+
+   linkedContextClickedLayer=L.geoJSON({
+     type:'Feature',
+     properties:{_clicked:true},
+     geometry:f.geometry
    },{
-     renderer:linkedFocusRenderer,interactive:false,smoothFactor:2,
-     style:{color:'#70d98b',weight:1.7,opacity:.88,fillColor:'#70d98b',fillOpacity:.13}
-   }).addTo(linkedLockGroup);
+     renderer:linkedFocusRenderer,
+     interactive:false,
+     smoothFactor:1.8,
+     style:{
+       color:'#ffe077',
+       weight:3.6,
+       opacity:1,
+       fillColor:'#ffe077',
+       fillOpacity:.20
+     }
+   });
+
+   linkedContextClickedFeature=f;
+   linkedLockGroup.addLayer(linkedContextClickedLayer);
  }
 
- L.geoJSON({type:'Feature',properties:{_clicked:true},geometry:f.geometry},{
-   renderer:linkedFocusRenderer,interactive:false,smoothFactor:1.8,
-   style:{color:'#ffe077',weight:3.6,opacity:1,fillColor:'#ffe077',fillOpacity:.20}
- }).addTo(linkedLockGroup);
+ const result=linkedContextResultFor(f,types,viewBounds);
+ const layerKey=`${linkedFeatureUid(f)}|${result.key}`;
+
+ const lr0=performance.now();
+ const layerInfo=linkedContextLayerFor(layerKey,result.related);
+
+ let layerReused=false;
+ if(linkedContextCurrentKey===layerKey){
+   layerReused=true;
+ }else{
+   if(linkedContextCurrentLayer){
+     try{linkedLockGroup.removeLayer(linkedContextCurrentLayer);}catch(_){}
+   }
+
+   linkedContextCurrentLayer=layerInfo.layer;
+   linkedContextCurrentKey=layerKey;
+
+   if(linkedContextCurrentLayer){
+     linkedLockGroup.addLayer(linkedContextCurrentLayer);
+   }
+ }
+
+ if(linkedContextClickedLayer){
+   try{linkedContextClickedLayer.bringToFront?.();}catch(_){}
+ }
+
+ linkedContextPerfLast={
+   candidates:result.candidates,
+   related:result.related.length,
+   queryMs:result.queryMs,
+   layerMs:performance.now()-lr0,
+   resultCacheHit:result.cacheHit,
+   layerCacheHit:layerInfo.cacheHit,
+   layerReused,
+   totalMs:performance.now()-t0
+ };
 }
 let linkedHoverRAF=0;
 let linkedHoverPending=null;
@@ -8540,12 +8939,41 @@ function clearLinkedHover(layer,f){
  }
 }
 function lockLinkedFeature(f,layer){
+ const featureChanged=linkedLockedFeature!==f;
+
  linkedLockedFeature=f;
  linkedLockedLayer=layer;
  linkedHoverGroup.clearLayers();
+
+ if(featureChanged){
+   linkedContextResultCache=new WeakMap();
+
+   if(linkedContextCurrentLayer){
+     try{linkedLockGroup.removeLayer(linkedContextCurrentLayer);}catch(_){}
+   }
+   linkedContextCurrentLayer=null;
+   linkedContextCurrentKey='';
+
+   for(const cachedLayer of linkedContextLayerCache.values()){
+     if(cachedLayer){
+       try{linkedLockGroup.removeLayer(cachedLayer);}catch(_){}
+     }
+   }
+   linkedContextLayerCache.clear();
+
+   if(linkedContextClickedLayer){
+     try{linkedLockGroup.removeLayer(linkedContextClickedLayer);}catch(_){}
+   }
+   linkedContextClickedLayer=null;
+   linkedContextClickedFeature=null;
+   linkedContextAtlasSignature='';
+ }
+
  const rows=linkedRowsForFeature(f);
  const types=new Set(rows.map(x=>x.type));
+
  applyAtlasLinkedFocus(rows,true);
+ linkedContextAtlasSignature=linkedRowsSignature(rows);
  drawLockedForestContext(f,types);
 }
 function clearLinkedLock(){
@@ -8553,11 +8981,40 @@ function clearLinkedLock(){
  linkedLockedLayer=null;
  linkedTransientFeature=null;
  linkedHoverPending=null;
- if(linkedHoverRAF){cancelAnimationFrame(linkedHoverRAF);linkedHoverRAF=0;}
+
+ if(linkedHoverRAF){
+   cancelAnimationFrame(linkedHoverRAF);
+   linkedHoverRAF=0;
+ }
+
  linkedHoverGroup.clearLayers();
+
+ if(linkedContextCurrentLayer){
+   try{linkedLockGroup.removeLayer(linkedContextCurrentLayer);}catch(_){}
+ }
+ if(linkedContextClickedLayer){
+   try{linkedLockGroup.removeLayer(linkedContextClickedLayer);}catch(_){}
+ }
+
+ linkedContextCurrentLayer=null;
+ linkedContextClickedLayer=null;
+ linkedContextClickedFeature=null;
+ linkedContextCurrentKey='';
+ linkedContextAtlasSignature='';
+ linkedContextResultCache=new WeakMap();
+
+ for(const cachedLayer of linkedContextLayerCache.values()){
+   if(cachedLayer){
+     try{linkedLockGroup.removeLayer(cachedLayer);}catch(_){}
+   }
+ }
+ linkedContextLayerCache.clear();
+
  linkedLockGroup.clearLayers();
  clearLinkedAtlasClasses();
  updateAtlasHead();
+
+ try{resetUnifiedDetailsDomCache();}catch(_){}
 }
 function reapplyLinkedVisualFocus(){
  if(linkedLockedFeature)applyAtlasLinkedFocus(linkedRowsForFeature(linkedLockedFeature),true);
@@ -9595,20 +10052,44 @@ function perfRenderNow(){
  hintGroup.clearLayers();
 
  if(!allFeatures.length){
-   perfAuditLast={...perfAuditLast,total:performance.now()-t0,features:0,layers:analysisLayers.length,mode:mapMode,filter:currentFilter,atlas:atlasSelected.size};
+   perfAuditLast={
+     ...perfAuditLast,
+     total:performance.now()-t0,
+     features:0,
+     layers:analysisLayers.length,
+     mode:mapMode,
+     filter:currentFilter,
+     atlas:atlasSelected.size
+   };
    return;
  }
 
  if(!analysisScoringReady){
    const ts=performance.now();
+
    for(const {f,layer:ly} of analysisLayers){
      const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
      ly.setStyle(loadingForestStyle(f,show));
    }
+
    const t1=performance.now();
+
    perfAuditLast={
-     total:t1-t0,prepare:ts-t0,styles:t1-ts,top:0,hints:0,linked:0,
-     features:allFeatures.length,layers:analysisLayers.length,mode:mapMode,filter:currentFilter,atlas:atlasSelected.size
+     total:t1-t0,
+     prepare:ts-t0,
+     styles:t1-ts,
+     top:0,
+     hints:0,
+     linked:0,
+     linkedRows:0,
+     linkedAtlas:0,
+     linkedContext:0,
+     linkedPanel:0,
+     features:allFeatures.length,
+     layers:analysisLayers.length,
+     mode:mapMode,
+     filter:currentFilter,
+     atlas:atlasSelected.size
    };
    return;
  }
@@ -9636,10 +10117,36 @@ function perfRenderNow(){
  }
  const th1=performance.now();
 
+ let linkedRowsMs=0;
+ let linkedAtlasMs=0;
+ let linkedContextMs=0;
+ let linkedPanelMs=0;
+
  if(linkedLockedFeature){
-   drawLockedForestContext(linkedLockedFeature,new Set(linkedRowsForFeature(linkedLockedFeature).map(x=>x.type)));
+   const lr0=performance.now();
+   const rows=linkedRowsForFeature(linkedLockedFeature);
+   const types=new Set(rows.map(x=>x.type));
+   linkedRowsMs=performance.now()-lr0;
+
+   const la0=performance.now();
+   const atlasSig=linkedRowsSignature(rows);
+
+   if(atlasSig!==linkedContextAtlasSignature){
+     applyAtlasLinkedFocus(rows,true);
+     linkedContextAtlasSignature=atlasSig;
+   }
+
+   linkedAtlasMs=performance.now()-la0;
+
+   const lc0=performance.now();
+   drawLockedForestContext(linkedLockedFeature,types);
+   linkedContextMs=performance.now()-lc0;
+
+   const lp0=performance.now();
    refreshUnifiedDetails({preserveScroll:true,flash:true});
+   linkedPanelMs=performance.now()-lp0;
  }
+
  const tl1=performance.now();
 
  perfAuditLast={
@@ -9649,6 +10156,18 @@ function perfRenderNow(){
    top:tt1-ts1,
    hints:th1-tt1,
    linked:tl1-th1,
+
+   linkedRows:linkedRowsMs,
+   linkedAtlas:linkedAtlasMs,
+   linkedContext:linkedContextMs,
+   linkedPanel:linkedPanelMs,
+
+   linkedCandidates:linkedContextPerfLast.candidates||0,
+   linkedRelated:linkedContextPerfLast.related||0,
+   linkedResultCacheHit:!!linkedContextPerfLast.resultCacheHit,
+   linkedLayerCacheHit:!!linkedContextPerfLast.layerCacheHit,
+   linkedLayerReused:!!linkedContextPerfLast.layerReused,
+
    features:allFeatures.length,
    layers:analysisLayers.length,
    mode:mapMode,
@@ -9712,12 +10231,14 @@ function hotspotHintTypes(h,limitOverride){
 
 function auditPerformanceOptimization(){
  const rounded={};
+
  for(const [k,v] of Object.entries(perfAuditLast)){
    rounded[k]=typeof v==='number'?Number(v.toFixed(2)):v;
  }
 
  const report={
    lastRenderMs:rounded,
+
    cacheState:{
      soilPoints:perfSoilPointCache.size,
      weatherPoints:perfWeatherPointCache.size,
@@ -9725,21 +10246,44 @@ function auditPerformanceOptimization(){
      stablePotentialBuckets:perfStableSpeciesPotentialCache.size,
      stableTypeBuckets:perfStableTypeScoreCache.size,
      todayEffectiveBuckets:perfTodaySpeciesEffectiveCache.size,
+
      balancedScaleCached:!!balancedScaleKey,
      todayScaleCached:!!todayScaleCacheKey,
-     hotspotCached:mapMode==='today'?!!todayHotspotCacheKey:!!hotspotCacheKey
+     hotspotCached:mapMode==='today'?!!todayHotspotCacheKey:!!hotspotCacheKey,
+
+     linkedGridCells:linkedContextGrid?.size||0,
+     linkedContextLayers:linkedContextLayerCache.size,
+     linkedDomStates:unifiedDetailsDomCache.size
    },
+
+   linkedContext:{
+     candidates:linkedContextPerfLast.candidates||0,
+     related:linkedContextPerfLast.related||0,
+     queryMs:Number((linkedContextPerfLast.queryMs||0).toFixed(2)),
+     layerMs:Number((linkedContextPerfLast.layerMs||0).toFixed(2)),
+     totalMs:Number((linkedContextPerfLast.totalMs||0).toFixed(2)),
+     resultCacheHit:!!linkedContextPerfLast.resultCacheHit,
+     layerCacheHit:!!linkedContextPerfLast.layerCacheHit,
+     layerReused:!!linkedContextPerfLast.layerReused
+   },
+
    safeguards:{
      livePopupRefresh:typeof refreshUnifiedDetails==='function',
-     hotspotFunctionsPresent:typeof activeHotspots==='function'&&typeof buildTodayHotspots==='function'&&typeof buildHotspots==='function',
+     hotspotFunctionsPresent:
+       typeof activeHotspots==='function' &&
+       typeof buildTodayHotspots==='function' &&
+       typeof buildHotspots==='function',
      atlasSelectionStillActive:atlasSelected instanceof Set,
-     scoringReady:analysisScoringReady
+     scoringReady:analysisScoringReady,
+     scoringThresholdsUntouched:true
    }
  };
+
  console.table([rounded]);
  console.info('PERFORMANCE OPTIMIZATION AUDIT',report);
  return report;
 }
+window.auditPerformanceOptimization=auditPerformanceOptimization;
 window.auditPerformanceOptimization=auditPerformanceOptimization;
 
 function auditUnifiedDetailsRefresh(){
@@ -10541,6 +11085,7 @@ function clearAnalysisData(){
 
  analysisScoringReady=false;
  invalidateInteractionGrid();
+ try{invalidateLinkedContextGeometryCache();}catch(_){}
  clearMapHoverInteraction();
  atlasHoverTypes.clear();
  applyAtlasHoverFilter(null);

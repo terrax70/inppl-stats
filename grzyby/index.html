@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v45: live-refresh unified details panel on mode/filter/atlas changes -->
+<!-- GitHub production v46: conservative performance audit + granular scoring caches -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2818,6 +2818,9 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
+<style id="v46-performance-only">
+/* v46: wyłącznie optymalizacja — bez zmiany layoutu i progów punktacji. */
+</style>
 </head>
 
 <style>
@@ -4616,34 +4619,42 @@ async function loadSoilGrid(){
 }
 function soilAt(c){
  if(!soilReady||!soilSamples.length)return null;
+ const cacheKey=perfCoordKey(c);
+ if(cacheKey&&perfSoilPointCache.has(cacheKey))return perfSoilPointCache.get(cacheKey);
 
- const acc={ph:0,soc:0,sand:0,clay:0};
- const wsum={ph:0,soc:0,sand:0,clay:0};
+ const result=(()=>{
 
- // WCS jest pobierane osobno dla każdego analizowanego rejonu.
- // Ograniczenie chroni przed użyciem np. SOC z rejonu oddalonego o 100 km,
- // gdy lokalny raster danej właściwości był częściowy.
- const local=soilSamples
-   .map(s=>({s,d:hav(c,[s.lat,s.lon])}))
-   .filter(x=>x.d<=18);
+  const acc={ph:0,soc:0,sand:0,clay:0};
+  const wsum={ph:0,soc:0,sand:0,clay:0};
 
- if(!local.length)return null;
+  // WCS jest pobierane osobno dla każdego analizowanego rejonu.
+  // Ograniczenie chroni przed użyciem np. SOC z rejonu oddalonego o 100 km,
+  // gdy lokalny raster danej właściwości był częściowy.
+  const local=soilSamples
+    .map(s=>({s,d:hav(c,[s.lat,s.lon])}))
+    .filter(x=>x.d<=18);
 
- for(const {s,d} of local){
-   const w=1/(Math.max(.35,d)**2);
+  if(!local.length)return null;
 
-   for(const k of Object.keys(acc)){
-     if(!Number.isFinite(s[k]))continue;
-     acc[k]+=w*s[k];
-     wsum[k]+=w;
-   }
- }
+  for(const {s,d} of local){
+    const w=1/(Math.max(.35,d)**2);
 
- for(const k of Object.keys(acc)){
-   acc[k]=wsum[k]>0 ? acc[k]/wsum[k] : NaN;
- }
+    for(const k of Object.keys(acc)){
+      if(!Number.isFinite(s[k]))continue;
+      acc[k]+=w*s[k];
+      wsum[k]+=w;
+    }
+  }
 
- return Number.isFinite(acc.ph)?acc:null;
+  for(const k of Object.keys(acc)){
+    acc[k]=wsum[k]>0 ? acc[k]/wsum[k] : NaN;
+  }
+
+  return Number.isFinite(acc.ph)?acc:null;
+ })();
+
+ if(cacheKey)perfSoilPointCache.set(cacheKey,result);
+ return result;
 }
 
 function radarRateScore(x){
@@ -4803,12 +4814,17 @@ async function loadWeather(){
 }
 function weatherAt(c){
  if(!weatherSamples.length)return 60;
+ const cacheKey=perfCoordKey(c);
+ if(cacheKey&&perfWeatherPointCache.has(cacheKey))return perfWeatherPointCache.get(cacheKey);
+
  let w=0,ws=0;
  for(const s of weatherSamples){
    const d=Math.max(.5,hav(c,[s.lat,s.lon]));
    const q=1/(d*d); w+=s.index*q; ws+=q;
  }
- return ws?w/ws:60;
+ const out=ws?w/ws:60;
+ if(cacheKey)perfWeatherPointCache.set(cacheKey,out);
+ return out;
 }
 function resetWeatherCard(message='Wybierz miejsce, aby sprawdzić warunki.'){
  const ids=['rain7','rain14','rain21','rain28','soilM','soilT','airRH','dryDays','nightMin','rainNext'];
@@ -4864,45 +4880,49 @@ function moistureTerrainScore(type,f){
  return base;
 }
 function staticSuitability(type,f){
+ const evidenceKey=observationEvidenceActive(type)?1:0;
+ const cacheKey=`${type}|${evidenceKey}`;
+ return perfTypeFeatureCache(perfStaticSuitabilityCache,cacheKey,f,()=>{
  const m=SPECIES_META[type];if(!m)return 0;
 
- const hist=historyInfo(type,f);
- const soil=soilSuitability(type,f);
- const terr=moistureTerrainScore(type,f);
- const tree=treePreference(type,f);
- const age=ageSuitability(type,Number(f.properties?.species_age||0));
- const hab=stableHabitatScore(type,f);
- const disturb=disturbancePenalty(type,f);
- const evidence=7+Math.min(3,hist.bonus*2.4);
+  const hist=historyInfo(type,f);
+  const soil=soilSuitability(type,f);
+  const terr=moistureTerrainScore(type,f);
+  const tree=treePreference(type,f);
+  const age=ageSuitability(type,Number(f.properties?.species_age||0));
+  const hab=stableHabitatScore(type,f);
+  const disturb=disturbancePenalty(type,f);
+  const evidence=7+Math.min(3,hist.bonus*2.4);
 
- let raw=0;
+  let raw=0;
 
- if(m.ecology==='mycorrhiza'){
-   if(f._kind==='open')return .4;
-   const gate=hostGate(type,f);
-   const strict=STRICT_HOST_TYPES.has(type);
+  if(m.ecology==='mycorrhiza'){
+    if(f._kind==='open')return .4;
+    const gate=hostGate(type,f);
+    const strict=STRICT_HOST_TYPES.has(type);
 
-   // Gospodarz > gleba > typ siedliska > wiek > teren.
-   raw=.38*tree+.14*age+.19*soil+.08*terr+.13*hab+.08*evidence;
+    // Gospodarz > gleba > typ siedliska > wiek > teren.
+    raw=.38*tree+.14*age+.19*soil+.08*terr+.13*hab+.08*evidence;
 
-   const gateFactor=strict ? (.20+.80*gate) : (.42+.58*gate);
-   raw=(raw-disturb*.55)*gateFactor;
- }else if(m.ecology==='wood'){
-   if(f._kind==='open')return .6;
+    const gateFactor=strict ? (.20+.80*gate) : (.42+.58*gate);
+    raw=(raw-disturb*.55)*gateFactor;
+  }else if(m.ecology==='wood'){
+    if(f._kind==='open')return .6;
 
-   const old=piecewise(Number(f.properties?.species_age||0),[
-     [0,4],[20,5.5],[50,8],[100,9.3],[150,9]
-   ]);
-   const stump=f._ko?9.3:6.2;
+    const old=piecewise(Number(f.properties?.species_age||0),[
+      [0,4],[20,5.5],[50,8],[100,9.3],[150,9]
+    ]);
+    const stump=f._ko?9.3:6.2;
 
-   raw=.30*tree+.20*old+.13*soil+.07*terr+.10*hab+.15*stump+.05*evidence;
- }else if(m.ecology==='edge'){
-   raw=.50*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age+.12*evidence;
- }else if(m.ecology==='grassland'){
-   raw=.62*openHabitatScore(type,f)+.22*soil+.08*terr+.08*evidence;
- }
+    raw=.30*tree+.20*old+.13*soil+.07*terr+.10*hab+.15*stump+.05*evidence;
+  }else if(m.ecology==='edge'){
+    raw=.50*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age+.12*evidence;
+  }else if(m.ecology==='grassland'){
+    raw=.62*openHabitatScore(type,f)+.22*soil+.08*terr+.08*evidence;
+  }
 
- return clamp(raw);
+  return clamp(raw);
+ });
 }
 function seasonGate(season){
  return piecewise(season,[
@@ -4926,12 +4946,13 @@ function speciesEffective(type,f){
  const habitat=staticSuitability(type,f);
  if(mapMode==='habitat')return habitat;
 
- const fruit=Math.max(0,Math.min(1,fruitingConditions(type,f)/100));
-
- // DZIŚ jest teraz dyskontem POTENCJAŁU:
- // dobra pogoda może wykorzystać potencjał siedliska, ale nie może go przekroczyć.
- const conditionFactor=.12+.88*Math.pow(fruit,.52);
- return clamp(habitat*conditionFactor);
+ const evidenceKey=observationEvidenceActive(type)?1:0;
+ const cacheKey=`${type}|${evidenceKey}`;
+ return perfTypeFeatureCache(perfTodaySpeciesEffectiveCache,cacheKey,f,()=>{
+   const fruit=Math.max(0,Math.min(1,fruitingConditions(type,f)/100));
+   const conditionFactor=.12+.88*Math.pow(fruit,.52);
+   return clamp(habitat*conditionFactor);
+ });
 }
 function featureRelevant(type,f){
  const m=SPECIES_META[type];if(!m)return false;
@@ -6133,6 +6154,37 @@ let perfBestTodayInfoCache=new WeakMap();
 let perfDiversityCache=new WeakMap();
 let perfRenderRAF=0;
 
+// v46 — granularne cache dla najdroższych obliczeń.
+// Są resetowane tylko, gdy zmieniają się dane wejściowe modelu,
+// a nie przy samym przełączaniu DZIŚ <-> POTENCJAŁ.
+let perfSoilPointCache=new Map();
+let perfWeatherPointCache=new Map();
+let perfStaticSuitabilityCache=new Map();
+let perfStableSpeciesPotentialCache=new Map();
+let perfStableTypeScoreCache=new Map();
+let perfTodaySpeciesEffectiveCache=new Map();
+let perfBestTodayInvariantCache=new WeakMap();
+let perfHotspotTodayInfoCache=new WeakMap();
+let perfHotspotTodayInfoCacheKey='';
+
+function perfTypeFeatureCache(store,key,f,compute){
+ let wm=store.get(key);
+ if(!wm){wm=new WeakMap();store.set(key,wm);}
+ if(wm.has(f))return wm.get(f);
+ const v=compute();
+ wm.set(f,v);
+ return v;
+}
+function perfCoordKey(c){
+ return Array.isArray(c)&&c.length>=2
+   ? `${Number(c[0]).toFixed(5)}|${Number(c[1]).toFixed(5)}`
+   : '';
+}
+let perfAuditLast={
+ total:0,prepare:0,styles:0,top:0,hints:0,linked:0,
+ features:0,layers:0,mode:'',filter:'',atlas:0
+};
+
 function invalidateScoringCaches(reason=''){
  scoringRevision++;
 
@@ -6142,6 +6194,16 @@ function invalidateScoringCaches(reason=''){
  perfBestCache=new WeakMap();
  perfBestTodayInfoCache=new WeakMap();
  perfDiversityCache=new WeakMap();
+
+ perfSoilPointCache.clear();
+ perfWeatherPointCache.clear();
+ perfStaticSuitabilityCache.clear();
+ perfStableSpeciesPotentialCache.clear();
+ perfStableTypeScoreCache.clear();
+ perfTodaySpeciesEffectiveCache.clear();
+ perfBestTodayInvariantCache=new WeakMap();
+ perfHotspotTodayInfoCache=new WeakMap();
+ perfHotspotTodayInfoCacheKey='';
 
  // Stały scoring / hotspoty.
  staticCacheFilter='';
@@ -6270,8 +6332,8 @@ function soilSuitability(type,f){
  return blendSoilWithNeutral(.62*phScore+.24*texture+.14*socScore);
 }
 
-function practicalAllScore(type,f){
- let s=speciesEffective(type,f);
+function practicalAllScore(type,f,precomputedScore=NaN){
+ let s=Number.isFinite(precomputedScore)?precomputedScore:speciesEffective(type,f);
  const p=f.properties||{},sp=speciesCode(p),hab=habitatCode(p),soil=soilAt(f._center);
  if(type==='ponury'){
    if(['SO','SW','JD','MD'].includes(sp))s-=3;
@@ -6292,6 +6354,15 @@ function practicalAllScore(type,f){
 
 function bestTodayInfo(f){
  ensurePerfCache();
+
+ const invariantCacheable=
+   mapMode==='today' &&
+   !atlasSelected.size &&
+   currentFilter==='all';
+
+ if(invariantCacheable&&perfBestTodayInvariantCache.has(f)){
+   return perfBestTodayInvariantCache.get(f);
+ }
  if(perfBestTodayInfoCache.has(f))return perfBestTodayInfoCache.get(f);
 
  let best={
@@ -6306,7 +6377,7 @@ function bestTodayInfo(f){
    const actualToday=Math.min(actualRaw,potential);
 
    const prior=ALL_MODE_WEIGHT[t]||1;
-   const selectionScore=Math.min(practicalAllScore(t,f),potential*prior);
+   const selectionScore=Math.min(practicalAllScore(t,f,actualRaw),potential*prior);
 
    if(
      selectionScore>best.selectionScore ||
@@ -6329,6 +6400,7 @@ function bestTodayInfo(f){
  }
 
  perfBestTodayInfoCache.set(f,best);
+ if(invariantCacheable)perfBestTodayInvariantCache.set(f,best);
  return best;
 }
 
@@ -6705,38 +6777,40 @@ function stableHabitatScore(type,f){
 }
 
 function stableSpeciesPotential(type,f){
+ return perfTypeFeatureCache(perfStableSpeciesPotentialCache,type,f,()=>{
  const m=SPECIES_META[type];if(!m||m.collect===false)return 0;
- if((m.ecology==='mycorrhiza'||m.ecology==='wood')&&f._kind==='open')return .3;
+  if((m.ecology==='mycorrhiza'||m.ecology==='wood')&&f._kind==='open')return .3;
 
- const age=ageSuitability(type,Number(f.properties?.species_age||0));
- const tree=treePreference(type,f);
- const gate=hostGate(type,f)*10;
- const hab=stableHabitatScore(type,f);
- const soil=soilSuitability(type,f);
- const terr=moistureTerrainScore(type,f);
- const disturb=disturbancePenalty(type,f);
+  const age=ageSuitability(type,Number(f.properties?.species_age||0));
+  const tree=treePreference(type,f);
+  const gate=hostGate(type,f)*10;
+  const hab=stableHabitatScore(type,f);
+  const soil=soilSuitability(type,f);
+  const terr=moistureTerrainScore(type,f);
+  const disturb=disturbancePenalty(type,f);
 
- let s=0;
+  let s=0;
 
- if(m.ecology==='mycorrhiza'){
-   if(STRICT_HOST_TYPES.has(type)){
-     s=.34*tree+.12*age+.24*gate+.10*hab+.15*soil+.05*terr-disturb*.55;
-   }else{
-     s=.32*tree+.13*age+.17*gate+.13*hab+.18*soil+.07*terr-disturb*.55;
-   }
- }else if(m.ecology==='wood'){
-   const old=piecewise(Number(f.properties?.species_age||0),[
-     [0,4],[20,5.5],[50,8],[100,9.3],[150,9]
-   ]);
-   const stump=f._ko?9.1:6.1;
-   s=.30*tree+.20*old+.12*hab+.12*soil+.06*terr+.20*stump;
- }else if(m.ecology==='edge'){
-   s=.62*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age;
- }else if(m.ecology==='grassland'){
-   s=.66*openHabitatScore(type,f)+.24*soil+.10*terr;
- }
+  if(m.ecology==='mycorrhiza'){
+    if(STRICT_HOST_TYPES.has(type)){
+      s=.34*tree+.12*age+.24*gate+.10*hab+.15*soil+.05*terr-disturb*.55;
+    }else{
+      s=.32*tree+.13*age+.17*gate+.13*hab+.18*soil+.07*terr-disturb*.55;
+    }
+  }else if(m.ecology==='wood'){
+    const old=piecewise(Number(f.properties?.species_age||0),[
+      [0,4],[20,5.5],[50,8],[100,9.3],[150,9]
+    ]);
+    const stump=f._ko?9.1:6.1;
+    s=.30*tree+.20*old+.12*hab+.12*soil+.06*terr+.20*stump;
+  }else if(m.ecology==='edge'){
+    s=.62*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age;
+  }else if(m.ecology==='grassland'){
+    s=.66*openHabitatScore(type,f)+.24*soil+.10*terr;
+  }
 
- return clamp(s);
+  return clamp(s);
+ });
 }
 
 function stableAllType(f){
@@ -7045,11 +7119,12 @@ function todayLocalHotspots(areaName,maxHotspots){
  const scored=features.map(f=>{
    const info=(!atlasSelected.size&&currentFilter==='all')?bestTodayInfo(f):null;
    const overallPotentialClass=balancedClass(f);
+   const todayScore=todayScoreForStyle(f);
 
    return {
      f,
-     s:todayScoreForStyle(f),
-     cls:todayBalancedClass(f),
+     s:todayScore,
+     cls:todayBalancedClass(f,todayScore),
      potential:info?info.potential:stableAnchorScore(f),
      potentialClass:info
        ? Math.min(info.potentialClass,overallPotentialClass)
@@ -7231,6 +7306,13 @@ function currentHotspotType(h){
 
 function stableHotspotType(h){if(atlasSelected.size)return atlasBestTypeForFeature(h.best);return currentFilter==='all'?stableAllType(h.best):(currentFilter==='diversity'?null:currentFilter);}
 function hotspotTodayInfo(h){
+ const key=`${scoringRevision}|${mapMode}|${currentFilter}|${atlasSelectionKey()}`;
+ if(perfHotspotTodayInfoCacheKey!==key){
+   perfHotspotTodayInfoCacheKey=key;
+   perfHotspotTodayInfoCache=new WeakMap();
+ }
+ if(h&&perfHotspotTodayInfoCache.has(h))return perfHotspotTodayInfoCache.get(h);
+
  let fireArea=0,worthArea=0,total=0,weighted=0,bestRank=0,bestScore=0;
  for(const f of h.members){
    const a=Math.max(.05,featureAreaHa(f)),v=atlasSelected.size?atlasVerdictFor(f):verdictFor(f);total+=a;weighted+=v.score*a;
@@ -7238,7 +7320,9 @@ function hotspotTodayInfo(h){
  }
  const fireShare=total?100*fireArea/total:0,worthShare=total?100*worthArea/total:0,avg=total?weighted/total:0;
  let rank=0;if(fireShare>=25||(bestRank===3&&worthShare>=55))rank=3;else if(worthShare>=45||bestRank>=2)rank=2;else if(avg>=6.2)rank=1;
- return {rank,fireShare,worthShare,avg,bestRank,bestScore};
+ const out={rank,fireShare,worthShare,avg,bestRank,bestScore};
+ if(h)perfHotspotTodayInfoCache.set(h,out);
+ return out;
 }
 
 function applyHotspotMembership(){
@@ -7246,7 +7330,7 @@ function applyHotspotMembership(){
  if(hotspotMembershipKey===key)return activeHotspots();
 
  for(const f of allFeatures){
-   f._hotspotIndex=0;f._hotspotLabel='';f._hotspotBest=false;f._hotspotRank=0;
+   f._hotspotIndex=0;f._hotspotLabel='';f._hotspotBest=false;f._hotspotRank=0;f._hotspotRef=null;
  }
 
  const hs=activeHotspots();
@@ -7254,7 +7338,7 @@ function applyHotspotMembership(){
  hs.forEach((h,i)=>{
    const label=hotspotLabel(h),today=hotspotTodayInfo(h);
    for(const f of h.members){
-     f._hotspotIndex=i+1;f._hotspotLabel=label;f._hotspotRank=today.rank;
+     f._hotspotIndex=i+1;f._hotspotLabel=label;f._hotspotRank=today.rank;f._hotspotRef=h;
    }
    h.best._hotspotBest=true;h.best._hotspotLabel=label;
  });
@@ -7275,16 +7359,17 @@ const atlasSpeciesScaleCache=new Map();
 
 function stableScoreForType(type,f){
  if(!featureRelevant(type,f))return 0;
- let base=stableSpeciesPotential(type,f);
- const ctx=forestContextInfo(f);
- const eco=SPECIES_META[type]?.ecology;
+ return perfTypeFeatureCache(perfStableTypeScoreCache,type,f,()=>{
+   let base=stableSpeciesPotential(type,f);
+   const ctx=forestContextInfo(f);
+   const eco=SPECIES_META[type]?.ecology;
 
- if(eco==='mycorrhiza'||eco==='wood'){
-   base=.86*base+.14*ctx.score;
-   if(ctx.score<4.2)base-=(4.2-ctx.score)*.12;
- }
-
- return clamp(base);
+   if(eco==='mycorrhiza'||eco==='wood'){
+     base=.86*base+.14*ctx.score;
+     if(ctx.score<4.2)base-=(4.2-ctx.score)*.12;
+   }
+   return clamp(base);
+ });
 }
 
 function atlasSpeciesScale(type,areaName){
@@ -7643,8 +7728,8 @@ function buildTodayScales(){
  return out;
 }
 
-function todayBalancedClass(f){
- const s=todayScoreForStyle(f);
+function todayBalancedClass(f,sOverride=NaN){
+ const s=Number.isFinite(sOverride)?sOverride:todayScoreForStyle(f);
  const scale=buildTodayScales()[featureAreaName(f)]||{
    q20:5.2,q45:6.4,q70:7.4,q88:8.4,q93:8.8,q97:9.2
  };
@@ -7698,7 +7783,7 @@ function todayPotentialStyle(f,show=true){
  if(!show)return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
 
  const s=todayScoreForStyle(f);
- const c=todayBalancedClass(f);
+ const c=todayBalancedClass(f,s);
 
  if(!atlasSelected.size&&currentFilter==='all'&&f._kind==='open'){
    return openPotentialStyleFromClass(f,c,true);
@@ -7861,6 +7946,8 @@ function hotspotPopup(h){
 // numer hotspotu, panel ikon grzybów hotspotu, czy konkretne wydzielenie.
 function hotspotForFeature(f){
  if(!f||!f._hotspotIndex)return null;
+ if(f._hotspotRef)return f._hotspotRef;
+
  const label=String(f._hotspotLabel||'');
  let h=(topSpots||[]).find(x=>x&&((x.members||[]).includes(f)||(label&&hotspotLabel(x)===label)));
  if(h)return h;
@@ -8193,9 +8280,7 @@ function renderUnifiedDetailsContent(f,h=null,{preserveScroll=false,flash=false}
 
  if(flash){
    body.classList.remove('details-refreshed');
-   // wymusza ponowne odpalenie krótkiej animacji po każdej aktualizacji
-   void body.offsetWidth;
-   body.classList.add('details-refreshed');
+   requestAnimationFrame(()=>body.classList.add('details-refreshed'));
  }
 
  return true;
@@ -8315,8 +8400,11 @@ function linkedRowsForFeature(f){
 }
 function featureMatchesAnyType(f,types){
  if(!types||!types.size)return false;
- const rows=atlasScoresForFeature(f,false);
- return rows.some(x=>x.score>=6.25&&types.has(x.type));
+ for(const type of types){
+   if(!featureRelevant(type,f))continue;
+   if(speciesDisplayScore(type,f)>=6.25)return true;
+ }
+ return false;
 }
 function applyHintTypeFocus(types,locked=false){
  const active=types&&types.size>0;
@@ -8521,7 +8609,6 @@ function toggleAtlasType(t){
  applyAtlasHoverFilter(null);
  currentFilter='all';atlasSelected.has(t)?atlasSelected.delete(t):atlasSelected.add(t);
  syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();
- refreshUnifiedDetails({preserveScroll:true,flash:false});
  if(allFeatures.length)render();else{const hint=document.getElementById('locatorHint');if(hint)hint.textContent=atlasSelected.size?'🍄 Wybrane gatunki zapisane. Wybierz lokalizację — mapa użyje tego zestawu.':'📍 Wybierz lokalizację — analiza ruszy automatycznie.';}
 }
 function toggleAtlasGroup(groupId){
@@ -8532,7 +8619,6 @@ function toggleAtlasGroup(groupId){
  const allSelected=g.members.every(t=>atlasSelected.has(t));
  if(allSelected)g.members.forEach(t=>atlasSelected.delete(t));else g.members.forEach(t=>atlasSelected.add(t));
  clearAtlasHover();syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();
- refreshUnifiedDetails({preserveScroll:true,flash:false});
  if(allFeatures.length)render();
 }
 function syncAtlasSelectionUI(){
@@ -9502,48 +9588,73 @@ function renderSingle(ly,f){
  ly.setStyle(currentForestStyle(f,show));
 }
 function perfRenderNow(){
+ const t0=performance.now();
  perfRenderRAF=0;
  invalidateInteractionGrid();
  topGroup.clearLayers();
  hintGroup.clearLayers();
- if(!allFeatures.length)return;
+
+ if(!allFeatures.length){
+   perfAuditLast={...perfAuditLast,total:performance.now()-t0,features:0,layers:analysisLayers.length,mode:mapMode,filter:currentFilter,atlas:atlasSelected.size};
+   return;
+ }
 
  if(!analysisScoringReady){
+   const ts=performance.now();
    for(const {f,layer:ly} of analysisLayers){
      const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
      ly.setStyle(loadingForestStyle(f,show));
    }
+   const t1=performance.now();
+   perfAuditLast={
+     total:t1-t0,prepare:ts-t0,styles:t1-ts,top:0,hints:0,linked:0,
+     features:allFeatures.length,layers:analysisLayers.length,mode:mapMode,filter:currentFilter,atlas:atlasSelected.size
+   };
    return;
  }
 
+ const tp0=performance.now();
  ensurePerfCache();
  buildBalancedScales();
  applyHotspotMembership();
+ const tp1=performance.now();
 
- // Ten sam system kolorów dla:
- // - klasycznego filtra pojedynczego gatunku,
- // - jednego gatunku z atlasu,
- // - wielu gatunków z atlasu.
- // Atlas zmienia tylko wynik stableAnchorScore(), a nie samą skalę wizualną.
  for(const {f,layer:ly} of analysisLayers){
    const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
    ly.setStyle(currentForestStyle(f,show));
  }
+ const ts1=performance.now();
 
  buildTop();
+ const tt1=performance.now();
+
  try{
    renderSpeciesHints();
  }catch(err){
    console.error('Hotspot labels render failed — mapa pozostaje aktywna',err);
    try{hintGroup.clearLayers();}catch(_){}
  }
+ const th1=performance.now();
+
  if(linkedLockedFeature){
    drawLockedForestContext(linkedLockedFeature,new Set(linkedRowsForFeature(linkedLockedFeature).map(x=>x.type)));
-   // Panel szczegółów jest częścią aktualnego stanu mapy.
-   // Każde render() po zmianie DZIŚ/POTENCJAŁ, filtra lub atlasu
-   // odświeża jego liczby, gatunki, werdykt i przynależność do hotspotu.
    refreshUnifiedDetails({preserveScroll:true,flash:true});
  }
+ const tl1=performance.now();
+
+ perfAuditLast={
+   total:tl1-t0,
+   prepare:tp1-tp0,
+   styles:ts1-tp1,
+   top:tt1-ts1,
+   hints:th1-tt1,
+   linked:tl1-th1,
+   features:allFeatures.length,
+   layers:analysisLayers.length,
+   mode:mapMode,
+   filter:currentFilter,
+   atlas:atlasSelected.size
+ };
 }
 function render(){if(perfRenderRAF)cancelAnimationFrame(perfRenderRAF);perfRenderRAF=requestAnimationFrame(perfRenderNow);}
 
@@ -9597,6 +9708,39 @@ function hotspotHintTypes(h,limitOverride){
 
 
 
+
+
+function auditPerformanceOptimization(){
+ const rounded={};
+ for(const [k,v] of Object.entries(perfAuditLast)){
+   rounded[k]=typeof v==='number'?Number(v.toFixed(2)):v;
+ }
+
+ const report={
+   lastRenderMs:rounded,
+   cacheState:{
+     soilPoints:perfSoilPointCache.size,
+     weatherPoints:perfWeatherPointCache.size,
+     staticSuitabilityBuckets:perfStaticSuitabilityCache.size,
+     stablePotentialBuckets:perfStableSpeciesPotentialCache.size,
+     stableTypeBuckets:perfStableTypeScoreCache.size,
+     todayEffectiveBuckets:perfTodaySpeciesEffectiveCache.size,
+     balancedScaleCached:!!balancedScaleKey,
+     todayScaleCached:!!todayScaleCacheKey,
+     hotspotCached:mapMode==='today'?!!todayHotspotCacheKey:!!hotspotCacheKey
+   },
+   safeguards:{
+     livePopupRefresh:typeof refreshUnifiedDetails==='function',
+     hotspotFunctionsPresent:typeof activeHotspots==='function'&&typeof buildTodayHotspots==='function'&&typeof buildHotspots==='function',
+     atlasSelectionStillActive:atlasSelected instanceof Set,
+     scoringReady:analysisScoringReady
+   }
+ };
+ console.table([rounded]);
+ console.info('PERFORMANCE OPTIMIZATION AUDIT',report);
+ return report;
+}
+window.auditPerformanceOptimization=auditPerformanceOptimization;
 
 function auditUnifiedDetailsRefresh(){
  const panel=document.getElementById('placeDetailsPanel');
@@ -10658,7 +10802,6 @@ async function setSpeciesDisplayMode(mode){
  updateSpeciesMeta();
  updateRadarCard();
  if(centerWeather)updateWeatherCard();
- refreshUnifiedDetails({preserveScroll:true,flash:false});
  if(allFeatures.length)render();
 }
 
@@ -10681,7 +10824,6 @@ document.getElementById('speciesSelect').onchange=async e=>{
  applyAtlasHoverFilter(null);
  atlasSelected.clear();renderAtlasCards();updateAtlasHead();
  currentFilter=e.target.value;resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();updateRadarCard();if(centerWeather)updateWeatherCard();
- refreshUnifiedDetails({preserveScroll:true,flash:false});
  render();
  if(currentFilter!=='all'&&currentFilter!=='diversity')await ensureObservations(currentFilter);
 };
@@ -10698,7 +10840,6 @@ document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{
  todayHotspotCacheKey='';
 
  ensurePerfCache();
- refreshUnifiedDetails({preserveScroll:true,flash:false});
  render();
  if(centerWeather)updateWeatherCard();
 });

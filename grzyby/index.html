@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v19: hover-responsive atlas width + faster bounded loading + fullscreen loader -->
+<!-- GitHub production v20: live source indicators + partial reveal + one final refresh -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2266,10 +2266,132 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
+
+<style id="v20-source-status-style">
+.data-source-mini{
+  position:fixed;
+  top:68px;
+  right:10px;
+  z-index:5100;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:5px;
+  pointer-events:none;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+}
+.data-source-summary{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:6px 9px;
+  border-radius:10px;
+  background:rgba(18,24,20,.92);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 4px 16px rgba(0,0,0,.24);
+  color:#eaf1ec;
+  font-size:10px;
+  font-weight:800;
+  backdrop-filter:blur(8px);
+}
+.data-source-list{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:4px;
+  max-width:360px;
+}
+.source-chip{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  padding:4px 7px;
+  border-radius:8px;
+  background:rgba(18,24,20,.88);
+  border:1px solid rgba(255,255,255,.10);
+  color:#cfd9d2;
+  font-size:9px;
+  line-height:1;
+  box-shadow:0 3px 12px rgba(0,0,0,.18);
+  backdrop-filter:blur(6px);
+}
+.source-dot{
+  width:8px;
+  height:8px;
+  flex:0 0 8px;
+  border-radius:50%;
+  background:#6d7770;
+}
+.source-chip[data-state="ok"] .source-dot{background:#43c96b;box-shadow:0 0 0 2px rgba(67,201,107,.14)}
+.source-chip[data-state="error"] .source-dot{background:#ef5d5d;box-shadow:0 0 0 2px rgba(239,93,93,.12)}
+.source-chip[data-state="off"] .source-dot{background:#7a837d}
+.source-chip[data-state="load"] .source-dot{
+  width:9px;height:9px;flex-basis:9px;
+  background:transparent;
+  border:2px solid rgba(255,255,255,.20);
+  border-top-color:#8cdb9d;
+  animation:sourceSpin .75s linear infinite;
+}
+@keyframes sourceSpin{to{transform:rotate(360deg)}}
+.source-summary-dot{
+  width:9px;height:9px;border-radius:50%;background:#7a837d;
+}
+.data-source-summary[data-state="ok"] .source-summary-dot{background:#43c96b}
+.data-source-summary[data-state="load"] .source-summary-dot{
+  background:transparent;border:2px solid rgba(255,255,255,.2);border-top-color:#8cdb9d;
+  animation:sourceSpin .75s linear infinite;
+}
+.data-source-summary[data-state="error"] .source-summary-dot{background:#ef5d5d}
+
+.data-refresh-toast{
+  position:fixed;
+  top:18px;
+  left:50%;
+  transform:translate(-50%,-16px);
+  z-index:5200;
+  opacity:0;
+  pointer-events:none;
+  padding:9px 13px;
+  border-radius:10px;
+  background:rgba(18,27,21,.95);
+  border:1px solid rgba(102,211,128,.35);
+  color:#ecf5ef;
+  font-size:11px;
+  font-weight:800;
+  box-shadow:0 8px 28px rgba(0,0,0,.3);
+  transition:opacity .2s ease,transform .2s ease;
+}
+.data-refresh-toast.show{opacity:1;transform:translate(-50%,0)}
+
+@media(max-width:700px){
+  .data-source-mini{top:62px;right:7px;max-width:calc(100vw - 14px)}
+  .data-source-list{max-width:300px}
+  .source-chip{font-size:8px;padding:4px 6px}
+  .data-source-summary{font-size:9px;padding:5px 8px}
+}
+</style>
+
 </head>
 <body>
 <div id="map"></div>
 <div id="mobileSearchDock" class="mobile-search-dock" aria-label="Szukaj miejsca"></div>
+<div id="dataSourceMini" class="data-source-mini">
+  <div id="dataSourceSummary" class="data-source-summary" data-state="off">
+    <span class="source-summary-dot"></span>
+    <span id="dataSourceSummaryText">Dane: oczekują</span>
+  </div>
+  <div class="data-source-list">
+    <div class="source-chip" data-source="forest" data-state="off"><span class="source-dot"></span><span>Lasy</span></div>
+    <div class="source-chip" data-source="habitat" data-state="off"><span class="source-dot"></span><span>Siedliska</span></div>
+    <div class="source-chip" data-source="weather" data-state="off"><span class="source-dot"></span><span>Pogoda</span></div>
+    <div class="source-chip" data-source="reserve" data-state="off"><span class="source-dot"></span><span>Ochrona</span></div>
+    <div class="source-chip" data-source="soil" data-state="off"><span class="source-dot"></span><span>Gleba</span></div>
+    <div class="source-chip" data-source="terrain" data-state="off"><span class="source-dot"></span><span>Teren</span></div>
+    <div class="source-chip" data-source="open" data-state="off"><span class="source-dot"></span><span>OSM</span></div>
+    <div class="source-chip" data-source="obs" data-state="off"><span class="source-dot"></span><span>Historia</span></div>
+  </div>
+</div>
+<div id="dataRefreshToast" class="data-refresh-toast">✅ Dane pełne — mapa została zaktualizowana</div>
 <div id="analysisLoader" class="analysis-loader" aria-live="polite" aria-busy="true">
   <div class="analysis-loader-card">
     <div class="analysis-spinner"></div>
@@ -3684,8 +3806,16 @@ function dedupObs(arr){
  return out;
 }
 async function ensureObservations(type){
- if(type==='all'||!SPECIES_META[type]?.scientific)return;
- if(obsLoaded[type]){showObsLayer(type);return;}
+ if(type==='all'||!SPECIES_META[type]?.scientific){
+   setSourceState('obs','off','Historia jest pobierana dla konkretnego gatunku');
+   return;
+ }
+ if(obsLoaded[type]){
+   setSourceState('obs','ok',`${HUMAN_NAMES[type]} • historia w cache`);
+   showObsLayer(type);
+   return;
+ }
+ setSourceState('obs','load',`Pobieram historię: ${HUMAN_NAMES[type]}`);
  const el=document.getElementById('dsObs');el.textContent='ładowanie '+HUMAN_NAMES[type];el.className='st-load';
  let a=[],b=[];
  try{a=await fetchINat(type);}catch(e){console.warn('iNat '+type,e);}
@@ -3693,6 +3823,7 @@ async function ensureObservations(type){
  const arr=dedupObs([...a,...b]);
  observationData[type]=arr;obsLoaded[type]=true;obsReady=Object.values(observationData).some(x=>x?.length);
  el.textContent=arr.length+' obserw.';el.className=arr.length?'st-ok':'st-warn';
+ setSourceState('obs','ok',`${HUMAN_NAMES[type]} • ${arr.length} obserwacji`);
  showObsLayer(type);
  invalidateScoringCaches('observations '+type);
  if(allFeatures.length&&!deferSecondaryRenders)render();
@@ -4066,6 +4197,9 @@ async function main(){
    return;
  }
 
+ resetSourceStates();
+ setSourceState('forest','load','Pobieram geometrię i podstawowe dane drzewostanów BDL');
+ setSourceState('weather','load','Pobieram bieżącą pogodę i historię opadów');
  showAnalysisLoader('Pobieram drzewostany BDL…');
 
  const st=document.getElementById('status');
@@ -4073,8 +4207,16 @@ async function main(){
 
  // Pogoda od początku działa równolegle i NIGDY nie blokuje lasów.
  const weatherPromise=loadWeather()
-   .then(()=>{try{if(centerWeather)updateWeatherCard();}catch(_){}})
-   .catch(e=>console.warn('Weather background',e));
+   .then(()=>{
+     setSourceState('weather',weatherReady?'ok':'error',weatherReady?'Pogoda załadowana':'Pogoda niedostępna');
+     try{if(centerWeather)updateWeatherCard();}catch(_){}
+     return weatherReady;
+   })
+   .catch(e=>{
+     setSourceState('weather','error',String(e?.message||e));
+     console.warn('Weather background',e);
+     return false;
+   });
 
  // Jeśli Feature API BDL się przytka, użytkownik i tak widzi oficjalny raster/WMS.
  showBdlFallback();
@@ -4102,6 +4244,7 @@ async function main(){
 
      // KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
      renderForestBaseImmediately(feats,'bazowe');
+     setSourceState('forest','ok',`${feats.length} wydzieleń BDL`);
      st.classList.add('scoring-wait');
      hideBdlFallback();
      updateAnalysisLoader('Drzewostany gotowe. Liczę siedliska, pogodę i ochronę…');
@@ -4120,6 +4263,7 @@ async function main(){
      if(!feats.length)throw new Error('Awaryjne dane BDL nie zawierają wydzieleń w tym rejonie.');
 
      renderForestBaseImmediately(feats,'tryb awaryjny');
+     setSourceState('forest','ok',`${feats.length} wydzieleń • tryb awaryjny BDL 5/6`);
      st.classList.add('scoring-wait');
      // Zostawiamy delikatny WMS pod spodem, bo fallback ma mniej informacji.
      if(map.hasLayer(bdl))bdl.setOpacity(.18);
@@ -4127,74 +4271,143 @@ async function main(){
      st.innerHTML=`⚠️ Tryb awaryjny: pokazuję <b>${feats.length}</b> wydzieleń z BDL 5/6. Końcowy ranking pojawi się za chwilę.`;
    }
 
-   // Enrichmenty nie blokują już widoku.
+   // Wszystkie enrichmenty lecą równolegle i podczas pierwszego ładowania
+   // nie wywołują osobnych renderów.
+   deferSecondaryRenders=true;
+   setSourceState('habitat','load','Pobieram typ siedliska i dane uzupełniające BDL');
+   setSourceState('reserve','load','Sprawdzam rezerwaty i obszary ochronne');
+   setSourceState('soil','load','Pobieram SoilGrids');
+   setSourceState('terrain','load','Pobieram model wysokości terenu');
+   setSourceState('open','load','Pobieram łąki, polany i pastwiska OSM');
+
+   if(currentFilter==='all'||currentFilter==='diversity'){
+     setSourceState('obs','off','Historia obserwacji jest pobierana dla wybranego gatunku');
+   }else{
+     setSourceState('obs','load','Pobieram iNaturalist + GBIF');
+   }
+
    const habitatPromise=loadHabitatEnrichment(feats)
      .then(ok=>{
+       setSourceState('habitat',ok?'ok':'error',ok?'Siedliska BDL załadowane':'Brak danych siedliskowych');
        if(ok){
-         render();
+         if(!deferSecondaryRenders)render();
          ds.textContent=`${feats.length} wydz. • pełne`;
          ds.className='st-ok';
        }
        return ok;
      })
-     .catch(e=>{console.warn('Habitat enrichment',e);return false;});
+     .catch(e=>{
+       setSourceState('habitat','error',String(e?.message||e));
+       console.warn('Habitat enrichment',e);
+       return false;
+     });
 
    const koPromise=loadKoEnrichment(feats)
-     .then(ok=>{if(ok)render();return ok;})
+     .then(ok=>{if(ok&&!deferSecondaryRenders)render();return ok;})
      .catch(e=>{console.warn('KO enrichment',e);return false;});
 
    const reservePromise=loadReserveEnrichment(feats)
-     .then(ok=>{if(ok)render();return ok;})
-     .catch(e=>{console.warn('Reserve enrichment',e);return false;});
+     .then(ok=>{
+       setSourceState('reserve',ok?'ok':'error',ok?'Ochrona załadowana':'Warstwa ochronna niedostępna');
+       if(ok&&!deferSecondaryRenders)render();
+       return ok;
+     })
+     .catch(e=>{
+       setSourceState('reserve','error',String(e?.message||e));
+       console.warn('Reserve enrichment',e);
+       return false;
+     });
 
-   // Źródła dokładnościowe lecą wszystkie równolegle.
-   // Nie blokujemy użytkownika przez wolne SoilGrids / Overpass przez 20–30 s.
-   deferSecondaryRenders=true;
-   updateAnalysisLoader('Dociągam glebę, teren i otwarte siedliska…');
+   updateAnalysisLoader('Dociągam glebę, teren, OSM i pozostałe dane…');
 
-   const secondaryPromise=Promise.allSettled([
-     loadOpenHabitats(),
-     loadSoilGrid(),
-     loadTerrain(),
-     ensureObservations(currentFilter)
+   const openPromise=loadOpenHabitats()
+     .then(()=>{
+       setSourceState('open',openReady?'ok':'error',openReady?`${openFeatures.length} obszarów OSM`:'Brak danych OSM');
+       return openReady;
+     })
+     .catch(e=>{setSourceState('open','error',String(e?.message||e));return false;});
+
+   const soilPromise=loadSoilGrid()
+     .then(()=>{
+       setSourceState('soil',soilReady?'ok':'error',soilReady?`${soilSamples.length} punktów SoilGrids`:'SoilGrids niedostępne');
+       return soilReady;
+     })
+     .catch(e=>{setSourceState('soil','error',String(e?.message||e));return false;});
+
+   const terrainPromise=loadTerrain()
+     .then(()=>{
+       setSourceState('terrain',terrainReady?'ok':'error',terrainReady?'DEM załadowany':'DEM niedostępny');
+       return terrainReady;
+     })
+     .catch(e=>{setSourceState('terrain','error',String(e?.message||e));return false;});
+
+   const obsPromise=ensureObservations(currentFilter)
+     .then(()=>{
+       if(currentFilter!=='all'&&currentFilter!=='diversity'){
+         setSourceState('obs',obsLoaded[currentFilter]?'ok':'error',
+           obsLoaded[currentFilter]?'Historia obserwacji załadowana':'Historia niedostępna');
+       }
+       return true;
+     })
+     .catch(e=>{
+       if(currentFilter!=='all'&&currentFilter!=='diversity')setSourceState('obs','error',String(e?.message||e));
+       return false;
+     });
+
+   const secondaryPromise=Promise.allSettled([openPromise,soilPromise,terrainPromise,obsPromise]);
+   const allEnrichmentPromise=Promise.allSettled([
+     habitatPromise,koPromise,reservePromise,weatherPromise,secondaryPromise
    ]);
 
-   // Czekamy na komplet danych dodatkowych maks. 6 s.
-   // Jeśli któreś API jest wolne, pokażemy mapę z tym, co już mamy.
-   const secondaryBudget=Promise.race([
-     secondaryPromise,
-     waitMs(6000).then(()=>({timedOut:true}))
-   ]);
+   let initialRevealTimedOut=false;
 
-   Promise.allSettled([habitatPromise,koPromise,reservePromise,weatherPromise,secondaryBudget]).then(()=>{
+   // Maksymalnie 7 s po pobraniu drzewostanów. Jeśli zewnętrzne API są wolne,
+   // użytkownik dostaje już działającą mapę + jawny status brakujących źródeł.
+   Promise.race([
+     allEnrichmentPromise.then(()=>({timedOut:false})),
+     waitMs(7000).then(()=>({timedOut:true}))
+   ]).then(result=>{
+     initialRevealTimedOut=!!result?.timedOut;
      analysisScoringReady=true;
      st.classList.remove('scoring-wait');
 
-     // Jeden finalny render — bez późniejszych skoków kolorów.
-     invalidateScoringCaches('initial fast barrier');
-     try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Final initial rerender',e);}
+     invalidateScoringCaches(initialRevealTimedOut?'initial partial reveal':'initial full reveal');
+     try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Initial reveal render',e);}
      hideAnalysisLoader();
 
      const blocked=feats.filter(f=>f._blocked).length;
      const quality=degraded?'tryb awaryjny BDL':'pełny model BDL';
-     st.innerHTML=`✅ Przeanalizowano <b>${feats.length}</b> drzewostanów • ${quality}. `+
-       (reserves.length?`Wczytano ${reserves.length} obszarów ochronnych; ${blocked} wydzieleń wyłączono z rankingu.`:
-        `Warstwa ochronna może być niedostępna — sprawdzaj lokalne zakazy przed zbiorem.`);
+
+     if(initialRevealTimedOut){
+       st.innerHTML=`✅ Mapa gotowa • <b>${feats.length}</b> drzewostanów • ${quality}. `+
+         `Część źródeł nadal się ładuje — sprawdź wskaźniki w prawym górnym rogu.`;
+     }else{
+       st.innerHTML=`✅ Przeanalizowano <b>${feats.length}</b> drzewostanów • ${quality}. `+
+         (reserves.length?`Wczytano ${reserves.length} obszarów ochronnych; ${blocked} wydzieleń wyłączono z rankingu.`:
+          `Warstwa ochronna może być niedostępna — sprawdzaj lokalne zakazy przed zbiorem.`);
+     }
    });
 
-   // Późne dane mogą skończyć się już po pokazaniu mapy.
-   // Zapisujemy je do modelu, ale NIE przemalowujemy mapy użytkownikowi pod ręką.
-   secondaryPromise.finally(()=>{
+   // Jeśli coś nie zdążyło w 7 s, po zakończeniu WSZYSTKICH źródeł wykonujemy
+   // dokładnie JEDEN końcowy rerender. Nie ma serii skoków co każde API.
+   allEnrichmentPromise.finally(()=>{
      deferSecondaryRenders=false;
-     const ds=document.getElementById('status');
-     if(ds&&analysisScoringReady){
-       ds.dataset.extraReady='1';
+
+     if(initialRevealTimedOut&&analysisScoringReady){
+       invalidateScoringCaches('late complete enrichment');
+       try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Late final rerender',e);}
+       showDataRefreshToast();
+
+       const blocked=feats.filter(f=>f._blocked).length;
+       st.innerHTML=`✅ Dane zakończone • <b>${feats.length}</b> drzewostanów. `+
+         (reserves.length?`${reserves.length} obszarów ochronnych; ${blocked} wydzieleń wyłączono z rankingu.`:'');
      }
    });
 
  }catch(e){
    console.error('BDL base failed',e);
    analysisScoringReady=false;
+   setSourceState('forest','error',String(e?.message||e));
    hideAnalysisLoader();
    st.classList.remove('scoring-wait');
    ds.textContent='API niedostępne';ds.className='st-warn';
@@ -6647,6 +6860,63 @@ function hideAnalysisLoader(){
  if(el)el.classList.remove('show');
 }
 function waitMs(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+
+const sourceStates={
+ forest:'off',habitat:'off',weather:'off',reserve:'off',
+ soil:'off',terrain:'off',open:'off',obs:'off'
+};
+function setSourceState(id,state,detail=''){
+ sourceStates[id]=state;
+ const chip=document.querySelector(`.source-chip[data-source="${id}"]`);
+ if(chip){
+   chip.dataset.state=state;
+   chip.title=detail||({
+     ok:'Załadowane',
+     load:'Ładowanie…',
+     error:'Błąd / źródło niedostępne',
+     off:'Nie jest teraz wymagane'
+   }[state]||'');
+ }
+ updateSourceSummary();
+}
+function resetSourceStates(){
+ for(const id of Object.keys(sourceStates))setSourceState(id,'off');
+}
+function updateSourceSummary(){
+ const vals=Object.values(sourceStates);
+ const relevant=vals.filter(x=>x!=='off');
+ const ok=relevant.filter(x=>x==='ok').length;
+ const load=relevant.filter(x=>x==='load').length;
+ const err=relevant.filter(x=>x==='error').length;
+ const total=relevant.length;
+
+ const box=document.getElementById('dataSourceSummary');
+ const text=document.getElementById('dataSourceSummaryText');
+ if(!box||!text)return;
+
+ if(!total){
+   box.dataset.state='off';
+   text.textContent='Dane: oczekują';
+ }else if(load){
+   box.dataset.state='load';
+   text.textContent=`Dane ${ok}/${total} • ładowanie`;
+ }else if(err){
+   box.dataset.state=ok?'error':'error';
+   text.textContent=`Dane ${ok}/${total} • ${err} błąd`;
+ }else{
+   box.dataset.state='ok';
+   text.textContent=`Dane ${ok}/${total} • gotowe`;
+ }
+}
+let refreshToastTimer=0;
+function showDataRefreshToast(text='✅ Dane pełne — mapa została zaktualizowana'){
+ const el=document.getElementById('dataRefreshToast');
+ if(!el)return;
+ el.textContent=text;
+ el.classList.add('show');
+ clearTimeout(refreshToastTimer);
+ refreshToastTimer=setTimeout(()=>el.classList.remove('show'),3200);
+}
 let autoAnalyzeTimer=null;
 let autoAnalyzeQueued=false;
 
@@ -6811,6 +7081,7 @@ async function reverseName(lat,lon,index){
 
 function clearAnalysisData(){
  hideAnalysisLoader();
+ resetSourceStates();
  analysisScoringReady=false;
  invalidateInteractionGrid();
  clearMapHoverInteraction();

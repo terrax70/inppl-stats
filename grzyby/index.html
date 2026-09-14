@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v26: SoilGrids WMS dual-endpoint diagnostics + favicon fix -->
+<!-- GitHub production v27: MapServer value_list parser + correct SoilGrids scaling + Overpass fallback -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -3642,16 +3642,22 @@ function parseSoilWmsValue(text){
 
  const cleaned=String(text).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
 
- // Jeśli serwer zwraca wyjątek OGC, pokaż go zamiast udawać "brak danych".
- if(/ServiceException|ExceptionReport|msWMSFeatureInfo|error/i.test(cleaned)){
-   throw new Error('ISRIC WMS: '+cleaned.slice(0,220));
+ // To jest normalny brak danych dla pojedynczego piksela, nie błąd usługi.
+ if(/Search returned no results/i.test(cleaned)){
+   return NaN;
  }
 
+ if(/ServiceException|ExceptionReport|msWMSFeatureInfo|error/i.test(cleaned)){
+   throw new Error('ISRIC WMS: '+cleaned.slice(0,260));
+ }
+
+ // MapServer raster query standardowo zwraca value_list i value_0.
  const patterns=[
-   /GRAY_INDEX\s*[:=]\s*['"]?(-?\d+(?:\.\d+)?)/i,
-   /value(?:_0)?\s*[:=]\s*['"]?(-?\d+(?:\.\d+)?)/i,
-   /Band1\s*[:=]\s*['"]?(-?\d+(?:\.\d+)?)/i,
-   /pixel(?:\s+value)?\s*[:=]\s*['"]?(-?\d+(?:\.\d+)?)/i
+   /value_list\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i,
+   /value_0\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i,
+   /GRAY_INDEX\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i,
+   /Band1\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i,
+   /pixel(?:\s+value)?\s*[:=]\s*['"]?\s*(-?\d+(?:\.\d+)?)/i
  ];
 
  for(const rx of patterns){
@@ -3662,14 +3668,7 @@ function parseSoilWmsValue(text){
    }
  }
 
- // Czasem MapServer odpowiada po prostu pojedynczą liczbą.
- const nums=cleaned.match(/-?\d+(?:\.\d+)?/g)||[];
- if(nums.length===1){
-   const n=Number(nums[0]);
-   if(Number.isFinite(n))return n;
- }
-
- throw new Error('Nie rozpoznano odpowiedzi WMS: '+cleaned.slice(0,180));
+ throw new Error('Nie rozpoznano odpowiedzi WMS: '+cleaned.slice(0,320));
 }
 
 async function fetchSoilWmsValue(def,lat,lon){
@@ -3686,11 +3685,11 @@ async function fetchSoilWmsValue(def,lat,lon){
      });
 
      const raw=parseSoilWmsValue(txt);
-     if(!Number.isFinite(raw))throw new Error('WMS zwrócił wartość nienumeryczną');
 
-     if(def.key==='ph')return raw>14?raw/10:raw;
-     if(def.key==='sand')return raw>100?raw/10:raw;
-     if(def.key==='soc')return raw>250?raw/10:raw;
+     // "Search returned no results" = brak piksela w tym miejscu.
+     // Nie spamujemy fallbackiem i konsolą.
+     if(!Number.isFinite(raw))return NaN;
+
      return raw/(def.factor||1);
    }catch(e){
      lastErr=e;
@@ -3715,15 +3714,19 @@ async function fetchSoilWmsPoint(lat,lon){
 
  vals.forEach((r,i)=>{
    const def=SOIL_WMS_PROPERTIES[i];
-   if(r.status==='fulfilled'&&Number.isFinite(r.value)){
-     out[def.key]=r.value;
-   }else{
-     errs.push(`${def.key}: ${r.reason?.message||'brak wartości'}`);
+
+   if(r.status==='fulfilled'){
+     if(Number.isFinite(r.value))out[def.key]=r.value;
+     return;
    }
+
+   errs.push(`${def.key}: ${r.reason?.message||'błąd'}`);
  });
 
  if(!Number.isFinite(out.ph)){
-   soilLastError=errs.join(' | ').slice(0,500);
+   // Jeśli były prawdziwe błędy requestów, zachowaj je do diagnostyki.
+   // Sam brak piksela nie robi czerwonego "WMS error".
+   if(errs.length)soilLastError=errs.join(' | ').slice(0,700);
    return null;
  }
 
@@ -3783,11 +3786,18 @@ async function loadSoilGrid(){
    soilCoverage=0;
    el.textContent=valid.length?`${valid.length}/${points.length} pkt • za mało`:'brak';
    el.className='st-warn';
-   const detail=soilLastError
+   const trueError=!!soilLastError;
+   const detail=trueError
      ? `SoilGrids WMS: ${soilLastError}`
-     : `SoilGrids WMS: tylko ${valid.length}/${points.length} poprawnych punktów`;
+     : `SoilGrids WMS: tylko ${valid.length}/${points.length} punktów z danymi`;
+
    console.warn('SoilGrids WMS insufficient data',detail);
-   setSourceState('soil','error',detail+' • neutralna gleba 7/10');
+
+   setSourceState(
+     'soil',
+     trueError?'error':'off',
+     detail+' • model używa neutralnej gleby 7/10'
+   );
    return false;
  }catch(e){
    soilLastError=String(e?.message||e);
@@ -4227,8 +4237,40 @@ function seasonScore(type){
 }
 
 
+async function fetchOverpassWithFallback(body){
+ const endpoints=[
+   'https://overpass-api.de/api/interpreter',
+   'https://overpass.kumi.systems/api/interpreter',
+   'https://overpass.nchc.org.tw/api/interpreter'
+ ];
+
+ let lastErr=null;
+
+ for(let i=0;i<endpoints.length;i++){
+   const endpoint=endpoints[i];
+   try{
+     return await prodFetchJson(endpoint,{
+       method:'POST',
+       headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+       body,
+       timeoutMs:i===0?18000:22000,
+       tries:1,
+       policy:{ttl:12*3600e3,stale:7*86400e3}
+     });
+   }catch(e){
+     lastErr=e;
+     console.warn(`Overpass ${i+1}/${endpoints.length} failed`,endpoint,e);
+   }
+ }
+
+ throw lastErr||new Error('Wszystkie serwery Overpass są niedostępne');
+}
+
 async function loadOpenHabitats(){
- const el=document.getElementById('dsOpen');el.textContent='ładowanie';el.className='st-load';
+ const el=document.getElementById('dsOpen');
+ el.textContent='ładowanie';
+ el.className='st-load';
+
  try{
    const selectors=analysisBboxes().map(bb=>{
      const south=bb[1],west=bb[0],north=bb[3],east=bb[2];
@@ -4238,44 +4280,79 @@ async function loadOpenHabitats(){
        way["leisure"="park"](${south},${west},${north},${east});
      `;
    }).join('\n');
-   const q=`[out:json][timeout:25];(${selectors});out geom;`;
+
+   const q=`[out:json][timeout:22];(${selectors});out geom;`;
    const body='data='+encodeURIComponent(q);
-   const j=await prodFetchJson('https://overpass-api.de/api/interpreter',{
-     method:'POST',
-     headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
-     body,
-     timeoutMs:28000,
-     tries:2,
-     policy:{ttl:6*3600e3,stale:3*86400e3}
-   }),feats=[];
+   const j=await fetchOverpassWithFallback(body);
+   const feats=[];
+
    for(const e of (j.elements||[])){
      if(e.type!=='way'||!e.geometry||e.geometry.length<4)continue;
+
      const ring=e.geometry.map(p=>[p.lon,p.lat]);
-     if(ring[0][0]!==ring[ring.length-1][0]||ring[0][1]!==ring[ring.length-1][1])ring.push(ring[0]);
-     const f={type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},
-       properties:{open_type:e.tags?.landuse||e.tags?.natural||e.tags?.leisure||'open',name:e.tags?.name||''}};
-     f._src='osm';f._kind='open';f._center=geomCenter(f.geometry);
-     const a=nearestAreaInfo(f._center);f._distance=a.distance;f._centerName=a.name;
-     if(inAnalysisArea(f._center,.2)){f._blocked=inReserve(f);f._nearSpecies=[];f._scores={};feats.push(f);}
+     if(ring[0][0]!==ring[ring.length-1][0]||ring[0][1]!==ring[ring.length-1][1]){
+       ring.push(ring[0]);
+     }
+
+     const f={
+       type:'Feature',
+       geometry:{type:'Polygon',coordinates:[ring]},
+       properties:{
+         open_type:e.tags?.landuse||e.tags?.natural||e.tags?.leisure||'open',
+         name:e.tags?.name||''
+       }
+     };
+
+     f._src='osm';
+     f._kind='open';
+     f._center=geomCenter(f.geometry);
+
+     const a=nearestAreaInfo(f._center);
+     f._distance=a.distance;
+     f._centerName=a.name;
+
+     if(inAnalysisArea(f._center,.2)){
+       f._blocked=inReserve(f);
+       f._nearSpecies=[];
+       f._scores={};
+       feats.push(f);
+     }
    }
-   openFeatures=feats;openReady=feats.length>0;
+
+   openFeatures=feats;
+   openReady=feats.length>0;
    openGroup.clearLayers();
+
    feats.forEach(f=>{
-     allFeatures.push(f);addAnalysisFeature(f);
-     L.geoJSON(f,{style:{color:'#9ad6a8',weight:1.2,fill:false,opacity:.55,interactive:false}}).addTo(openGroup);
+     allFeatures.push(f);
+     addAnalysisFeature(f);
+     L.geoJSON(f,{
+       style:{color:'#9ad6a8',weight:1.2,fill:false,opacity:.55,interactive:false}
+     }).addTo(openGroup);
    });
+
    if(feats.length){
      for(const f of allFeatures.filter(x=>x._kind!=='open')){
        let d=Infinity;
-       for(const o of feats){const x=hav(f._center,o._center);if(x<d)d=x;if(d<.12)break;}
+       for(const o of feats){
+         const x=hav(f._center,o._center);
+         if(x<d)d=x;
+         if(d<.12)break;
+       }
        f._openNear=d;
      }
    }
-   el.textContent=openReady?feats.length+' obsz.':'brak';el.className=openReady?'st-ok':'st-warn';
+
+   el.textContent=openReady?feats.length+' obsz.':'brak';
+   el.className=openReady?'st-ok':'st-warn';
+
    invalidateScoringCaches('OSM open habitats');
    if(!deferSecondaryRenders)render();
  }catch(e){
-   console.warn('Open habitats',e);openReady=false;el.textContent='niedostępne';el.className='st-warn';
+   console.warn('Open habitats all endpoints failed',e);
+   openReady=false;
+   el.textContent='niedostępne';
+   el.className='st-warn';
  }
 }
 function openHabitatScore(type,f){
@@ -6467,6 +6544,8 @@ function auditSoilState(){
    fallbackWhenUnavailable:'neutral 7/10',
    lastError:soilLastError||null,
    endpointStyle:'https://maps.isric.org/mapserv/{property} + legacy ?map= fallback',
+   parserFields:['value_list','value_0','GRAY_INDEX','Band1'],
+   conversion:'raw / 10 for phh2o, sand and soc',
    values:soilSamples.slice(0,8).map(x=>({
      lat:Number(x.lat.toFixed(4)),
      lon:Number(x.lon.toFixed(4)),

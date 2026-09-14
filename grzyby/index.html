@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v41: mobile source beans collapse in-place to vertical dots -->
+<!-- GitHub production v42: fully unified place details + visual mushroom list -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2603,6 +2603,183 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
     height:10px!important;
     flex:0 0 10px!important;
   }
+}
+</style>
+
+
+<style id="v42-unified-details-visual">
+/* ===== v42: ten sam układ dla każdego klikniętego miejsca ===== */
+.place-details-body{
+  --u-green:#2f7d48;
+  --u-green-soft:#eef7f0;
+  --u-line:#dce6df;
+  --u-muted:#748078;
+  --u-ink:#243029;
+}
+
+.u-place-summary{
+  padding:9px;
+  border:1px solid var(--u-line);
+  border-radius:12px;
+  background:linear-gradient(180deg,#f8faf8,#f4f7f5);
+  margin-bottom:7px;
+}
+.u-place-summary-top{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:8px
+}
+.u-place-title{
+  font-size:10px;font-weight:950;letter-spacing:.06em;text-transform:uppercase;color:#69766e
+}
+.u-place-context{
+  margin-top:3px;font-size:9.5px;line-height:1.35;color:#6e7a72
+}
+.u-place-membership{
+  flex:0 0 auto;
+  padding:3px 6px;border-radius:999px;
+  background:#eef3ef;border:1px solid #dbe5dd;
+  color:#536159;font-size:8px;font-weight:900;white-space:nowrap
+}
+
+.u-core-stats{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:5px;margin:7px 0 0
+}
+.u-core-stat{
+  min-width:0;padding:6px 7px;border-radius:9px;
+  background:#fff;border:1px solid #e1e8e3
+}
+.u-core-stat span{display:block;font-size:8.2px;color:#77837b;line-height:1.15}
+.u-core-stat b{
+  display:block;margin-top:2px;font-size:12px;line-height:1.1;color:#243029;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+
+.u-section{
+  margin-top:7px;padding:9px;border-radius:12px;
+  background:#f8faf8;border:1px solid var(--u-line)
+}
+.u-section-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:7px
+}
+.u-section-title{font-size:10px;font-weight:950;color:#314038;line-height:1.15}
+.u-section-sub{font-size:8.5px;color:#7a867e;line-height:1.3;margin-top:2px}
+.u-section-badge{
+  flex:0 0 auto;padding:3px 6px;border-radius:999px;background:#edf4ef;
+  color:#4a6b54;border:1px solid #d5e3d8;font-size:7.8px;font-weight:900
+}
+
+/* Główny gatunek */
+.u-primary-species{
+  display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:9px;align-items:center;
+  padding:8px;border-radius:11px;background:#fff;border:1px solid #dfe8e1
+}
+.u-primary-species img{
+  width:42px;height:42px;border-radius:10px;object-fit:cover;
+  background:#16311f;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)
+}
+.u-primary-name{font-size:12px;font-weight:950;line-height:1.08;color:#233029}
+.u-primary-latin{font-size:8.5px;font-style:italic;color:#78847c;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u-primary-score{
+  min-width:48px;text-align:center;padding:5px 6px;border-radius:10px;
+  background:#eaf5ed;color:#23683a;border:1px solid #cfe5d4;
+  font-size:15px;font-weight:950;line-height:1
+}
+.u-primary-score small{display:block;font-size:6.7px;font-weight:900;color:#6b7e70;margin-top:2px}
+
+/* Wizualna lista grzybów — ta sama dla hotspotu i zwykłego wydzielenia */
+.u-species-grid{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px
+}
+.u-species-card{
+  position:relative;min-width:0;
+  display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:6px;align-items:center;
+  padding:6px 6px 8px;border-radius:10px;background:#fff;border:1px solid #e0e7e2;overflow:hidden
+}
+.u-species-card img{
+  width:34px;height:34px;border-radius:8px;object-fit:cover;background:#173021
+}
+.u-species-name{
+  min-width:0;font-size:9.2px;font-weight:950;line-height:1.08;color:#2b3830;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.u-species-latin{
+  min-width:0;margin-top:2px;font-size:7.3px;line-height:1.05;color:#829087;font-style:italic;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.u-species-score{
+  min-width:31px;padding:4px 4px;border-radius:8px;text-align:center;
+  font-size:10px;font-weight:950;line-height:1;border:1px solid transparent
+}
+.u-species-score.high{background:#e5f4e8;color:#21673a;border-color:#c8e1ce}
+.u-species-score.mid{background:#f2f4dd;color:#6a6f24;border-color:#e2e5bd}
+.u-species-score.low{background:#f6efe1;color:#88632c;border-color:#ead9b8}
+.u-species-bar{
+  position:absolute;left:0;right:0;bottom:0;height:3px;background:#eef1ef
+}
+.u-species-bar>span{display:block;height:100%;border-radius:0 2px 2px 0}
+.u-species-card.high .u-species-bar>span{background:#5aa96c}
+.u-species-card.mid .u-species-bar>span{background:#b1b95c}
+.u-species-card.low .u-species-bar>span{background:#d0a15d}
+.u-species-empty{
+  grid-column:1/-1;padding:8px;border-radius:9px;background:#f2f4f2;color:#738078;
+  font-size:9px;line-height:1.35;text-align:center
+}
+
+/* Hotspot jest dodatkiem do tego samego widoku miejsca, a nie innym popupem */
+.u-hotspot-box{
+  margin-top:7px;padding:9px;border-radius:12px;
+  background:linear-gradient(180deg,#fff8e9,#fbf5e9);
+  border:1px solid #eadbb6
+}
+.u-hotspot-head{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px
+}
+.u-hotspot-title{font-size:10px;font-weight:950;color:#554622}
+.u-hotspot-note{font-size:8.5px;line-height:1.35;color:#7b6d4a;margin-bottom:7px}
+.u-hotspot-stats{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px
+}
+.u-hotspot-stat{
+  padding:6px 7px;border-radius:9px;background:rgba(255,255,255,.68);
+  border:1px solid #eadfca;min-width:0
+}
+.u-hotspot-stat span{display:block;font-size:7.8px;color:#857653}
+.u-hotspot-stat b{display:block;margin-top:2px;font-size:11px;color:#4b4027;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Powody są krótsze i wizualnie spokojniejsze */
+.u-reasons{margin-top:7px}
+.u-reasons .reason-grid{margin-top:0}
+.u-reasons .reason-good,.u-reasons .reason-warn{font-size:9px!important;padding:5px 6px!important}
+
+/* Stare tekstowe listy "Co jeszcze..." w unified panelu mają zniknąć */
+.place-details-body .what-here,
+.place-details-body .what-row{display:none!important}
+
+.place-details-body .popup-more{
+  border-top:1px solid #e5ebe7;
+  padding-top:5px;
+}
+.place-details-body .popup-more summary{
+  font-size:9.2px;color:#4f5d54
+}
+
+/* Atlas: tylko krótka informacja, bez drugiej tekstowej listy */
+.u-atlas-note{
+  margin-top:7px;padding:7px 8px;border-radius:10px;background:#edf7ef;
+  border:1px solid #d1e6d5;font-size:9px;line-height:1.35;color:#46604c
+}
+
+@media(max-width:700px){
+  .u-place-summary,.u-section,.u-hotspot-box{padding:8px}
+  .u-species-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+  .u-species-card{grid-template-columns:31px minmax(0,1fr) auto;padding:5px 5px 7px;gap:5px}
+  .u-species-card img{width:31px;height:31px}
+  .u-species-name{font-size:8.7px}
+  .u-species-latin{font-size:6.8px}
+  .u-species-score{min-width:29px;font-size:9.5px}
+}
+@media(max-width:370px){
+  .u-species-grid{grid-template-columns:1fr}
 }
 </style>
 
@@ -7612,6 +7789,52 @@ function unifiedHotspotSpeciesRows(h,limit=8){
  }
  return rows.sort((a,b)=>b.best-a.best||b.avg-a.avg).slice(0,limit);
 }
+
+function unifiedScoreClass(v){
+ if(v>=7.8)return 'high';
+ if(v>=6.2)return 'mid';
+ return 'low';
+}
+
+function unifiedFeatureSpeciesRows(f,primaryType=null,limit=6){
+ const rows=[];
+ for(const type of PICK_TYPES){
+   if(type===primaryType)continue;
+   if(!featureRelevant(type,f))continue;
+   const score=speciesDisplayScore(type,f);
+   const potential=stableScoreForType(type,f);
+   if(!Number.isFinite(score)||score<4.8)continue;
+   rows.push({
+     type,
+     score,
+     potential,
+     season:seasonScore(type)
+   });
+ }
+ rows.sort((a,b)=>b.score-a.score||b.potential-a.potential);
+ return rows.slice(0,limit);
+}
+
+function unifiedSpeciesGridHtml(rows){
+ if(!rows?.length){
+   return '<div class="u-species-grid"><div class="u-species-empty">Brak innych gatunków z wystarczająco mocnym dopasowaniem do tego konkretnego miejsca.</div></div>';
+ }
+ return `<div class="u-species-grid">${rows.map(x=>{
+   const sm=SPECIES_META[x.type]||{};
+   const cls=unifiedScoreClass(x.score);
+   const width=Math.max(0,Math.min(100,x.score*10));
+   return `<div class="u-species-card ${cls}">
+     <img src="${atlasSvg(x.type)}" alt="${escapeHtml(sm.label||x.type)}">
+     <div>
+       <div class="u-species-name">${escapeHtml(sm.label||x.type)}</div>
+       <div class="u-species-latin">${escapeHtml(sm.scientific||'')}</div>
+     </div>
+     <div class="u-species-score ${cls}">${x.score.toFixed(1)}</div>
+     <div class="u-species-bar"><span style="width:${width.toFixed(0)}%"></span></div>
+   </div>`;
+ }).join('')}</div>`;
+}
+
 function unifiedPopupHtml(f,h=null){
  if(!f&&h)f=h.best;
  if(!f)return '<div class="popup-card">Brak danych o miejscu.</div>';
@@ -7624,60 +7847,100 @@ function unifiedPopupHtml(f,h=null){
  const conf=v.conf||{value:35,label:'niska'};
  const stable=stableAnchorScore(f);
  const cls=balancedClass(f);
- const modeLabel=mapMode==='today'?'DZIŚ':'POTENCJAŁ';
  const featureVm=VERDICT_META[v.rank]||VERDICT_META[0];
+ const modeLabel=mapMode==='today'?'DZIŚ':'POTENCJAŁ';
  const src=f._kind==='open'?'OpenStreetMap':(f._src==='pgl'?'PGL LP':(f._src==='other'?'poza PGL LP':'KO/KDO'));
  const areaHa=featureAreaHa(f);
+
+ // WAŻNE: podstawowe dane są zawsze o dokładnie klikniętym miejscu.
+ // Hotspot, jeśli istnieje, jest tylko dodatkowym kontekstem niżej.
+ const placeTitle=h
+   ? `Kliknięte miejsce • ${escapeHtml(hotspotLabel(h))}`
+   : 'Kliknięte miejsce';
+ const placeContext=h
+   ? 'Oceny poniżej dotyczą dokładnie tego wydzielenia. Podsumowanie całego hotspotu jest osobno niżej.'
+   : 'To samo zestawienie jest używane także dla wydzieleń należących do hotspotów.';
+
+ let membership='poza hotspotem';
+ if(h){
+   const memberIndex=Math.max(0,(h.members||[]).indexOf(f));
+   membership=f===h.best
+     ? `★ najmocniejsze • ${hotspotLabel(h)}`
+     : `${hotspotLabel(h)} • ${memberIndex+1}/${h.count}`;
+ }
+
  const mainLine=f._kind==='open'
    ? `🌿 <b>Teren otwarty OSM:</b> ${escapeHtml(p.open_type||'teren otwarty')}${p.name?' • '+escapeHtml(p.name):''} • ${areaHa.toFixed(2)} ha`
    : `🌲 <b>${escapeHtml(p.species_cd||p.gat_grp||'?')}</b> • ${p.species_age??'?'} lat • ${escapeHtml(p.site_type_cd||'?')} • ${Number.isFinite(Number(p.sub_area))?Number(p.sub_area).toFixed(2):'?'} ha`;
 
- let title='📍 Wybrane miejsce';
- let context='Poza numerowanym hotspotem';
- let primaryVm=featureVm;
- let hotspotStats='';
- let hotspotSpecies='';
- let memberPill='';
-
- if(h){
-   const hi=hotspotTodayInfo(h);
-   primaryVm=VERDICT_META[hi.rank]||featureVm;
-   const label=hotspotLabel(h);
-   const ctx=Number.isFinite(h.forestContext)?h.forestContext:forestContextInfo(h.best).score;
-   title=`📌 Hotspot ${escapeHtml(label)} • ${escapeHtml(h.areaName)}`;
-   const memberIndex=Math.max(0,(h.members||[]).indexOf(f));
-   const isBest=f===h.best;
-   context=isBest?'Pokazuję najmocniejsze miejsce tego hotspotu.':'Pokazuję dokładnie kliknięte wydzielenie należące do tego hotspotu.';
-   memberPill=`<span class="unified-member-pill">${isBest?'★ najmocniejsze miejsce':`wydzielenie ${memberIndex+1}/${h.count}`}</span>`;
-   hotspotStats=`
-     <div class="unified-popup-stat"><span>Hotspot — najlepszy wynik</span><b>${(mapMode==='today'?(h.todayBestScore??hi.bestScore):h.stableBestScore).toFixed(1)}/10</b></div>
-     <div class="unified-popup-stat"><span>Hotspot — średnio</span><b>${(mapMode==='today'?(h.todayAvgScore??hi.avg):h.stableAvgScore).toFixed(1)}/10</b></div>
-     <div class="unified-popup-stat"><span>Obszar hotspotu</span><b>${h.areaHa.toFixed(1)} ha • ${h.count} wydz.</b></div>
-     <div class="unified-popup-stat"><span>Kontekst kompleksu</span><b>${ctx.toFixed(1)}/10</b></div>`;
-
-   const hsRows=unifiedHotspotSpeciesRows(h,8);
-   if(hsRows.length){
-     hotspotSpecies=`<details class="popup-more unified-place-block"><summary>🍄 Grzyby pasujące do całego hotspotu (${hsRows.length})</summary><div class="unified-hotspot-species">${hsRows.map(x=>{
-       const sm=SPECIES_META[x.type]||{};
-       return `<div class="hotspot-species-row"><img src="${atlasSvg(x.type)}" alt="${escapeHtml(sm.label||x.type)}"><div><div class="hs-name">${escapeHtml(sm.label||x.type)}</div><div class="hs-latin">${escapeHtml(sm.scientific||'')}</div></div><div class="hs-score">${x.best.toFixed(1)}</div></div>`;
-     }).join('')}</div></details>`;
-   }
- }
-
- let featureMain='';
+ // Główny gatunek / główny wynik
+ let primaryHtml='';
  let reasonsHtml='';
- let detailsHtml='';
  if(currentFilter==='diversity'){
    const d=diversityData(f);
-   featureMain=`<div class="unified-species-main"><div style="font-size:28px;display:grid;place-items:center">🍄</div><div><div class="u-name">Różnorodność grzybów</div><div class="u-latin">${d.count} gatunków powyżej progu</div></div><div class="u-score">${d.score.toFixed(1)}</div></div>`;
+   primaryHtml=`<div class="u-primary-species">
+     <div style="width:42px;height:42px;border-radius:10px;background:#edf4ef;display:grid;place-items:center;font-size:25px">🍄</div>
+     <div><div class="u-primary-name">Różnorodność grzybów</div><div class="u-primary-latin">${d.count} gatunków powyżej progu</div></div>
+     <div class="u-primary-score">${d.score.toFixed(1)}<small>/10</small></div>
+   </div>`;
  }else if(type&&m){
-   featureMain=`<div class="unified-species-main"><img src="${atlasSvg(type)}" alt="${escapeHtml(m.label||type)}"><div><div class="u-name">${escapeHtml(m.label||type)}</div><div class="u-latin">${escapeHtml(m.scientific||'')}</div></div><div class="u-score">${v.score.toFixed(1)}</div></div>`;
+   primaryHtml=`<div class="u-primary-species">
+     <img src="${atlasSvg(type)}" alt="${escapeHtml(m.label||type)}">
+     <div><div class="u-primary-name">${escapeHtml(m.label||type)}</div><div class="u-primary-latin">${escapeHtml(m.scientific||'')}</div></div>
+     <div class="u-primary-score">${v.score.toFixed(1)}<small>/10</small></div>
+   </div>`;
+
    const reasons=reasonsFor(type,f);
    const goodHtml=reasons.good.map(x=>`<div class="reason-good">✅ ${escapeHtml(x)}</div>`).join('');
    const warnHtml=reasons.warn.map(x=>`<div class="reason-warn">⚠️ ${escapeHtml(x)}</div>`).join('');
-   reasonsHtml=`<div class="reason-grid">${goodHtml}${warnHtml}</div>`;
+   reasonsHtml=(goodHtml||warnHtml)?`<div class="u-reasons"><div class="reason-grid">${goodHtml}${warnHtml}</div></div>`:'';
+ }
 
-   const soilRaw=soilAt(f._center),hist=historyInfo(type,f),what=whatCanGrowHere(f);
+ // Ta lista jest TERAZ zawsze liczona dla konkretnego klikniętego miejsca,
+ // niezależnie od tego, czy należy ono do hotspotu.
+ let otherRows;
+ if(currentFilter==='diversity'){
+   otherRows=diversityData(f).rows.slice(0,6).map(x=>({
+     type:x.type,score:x.score,potential:x.potential,season:seasonScore(x.type)
+   }));
+ }else{
+   otherRows=unifiedFeatureSpeciesRows(f,type,6);
+ }
+ const otherSpeciesHtml=unifiedSpeciesGridHtml(otherRows);
+
+ // Hotspot to osobna, dodatkowa sekcja — nie zmienia werdyktu miejsca.
+ let hotspotHtml='';
+ if(h){
+   const hi=hotspotTodayInfo(h);
+   const ctx=Number.isFinite(h.forestContext)?h.forestContext:forestContextInfo(h.best).score;
+   const memberIndex=Math.max(0,(h.members||[]).indexOf(f));
+   const memberLabel=f===h.best?'najmocniejsze miejsce':`wydzielenie ${memberIndex+1}/${h.count}`;
+   hotspotHtml=`<div class="u-hotspot-box">
+     <div class="u-hotspot-head">
+       <div class="u-hotspot-title">📌 Hotspot ${escapeHtml(hotspotLabel(h))} • ${escapeHtml(h.areaName)}</div>
+       <div class="u-section-badge">${memberLabel}</div>
+     </div>
+     <div class="u-hotspot-note">To tylko podsumowanie całego hotspotu. Główny werdykt, gatunek i lista grzybów wyżej dotyczą dokładnie klikniętego miejsca.</div>
+     <div class="u-hotspot-stats">
+       <div class="u-hotspot-stat"><span>Najlepszy wynik hotspotu</span><b>${(mapMode==='today'?(h.todayBestScore??hi.bestScore):h.stableBestScore).toFixed(1)}/10</b></div>
+       <div class="u-hotspot-stat"><span>Średnia hotspotu</span><b>${(mapMode==='today'?(h.todayAvgScore??hi.avg):h.stableAvgScore).toFixed(1)}/10</b></div>
+       <div class="u-hotspot-stat"><span>Obszar</span><b>${h.areaHa.toFixed(1)} ha • ${h.count} wydz.</b></div>
+       <div class="u-hotspot-stat"><span>Kontekst kompleksu</span><b>${ctx.toFixed(1)}/10</b></div>
+     </div>
+   </div>`;
+ }
+
+ // Atlas: krótka informacja bez kolejnej tekstowej listy gatunków.
+ let atlasNote='';
+ if(atlasSelected.size){
+   const agg=atlasAggregateScore(f,true);
+   atlasNote=`<div class="u-atlas-note">🎯 <b>Atlas:</b> do tego miejsca pasuje <b>${agg.matched}/${agg.total}</b> zaznaczonych gatunków. Gatunki nadal są pokazane graficznie w sekcji „Inne grzyby pasujące tutaj”.</div>`;
+ }
+
+ // Szczegóły liczbowe — bez starej tekstowej listy "Co jeszcze może tu pasować?".
+ let detailsHtml='';
+ if(type&&m&&currentFilter!=='diversity'){
+   const soilRaw=soilAt(f._center),hist=historyInfo(type,f);
    detailsHtml=`<details class="popup-more"><summary>📊 Szczegóły oceny miejsca</summary><div class="factor-grid">`+
      `<div class="factor"><span>Potencjał siedliska</span><b>${v.habitat.toFixed(1)}/10</b></div>`+
      (mapMode==='today'?`<div class="factor"><span>Warunki teraz</span><b>${(v.fruit/10).toFixed(1)}/10</b></div>`:'')+
@@ -7687,34 +7950,65 @@ function unifiedPopupHtml(f,h=null){
      `<div class="factor"><span>Gleba</span><b>${soilSuitability(type,f).toFixed(1)}</b></div>`+
      `<div class="factor"><span>Mikroteren</span><b>${moistureTerrainScore(type,f).toFixed(1)}</b></div></div>`+
      (soilRaw?`<div class="popup-mini" style="margin-top:6px">SoilGrids: pH ${soilRaw.ph.toFixed(1)} • SOC ${soilRaw.soc.toFixed(1)} • piasek ${soilRaw.sand.toFixed(1)}</div>`:'')+
-     (Number.isFinite(hist.nearest)?`<div class="popup-mini">Najbliższa publiczna obserwacja: ${hist.nearest.toFixed(1)} km</div>`:'')+`</details>`+
-     `<details class="popup-more"><summary>🍄 Co jeszcze może tu pasować?</summary>${what.slice(0,6).map(([sc,t])=>`<div class="what-row"><span>${escapeHtml(HUMAN_NAMES[t]||t)}</span><b>${sc.toFixed(1)}/10</b></div>`).join('')}</details>`;
+     (Number.isFinite(hist.nearest)?`<div class="popup-mini">Najbliższa publiczna obserwacja: ${hist.nearest.toFixed(1)} km</div>`:'')+
+     `</details>`;
  }
 
- let atlasSummary='';
- if(atlasSelected.size){
-   const agg=atlasAggregateScore(f,true);
-   const rows=atlasScoresForFeature(f,true).filter(x=>x.score>=5.6);
-   atlasSummary=`<div class="unified-place-block"><div class="unified-place-title">🎯 Aktualny wybór z atlasu</div><div class="popup-mini">Pasuje <b>${agg.matched}/${agg.total}</b> zaznaczonych gatunków.</div>${rows.slice(0,8).map(x=>`<div class="what-row"><span>${escapeHtml(HUMAN_NAMES[x.type]||x.type)}</span><b>${x.score.toFixed(1)}/10</b></div>`).join('')}</div>`;
- }
+ return `<div class="popup-card unified-place-popup">
+   <div class="u-place-summary">
+     <div class="u-place-summary-top">
+       <div>
+         <div class="u-place-title">${placeTitle}</div>
+         <div class="u-place-context">${placeContext}</div>
+       </div>
+       <div class="u-place-membership">${escapeHtml(membership)}</div>
+     </div>
 
- return `<div class="popup-card unified-place-popup">`+
-   `<div class="unified-popup-kicker">${h?'hotspot + konkretne miejsce':'konkretne miejsce'}</div>`+
-   `<div class="unified-popup-head"><div><div class="popup-title">${title}</div><div class="unified-popup-context">${context}</div>${memberPill}</div></div>`+
-   `<div class="popup-verdict ${primaryVm.cls}">${primaryVm.label} • ${modeLabel}</div>`+
-   `<div class="unified-popup-grid">${hotspotStats}`+
-     `<div class="unified-popup-stat"><span>Kliknięte miejsce</span><b>${v.score.toFixed(1)}/10</b></div>`+
-     `<div class="unified-popup-stat"><span>Stały potencjał miejsca</span><b>${stable.toFixed(1)}/10</b></div>`+
-     `<div class="unified-popup-stat"><span>Pewność danych</span><b>${escapeHtml(conf.label)} • ${conf.value}/100</b></div>`+
-     `<div class="unified-popup-stat"><span>Klasa mapy</span><b>${escapeHtml(balancedClassLabel(cls))}</b></div>`+
-   `</div>`+
-   `<div class="unified-place-block"><div class="unified-place-title">📍 To konkretne miejsce</div>${featureMain}<div class="popup-facts" style="margin-top:7px"><div class="popup-factline">${mainLine}</div>`+
-     (Number.isFinite(f._distance)?`<div class="popup-factline">📍 ${f._distance.toFixed(1)} km od najbliższego centrum${Number.isFinite(f._elev)?' • '+Math.round(f._elev)+' m':''}</div>`:'')+`</div>${reasonsHtml}</div>`+
-   hotspotSpecies+atlasSummary+detailsHtml+
-   `<details class="popup-more"><summary>ℹ️ Źródła / techniczne</summary><div class="popup-mini">Źródło geometrii: ${escapeHtml(src)}. Hotspot jest lokalnym TOP-em modelu, a wynik miejsca jest heurystyczną rekomendacją terenową — nie gwarancją owocników.</div></details>`+
-   `</div>`;
+     <div class="popup-verdict ${featureVm.cls}" style="margin-top:7px">${featureVm.label} • ${modeLabel}</div>
+
+     <div class="u-core-stats">
+       <div class="u-core-stat"><span>Ocena tego miejsca</span><b>${v.score.toFixed(1)}/10</b></div>
+       <div class="u-core-stat"><span>Stały potencjał</span><b>${stable.toFixed(1)}/10</b></div>
+       <div class="u-core-stat"><span>Pewność danych</span><b>${escapeHtml(conf.label)} • ${conf.value}/100</b></div>
+       <div class="u-core-stat"><span>Klasa mapy</span><b>${escapeHtml(balancedClassLabel(cls))}</b></div>
+     </div>
+   </div>
+
+   <div class="u-section">
+     <div class="u-section-head">
+       <div>
+         <div class="u-section-title">${currentFilter==='all'?'🍄 Najlepszy gatunek w tym miejscu':'🍄 Główny wynik dla tego miejsca'}</div>
+         <div class="u-section-sub">Wynik i opis zawsze odnoszą się do dokładnie klikniętego wydzielenia.</div>
+       </div>
+     </div>
+     ${primaryHtml}
+     <div class="popup-facts" style="margin-top:7px">
+       <div class="popup-factline">${mainLine}</div>
+       ${Number.isFinite(f._distance)?`<div class="popup-factline">📍 ${f._distance.toFixed(1)} km od najbliższego centrum${Number.isFinite(f._elev)?' • '+Math.round(f._elev)+' m':''}</div>`:''}
+     </div>
+     ${reasonsHtml}
+   </div>
+
+   <div class="u-section">
+     <div class="u-section-head">
+       <div>
+         <div class="u-section-title">🍄 Inne grzyby pasujące tutaj</div>
+         <div class="u-section-sub">Ta sama wizualna lista pojawia się dla wydzielenia z hotspotem i bez hotspotu.</div>
+       </div>
+       <div class="u-section-badge">${otherRows.length} gat.</div>
+     </div>
+     ${otherSpeciesHtml}
+   </div>
+
+   ${hotspotHtml}
+   ${atlasNote}
+   ${detailsHtml}
+
+   <details class="popup-more"><summary>ℹ️ Źródła / techniczne</summary>
+     <div class="popup-mini">Źródło geometrii: ${escapeHtml(src)}. Wynik jest heurystyczną rekomendacją terenową, nie gwarancją owocników.</div>
+   </details>
+ </div>`;
 }
-
 
 
 function closeUnifiedDetails(clearLock=true){

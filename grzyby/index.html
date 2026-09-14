@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v56: audited and balanced color scale calibration -->
+<!-- GitHub production v57: visual cutoff + species-score confidence fading -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -7765,6 +7765,68 @@ function unifiedBandIndex(c,progress=.5){
  return Math.max(0,Math.min(11,idx));
 }
 
+// v57 — końcowy filtr prezentacyjny.
+// Nie zmienia scoringu, klas ani hotspotów. Decyduje tylko, ILE z już policzonego
+// wyniku ma być widoczne na mapie.
+function currentSingleSpeciesType(){
+ if(atlasSelected.size===1)return [...atlasSelected][0];
+ if(!atlasSelected.size&&currentFilter!=='all'&&currentFilter!=='diversity')return currentFilter;
+ return null;
+}
+
+function speciesVisualStrengthFromScore(score,today=false){
+ score=Number(score);
+ if(!Number.isFinite(score))return 0;
+
+ // Absolutna siła konkretnego gatunku — celowo ostrzejsza od wspólnej klasy mapy.
+ const pts=today
+   ? [[0,0],[4.8,0],[5.2,.10],[5.5,.18],[6.0,.30],[6.4,.42],[6.8,.54],[7.3,.66],[7.8,.78],[8.2,.87],[8.8,.97],[10,1]]
+   : [[0,0],[4.9,0],[5.3,.10],[5.55,.18],[6.0,.32],[6.35,.45],[6.7,.56],[7.05,.66],[7.5,.78],[7.9,.86],[8.4,.96],[10,1]];
+
+ if(score<=pts[0][0])return pts[0][1];
+ for(let i=1;i<pts.length;i++){
+   if(score<=pts[i][0]){
+     const [x0,y0]=pts[i-1], [x1,y1]=pts[i];
+     const t=(score-x0)/Math.max(.0001,x1-x0);
+     return y0+(y1-y0)*t;
+   }
+ }
+ return 1;
+}
+
+function speciesVisualStrengthForFeature(f,today=false){
+ const type=currentSingleSpeciesType();
+ if(!type)return {active:false,type:null,score:NaN,strength:1};
+ const score=speciesDisplayScore(type,f);
+ return {
+   active:true,
+   type,
+   score,
+   strength:speciesVisualStrengthFromScore(score,today)
+ };
+}
+
+function baseVisualCutoffForBand(band,f){
+ // Skrajnie niski ogon skali nie niesie użytecznej informacji na mapie.
+ // Hotspot pozostaje wyjątkiem — nigdy nie usuwamy miejsca, które system sam oznaczył jako hotspot.
+ if(f?._hotspotIndex)return {hidden:false,multiplier:1,reason:'hotspot'};
+ if(band<=1)return {hidden:true,multiplier:0,reason:'very-low-band'};
+ if(band===2)return {hidden:false,multiplier:.38,reason:'upper-low-band'};
+ return {hidden:false,multiplier:1,reason:'normal'};
+}
+
+function speciesRackVisual(score,today=false){
+ const s=speciesVisualStrengthFromScore(score,today);
+ // W racku nie znikamy całkiem — słaby gatunek nadal jest informacją,
+ // ale dużo mocniej schodzi na drugi plan.
+ const opacity=.16+.84*Math.pow(s,.92);
+ const scale=.82+.18*Math.pow(s,.70);
+ const saturation=.28+.72*s;
+ const brightness=.78+.22*s;
+ return {strength:s,opacity,scale,saturation,brightness};
+}
+
+
 function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  c=Math.max(0,Math.min(4,Number(c)||0));
  const progress=unifiedWithinClassProgress(f,c,today,score);
@@ -7776,11 +7838,45 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  let fillOpacity=fillOpacityByBand[band] ?? 0.22;
  let weight=stroke.weight;
  let opacity=stroke.opacity;
- if(open){
-   fillOpacity=Math.max(.045, Math.min(.66, fillOpacity*.88));
-   weight=weight>0?Math.max(.10,weight*.90):0;
-   opacity=weight>0?Math.max(.12,opacity*.90):0;
+
+ // 1) Najniższy ogon skali: najgorsze wydzielenia po prostu znikają.
+ const cutoff=baseVisualCutoffForBand(band,f);
+ if(cutoff.hidden){
+   return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
  }
+ fillOpacity*=cutoff.multiplier;
+ weight*=Math.max(.25,cutoff.multiplier);
+ opacity*=Math.max(.25,cutoff.multiplier);
+
+ // 2) Jeśli użytkownik ogląda KONKRETNY gatunek, jego osobna punktacja
+ //    silniej steruje widocznością niż sama klasa lokalna.
+ const speciesVisual=speciesVisualStrengthForFeature(f,today);
+ if(speciesVisual.active&&!(f?._hotspotIndex)){
+   const s=speciesVisual.strength;
+   if(s<=.015){
+     return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
+   }
+   const fillMult=.08+.92*Math.pow(s,1.45);
+   const strokeMult=Math.pow(s,1.30);
+   fillOpacity*=fillMult;
+   weight*=strokeMult;
+   opacity*=Math.max(.10,strokeMult);
+   if(s<.30){
+     weight=0;
+     opacity=0;
+     border='transparent';
+   }else if(s<.52){
+     weight*=.55;
+     opacity*=.62;
+   }
+ }
+
+ if(open){
+   fillOpacity=Math.max(speciesVisual.active?.008:.045, Math.min(.66, fillOpacity*.88));
+   weight=weight>0?Math.max(.08,weight*.90):0;
+   opacity=weight>0?Math.max(.10,opacity*.90):0;
+ }
+
  if(f?._hotspotIndex){
    if(f._hotspotBest){
      weight=Math.max(weight,1.90);
@@ -7793,7 +7889,15 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
      if(border==='transparent')border='#667a67';
    }
  }
- return { color:border, weight, fillColor:fill, fillOpacity:Math.min(.79,fillOpacity), opacity:Math.min(1,opacity), ...(open?{dashArray:'5 4',lineCap:'butt'}:{}) };
+
+ return {
+   color:border,
+   weight,
+   fillColor:fill,
+   fillOpacity:Math.max(0,Math.min(.79,fillOpacity)),
+   opacity:Math.max(0,Math.min(1,opacity)),
+   ...(open?{dashArray:'5 4',lineCap:'butt'}:{})
+ };
 }
 
 function unifiedLegendGradient(){
@@ -10520,6 +10624,80 @@ function auditUnifiedMapScale(){
 window.auditUnifiedMapScale=auditUnifiedMapScale;
 window.auditUnifiedMapScale=auditUnifiedMapScale;
 
+
+function auditVisualCutoffAndSpeciesFade(){
+ const today=mapMode==='today';
+ const speciesType=currentSingleSpeciesType();
+ let hiddenByBand=0;
+ let faintLowBand=0;
+ let hiddenBySpecies=0;
+ let speciesFaded=0;
+ let shown=0;
+ const samples=[];
+
+ const rows=allFeatures.filter(f=>!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f)));
+ for(const f of rows){
+   const score=today?todayScoreForStyle(f):stableAnchorScore(f);
+   const cls=today?todayBalancedClass(f,score):balancedClass(f);
+   const progress=unifiedWithinClassProgress(f,cls,today,score);
+   const band=unifiedBandIndex(cls,progress);
+   const cutoff=baseVisualCutoffForBand(band,f);
+   if(cutoff.hidden){hiddenByBand++;continue;}
+   if(band===2)faintLowBand++;
+
+   const sv=speciesVisualStrengthForFeature(f,today);
+   if(sv.active&&!(f?._hotspotIndex)){
+     if(sv.strength<=.015){hiddenBySpecies++;continue;}
+     if(sv.strength<.70)speciesFaded++;
+     if(samples.length<20)samples.push({
+       species:HUMAN_NAMES[sv.type]||sv.type,
+       speciesScore:Number(sv.score.toFixed(2)),
+       strength:Number(sv.strength.toFixed(3)),
+       class:cls,
+       band,
+       area:featureAreaName(f)
+     });
+   }
+   shown++;
+ }
+
+ const hotspotIcons=[];
+ for(const h of (topSpots||[]).slice(0,8)){
+   for(const t of hotspotRackTypes(h).slice(0,4)){
+     const score=speciesDisplayScore(t,h.best);
+     const v=speciesRackVisual(score,today);
+     hotspotIcons.push({
+       hotspot:hotspotLabel(h),
+       species:HUMAN_NAMES[t]||t,
+       score:Number(score.toFixed(2)),
+       strength:Number(v.strength.toFixed(3)),
+       opacity:Number(v.opacity.toFixed(3)),
+       scale:Number(v.scale.toFixed(3))
+     });
+   }
+ }
+
+ const report={
+   mode:mapMode,
+   filter:currentFilter,
+   atlas:[...atlasSelected],
+   analyzed:rows.length,
+   hiddenByBand,
+   faintLowBand,
+   singleSpecies:speciesType?HUMAN_NAMES[speciesType]||speciesType:null,
+   hiddenBySpecies,
+   speciesFaded,
+   shown,
+   samples,
+   hotspotIcons
+ };
+ console.table(samples);
+ console.table(hotspotIcons);
+ console.info('VISUAL CUTOFF + SPECIES FADE AUDIT',report);
+ return report;
+}
+window.auditVisualCutoffAndSpeciesFade=auditVisualCutoffAndSpeciesFade;
+
 function auditPerformanceOptimization(){
  const rounded={};
 
@@ -10694,11 +10872,19 @@ function hotspotRackHtml(h,types,view){
    const suffix=Number.isFinite(score)?` • ${score.toFixed(1)}/10`:'';
    return `${HUMAN_NAMES[t]||t}${suffix}`;
  };
+ const visualFor=t=>{
+   const score=h?.best?speciesDisplayScore(t,h.best):NaN;
+   return speciesRackVisual(score,mapMode==='today');
+ };
+ const chipStyle=t=>{
+   const v=visualFor(t);
+   return `opacity:${v.opacity.toFixed(3)};transform:scale(${v.scale.toFixed(3)});filter:saturate(${v.saturation.toFixed(3)}) brightness(${v.brightness.toFixed(3)});transform-origin:center;`;
+ };
 
  if(view.compact){
    const t=view.visible[0];
    return `<div class="hotspot-icon-rack hotspot-rack-compact" data-hotspot-key="${key}" title="${escapeHtml(titleFor(t))}">
-     <span class="hotspot-icon-chip" data-type="${escapeHtml(t)}">
+     <span class="hotspot-icon-chip" data-type="${escapeHtml(t)}" style="${chipStyle(t)}">
        <img src="${atlasSvg(t)}" alt="${escapeHtml(shortHintName(t))}">
      </span>
    </div>`;
@@ -10706,7 +10892,7 @@ function hotspotRackHtml(h,types,view){
 
  return `<div class="hotspot-icon-rack" data-hotspot-key="${key}">
    ${view.visible.map(t=>`
-     <span class="hotspot-icon-chip" data-type="${escapeHtml(t)}" title="${escapeHtml(titleFor(t))}">
+     <span class="hotspot-icon-chip" data-type="${escapeHtml(t)}" title="${escapeHtml(titleFor(t))}" style="${chipStyle(t)}">
        <img src="${atlasSvg(t)}" alt="${escapeHtml(shortHintName(t))}">
      </span>`).join('')}
    ${view.showMore&&remaining?`<span class="hotspot-icon-more" title="${remaining} kolejnych pasujących gatunków">+${remaining}</span>`:''}

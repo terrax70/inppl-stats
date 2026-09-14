@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v43: hotspot icon order = detail ranking + all matching species -->
+<!-- GitHub production v44: single-species TODAY consistency across BEST, atlas and hotspots -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2800,6 +2800,11 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
     width:min(420px,calc(100vw - 560px));
   }
 }
+</style>
+
+
+<style id="v44-single-species-consistency">
+.u-species-score[title]{cursor:help}
 </style>
 
 </head>
@@ -6417,22 +6422,82 @@ function evidenceConfidence(type,f){
  return {value:c,label:c>=75?'wysoka':c>=50?'średnia':'niska',local,notes};
 }
 
+
+function activeSingleSpeciesType(){
+ if(atlasSelected.size===1)return [...atlasSelected][0];
+ if(!atlasSelected.size&&currentFilter!=='all'&&currentFilter!=='diversity')return currentFilter;
+ return null;
+}
+
+function speciesVerdictForType(type,f){
+ if(!type||!featureRelevant(type,f)){
+   return {rank:0,score:0,type,habitat:0,fruit:0,conf:{value:20,label:'niska',local:false,notes:[]}};
+ }
+
+ const score=speciesDisplayScore(type,f);
+ const habitat=staticSuitability(type,f);
+ const fruit=fruitingConditions(type,f);
+ const conf=evidenceConfidence(type,f);
+
+ let rank=0;
+
+ if(mapMode==='habitat'){
+   if(score>=8.8&&conf.value>=45)rank=3;
+   else if(score>=7.2)rank=2;
+   else if(score>=5.8)rank=1;
+ }else{
+   // Jedna wspólna semantyka trybu DZIŚ:
+   // 7.x/10 nie może być pokazywane jako mocny kandydat w BEST,
+   // a po wybraniu gatunku znikać z mapy.
+   if(score>=8.8&&habitat>=8.2&&fruit>=78&&conf.value>=45)rank=3;
+   else if(score>=6.8&&habitat>=6.8&&fruit>=55)rank=2;
+   else if(score>=5.5)rank=1;
+ }
+
+ if(f?._kind==='open')rank=Math.min(rank,openHabitatVerdictCap(type,f));
+
+ return {rank,score,type,habitat,fruit,conf};
+}
+
+function singleSpeciesTodayClass(type,f){
+ if(!type||!featureRelevant(type,f))return 0;
+
+ const v=speciesVerdictForType(type,f);
+
+ // Kolor pojedynczego gatunku odpowiada temu samemu werdyktowi,
+ // który widzi użytkownik w panelu.
+ if(v.rank>=3)return 4;   // 🔥 JEDŹ NAJPIERW
+ if(v.rank>=2)return 3;   // ✅ WARTO SPRAWDZIĆ
+ if(v.rank>=1)return 2;   // 🟡 REZERWOWO
+
+ // Słabsze, ale nadal biologicznie możliwe miejsca mogą zostać delikatnie widoczne.
+ return v.score>=4.8?1:0;
+}
+
 function verdictFor(f){
  if(currentFilter==='diversity'){
    const d=diversityData(f),rank=d.score>=8.7?3:d.score>=7.2?2:d.score>=5.5?1:0;
    return {rank,score:d.score,type:null,habitat:d.score,fruit:NaN,conf:{value:55,label:'średnia',local:false,notes:[]}};
  }
+
  const type=currentFilter==='all'?bestTypeFor(f):currentFilter;
+
+ // Jawny pojedynczy gatunek korzysta z tej samej semantyki co pojedynczy wybór w atlasie.
+ if(currentFilter!=='all'){
+   return speciesVerdictForType(type,f);
+ }
+
  const score=effectiveScore(f),habitat=staticSuitability(type,f),fruit=fruitingConditions(type,f),conf=evidenceConfidence(type,f);
  let rank=0;
- if(mapMode==='habitat'){if(score>=8.9&&conf.value>=45)rank=3;else if(score>=7.8)rank=2;else if(score>=6.5)rank=1;}
- else{
+ if(mapMode==='habitat'){
+   if(score>=8.9&&conf.value>=45)rank=3;
+   else if(score>=7.8)rank=2;
+   else if(score>=6.5)rank=1;
+ }else{
    if(score>=9.0&&habitat>=8.6&&fruit>=82&&conf.value>=45)rank=3;
    else if(score>=8.0&&habitat>=7.8&&fruit>=66)rank=2;
    else if(score>=6.6)rank=1;
  }
- // OSM mówi, czym jest powierzchnia, ale nie że jest dobrym celem grzybobrania.
- // Mini-trawniki i parki mają twardy sufit rekomendacji niezależnie od pogody.
  if(f?._kind==='open'&&type)rank=Math.min(rank,openHabitatVerdictCap(type,f));
  return {rank,score,type,habitat,fruit,conf};
 }
@@ -6546,6 +6611,10 @@ function atlasStablePotential(f){
 }
 
 function atlasVerdictFor(f){
+ if(atlasSelected.size===1){
+   return speciesVerdictForType([...atlasSelected][0],f);
+ }
+
  const agg=atlasAggregateScore(f,true);
  const t=agg.bestType;
  if(!t)return {rank:0,score:0,type:null,habitat:0,fruit:0,conf:{value:20,label:'niska',local:false,notes:[]}};
@@ -6971,7 +7040,11 @@ function todayLocalHotspots(areaName,maxHotspots){
      s:todayScoreForStyle(f),
      cls:todayBalancedClass(f),
      potential:info?info.potential:stableAnchorScore(f),
-     potentialClass:info?Math.min(info.potentialClass,overallPotentialClass):overallPotentialClass,
+     potentialClass:info
+       ? Math.min(info.potentialClass,overallPotentialClass)
+       : (activeSingleSpeciesType()
+           ? (()=>{const p=stableAnchorScore(f);return p>=8.8?4:p>=6.8?3:p>=5.8?2:p>=4.8?1:0;})()
+           : overallPotentialClass),
      type:info?.type||null,
      ctx:forestContextInfo(f),
      key:stableFeatureKey(f)
@@ -6984,14 +7057,17 @@ function todayLocalHotspots(areaName,maxHotspots){
  // Dla "Najlepszego miejsca" próg bieżący jest niższy niż dawniej,
  // bo score DZIŚ jest już celowo niższy od Potencjału.
  const bestAll=!atlasSelected.size&&currentFilter==='all';
- const memberMin=bestAll?6.10:6.50;
- const seedMin=bestAll?7.05:7.70;
+ const singleType=activeSingleSpeciesType();
+ const singleMode=!!singleType;
+ const memberMin=bestAll?6.10:(singleMode?5.80:6.50);
+ const seedMin=bestAll?7.05:(singleMode?6.80:7.70);
 
  const membersPool=scored.filter(
    x=>x.cls>=2&&x.potentialClass>=2&&x.s>=memberMin
  );
+ const seedPotentialMin=singleMode?6.80:7.05;
  const seedsPool=scored.filter(
-   x=>x.cls>=3&&x.potentialClass>=3&&x.potential>=7.05&&x.s>=seedMin
+   x=>x.cls>=3&&x.potentialClass>=3&&x.potential>=seedPotentialMin&&x.s>=seedMin
  );
 
  // DZIŚ nie wymuszamy hotspotu "najlepszego ze słabych".
@@ -7033,8 +7109,11 @@ function todayLocalHotspots(areaName,maxHotspots){
 
    const bestX=members[0];
    const bestAll=!atlasSelected.size&&currentFilter==='all';
-   const minToday=bestAll?7.05:7.70;
-   if(bestX.cls<3||bestX.potentialClass<3||bestX.potential<7.05||bestX.s<minToday)continue;
+   const singleType=activeSingleSpeciesType();
+   const singleMode=!!singleType;
+   const minToday=bestAll?7.05:(singleMode?6.80:7.70);
+   const minPotential=singleMode?6.80:7.05;
+   if(bestX.cls<3||bestX.potentialClass<3||bestX.potential<minPotential||bestX.s<minToday)continue;
 
    const memberFeatures=members.map(x=>x.f);
    const areaHa=members.reduce((a,x)=>a+featureAreaHa(x.f),0);
@@ -7584,6 +7663,12 @@ function todayBalancedClass(f){
    return Math.min(todayClass,info.potentialClass,balancedClass(f));
  }
 
+
+ const singleType=activeSingleSpeciesType();
+ if(singleType){
+   return singleSpeciesTodayClass(singleType,f);
+ }
+
  // Pozostałe tryby zachowują wcześniejszą ostrzejszą skalę.
  const broad=
    (!atlasSelected.size&&currentFilter==='diversity') ||
@@ -7859,7 +7944,7 @@ function unifiedSpeciesGridHtml(rows){
        <div class="u-species-name">${escapeHtml(sm.label||x.type)}</div>
        <div class="u-species-latin">${escapeHtml(sm.scientific||'')}</div>
      </div>
-     <div class="u-species-score ${cls}">${x.score.toFixed(1)}</div>
+     <div class="u-species-score ${cls}" title="${x.score>=6.8?'Po wybraniu gatunku to miejsce powinno być widoczne jako warte sprawdzenia':x.score>=5.5?'Po wybraniu gatunku to miejsce będzie widoczne jako rezerwowe':'Słabsze dopasowanie'}">${x.score.toFixed(1)}</div>
      <div class="u-species-bar"><span style="width:${width.toFixed(0)}%"></span></div>
    </div>`;
  }).join('')}</div>`;
@@ -9428,6 +9513,43 @@ function hotspotHintTypes(h,limitOverride){
  return ranked.slice(0,limit);
 }
 
+
+
+function auditSingleSpeciesTodayConsistency(type='rydz'){
+ if(!SPECIES_META[type])throw new Error(`Nieznany gatunek: ${type}`);
+
+ const rows=allFeatures
+   .filter(f=>!f._blocked&&featureRelevant(type,f))
+   .map(f=>{
+     const score=speciesDisplayScore(type,f);
+     const potential=stableScoreForType(type,f);
+     const verdict=speciesVerdictForType(type,f);
+     const cls=singleSpeciesTodayClass(type,f);
+     return {
+       area:featureAreaName(f),
+       score:Number(score.toFixed(2)),
+       potential:Number(potential.toFixed(2)),
+       rank:verdict.rank,
+       mapClass:cls,
+       key:stableFeatureKey(f)
+     };
+   })
+   .sort((a,b)=>b.score-a.score);
+
+ const contradictions=rows.filter(x=>x.score>=6.8&&(x.rank<2||x.mapClass<3));
+ const report={
+   type,
+   name:HUMAN_NAMES[type]||type,
+   best:rows.slice(0,12),
+   worthCheckingCount:rows.filter(x=>x.rank>=2).length,
+   contradictions:contradictions.length,
+   contradictionRows:contradictions.slice(0,20)
+ };
+ console.table(report.best);
+ console.info('SINGLE SPECIES TODAY CONSISTENCY',report);
+ return report;
+}
+window.auditSingleSpeciesTodayConsistency=auditSingleSpeciesTodayConsistency;
 
 function auditHotspotSpeciesConsistency(){
  const rows=(topSpots||[]).map(h=>{

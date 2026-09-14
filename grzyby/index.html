@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v32: correct tiled GeoTIFF layout + soil value validation + detailed soil audit -->
+<!-- GitHub production v33: biological calibration — hosts, seasons, stable soil/terrain, strict symbionts, scoped BEST priors -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -4422,30 +4422,48 @@ function moistureTerrainScore(type,f){
 }
 function staticSuitability(type,f){
  const m=SPECIES_META[type];if(!m)return 0;
- const hist=historyInfo(type,f),soil=soilSuitability(type,f),terr=moistureTerrainScore(type,f);
- const tree=treePreference(type,f),age=ageSuitability(type,Number(f.properties?.species_age||0));
+
+ const hist=historyInfo(type,f);
+ const soil=soilSuitability(type,f);
+ const terr=moistureTerrainScore(type,f);
+ const tree=treePreference(type,f);
+ const age=ageSuitability(type,Number(f.properties?.species_age||0));
+ const hab=stableHabitatScore(type,f);
  const disturb=disturbancePenalty(type,f);
+ const evidence=7+Math.min(3,hist.bonus*2.4);
+
  let raw=0;
+
  if(m.ecology==='mycorrhiza'){
    if(f._kind==='open')return .4;
    const gate=hostGate(type,f);
-   raw=.45*tree+.20*age+.19*soil+.10*terr+.06*(7+Math.min(3,hist.bonus*2.4));
-   raw=(raw-disturb)*(.48+.52*gate);
+   const strict=STRICT_HOST_TYPES.has(type);
+
+   // Gospodarz > gleba > typ siedliska > wiek > teren.
+   raw=.38*tree+.14*age+.19*soil+.08*terr+.13*hab+.08*evidence;
+
+   const gateFactor=strict ? (.20+.80*gate) : (.42+.58*gate);
+   raw=(raw-disturb*.55)*gateFactor;
  }else if(m.ecology==='wood'){
    if(f._kind==='open')return .6;
-   const old=piecewise(Number(f.properties?.species_age||0),[[0,4],[20,5.5],[50,8],[100,9.3],[150,9]]);
+
+   const old=piecewise(Number(f.properties?.species_age||0),[
+     [0,4],[20,5.5],[50,8],[100,9.3],[150,9]
+   ]);
    const stump=f._ko?9.3:6.2;
-   raw=.35*tree+.24*old+.15*soil+.12*terr+.14*stump+hist.bonus*.45;
+
+   raw=.30*tree+.20*old+.13*soil+.07*terr+.10*hab+.15*stump+.05*evidence;
  }else if(m.ecology==='edge'){
-   raw=.49*openHabitatScore(type,f)+.15*soil+.10*terr+.10*age+.16*(7+Math.min(3,hist.bonus*2.2));
+   raw=.50*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age+.12*evidence;
  }else if(m.ecology==='grassland'){
-   raw=.60*openHabitatScore(type,f)+.21*soil+.09*terr+.10*(7+Math.min(3,hist.bonus*2.2));
+   raw=.62*openHabitatScore(type,f)+.22*soil+.08*terr+.08*evidence;
  }
+
  return clamp(raw);
 }
 function seasonGate(season){
  return piecewise(season,[
-   [0,.05],[15,.12],[30,.28],[45,.52],[60,.75],[75,.90],[90,1],[100,1]
+   [0,.01],[15,.04],[30,.14],[45,.36],[60,.66],[75,.90],[90,1],[100,1]
  ]);
 }
 function fruitingConditions(type,f){
@@ -4456,7 +4474,7 @@ function fruitingConditions(type,f){
  // dla gatunku, który normalnie w tym miesiącu nie owocnikuje.
  if(weatherReady){
    const weather=weatherAt(f._center);
-   const base=.62*weather+.38*season;
+   const base=.60*weather+.40*season;
    return Math.max(0,Math.min(100,base*seasonGate(season)));
  }
  return Math.max(0,Math.min(100,season));
@@ -4469,7 +4487,7 @@ function speciesEffective(type,f){
 
  // DZIŚ jest teraz dyskontem POTENCJAŁU:
  // dobra pogoda może wykorzystać potencjał siedliska, ale nie może go przekroczyć.
- const conditionFactor=.25+.75*Math.pow(fruit,.45);
+ const conditionFactor=.12+.88*Math.pow(fruit,.52);
  return clamp(habitat*conditionFactor);
 }
 function featureRelevant(type,f){
@@ -5298,9 +5316,112 @@ const VERDICT_META=[
 ];
 
 Object.assign(SPECIES_META.ponury,{
- strong:['DB','BK','GB'],secondary:[],age:[40,130],ph:[6.0,7.7],moist:'mesic_dry'
+ strong:['DB','BK','LP'],secondary:['GB'],age:[40,130],ph:[6.0,7.7],moist:'mesic_dry'
 });
-HOSTS.ponury={strong:['DB','BK','GB'],secondary:[]};
+HOSTS.ponury={strong:['DB','BK','LP'],secondary:['GB']};
+
+// v33 — kalibracja biologiczna gospodarzy i sezonów.
+// Krzywe są szerokie (Polska), ale rozdzielają gatunki w czasie zamiast
+// utrzymywać prawie cały atlas jednocześnie na 95–100% sezonu.
+const BIOLOGY_CALIBRATION_V33={
+ borowik:{
+   strong:['SW','SO','BK','DB'],secondary:['BRZ','GB','JD'],
+   season:[[140,2],[160,18],[180,55],[210,82],[245,100],[275,95],[305,60],[325,15]]
+ },
+ ceglastopory:{
+   strong:['SW','BK'],secondary:['DB','SO'],ph:[3.8,6.2],
+   season:[[145,4],[175,25],[205,65],[235,95],[265,100],[295,75],[320,20]]
+ },
+ ponury:{
+   strong:['DB','BK','LP'],secondary:['GB'],
+   season:[[135,5],[165,25],[195,70],[225,100],[255,95],[285,65],[310,15]]
+ },
+ kozlarz_babka:{
+   strong:['BRZ'],secondary:[],
+   season:[[155,4],[180,20],[205,65],[235,90],[265,100],[295,82],[325,35],[345,8]]
+ },
+ podgrzybek:{
+   season:[[155,3],[185,20],[215,55],[245,90],[275,100],[305,90],[335,45],[355,10]]
+ },
+ maslak_zolty:{
+   season:[[165,4],[190,25],[220,65],[250,95],[280,100],[305,65],[325,15]]
+ },
+ maslak_sitarz:{
+   season:[[150,5],[180,25],[210,60],[240,90],[270,100],[300,70],[325,15]]
+ },
+ maslak_pstry:{
+   season:[[155,5],[185,25],[215,60],[245,90],[275,100],[305,65],[330,12]]
+ },
+ opienka_ciemna:{
+   strong:['SW','SO','MD'],secondary:['JD','BK','DB'],
+   season:[[210,2],[235,10],[255,35],[275,80],[295,100],[315,88],[335,45],[355,10]]
+ },
+ opienka_miodowa:{
+   strong:['DB','BK','GB','BRZ','OS','TP','OL','JW'],secondary:[],
+   season:[[220,2],[245,8],[265,30],[285,75],[305,100],[325,85],[345,40],[360,10]]
+ },
+ kania:{
+   season:[[165,5],[190,20],[220,60],[250,95],[280,100],[310,80],[335,30],[350,5]]
+ },
+ kania_gwiazdzista:{
+   season:[[190,3],[220,20],[245,60],[270,95],[295,100],[320,75],[345,25]]
+ },
+ czernidlak:{
+   season:[[120,8],[150,25],[180,50],[220,75],[260,90],[290,100],[320,85],[345,35]]
+ },
+ pieczarka_polna:{
+   season:[[120,8],[150,25],[180,55],[220,85],[255,100],[285,90],[315,50],[335,10]]
+ },
+ purchawka_oczkowana:{
+   season:[[145,5],[180,25],[215,65],[245,90],[275,100],[305,70],[330,20]]
+ },
+ kurka:{
+   season:[[135,5],[160,25],[185,70],[215,100],[245,100],[275,90],[305,60],[330,15]]
+ },
+ borowik_usiatkowany:{
+   strong:['DB','BK'],secondary:['GB'],
+   season:[[120,10],[145,45],[175,90],[205,100],[235,90],[265,60],[295,20],[315,5]]
+ },
+ borowik_sosnowy:{
+   strong:['SO'],secondary:['SW','JD','BK'],
+   season:[[115,5],[140,35],[165,80],[190,92],[215,72],[240,82],[265,100],[290,85],[315,40],[335,10]]
+ },
+ maslak_zwyczajny:{
+   season:[[155,5],[185,25],[215,65],[245,95],[275,100],[305,80],[335,30],[350,5]]
+ },
+ rydz:{
+   season:[[190,3],[215,15],[235,45],[255,80],[275,100],[295,95],[315,65],[335,20]]
+ },
+ kozlarz_czerwony:{
+   season:[[155,4],[185,25],[215,65],[245,95],[275,100],[305,75],[335,25]]
+ },
+ kozlarz_pomaranczowozolty:{
+   season:[[165,4],[190,25],[215,65],[240,95],[265,100],[290,70],[315,20]]
+ },
+ mleczaj_swierkowy:{
+   season:[[190,3],[215,15],[235,45],[255,80],[275,100],[295,90],[315,55],[335,15]]
+ },
+ siedzun_sosnowy:{
+   season:[[165,4],[190,25],[215,65],[240,92],[265,100],[290,80],[315,35],[330,8]]
+ }
+};
+
+for(const [type,cfg] of Object.entries(BIOLOGY_CALIBRATION_V33)){
+ Object.assign(SPECIES_META[type],cfg);
+ HOSTS[type]={
+   strong:[...(SPECIES_META[type].strong||[])],
+   secondary:[...(SPECIES_META[type].secondary||[])]
+ };
+}
+
+// Ścisłe związki gospodarza: bez właściwego rodzaju drzewa wynik ma być niski.
+// Gospodarz w sąsiednim wydzieleniu nadal jest dopuszczany, bo BDL pokazuje
+// przede wszystkim gatunek dominujący, a nie każdy pojedynczy składnik drzewostanu.
+const STRICT_HOST_TYPES=new Set([
+ 'kozlarz_babka','kozlarz_czerwony','kozlarz_pomaranczowozolty',
+ 'maslak_zolty','maslak_sitarz','maslak_pstry','maslak_zwyczajny',
+ 'rydz','mleczaj_swierkowy','siedzun_sosnowy'
+]);
 
 const ALL_MODE_WEIGHT={
  borowik:1.00,borowik_usiatkowany:.97,borowik_sosnowy:.96,
@@ -5308,7 +5429,7 @@ const ALL_MODE_WEIGHT={
  kozlarz_babka:.99,kozlarz_pomaranczowozolty:.98,kozlarz_czerwony:.98,
  maslak_zwyczajny:.98,maslak_zolty:.97,maslak_sitarz:.97,maslak_pstry:.98,
  rydz:.98,mleczaj_swierkowy:.97,
- opienka_miodowa:.95,opienka_ciemna:.93,siedzun_sosnowy:.91,
+ opienka_miodowa:.88,opienka_ciemna:.98,siedzun_sosnowy:.91,
  kania:.96,kania_gwiazdzista:.94,
  czernidlak:.93,pieczarka_polna:.93,purchawka_oczkowana:.93,
  ceglastopory:.96,ponury:.82,gorzkoborowik:.25,szatanski:.05
@@ -5378,10 +5499,10 @@ function treePreference(type,f){
  if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
  const direct=speciesCode(f.properties||{}),near=new Set(f._nearSpecies||[]);
  if(type==='ponury'){
-   if(['DB','BK','GB'].includes(direct))return 9.7;
-   if(['JW','JS'].includes(direct))return 8.2;
-   if(['DB','BK','GB'].some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?5.2:6.8;
-   if(['JW','JS'].some(x=>near.has(x)))return 5.9;
+   if(['DB','BK','LP'].includes(direct))return 9.7;
+   if(direct==='GB')return 8.2;
+   if(['DB','BK','LP'].some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?5.2:6.9;
+   if(near.has('GB'))return 5.9;
    return 2.6;
  }
  if((m.strong||[]).includes(direct))return 9.7;
@@ -5394,22 +5515,30 @@ function treePreference(type,f){
 function hostGate(type,f){
  const m=SPECIES_META[type];if(!m)return 1;
  if(m.ecology==='grassland'||m.ecology==='edge')return 1;
+
  const cfg=HOSTS[type]||{strong:[],secondary:[]};
- const direct=speciesCode(f.properties||{}),near=new Set(f._nearSpecies||[]);
+ const direct=speciesCode(f.properties||{});
+ const near=new Set(f._nearSpecies||[]);
+ const strict=STRICT_HOST_TYPES.has(type);
+
  if(type==='ponury'){
    if(cfg.strong.includes(direct))return 1;
-   if(['JW','JS'].includes(direct))return .78;
-   if(cfg.strong.some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?.42:.60;
-   if(['JW','JS'].some(x=>near.has(x)))return .48;
+   if(cfg.secondary.includes(direct))return .82;
+   if(cfg.strong.some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?.42:.62;
+   if(cfg.secondary.some(x=>near.has(x)))return .50;
    const hab=habitatCode(f.properties||{});
-   return (hab.startsWith('LM')||hab.startsWith('BM'))?.22:.12;
+   return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
  }
+
  if(cfg.strong.includes(direct))return 1;
- if(cfg.secondary.includes(direct))return .84;
- if(cfg.strong.some(x=>near.has(x)))return .68;
- if(cfg.secondary.some(x=>near.has(x)))return .55;
+ if(cfg.secondary.includes(direct))return strict?.72:.84;
+ if(cfg.strong.some(x=>near.has(x)))return strict?.72:.68;
+ if(cfg.secondary.some(x=>near.has(x)))return strict?.48:.55;
+
  if(m.ecology==='wood')return .38;
+
  const hab=habitatCode(f.properties||{});
+ if(strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
  return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
 }
 
@@ -5477,37 +5606,37 @@ function bestTodayInfo(f){
  if(perfBestTodayInfoCache.has(f))return perfBestTodayInfoCache.get(f);
 
  let best={
-   type:null,
-   score:0,
-   rawToday:0,
-   potential:0,
-   potentialClass:0
+   type:null,score:0,rawToday:0,potential:0,potentialClass:0,selectionScore:-Infinity
  };
 
  for(const t of PICK_TYPES){
    if(!featureRelevant(t,f))continue;
 
-   // Wynik bieżący dla konkretnego gatunku.
-   const rawToday=practicalAllScore(t,f);
-
-   // Stały potencjał TEGO SAMEGO gatunku, razem z kontekstem kompleksu leśnego.
    const potential=stableScoreForType(t,f);
+   const actualRaw=speciesEffective(t,f);
+   const actualToday=Math.min(actualRaw,potential);
 
-   // DZIŚ nie może przekroczyć potencjału tego samego gatunku.
-   const score=Math.min(rawToday,potential);
-   const potentialClass=atlasSingleSpeciesClass(t,f);
+   const prior=ALL_MODE_WEIGHT[t]||1;
+   const selectionScore=Math.min(practicalAllScore(t,f),potential*prior);
 
    if(
-     score>best.score ||
-     (Math.abs(score-best.score)<1e-9 && potential>best.potential) ||
-     (Math.abs(score-best.score)<1e-9 && Math.abs(potential-best.potential)<1e-9 && String(t)<String(best.type))
+     selectionScore>best.selectionScore ||
+     (Math.abs(selectionScore-best.selectionScore)<1e-9&&actualToday>best.score) ||
+     (Math.abs(selectionScore-best.selectionScore)<1e-9&&Math.abs(actualToday-best.score)<1e-9&&potential>best.potential)
    ){
-     best={type:t,score,rawToday,potential,potentialClass};
+     best={
+       type:t,
+       score:actualToday,
+       rawToday:actualRaw,
+       potential,
+       potentialClass:atlasSingleSpeciesClass(t,f),
+       selectionScore
+     };
    }
  }
 
  if(!best.type){
-   best={type:'borowik',score:0,rawToday:0,potential:0,potentialClass:0};
+   best={type:'borowik',score:0,rawToday:0,potential:0,potentialClass:0,selectionScore:0};
  }
 
  perfBestTodayInfoCache.set(f,best);
@@ -5803,27 +5932,59 @@ function stableHabitatScore(type,f){
 function stableSpeciesPotential(type,f){
  const m=SPECIES_META[type];if(!m||m.collect===false)return 0;
  if((m.ecology==='mycorrhiza'||m.ecology==='wood')&&f._kind==='open')return .3;
+
  const age=ageSuitability(type,Number(f.properties?.species_age||0));
- const tree=treePreference(type,f),gate=hostGate(type,f)*10,hab=stableHabitatScore(type,f),disturb=disturbancePenalty(type,f);
+ const tree=treePreference(type,f);
+ const gate=hostGate(type,f)*10;
+ const hab=stableHabitatScore(type,f);
+ const soil=soilSuitability(type,f);
+ const terr=moistureTerrainScore(type,f);
+ const disturb=disturbancePenalty(type,f);
+
  let s=0;
- if(m.ecology==='mycorrhiza')s=.44*tree+.24*age+.20*gate+.12*hab-disturb*.60;
- else if(m.ecology==='wood'){
-   const old=piecewise(Number(f.properties?.species_age||0),[[0,4],[20,5.5],[50,8],[100,9.3],[150,9]]),stump=f._ko?9.1:6.1;
-   s=.32*tree+.28*old+.18*hab+.22*stump;
- }else if(m.ecology==='edge')s=.62*openHabitatScore(type,f)+.20*age+.18*hab;
- else if(m.ecology==='grassland')s=.78*openHabitatScore(type,f)+.22*hab;
- return clamp(s*(ALL_MODE_WEIGHT[type]||1));
+
+ if(m.ecology==='mycorrhiza'){
+   if(STRICT_HOST_TYPES.has(type)){
+     s=.34*tree+.12*age+.24*gate+.10*hab+.15*soil+.05*terr-disturb*.55;
+   }else{
+     s=.32*tree+.13*age+.17*gate+.13*hab+.18*soil+.07*terr-disturb*.55;
+   }
+ }else if(m.ecology==='wood'){
+   const old=piecewise(Number(f.properties?.species_age||0),[
+     [0,4],[20,5.5],[50,8],[100,9.3],[150,9]
+   ]);
+   const stump=f._ko?9.1:6.1;
+   s=.30*tree+.20*old+.12*hab+.12*soil+.06*terr+.20*stump;
+ }else if(m.ecology==='edge'){
+   s=.62*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age;
+ }else if(m.ecology==='grassland'){
+   s=.66*openHabitatScore(type,f)+.24*soil+.10*terr;
+ }
+
+ return clamp(s);
 }
 
 function stableAllType(f){
  if(staticTypeCache.has(f))return staticTypeCache.get(f);
- let best='borowik',bestScore=-1;
+
+ let best='borowik',bestRank=-1,bestRaw=-1;
  for(const t of PICK_TYPES){
-   if(!featureRelevant(t,f)||f._kind==='open')continue;
-   const s=stableSpeciesPotential(t,f);
-   if(s>bestScore||(Math.abs(s-bestScore)<1e-9&&t<best)){best=t;bestScore=s;}
+   if(!featureRelevant(t,f))continue;
+
+   const raw=stableSpeciesPotential(t,f);
+   const rank=raw*(ALL_MODE_WEIGHT[t]||1);
+
+   if(
+     rank>bestRank ||
+     (Math.abs(rank-bestRank)<1e-9&&raw>bestRaw) ||
+     (Math.abs(rank-bestRank)<1e-9&&Math.abs(raw-bestRaw)<1e-9&&t<best)
+   ){
+     best=t;bestRank=rank;bestRaw=raw;
+   }
  }
- staticTypeCache.set(f,best);return best;
+
+ staticTypeCache.set(f,best);
+ return best;
 }
 
 function stableDiversityPotential(f){
@@ -5887,14 +6048,14 @@ function stableAnchorScore(f){
    const bt=atlasSelected.size===1?[...atlasSelected][0]:atlasUnionInfo(f).bestType;
    const eco=SPECIES_META[bt]?.ecology;
    if(eco==='mycorrhiza'||eco==='wood'){
-     s=.76*base+.24*ctx.score;
-     if(ctx.score<4.8)s-=(4.8-ctx.score)*.18;
+     s=.86*base+.14*ctx.score;
+     if(ctx.score<4.2)s-=(4.2-ctx.score)*.12;
    }else s=base;
  }else if(currentFilter==='all'||currentFilter==='diversity'){
-   s=.65*base+.35*ctx.score;if(ctx.score<5.5)s-=(5.5-ctx.score)*.35;
+   s=.78*base+.22*ctx.score;if(ctx.score<4.8)s-=(4.8-ctx.score)*.20;
  }else{
    const eco=SPECIES_META[currentFilter]?.ecology;
-   if(eco==='mycorrhiza'||eco==='wood'){s=.76*base+.24*ctx.score;if(ctx.score<4.8)s-=(4.8-ctx.score)*.18;}else s=base;
+   if(eco==='mycorrhiza'||eco==='wood'){s=.86*base+.14*ctx.score;if(ctx.score<4.2)s-=(4.2-ctx.score)*.12;}else s=base;
  }
  s=clamp(s);staticScoreCache.set(f,s);return s;
 }
@@ -5904,7 +6065,7 @@ function stableCandidateFeatures(areaName){
  return allFeatures.filter(f=>{
    if(f._blocked||featureAreaName(f)!==areaName)return false;
    if(atlasSelected.size)return [...atlasSelected].some(t=>featureRelevant(t,f));
-   if(currentFilter==='all')return f._kind!=='open';
+   if(currentFilter==='all')return true;
    if(currentFilter==='diversity')return true;
    return featureRelevant(currentFilter,f);
  });
@@ -5944,7 +6105,7 @@ function stableLocalHotspots(areaName,maxHotspots){
    const weights=members.map(x=>Math.max(.3,(x.s-4.5)**2)*Math.max(.4,Math.min(2.5,featureAreaHa(x.f)/2))*(.7+.3*x.ctx.score/10));
    const wsum=weights.reduce((a,b)=>a+b,0)||1;
    const lat=members.reduce((a,x,i)=>a+x.f._center[0]*weights[i],0)/wsum,lon=members.reduce((a,x,i)=>a+x.f._center[1]*weights[i],0)/wsum;
-   const clusterScore=clamp(.47*avgStable+.33*bestX.s+.15*avgCtx+.05*piecewise(areaHa,[[0,3],[3,5],[10,7],[25,8.5],[60,9.5],[120,10]]));
+   const clusterScore=clamp(.55*avgStable+.30*bestX.s+.10*avgCtx+.05*piecewise(areaHa,[[0,3],[3,5],[10,7],[25,8.5],[60,9.5],[120,10]]));
    const memberFeatures=members.map(x=>x.f);
    hs.push({areaName,areaCode:AREA_META[areaName]?.code||areaName[0],areaColor:AREA_META[areaName]?.color||'#fff',
      _center:[lat,lon],_bounds:L.latLngBounds(memberFeatures.map(f=>f._center)),members:memberFeatures,best,
@@ -6059,7 +6220,7 @@ function todayLocalHotspots(areaName,maxHotspots){
    const lon=members.reduce((a,x,i)=>a+x.f._center[1]*weights[i],0)/wsum;
 
    const areaScore=piecewise(areaHa,[[0,3],[3,5],[10,7],[25,8.5],[60,9.5],[120,10]]);
-   const clusterScore=clamp(.52*avgToday+.31*bestX.s+.12*avgCtx+.05*areaScore);
+   const clusterScore=clamp(.57*avgToday+.30*bestX.s+.08*avgCtx+.05*areaScore);
 
    if(broadMode&&areaHa<2.2&&members.length<2&&bestX.cls<4)continue;
 
@@ -6196,10 +6357,12 @@ function stableScoreForType(type,f){
  let base=stableSpeciesPotential(type,f);
  const ctx=forestContextInfo(f);
  const eco=SPECIES_META[type]?.ecology;
+
  if(eco==='mycorrhiza'||eco==='wood'){
-   base=.76*base+.24*ctx.score;
-   if(ctx.score<4.8)base-=(4.8-ctx.score)*.18;
+   base=.86*base+.14*ctx.score;
+   if(ctx.score<4.2)base-=(4.2-ctx.score)*.12;
  }
+
  return clamp(base);
 }
 
@@ -7099,6 +7262,71 @@ window.auditSoilState=auditSoilState;
 
 
 
+
+function auditBiologicalCalibration(){
+ const day=doy(new Date());
+
+ const rows=PICK_TYPES.map(type=>{
+   const m=SPECIES_META[type];
+   return {
+     type,
+     name:m.label,
+     ecology:m.ecology,
+     strictHost:STRICT_HOST_TYPES.has(type),
+     strong:(m.strong||[]).join(','),
+     secondary:(m.secondary||[]).join(','),
+     seasonNow:Number(fallbackSeason(type,day).toFixed(1)),
+     ph:(m.ph||[]).join('–'),
+     sand:m.sand,
+     moist:m.moist
+   };
+ });
+
+ const checks={
+   leccinumScabrumBirchOnly:
+     (SPECIES_META.kozlarz_babka.strong||[]).length===1 &&
+     SPECIES_META.kozlarz_babka.strong[0]==='BRZ' &&
+     !(SPECIES_META.kozlarz_babka.secondary||[]).length,
+
+   larchBoleteStrictLarch:
+     (SPECIES_META.maslak_zolty.strong||[]).join(',')==='MD' &&
+     STRICT_HOST_TYPES.has('maslak_zolty'),
+
+   saffronMilkcapStrictPine:
+     (SPECIES_META.rydz.strong||[]).join(',')==='SO' &&
+     STRICT_HOST_TYPES.has('rydz'),
+
+   spruceMilkcapStrictSpruce:
+     (SPECIES_META.mleczaj_swierkowy.strong||[]).join(',')==='SW' &&
+     STRICT_HOST_TYPES.has('mleczaj_swierkowy'),
+
+   bestPriorDoesNotChangeSpecificSpeciesPotential:
+     !stableSpeciesPotential.toString().includes('ALL_MODE_WEIGHT'),
+
+   bestIncludesOpenHabitats:
+     stableCandidateFeatures.toString().includes("if(currentFilter==='all')return true"),
+
+   potentialUsesSoil:
+     stableSpeciesPotential.toString().includes('soilSuitability'),
+
+   potentialUsesTerrain:
+     stableSpeciesPotential.toString().includes('moistureTerrainScore')
+ };
+
+ const report={
+   version:'v33 biological calibration',
+   dayOfYear:day,
+   checks,
+   allChecksPass:Object.values(checks).every(Boolean),
+   species:rows
+ };
+
+ console.table(rows);
+ console.info('BIOLOGICAL CALIBRATION AUDIT',report);
+ return report;
+}
+window.auditBiologicalCalibration=auditBiologicalCalibration;
+
 function auditScoringLogic(){
  const forest=allFeatures.filter(f=>!f._blocked&&f._kind!=='open');
  const sample=forest.length<=350
@@ -7139,20 +7367,26 @@ function auditScoringLogic(){
 
  for(const f of sample){
    const got=bestTodayInfo(f);
-   let expectedType=null,expected=-Infinity;
+   let expectedType=null,expected=-Infinity,expectedActual=0;
 
    for(const t of PICK_TYPES){
      if(!featureRelevant(t,f))continue;
-     const s=Math.min(practicalAllScore(t,f),stableScoreForType(t,f));
-     if(s>expected){
-       expected=s;
+     const potential=stableScoreForType(t,f);
+     const prior=ALL_MODE_WEIGHT[t]||1;
+     const rank=Math.min(practicalAllScore(t,f),potential*prior);
+     const actual=Math.min(speciesEffective(t,f),potential);
+
+     if(rank>expected){
+       expected=rank;
        expectedType=t;
+       expectedActual=actual;
      }
    }
 
    if(expectedType&&(
      got.type!==expectedType ||
-     Math.abs(got.score-expected)>1e-7
+     Math.abs(got.selectionScore-expected)>1e-7 ||
+     Math.abs(got.score-expectedActual)>1e-7
    )){
      badBestSelection++;
    }
@@ -7201,7 +7435,7 @@ function auditScoringLogic(){
    deterministicObservationRule:
      'iNaturalist/GBIF wpływa tylko w jawnym trybie pojedynczego gatunku; BEST/Różnorodność nie zależą od wcześniejszych kliknięć',
    notes:[
-     'ALL_MODE_WEIGHT pozostaje celowym biasem rekomendacyjnym: gatunki szerokie/niszowe nie dominują trybu BEST.',
+     'ALL_MODE_WEIGHT jest od v33 wyłącznie priorem wyboru w BEST; nie obniża wyniku ręcznie wybranego gatunku.',
      'Pogoda jest regionalnym indeksem wspólnym dla gatunków; różnice gatunkowe w DZIŚ wynikają głównie z sezonu i siedliska.',
      'Mapa prognozuje przydatność siedliska/warunków, nie obecność konkretnej grzybni.'
    ]

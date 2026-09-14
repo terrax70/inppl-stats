@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v51: readable map hierarchy + legends for all modes -->
+<!-- GitHub production v52: one unified five-level map scale for every mode -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -7639,49 +7639,59 @@ function balancedClass(f){
  return 0;
 }
 
-// v51 — kolor odpowiada wynikowi, widoczność odpowiada znaczeniu miejsca.
-// To naprawia trzy rzeczy naraz:
-// 1) kolory z legendy są naprawdę widoczne na mapie,
-// 2) DZIŚ nie zalewa mapy słabymi miejscami,
-// 3) Różnorodność i atlas wielogatunkowy również mają własną legendę.
+// v52 — JEDEN system wizualny dla całej mapy.
+// Każdy tryb korzysta z tych samych 5 kolorów, tych samych 5 poziomów,
+// tej samej legendy i tych samych nazw.
+// Różni się wyłącznie DANYMI, które przypisują wydzielenie do klasy 0–4.
 //
-// Hotspoty/ranking/scoring NIE są tutaj zmieniane.
+// Najważniejsze:
+// - BEST Potencjał nadal używa balancedClass()
+// - BEST Dziś nadal używa todayBalancedClass()
+// - Różnorodność używa swoich klas
+// - Atlas używa swoich klas
+// - hotspoty / scoring / ranking NIE są zmieniane
 
-const SCORE_STOPS_POTENTIAL=[
-  [0.0,'#aeb3af'],
-  [5.2,'#bd6748'],
-  [5.9,'#d28c32'],
-  [6.6,'#d2b832'],
-  [7.2,'#a4bd39'],
-  [7.8,'#68aa42'],
-  [8.4,'#2e8b45'],
-  [9.0,'#126d3a'],
-  [10.0,'#03492c']
-];
-
-const SCORE_STOPS_TODAY=[
-  [0.0,'#afb3af'],
-  [5.0,'#bd6546'],
-  [5.7,'#d18a30'],
-  [6.4,'#d0b631'],
-  [6.9,'#a0ba38'],
-  [7.5,'#64a73f'],
-  [8.2,'#2b8944'],
-  [8.8,'#126b39'],
-  [10.0,'#03482b']
-];
-
-const DIVERSITY_PALETTE_POTENTIAL=[
-  '#d7d7d7','#eadf91','#c7cf78','#69a95f','#08713d'
-];
-const DIVERSITY_PALETTE_TODAY=[
-  '#d7d7d7','#e7d789','#c3c96e','#65a85d','#08713d'
-];
-const MULTI_ATLAS_PALETTE_POTENTIAL=[
-  '#d4d4d4','#eee0a0','#b8cb78','#68aa63','#0b783f'
-];
-const MULTI_ATLAS_PALETTE_TODAY=[
-  '#d7d7d7','#e7d789','#c3c96e','#65a85d','#08713d'
+const UNIFIED_MAP_LEVELS=[
+  {
+    label:'odpuść',
+    fill:'#d8d8d2',
+    border:'#b6b7af',
+    fillOpacity:.035,
+    weight:.10,
+    opacity:.09
+  },
+  {
+    label:'rezerwowo',
+    fill:'#e6d58b',
+    border:'#ae9b58',
+    fillOpacity:.12,
+    weight:.22,
+    opacity:.28
+  },
+  {
+    label:'średnio',
+    fill:'#c5cb70',
+    border:'#8e9650',
+    fillOpacity:.235,
+    weight:.34,
+    opacity:.48
+  },
+  {
+    label:'warto',
+    fill:'#70aa61',
+    border:'#497d47',
+    fillOpacity:.45,
+    weight:.58,
+    opacity:.74
+  },
+  {
+    label:'TOP',
+    fill:'#0b783f',
+    border:'#064d2b',
+    fillOpacity:.72,
+    weight:.94,
+    opacity:.98
+  }
 ];
 
 function mixHexColor(a,b,t){
@@ -7700,105 +7710,104 @@ function mixHexColor(a,b,t){
  return '#'+[r,g,bl].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
 
-function scoreSpectrumColor(score,today=false){
- const stops=today?SCORE_STOPS_TODAY:SCORE_STOPS_POTENTIAL;
- score=Math.max(0,Math.min(10,Number(score)||0));
+// Delikatne różnicowanie WEWNĄTRZ klasy.
+// Nie może przenieść miejsca do innej klasy ani zrobić z niego hotspotu.
+// Służy tylko temu, żeby np. dwa miejsca "warto" nie były idealnie identyczne.
+function unifiedWithinClassProgress(f,c,today=false,score=NaN){
+ if(!Number.isFinite(score)||c<0||c>4)return .5;
 
- for(let i=1;i<stops.length;i++){
-   if(score<=stops[i][0]){
-     const [aS,aC]=stops[i-1];
-     const [bS,bC]=stops[i];
-     const t=(score-aS)/Math.max(.0001,bS-aS);
-     return mixHexColor(aC,bC,t);
+ // BEST / zwykły filtr: mamy skalę kwantylową dla wybranego rejonu.
+ if(!atlasSelected.size && currentFilter!=='diversity'){
+   const area=featureAreaName(f);
+
+   if(today && currentFilter==='all'){
+     const s=buildTodayScales()[area];
+     if(s){
+       const cuts=[
+         s.min??0,
+         Math.max(s.q20??5.15,5.15),
+         Math.max(s.q45??6.15,6.15),
+         Math.max(s.q70??7.05,7.05),
+         Math.max(s.q93??8.15,8.15),
+         s.max??10
+       ];
+       const lo=cuts[c]??0,hi=cuts[c+1]??10;
+       return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+     }
+   }
+
+   if(!today){
+     const s=buildBalancedScales()[area];
+     if(s){
+       const cuts=[
+         s.min??0,
+         Math.max(s.q20??5.55,5.55),
+         Math.max(s.q45??6.35,6.35),
+         Math.max(s.q70??7.05,7.05),
+         Math.max(s.q88??7.65,7.65),
+         s.max??10
+       ];
+       const lo=cuts[c]??0,hi=cuts[c+1]??10;
+       return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+     }
    }
  }
- return stops.at(-1)[1];
+
+ // Dla pozostałych trybów wystarczy subtelna korekta bez wpływu na hierarchię.
+ const lo=today?4.8:5.3;
+ const hi=today?9.1:9.5;
+ return Math.max(0,Math.min(1,(score-lo)/(hi-lo)));
 }
 
-// "Minimalna widoczność" wynikająca z bezwzględnego wyniku.
-// Nie jest to klasa hotspotu. Służy tylko temu, żeby np. 8.4 nie wyglądało
-// jak bezwartościowe miejsce, gdy cały rejon jest wyjątkowo mocny.
-function absoluteVisibilityFloor(score,today=false){
- score=Number(score);
- if(!Number.isFinite(score))return 0;
+function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
+ c=Math.max(0,Math.min(4,Number(c)||0));
+ const p=UNIFIED_MAP_LEVELS[c];
+ const progress=unifiedWithinClassProgress(f,c,today,score);
 
- if(today){
-   if(score>=8.20)return 3;
-   if(score>=7.20)return 2;
-   if(score>=6.45)return 1;
-   return 0;
+ // Maksymalnie 12% domieszki kolejnego poziomu — klasa pozostaje czytelna.
+ const next=UNIFIED_MAP_LEVELS[Math.min(4,c+1)];
+ const blend=c<4 ? progress*.12 : progress*.08;
+
+ let fill=mixHexColor(p.fill,next.fill,blend);
+ let border=mixHexColor(p.border,next.border,blend*.75);
+ let fillOpacity=Math.min(.78,p.fillOpacity+progress*.025);
+ let weight=p.weight+progress*.045;
+ let opacity=Math.min(1,p.opacity+progress*.025);
+
+ // Tereny otwarte mają tę samą skalę, ale zachowują swój wizualny charakter.
+ if(open){
+   fillOpacity=Math.min(.60,fillOpacity*.84);
+   weight=Math.max(.18,weight*.95);
+   opacity=Math.max(.15,opacity*.90);
  }
 
- if(score>=8.40)return 3;
- if(score>=7.40)return 2;
- if(score>=6.55)return 1;
- return 0;
-}
-
-function scoreSpectrumStyle(score,localClass,today=false,useAbsoluteFloor=true){
- const fill=scoreSpectrumColor(score,today);
- const local=Math.max(0,Math.min(4,Number(localClass)||0));
- const floor=useAbsoluteFloor?absoluteVisibilityFloor(score,today):0;
-
- // Lokalny TOP nadal jest klasą 4.
- // Wynik absolutny może co najwyżej podnieść zwykłe miejsce do czytelnej klasy 3,
- // więc cały dobry las nie staje się "TOP".
- const visibleClass=Math.max(local,Math.min(3,floor));
-
- // DZIŚ: klasy 0/1 są prawie niewidoczne — wracamy do selektywności sprzed v50.
- // POTENCJAŁ: można zobaczyć trochę więcej, ale hierarchia pozostaje mocna.
- const fillByClass=today
-   ? [.008,.050,.20,.46,.72]
-   : [.015,.075,.23,.47,.71];
-
- const borderOpacityByClass=today
-   ? [.05,.17,.42,.75,.98]
-   : [.07,.20,.46,.77,.98];
-
- const weightByClass=[.08,.18,.34,.62,.96];
-
- // Niewielka ciągła różnica wewnątrz klasy — bez "zalewania" mapy.
- const scoreNorm=Math.max(
-   0,
-   Math.min(1,((Number(score)||0)-(today?5.2:5.5))/(today?3.8:3.9))
- );
+ // Hotspot NIE zmienia klasy koloru — tylko wzmacnia obrys.
+ if(f?._hotspotIndex){
+   weight=Math.max(weight,f._hotspotBest?2.10:1.02);
+   opacity=Math.max(opacity,.80);
+   if(f._hotspotBest){
+     border=mixHexColor(border,'#032f1d',.48);
+     fillOpacity=Math.min(.80,fillOpacity+.035);
+   }
+ }
 
  return {
-   fill,
-   border:mixHexColor(fill,'#13251b',.48),
-   fillOpacity:Math.min(.78,fillByClass[visibleClass]+scoreNorm*.025),
-   opacity:Math.min(1,borderOpacityByClass[visibleClass]+scoreNorm*.025),
-   weight:weightByClass[visibleClass]+scoreNorm*.05,
-   localClass:local,
-   visibleClass,
-   absoluteFloor:floor
+   color:border,
+   weight,
+   fillColor:fill,
+   fillOpacity,
+   opacity,
+   ...(open?{dashArray:'5 4',lineCap:'butt'}:{})
  };
 }
 
-function scoreSpectrumEnabledFor(f){
- return (
-   !!f &&
-   currentFilter!=='diversity' &&
-   atlasSelected.size<=1
- );
-}
-
-function hardBandGradient(colors){
- const n=Math.max(1,colors.length);
+function unifiedLegendGradient(){
+ const n=UNIFIED_MAP_LEVELS.length;
  const parts=[];
- colors.forEach((c,i)=>{
-   const a=(i/n)*100;
-   const b=((i+1)/n)*100;
-   parts.push(`${c} ${a.toFixed(1)}%`,`${c} ${b.toFixed(1)}%`);
- });
- return `linear-gradient(90deg,${parts.join(',')})`;
-}
-
-function continuousScoreGradient(stops){
- const min=stops[0][0],max=stops.at(-1)[0];
- const parts=stops.map(([s,c])=>{
-   const pct=((s-min)/(max-min))*100;
-   return `${c} ${pct.toFixed(1)}%`;
+ UNIFIED_MAP_LEVELS.forEach((p,i)=>{
+   const a=i/n*100;
+   const b=(i+1)/n*100;
+   parts.push(`${p.fill} ${a.toFixed(1)}%`,`${p.fill} ${b.toFixed(1)}%`);
  });
  return `linear-gradient(90deg,${parts.join(',')})`;
 }
@@ -7809,6 +7818,25 @@ function setLegendWords(words){
  box.innerHTML=words.map(x=>`<span>${x}</span>`).join('');
 }
 
+function currentLegendTitle(){
+ if(currentFilter==='diversity')return 'Różnorodność grzybów';
+
+ if(atlasSelected.size>1){
+   return `Dopasowanie ${atlasSelected.size} gatunków`;
+ }
+
+ if(atlasSelected.size===1){
+   const only=[...atlasSelected][0];
+   return HUMAN_NAMES[only]||'Wybrany gatunek';
+ }
+
+ if(currentFilter!=='all'){
+   return HUMAN_NAMES[currentFilter]||'Wybrany gatunek';
+ }
+
+ return 'Najlepsze miejsce';
+}
+
 function updateScoreLegend(){
  const el=document.getElementById('scoreLegend');
  const bar=document.getElementById('scoreLegendBar');
@@ -7816,195 +7844,48 @@ function updateScoreLegend(){
  const mode=document.getElementById('scoreLegendMode');
  if(!el||!bar||!title||!mode)return;
 
- const today=mapMode==='today';
  el.classList.add('visible');
  el.setAttribute('aria-hidden','false');
- mode.textContent=today?'DZIŚ':'POTENCJAŁ';
 
- // Różnorodność ma własną legendę w obu trybach.
- if(currentFilter==='diversity'){
-   const colors=today?DIVERSITY_PALETTE_TODAY:DIVERSITY_PALETTE_POTENTIAL;
-   title.textContent='Różnorodność grzybów';
-   bar.style.background=hardBandGradient(colors);
-   setLegendWords(['niska','mała','średnia','duża','TOP']);
-   return;
- }
+ title.textContent=currentLegendTitle();
+ mode.textContent=mapMode==='today'?'DZIŚ':'POTENCJAŁ';
 
- // Wiele gatunków w atlasie = kolor mówi o pokryciu zaznaczonych gatunków.
- if(atlasSelected.size>1){
-   const colors=today?MULTI_ATLAS_PALETTE_TODAY:MULTI_ATLAS_PALETTE_POTENTIAL;
-   title.textContent='Dopasowanie zaznaczonych gatunków';
-   bar.style.background=hardBandGradient(colors);
-   setLegendWords(['brak','1–2','kilka','dużo','bardzo dużo']);
-   return;
- }
-
- // BEST / pojedynczy gatunek = czytelna skala jakości miejsca.
- const stops=today?SCORE_STOPS_TODAY:SCORE_STOPS_POTENTIAL;
- bar.style.background=continuousScoreGradient(stops);
-
- if(atlasSelected.size===1){
-   const only=[...atlasSelected][0];
-   title.textContent=`Ocena miejsca • ${HUMAN_NAMES[only]||only}`;
- }else if(currentFilter!=='all'){
-   title.textContent=`Ocena miejsca • ${HUMAN_NAMES[currentFilter]||currentFilter}`;
- }else{
-   title.textContent='Ocena miejsca';
- }
-
- setLegendWords(['odpuść','średnio','warto','bardzo dobrze','TOP']);
+ // Dokładnie ta sama skala dla KAŻDEGO trybu.
+ bar.style.background=unifiedLegendGradient();
+ setLegendWords(UNIFIED_MAP_LEVELS.map(x=>x.label));
 }
 
 function balancedClassLabel(c){
- if(atlasSelected.size>1){
-   return ['brak','1–2 gatunki','kilka gatunków','dużo gatunków','bardzo dużo gatunków'][c]||'—';
- }
- return ['słabsze','poniżej średniej','przeciętne','dobre','lokalny TOP'][c]||'—';
+ c=Math.max(0,Math.min(4,Number(c)||0));
+ return UNIFIED_MAP_LEVELS[c]?.label||'—';
 }
 
 
 function openPotentialStyleFromClass(f,c,today=false,score=NaN){
- const palettes=today ? [
-   {fill:'#d8d5c6',border:'#a9a58f',fo:.018,w:.18,op:.12},
-   {fill:'#ddd694',border:'#9f9658',fo:.10,w:.34,op:.42},
-   {fill:'#b7bd68',border:'#737b43',fo:.20,w:.52,op:.62},
-   {fill:'#789d50',border:'#486331',fo:.35,w:.75,op:.80},
-   {fill:'#376f43',border:'#23472d',fo:.52,w:1.00,op:.94}
- ] : [
-   {fill:'#d9d6c8',border:'#aaa691',fo:.018,w:.18,op:.12},
-   {fill:'#e0d999',border:'#a59a5b',fo:.10,w:.34,op:.42},
-   {fill:'#bdc46f',border:'#7a8148',fo:.21,w:.52,op:.62},
-   {fill:'#7fa359',border:'#4e6938',fo:.36,w:.75,op:.81},
-   {fill:'#3d7749',border:'#274d31',fo:.54,w:1.00,op:.95}
- ];
-
- const p=palettes[c]||palettes[0];
- const hasScore=Number.isFinite(score);
- const sv=hasScore?scoreSpectrumStyle(score,c,today,false):null;
-
- let weight=p.w;
- let border=p.border;
- let fillColor=p.fill;
- let fillOpacity=p.fo;
- let opacity=p.op;
-
- if(sv){
-   // Tereny otwarte też korzystają z szerokiej palety,
-   // ale dotychczasowe capy parków/trawników nadal wyznaczają klasę c.
-   fillColor=mixHexColor(p.fill,sv.fill,.62);
-   border=mixHexColor(p.border,sv.border,.58);
-   fillOpacity=Math.min(.62,Math.max(p.fo,sv.fillOpacity*.78));
-   opacity=Math.max(p.op,sv.opacity*.82);
-   weight=Math.max(p.w,sv.weight*.78);
- }
-
- if(f._hotspotIndex){
-   weight=Math.max(weight,f._hotspotBest?1.95:1.05);
-   opacity=Math.max(opacity,.84);
- }
-
- return {
-   color:border,
-   weight,
-   fillColor,
-   fillOpacity,
-   opacity,
-   dashArray:'5 4',
-   lineCap:'butt'
- };
+ return unifiedMapStyleForClass(f,c,{
+   today,
+   score,
+   open:true
+ });
 }
 
 function stablePotentialStyle(f,show=true){
- if(!show)return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
+ if(!show){
+   return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
+ }
 
  const c=balancedClass(f);
  const score=stableAnchorScore(f);
 
- if(!atlasSelected.size&&currentFilter==='all'&&f._kind==='open'){
+ if(f._kind==='open'){
    return openPotentialStyleFromClass(f,c,false,score);
  }
 
- // Atlas wielogatunkowy zachowuje swoją sprawdzoną semantykę pokrycia.
- if(atlasSelected.size>1){
-   const u=atlasUnionVisualInfo(f);
-   const multiPalette=[
-     {fill:MULTI_ATLAS_PALETTE_POTENTIAL[0],border:'#b7b7b7',fo:.004,w:.05,op:.02},
-     {fill:MULTI_ATLAS_PALETTE_POTENTIAL[1],border:'#aa9956',fo:.08,w:.18,op:.21},
-     {fill:MULTI_ATLAS_PALETTE_POTENTIAL[2],border:'#7f9150',fo:.19,w:.28,op:.40},
-     {fill:MULTI_ATLAS_PALETTE_POTENTIAL[3],border:'#427847',fo:.39,w:.48,op:.68},
-     {fill:MULTI_ATLAS_PALETTE_POTENTIAL[4],border:'#064c2b',fo:.70,w:.88,op:.96}
-   ];
-   const mp=multiPalette[u.class]||multiPalette[0];
-   let border=mp.border,weight=mp.w,opacity=mp.op,fillOpacity=mp.fo;
-
-   if(u.bestClass>=4){
-     border='#063f29';
-     weight=Math.max(weight,.92);
-   }else if(u.bestClass>=3){
-     border='#295f3c';
-     weight=Math.max(weight,.62);
-   }
-   if(u.strong>=2)weight=Math.max(weight,1.02);
-
-   if(f._hotspotIndex){
-     weight=Math.max(weight,f._hotspotBest?2.0:1.02);
-     if(f._hotspotBest)border='#042f20';
-   }
-   return {color:border,weight,fillColor:mp.fill,fillOpacity,opacity};
- }
-
- // BEST / pojedynczy gatunek: kolor = realny wynik 0–10,
- // lokalna klasa = intensywność/obrys.
- if(scoreSpectrumEnabledFor(f)){
-   const sv=scoreSpectrumStyle(score,c,false);
-   let border=sv.border;
-   let weight=sv.weight;
-   let opacity=sv.opacity;
-   let fillOpacity=sv.fillOpacity;
-
-   // Przy pojedynczym atlasie zachowujemy specjalne wyróżnienie wyjątkowo mocnego dopasowania.
-   if(atlasSelected.size===1){
-     const u=atlasUnionInfo(f);
-     if(u.bestClass>=4){
-       border=mixHexColor(border,'#073c24',.62);
-       weight=Math.max(weight,.95);
-       opacity=Math.max(opacity,.92);
-     }else if(u.bestClass>=3){
-       weight=Math.max(weight,.70);
-     }
-   }
-
-   if(f._hotspotIndex){
-     if(f._hotspotBest){
-       border=mixHexColor(border,'#032f1c',.68);
-       weight=Math.max(weight,2.35);
-       fillOpacity=Math.min(.84,fillOpacity+.08);
-       opacity=1;
-     }else{
-       weight=Math.max(weight,1.20);
-       opacity=Math.max(opacity,.78);
-     }
-   }
-
-   return {
-     color:border,
-     weight,
-     fillColor:sv.fill,
-     fillOpacity,
-     opacity
-   };
- }
-
- // Fallback zachowawczy.
- const palette=[
-   {fill:DIVERSITY_PALETTE_POTENTIAL[0],border:'#b8b8b8',fo:.025,w:.10,op:.07},
-   {fill:DIVERSITY_PALETTE_POTENTIAL[1],border:'#b7a65d',fo:.11,w:.20,op:.25},
-   {fill:DIVERSITY_PALETTE_POTENTIAL[2],border:'#929b55',fo:.22,w:.30,op:.43},
-   {fill:DIVERSITY_PALETTE_POTENTIAL[3],border:'#477d45',fo:.43,w:.52,op:.70},
-   {fill:DIVERSITY_PALETTE_POTENTIAL[4],border:'#034d2a',fo:.72,w:.90,op:.96}
- ];
- const p=palette[c]||palette[0];
- return {color:p.border,weight:p.w,fillColor:p.fill,fillOpacity:p.fo,opacity:p.op};
+ return unifiedMapStyleForClass(f,c,{
+   today:false,
+   score,
+   open:false
+ });
 }
 
 let todayScaleCacheKey='';
@@ -8132,75 +8013,32 @@ function todayBalancedClass(f,sOverride=NaN){
 }
 
 function todayPotentialStyle(f,show=true){
- if(!show)return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
-
- const s=todayScoreForStyle(f);
- const c=todayBalancedClass(f,s);
-
- if(!atlasSelected.size&&currentFilter==='all'&&f._kind==='open'){
-   return openPotentialStyleFromClass(f,c,true,s);
+ if(!show){
+   return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
  }
 
- // Różnorodność / wiele gatunków: zostawiamy dotychczasowy sposób.
- if(currentFilter==='diversity'||atlasSelected.size>1){
-   const palette=[
-     {fill:DIVERSITY_PALETTE_TODAY[0],border:'#b8b8b8',fo:.020,w:.10,op:.07},
-     {fill:DIVERSITY_PALETTE_TODAY[1],border:'#b29d54',fo:.11,w:.20,op:.24},
-     {fill:DIVERSITY_PALETTE_TODAY[2],border:'#89904d',fo:.24,w:.31,op:.44},
-     {fill:DIVERSITY_PALETTE_TODAY[3],border:'#437a43',fo:.46,w:.55,op:.72},
-     {fill:DIVERSITY_PALETTE_TODAY[4],border:'#034d2a',fo:.74,w:.92,op:.97}
-   ];
-   const p=palette[c]||palette[0];
-
-   if(topOnly&&c<3){
-     return {color:'#999',weight:.10,fillColor:'#d0d0d0',fillOpacity:.012,opacity:.04};
-   }
-
-   let weight=p.w,border=p.border,fillOpacity=p.fo,opacity=p.op;
-   if(f._hotspotIndex){
-     weight=Math.max(weight,f._hotspotBest?1.85:.95);
-     if(f._hotspotBest&&c>=3)border='#063e27';
-     opacity=Math.max(opacity,c>=2?.62:.22);
-   }
-   return {color:border,weight,fillColor:p.fill,fillOpacity,opacity};
- }
-
- // BEST / pojedynczy gatunek: pełne spektrum 0–10.
- const sv=scoreSpectrumStyle(s,c,true);
+ const score=todayScoreForStyle(f);
+ const c=todayBalancedClass(f,score);
 
  if(topOnly&&c<3){
    return {
-     color:mixHexColor(sv.border,'#999999',.45),
-     weight:.10,
-     fillColor:sv.fill,
-     fillOpacity:.022,
-     opacity:.06
+     color:'#aaa',
+     weight:.08,
+     fillColor:'#d7d7d2',
+     fillOpacity:.008,
+     opacity:.035
    };
  }
 
- let weight=sv.weight;
- let border=sv.border;
- let fillOpacity=sv.fillOpacity;
- let opacity=sv.opacity;
-
- if(f._hotspotIndex){
-   weight=Math.max(weight,f._hotspotBest?1.95:1.10);
-   if(f._hotspotBest){
-     border=mixHexColor(border,'#032f1c',.66);
-     fillOpacity=Math.min(.82,fillOpacity+.07);
-     opacity=1;
-   }else{
-     opacity=Math.max(opacity,.74);
-   }
+ if(f._kind==='open'){
+   return openPotentialStyleFromClass(f,c,true,score);
  }
 
- return {
-   color:border,
-   weight,
-   fillColor:sv.fill,
-   fillOpacity,
-   opacity
- };
+ return unifiedMapStyleForClass(f,c,{
+   today:true,
+   score,
+   open:false
+ });
 }
 
 function loadingForestStyle(f,show=true){
@@ -10676,65 +10514,92 @@ function auditScoreSpectrum(){
    .map(f=>{
      const score=mapMode==='today'?todayScoreForStyle(f):stableAnchorScore(f);
      const cls=mapMode==='today'?todayBalancedClass(f,score):balancedClass(f);
-     const simple=currentFilter!=='diversity'&&atlasSelected.size<=1;
-     const style=simple
-       ? scoreSpectrumStyle(score,cls,mapMode==='today',f._kind!=='open')
-       : null;
+     const style=unifiedMapStyleForClass(f,cls,{
+       today:mapMode==='today',
+       score,
+       open:f._kind==='open'
+     });
 
      return {
        area:featureAreaName(f),
        score:Number(score.toFixed(2)),
-       localClass:cls,
-       visibleClass:style?.visibleClass??cls,
-       fillOpacity:style?Number(style.fillOpacity.toFixed(3)):null,
-       color:simple?style.fill:null,
+       class:cls,
+       classLabel:UNIFIED_MAP_LEVELS[cls]?.label||'—',
+       fillOpacity:Number(style.fillOpacity.toFixed(3)),
+       color:style.fillColor,
        hotspot:f._hotspotLabel||'',
        kind:f._kind||'forest'
      };
    })
-   .sort((a,b)=>b.score-a.score);
-
- const clearlyVisible=rows.filter(x=>Number(x.fillOpacity)>=.18).length;
- const faintOrHidden=rows.filter(x=>Number.isFinite(x.fillOpacity)&&x.fillOpacity<.10).length;
+   .sort((a,b)=>b.class-a.class||b.score-a.score);
 
  const report={
    mode:mapMode,
    filter:currentFilter,
    atlas:[...atlasSelected],
-   spectrumActive:currentFilter!=='diversity'&&atlasSelected.size<=1,
    hotspots:activeHotspots().length,
-   clearlyVisible,
-   faintOrHidden,
-   top:rows.slice(0,24)
+   top:rows.slice(0,30)
  };
+
  console.table(report.top);
- console.info('SCORE SPECTRUM AUDIT',report);
+ console.info('UNIFIED MAP SCALE AUDIT',report);
  return report;
 }
+window.auditScoreSpectrum=auditScoreSpectrum;
 window.auditScoreSpectrum=auditScoreSpectrum;
 window.auditScoreSpectrum=auditScoreSpectrum;
 
 
 function auditLegendAndVisibility(){
  updateScoreLegend();
- const legend=document.getElementById('scoreLegend');
- const words=[...document.querySelectorAll('#scoreLegendWords span')].map(x=>x.textContent.trim());
+
+ const rows=allFeatures
+   .filter(f=>!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f)))
+   .map(f=>{
+     const score=mapMode==='today'?todayScoreForStyle(f):stableAnchorScore(f);
+     const cls=mapMode==='today'?todayBalancedClass(f,score):balancedClass(f);
+     return {f,score,cls};
+   });
+
+ const counts=[0,0,0,0,0];
+ for(const x of rows)counts[x.cls]=(counts[x.cls]||0)+1;
+
+ const total=Math.max(1,rows.length);
+ const distribution=UNIFIED_MAP_LEVELS.map((lvl,i)=>({
+   class:i,
+   label:lvl.label,
+   count:counts[i]||0,
+   pct:Number((((counts[i]||0)/total)*100).toFixed(1)),
+   color:lvl.fill
+ }));
 
  const report={
    mode:mapMode,
    filter:currentFilter,
    atlas:[...atlasSelected],
-   legendVisible:!!legend?.classList.contains('visible'),
    legendTitle:document.getElementById('scoreLegendTitle')?.textContent||'',
-   legendWords:words,
+   legendWords:[...document.querySelectorAll('#scoreLegendWords span')].map(x=>x.textContent.trim()),
    hotspotCount:activeHotspots().length,
-   topOnly,
-   note:'Legenda nie steruje hotspotami. DZIŚ klasy 0/1 są celowo prawie niewidoczne.'
+   analyzed:rows.length,
+   distribution,
+   note:'Każdy tryb korzysta z tej samej palety 0–4. Różnią się wyłącznie klasy wyliczone z danych.'
  };
- console.info('LEGEND + VISIBILITY AUDIT',report);
+
+ console.table(distribution);
+ console.info('UNIFIED LEGEND + VISIBILITY AUDIT',report);
  return report;
 }
 window.auditLegendAndVisibility=auditLegendAndVisibility;
+window.auditLegendAndVisibility=auditLegendAndVisibility;
+
+
+function auditUnifiedMapScale(){
+ return {
+   legend:auditLegendAndVisibility(),
+   map:auditScoreSpectrum()
+ };
+}
+window.auditUnifiedMapScale=auditUnifiedMapScale;
 
 function auditPerformanceOptimization(){
  const rounded={};
@@ -11996,3 +11861,10 @@ syncUiComparisonVisibility();
 
 </body>
 </html>
+
+<style id="v52-unified-map-scale-note">
+/* v52: jedna skala kolorów dla BEST / Różnorodność / atlas / Dziś / Potencjał. */
+.score-legend-words{
+  grid-template-columns:repeat(5,1fr)!important;
+}
+</style>

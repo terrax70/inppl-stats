@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v36: fine phenology + distinct/clickable OSM open habitats + urban park cap -->
+<!-- GitHub production v37: calibrated open habitats — area-aware grasslands, urban lawn penalties, semantic popup fixes -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -3065,6 +3065,41 @@ function geomCenter(g){
  eachCoord(g.coordinates,c=>{minX=Math.min(minX,c[0]);maxX=Math.max(maxX,c[0]);minY=Math.min(minY,c[1]);maxY=Math.max(maxY,c[1]);});
  return [(minY+maxY)/2,(minX+maxX)/2];
 }
+// Przybliżona powierzchnia geometrii w hektarach. Dla poligonów OSM tej skali
+// projekcja lokalna daje wystarczająco dobry wynik do kalibracji siedliska.
+function ringAreaHa(ring){
+ if(!Array.isArray(ring)||ring.length<3)return 0;
+ let lat0=0,n=0;
+ for(const c of ring){if(Array.isArray(c)&&Number.isFinite(c[1])){lat0+=c[1];n++;}}
+ lat0=(n?lat0/n:52)*Math.PI/180;
+ const mx=111320*Math.cos(lat0),my=110540;
+ let a=0;
+ for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+   const xi=Number(ring[i]?.[0])*mx, yi=Number(ring[i]?.[1])*my;
+   const xj=Number(ring[j]?.[0])*mx, yj=Number(ring[j]?.[1])*my;
+   if([xi,yi,xj,yj].every(Number.isFinite))a+=xj*yi-xi*yj;
+ }
+ return Math.abs(a*.5)/10000;
+}
+function geomAreaHa(g){
+ if(!g)return 0;
+ if(g.type==='Polygon'){
+   const rings=g.coordinates||[];
+   if(!rings.length)return 0;
+   let a=ringAreaHa(rings[0]);
+   for(let i=1;i<rings.length;i++)a-=ringAreaHa(rings[i]);
+   return Math.max(0,a);
+ }
+ if(g.type==='MultiPolygon'){
+   return (g.coordinates||[]).reduce((sum,p)=>{
+     if(!p?.length)return sum;
+     let a=ringAreaHa(p[0]);
+     for(let i=1;i<p.length;i++)a-=ringAreaHa(p[i]);
+     return sum+Math.max(0,a);
+   },0);
+ }
+ return 0;
+}
 function rayRing(pt,ring){
  const x=pt[1],y=pt[0]; let inside=false;
  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
@@ -4733,6 +4768,7 @@ async function loadOpenHabitats(){
      f._src='osm';
      f._kind='open';
      f._center=geomCenter(f.geometry);
+     f.properties.open_area_ha=geomAreaHa(f.geometry);
 
      const a=nearestAreaInfo(f._center);
      f._distance=a.distance;
@@ -4759,7 +4795,10 @@ async function loadOpenHabitats(){
    });
 
    if(feats.length){
-     for(const f of allFeatures.filter(x=>x._kind!=='open')){
+     const forests=allFeatures.filter(x=>x._kind!=='open'&&x._center&&!x._blocked);
+
+     // Dystans las -> najbliższy teren otwarty (dla kani na skraju lasu).
+     for(const f of forests){
        let d=Infinity;
        for(const o of feats){
          const x=hav(f._center,o._center);
@@ -4767,6 +4806,18 @@ async function loadOpenHabitats(){
          if(d<.12)break;
        }
        f._openNear=d;
+     }
+
+     // Dystans teren otwarty -> najbliższy las. Pozwala odróżnić realną polanę/skraj
+     // od samotnego trawnika w środku zabudowy.
+     for(const o of feats){
+       let d=Infinity;
+       for(const f of forests){
+         const x=hav(o._center,f._center);
+         if(x<d)d=x;
+         if(d<.12)break;
+       }
+       o._forestNear=d;
      }
    }
 
@@ -4782,17 +4833,104 @@ async function loadOpenHabitats(){
    el.className='st-warn';
  }
 }
+function openHabitatAreaHa(f){
+ if(f?._kind!=='open')return 0;
+ const a=Number(f?.properties?.open_area_ha);
+ return Number.isFinite(a)&&a>0?a:geomAreaHa(f.geometry);
+}
+
+function openHabitatAreaAdjustment(type,tag,area){
+ if(!Number.isFinite(area)||area<=0)return 0;
+ let adj=0;
+ if(tag==='grass'){
+   if(area<.03)adj=-3.2;
+   else if(area<.08)adj=-2.6;
+   else if(area<.20)adj=-1.8;
+   else if(area<.50)adj=-1.0;
+   else if(area<1)adj=-.4;
+ }else if(tag==='park'||tag==='recreation_ground'){
+   if(area<.05)adj=-2.3;
+   else if(area<.20)adj=-1.5;
+   else if(area<.50)adj=-.8;
+   else if(area<1)adj=-.3;
+ }else if(['meadow','pasture','grassland','heath'].includes(tag)){
+   if(area<.03)adj=-2.4;
+   else if(area<.10)adj=-1.4;
+   else if(area<.25)adj=-.7;
+   else if(area<.50)adj=-.3;
+   else if(area>=10)adj=.35;
+   else if(area>=3)adj=.20;
+ }
+
+ // Czernidłak rzeczywiście toleruje małe, przekształcone trawniki lepiej niż
+ // pieczarka polna, purchawka i kanie — kara powierzchniowa jest więc łagodniejsza.
+ if(type==='czernidlak'&&['grass','park','recreation_ground'].includes(tag))adj*=.55;
+ if(type==='purchawka_oczkowana'&&['grass','park','recreation_ground'].includes(tag))adj*=1.10;
+ if(SPECIES_META[type]?.ecology==='edge'&&['grass','park','recreation_ground'].includes(tag))adj*=1.10;
+ return adj;
+}
+
+function openHabitatBaseScore(type,tag){
+ const tables={
+   pieczarka_polna:{pasture:9.4,meadow:9.0,grassland:8.7,grass:6.0,heath:5.0,park:4.5,recreation_ground:4.2},
+   czernidlak:{pasture:7.5,meadow:7.6,grassland:7.1,grass:7.2,heath:4.5,park:7.4,recreation_ground:6.7},
+   purchawka_oczkowana:{pasture:9.2,meadow:9.1,grassland:9.4,grass:5.4,heath:9.6,park:4.3,recreation_ground:3.8}
+ };
+ if(tables[type]&&Number.isFinite(tables[type][tag]))return tables[type][tag];
+ if(SPECIES_META[type]?.ecology==='edge'){
+   return ({meadow:8.4,pasture:8.1,grassland:8.7,grass:5.2,heath:6.5,park:4.0,recreation_ground:3.6})[tag]??5.0;
+ }
+ return 6.0;
+}
+
+function openHabitatVerdictCap(type,f){
+ if(f?._kind!=='open')return 3;
+ const tag=openHabitatTag(f),area=openHabitatAreaHa(f),eco=SPECIES_META[type]?.ecology;
+
+ if(tag==='park'||tag==='recreation_ground'){
+   // Park miejski nadal może mieć czernidłaki, ale nie powinien automatycznie
+   // wyglądać jak cel wyprawy po pieczarki/purchawki/kanie.
+   if(type==='czernidlak')return area>=1?2:1;
+   return 1;
+ }
+
+ if(tag==='grass'){
+   if(area<.03)return 0;
+   if(area<.15)return type==='czernidlak'?1:0;
+   if(area<.50)return 1;
+   if(area<1)return 2;
+ }
+
+ if(['meadow','pasture','grassland','heath'].includes(tag)){
+   if(area<.05)return 1;
+   if(area<.15)return 2;
+ }
+
+ if(eco==='edge'){
+   if(area<.15)return 1;
+   const near=Number(f._forestNear);
+   if(['grass','park','recreation_ground'].includes(tag)&&(!Number.isFinite(near)||near>.8))return 1;
+ }
+ return 3;
+}
+
 function openHabitatScore(type,f){
  const m=SPECIES_META[type];if(!m)return 0;
  if(f._kind==='open'){
-   const tag=f.properties?.open_type||'';
+   const tag=openHabitatTag(f),area=openHabitatAreaHa(f);
    if(m.ecology==='grassland'){
-     if(['meadow','pasture','grassland','grass'].includes(tag))return 9.5;
-     if(tag==='heath')return type==='purchawka_oczkowana'?9.6:7.0;
-     if(tag==='park'||tag==='recreation_ground')return type==='czernidlak'?9.0:7.8;
-     return 7.5;
+     return clamp(openHabitatBaseScore(type,tag)+openHabitatAreaAdjustment(type,tag,area));
    }
-   if(m.ecology==='edge')return 8.8;
+   if(m.ecology==='edge'){
+     let s=openHabitatBaseScore(type,tag)+openHabitatAreaAdjustment(type,tag,area);
+     const near=Number(f._forestNear);
+     if(Number.isFinite(near)){
+       if(near<=.25)s+=.8;
+       else if(near<=.60)s+=.35;
+       else if(near>1.5)s-=.7;
+     }
+     return clamp(s);
+   }
    return 1.2;
  }
  const d=Number(f._openNear);
@@ -5867,7 +6005,7 @@ function effectiveScore(f){
 }
 
 function radarForCurrentFilter(){return currentFilter==='all'||currentFilter==='diversity'?radarScores.all:radarForType(currentFilter);}
-function featureAreaHa(f){const a=Number(f?.properties?.sub_area);return Number.isFinite(a)&&a>0?a:(f?._kind==='open'?.35:.6);}
+function featureAreaHa(f){if(f?._kind==='open')return openHabitatAreaHa(f)||.01;const a=Number(f?.properties?.sub_area);return Number.isFinite(a)&&a>0?a:.6;}
 function filterShowsFeature(f){return currentFilter==='all'||currentFilter==='diversity'||featureRelevant(currentFilter,f);}
 
 function evidenceConfidence(type,f){
@@ -5901,6 +6039,9 @@ function verdictFor(f){
    else if(score>=8.0&&habitat>=7.8&&fruit>=66)rank=2;
    else if(score>=6.6)rank=1;
  }
+ // OSM mówi, czym jest powierzchnia, ale nie że jest dobrym celem grzybobrania.
+ // Mini-trawniki i parki mają twardy sufit rekomendacji niezależnie od pogody.
+ if(f?._kind==='open'&&type)rank=Math.min(rank,openHabitatVerdictCap(type,f));
  return {rank,score,type,habitat,fruit,conf};
 }
 
@@ -5908,9 +6049,28 @@ function reasonsFor(type,f){
  if(!type)return {good:[],warn:[]};
  const good=[],warn=[],host=hostGate(type,f),soil=soilSuitability(type,f),terr=moistureTerrainScore(type,f);
  const hist=historyInfo(type,f),tree=treePreference(type,f),dist=disturbancePenalty(type,f);
- const weather=weatherReady?weatherAt(f._center):NaN,season=seasonScore(type);
- if(host>=.9)good.push('odpowiedni gospodarz / typ terenu');else if(host<.55)warn.push('słabsze dopasowanie gospodarza');
- if(tree>=8.8)good.push('bardzo dobry drzewostan');
+ const weather=weatherReady?weatherAt(f._center):NaN,season=seasonScore(type),m=SPECIES_META[type];
+
+ if(f?._kind==='open'){
+   const openScore=openHabitatScore(type,f),tag=openHabitatTag(f),area=openHabitatAreaHa(f);
+   if(openScore>=8.5)good.push('bardzo dobry typ terenu otwartego');
+   else if(openScore>=7.0)good.push('typ terenu pasuje do gatunku');
+   else if(openScore<5.8)warn.push('typ terenu słabo pasuje do gatunku');
+
+   if(area<.05)warn.push('bardzo mały płat zieleni');
+   else if(tag==='grass'&&area<.50)warn.push('mały trawnik OSM — słaby sygnał siedliskowy');
+   else if(tag==='park'||tag==='recreation_ground')warn.push('teren miejski / rekreacyjny obniża potencjał');
+
+   if(m?.ecology==='edge'){
+     const near=Number(f._forestNear);
+     if(Number.isFinite(near)&&near<=.35)good.push('blisko skraju lasu');
+     else if(Number.isFinite(near)&&near>1.0)warn.push('brak bliskiego skraju lasu');
+   }
+ }else{
+   if(host>=.9)good.push('odpowiedni gospodarz');else if(host<.55)warn.push('słabsze dopasowanie gospodarza');
+   if(tree>=8.8)good.push('bardzo dobry drzewostan');
+ }
+
  if(soil>=8.5)good.push('gleba dobrze pasuje');else if(soil<6.2)warn.push('gleba obniża ocenę');
  if(terr>=8.2)good.push('korzystny mikroteren');
  if(Number.isFinite(weather)&&weather>=75)good.push('dobre warunki pogodowe');else if(Number.isFinite(weather)&&weather<55)warn.push('warunki pogodowe są słabe');
@@ -6230,7 +6390,12 @@ function bestOpenHotspotEligible(f){
  if(f?._kind!=='open')return false;
  // Park miejski/trawnik rekreacyjny nadal może być pokazany i kliknięty,
  // ale domyślnie nie dostaje numerowanego hotspotu "gdzie jechać".
- return !openHabitatIsUrbanLike(f);
+ if(openHabitatIsUrbanLike(f))return false;
+ const tag=openHabitatTag(f),area=openHabitatAreaHa(f);
+ // Mały zwykły trawnik nie jest celem wyprawy, nawet jeśli technicznie może coś wydać.
+ if(tag==='grass'&&area<1)return false;
+ if(area<.20)return false;
+ return true;
 }
 
 function bestOpenPotentialClass(f){
@@ -6241,8 +6406,10 @@ function bestOpenPotentialClass(f){
  else if(s>=6.55)c=2;
  else if(s>=5.65)c=1;
 
- // W domyślnym BEST miejskie parki/rekreacja nie wyglądają jak TOP las.
- if(openHabitatIsUrbanLike(f))c=Math.min(c,2);
+ const type=stableAllType(f);
+ const cap=openHabitatVerdictCap(type,f);
+ const visualCap=[1,2,3,4][cap]??4;
+ c=Math.min(c,visualCap);
  return c;
 }
 
@@ -6254,7 +6421,10 @@ function bestOpenTodayClass(f){
  else if(s>=6.05)c=2;
  else if(s>=5.10)c=1;
 
- if(openHabitatIsUrbanLike(f))c=Math.min(c,2);
+ const type=bestTodayInfo(f).type||stableAllType(f);
+ const cap=openHabitatVerdictCap(type,f);
+ const visualCap=[1,2,3,4][cap]??4;
+ c=Math.min(c,visualCap);
  return Math.min(c,bestOpenPotentialClass(f));
 }
 
@@ -7112,7 +7282,7 @@ function popupHtmlBase(f){
  const v=verdictFor(f),vm=VERDICT_META[v.rank],conf=v.conf,reasons=reasonsFor(type,f);
  const soilRaw=soilAt(f._center),hist=historyInfo(type,f),what=whatCanGrowHere(f);
  const src=f._kind==='open'?'OpenStreetMap':(f._src==='pgl'?'PGL LP':(f._src==='other'?'poza PGL LP':'KO/KDO'));
- const mainLine=f._kind==='open'?`🌿 <b>Teren otwarty OSM:</b> ${p.open_type||'teren otwarty'}${p.name?' • '+p.name:''}`:
+ const mainLine=f._kind==='open'?`🌿 <b>Teren otwarty OSM:</b> ${p.open_type||'teren otwarty'}${p.name?' • '+p.name:''} • ${openHabitatAreaHa(f).toFixed(2)} ha`:
    `🌲 <b>${p.species_cd||p.gat_grp||'?'}</b> • ${p.species_age??'?'} lat • ${p.site_type_cd||'?'} • ${p.sub_area??'?'} ha`;
  const goodHtml=reasons.good.map(x=>`<div class="reason-good">✅ ${x}</div>`).join(''),warnHtml=reasons.warn.map(x=>`<div class="reason-warn">⚠️ ${x}</div>`).join('');
  const stable=stableAnchorScore(f),cls=balancedClass(f),hs=f._hotspotIndex?` • należy do hotspotu ${f._hotspotLabel||''}`:' • poza numerowanym hotspotem';

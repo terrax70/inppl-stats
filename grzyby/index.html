@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v28: SoilGrids WCS GeoTIFF transport + browser TIFF parser + Overpass fallback -->
+<!-- GitHub production v29: GeoTIFF RATIONAL/SRATIONAL + LZW/PackBits + predictor support -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -3647,7 +3647,7 @@ async function fetchArrayBufferWithTimeout(url,timeoutMs=14000){
 }
 
 function tiffTypeSize(type){
- return ({1:1,2:1,3:2,4:4,5:8,6:1,7:1,8:2,9:4,10:8,11:4,12:8})[type]||0;
+ return ({1:1,2:1,3:2,4:4,5:8,6:1,7:1,8:2,9:4,10:8,11:4,12:8,13:4})[type]||0;
 }
 
 function parseTiffDirectory(buffer){
@@ -3669,11 +3669,29 @@ function parseTiffDirectory(buffer){
  const tags=new Map();
 
  function readScalar(type,off){
-   if(type===1||type===2||type===6||type===7)return dv.getUint8(off);
+   if(type===1||type===2||type===7)return dv.getUint8(off);
+   if(type===6)return dv.getInt8(off);
    if(type===3)return dv.getUint16(off,little);
-   if(type===4)return dv.getUint32(off,little);
+   if(type===4||type===13)return dv.getUint32(off,little);
+
+   // TIFF type 5 = RATIONAL (UINT32 numerator / UINT32 denominator).
+   // WCS SoilGrids używa go m.in. w metadanych rozdzielczości rastra.
+   if(type===5){
+     const num=dv.getUint32(off,little);
+     const den=dv.getUint32(off+4,little);
+     return den?num/den:NaN;
+   }
+
    if(type===8)return dv.getInt16(off,little);
    if(type===9)return dv.getInt32(off,little);
+
+   // TIFF type 10 = SRATIONAL.
+   if(type===10){
+     const num=dv.getInt32(off,little);
+     const den=dv.getInt32(off+4,little);
+     return den?num/den:NaN;
+   }
+
    if(type===11)return dv.getFloat32(off,little);
    if(type===12)return dv.getFloat64(off,little);
    throw new Error('GeoTIFF: nieobsługiwany typ '+type);
@@ -3711,10 +3729,108 @@ function parseTiffDirectory(buffer){
  return {dv,little,tags};
 }
 
+function unpackPackBits(bytes){
+ const out=[];
+ let i=0;
+ while(i<bytes.length){
+   let n=bytes[i++];
+   if(n>127)n-=256;
+
+   if(n>=0&&n<=127){
+     const count=n+1;
+     for(let j=0;j<count&&i<bytes.length;j++)out.push(bytes[i++]);
+   }else if(n>=-127&&n<=-1){
+     const count=1-n;
+     if(i>=bytes.length)break;
+     const v=bytes[i++];
+     for(let j=0;j<count;j++)out.push(v);
+   }else{
+     // -128 = NOP
+   }
+ }
+ return Uint8Array.from(out);
+}
+
+function unpackTiffLzw(bytes){
+ // TIFF LZW: clear=256, EOI=257, dictionary starts at 258.
+ let bitPos=0;
+ let codeSize=9;
+
+ function readCode(){
+   if(bitPos+codeSize>bytes.length*8)return null;
+   let code=0;
+   for(let k=0;k<codeSize;k++){
+     const p=bitPos+k;
+     const bit=(bytes[p>>3]>>(7-(p&7)))&1;
+     code=(code<<1)|bit;
+   }
+   bitPos+=codeSize;
+   return code;
+ }
+
+ function resetDict(){
+   const d=new Array(4096);
+   for(let i=0;i<256;i++)d[i]=Uint8Array.of(i);
+   codeSize=9;
+   return d;
+ }
+
+ let dict=resetDict();
+ let nextCode=258;
+ let prev=null;
+ const chunks=[];
+ let total=0;
+
+ while(true){
+   const code=readCode();
+   if(code==null)break;
+
+   if(code===256){
+     dict=resetDict();
+     nextCode=258;
+     prev=null;
+     continue;
+   }
+   if(code===257)break;
+
+   let entry;
+   if(dict[code]){
+     entry=dict[code];
+   }else if(code===nextCode&&prev){
+     entry=new Uint8Array(prev.length+1);
+     entry.set(prev,0);
+     entry[entry.length-1]=prev[0];
+   }else{
+     throw new Error('GeoTIFF LZW: błędny kod '+code);
+   }
+
+   chunks.push(entry);
+   total+=entry.length;
+
+   if(prev&&nextCode<4096){
+     const added=new Uint8Array(prev.length+1);
+     added.set(prev,0);
+     added[added.length-1]=entry[0];
+     dict[nextCode++]=added;
+
+     // TIFF "early change": zwiększamy szerokość o jeden kod wcześniej.
+     if(nextCode===(1<<codeSize)-1&&codeSize<12)codeSize++;
+   }
+
+   prev=entry;
+ }
+
+ const out=new Uint8Array(total);
+ let at=0;
+ for(const c of chunks){out.set(c,at);at+=c.length;}
+ return out;
+}
+
 async function inflateTiffBytes(bytes,compression){
  if(compression===1)return bytes;
+ if(compression===5)return unpackTiffLzw(bytes);
+ if(compression===32773)return unpackPackBits(bytes);
 
- // TIFF Deflate / Adobe Deflate. MapServer najczęściej używa 1 albo 8.
  if((compression===8||compression===32946)&&typeof DecompressionStream!=='undefined'){
    for(const fmt of ['deflate','deflate-raw']){
      try{
@@ -3734,6 +3850,7 @@ async function parseSoilGeoTiff(buffer){
  const height=Number(tags.get(257)||0);
  const bits=Array.isArray(tags.get(258))?Number(tags.get(258)[0]):Number(tags.get(258)||16);
  const compression=Number(tags.get(259)||1);
+ const predictor=Number(tags.get(317)||1);
  const sampleFormat=Array.isArray(tags.get(339))?Number(tags.get(339)[0]):Number(tags.get(339)||2);
  const samplesPerPixel=Number(tags.get(277)||1);
  const noDataRaw=tags.get(42113);
@@ -3777,18 +3894,38 @@ async function parseSoilGeoTiff(buffer){
  }
 
  const rd=new DataView(joined.buffer,joined.byteOffset,joined.byteLength);
- const values=new Float64Array(width*height);
+ const raw16=new Uint16Array(width*height);
 
+ for(let i=0;i<raw16.length;i++){
+   raw16[i]=rd.getUint16(i*2,little);
+ }
+
+ // Predictor 2 = horizontal differencing.
+ if(predictor===2){
+   for(let y=0;y<height;y++){
+     const row=y*width;
+     for(let x=1;x<width;x++){
+       raw16[row+x]=(raw16[row+x]+raw16[row+x-1])&0xffff;
+     }
+   }
+ }else if(predictor!==1){
+   throw new Error('GeoTIFF: nieobsługiwany predictor '+predictor);
+ }
+
+ const values=new Float64Array(width*height);
  for(let i=0;i<values.length;i++){
    let v;
-   if(sampleFormat===1)v=rd.getUint16(i*2,little);
-   else v=rd.getInt16(i*2,little);
+   if(sampleFormat===1){
+     v=raw16[i];
+   }else{
+     v=raw16[i]>=0x8000?raw16[i]-0x10000:raw16[i];
+   }
 
    if(Number.isFinite(noData)&&v===noData)values[i]=NaN;
    else values[i]=v;
  }
 
- return {width,height,values};
+ return {width,height,values,compression,predictor,sampleFormat};
 }
 
 async function fetchSoilWcsRaster(def,bb){
@@ -3799,6 +3936,9 @@ async function fetchSoilWcsRaster(def,bb){
    try{
      const ab=await fetchArrayBufferWithTimeout(urls[i],14000);
      const raster=await parseSoilGeoTiff(ab);
+     console.debug(
+       `Soil WCS ${def.key}: ${raster.width}x${raster.height}, compression=${raster.compression}, predictor=${raster.predictor}, sampleFormat=${raster.sampleFormat}`
+     );
      return raster;
    }catch(e){
      lastErr=e;
@@ -6641,6 +6781,7 @@ window.auditPipelineState=auditPipelineState;
 function auditSoilState(){
  const report={
    source:'SoilGrids WCS 1.0 GetCoverage / GEOTIFF_INT16',
+   parserSupport:'TIFF BYTE/SHORT/LONG/RATIONAL/SRATIONAL/FLOAT/DOUBLE + none/LZW/Deflate/PackBits + predictor 2',
    soilWcsEnabled:SOIL_WCS_ENABLED,
    grid:SOIL_WCS_GRID+'x'+SOIL_WCS_GRID,
    soilReady,

@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v42: fully unified place details + visual mushroom list -->
+<!-- GitHub production v43: hotspot icon order = detail ranking + all matching species -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2780,6 +2780,25 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 @media(max-width:370px){
   .u-species-grid{grid-template-columns:1fr}
+}
+</style>
+
+
+<style id="v43-species-list">
+/* v43 — pełna lista gatunków bez sztucznego limitu sześciu */
+.u-section .u-species-grid{
+  align-items:stretch;
+}
+.u-species-card{
+  min-height:48px;
+}
+.u-section-badge{
+  white-space:nowrap;
+}
+@media(min-width:1000px){
+  .place-details-panel{
+    width:min(420px,calc(100vw - 560px));
+  }
 }
 </style>
 
@@ -7796,14 +7815,19 @@ function unifiedScoreClass(v){
  return 'low';
 }
 
-function unifiedFeatureSpeciesRows(f,primaryType=null,limit=6){
+function unifiedFeatureSpeciesRows(f,primaryType=null,limit=null){
  const rows=[];
  for(const type of PICK_TYPES){
    if(type===primaryType)continue;
    if(!featureRelevant(type,f))continue;
+
    const score=speciesDisplayScore(type,f);
    const potential=stableScoreForType(type,f);
+
+   // "Może tu rosnąć" = gatunek ma biologiczny sens dla tego typu miejsca
+   // i model nie ocenia go skrajnie słabo. Nie ograniczamy już listy do 6.
    if(!Number.isFinite(score)||score<4.8)continue;
+
    rows.push({
      type,
      score,
@@ -7811,8 +7835,14 @@ function unifiedFeatureSpeciesRows(f,primaryType=null,limit=6){
      season:seasonScore(type)
    });
  }
- rows.sort((a,b)=>b.score-a.score||b.potential-a.potential);
- return rows.slice(0,limit);
+
+ rows.sort((a,b)=>
+   b.score-a.score ||
+   b.potential-a.potential ||
+   (HUMAN_NAMES[a.type]||a.type).localeCompare(HUMAN_NAMES[b.type]||b.type,'pl')
+ );
+
+ return Number.isFinite(limit)&&limit>0 ? rows.slice(0,limit) : rows;
 }
 
 function unifiedSpeciesGridHtml(rows){
@@ -7900,11 +7930,11 @@ function unifiedPopupHtml(f,h=null){
  // niezależnie od tego, czy należy ono do hotspotu.
  let otherRows;
  if(currentFilter==='diversity'){
-   otherRows=diversityData(f).rows.slice(0,6).map(x=>({
+   otherRows=diversityData(f).rows.map(x=>({
      type:x.type,score:x.score,potential:x.potential,season:seasonScore(x.type)
    }));
  }else{
-   otherRows=unifiedFeatureSpeciesRows(f,type,6);
+   otherRows=unifiedFeatureSpeciesRows(f,type);
  }
  const otherSpeciesHtml=unifiedSpeciesGridHtml(otherRows);
 
@@ -7992,8 +8022,8 @@ function unifiedPopupHtml(f,h=null){
    <div class="u-section">
      <div class="u-section-head">
        <div>
-         <div class="u-section-title">🍄 Inne grzyby pasujące tutaj</div>
-         <div class="u-section-sub">Ta sama wizualna lista pojawia się dla wydzielenia z hotspotem i bez hotspotu.</div>
+         <div class="u-section-title">🍄 Inne grzyby, które mogą tu rosnąć</div>
+         <div class="u-section-sub">Wszystkie sensownie dopasowane gatunki dla tego miejsca, od najwyższego wyniku.</div>
        </div>
        <div class="u-section-badge">${otherRows.length} gat.</div>
      </div>
@@ -9360,34 +9390,75 @@ function zoomHintLimit(){
 }
 
 function hotspotHintTypes(h,limitOverride){
- const limit=Math.max(1,limitOverride|| (window.innerWidth<=700?2:3));
- if(currentFilter!=='all'&&currentFilter!=='diversity')return [currentFilter].slice(0,limit);
- const scoreByType=new Map();
- for(const f of h.members){
-   const rows=currentFilter==='diversity'
-     ? diversityData(f).rows.slice(0,8).map(x=>({type:x.type,score:x.score}))
-     : whatCanGrowHere(f).slice(0,8).map(([score,type])=>({type,score}));
-   const areaW=Math.max(.35,Math.min(2.4,featureAreaHa(f)/2));
-   for(const row of rows){
-     if(!row||!Number.isFinite(row.score)||row.score<6.8)continue;
-     scoreByType.set(row.type,(scoreByType.get(row.type)||0)+row.score*areaW);
-   }
+ const limit=Number.isFinite(limitOverride)&&limitOverride>0
+   ? Math.floor(limitOverride)
+   : PICK_TYPES.length;
+
+ if(!h?.best)return [];
+
+ // Przy ręcznie wybranym jednym gatunku nie mieszamy innych.
+ if(currentFilter!=='all'&&currentFilter!=='diversity'){
+   return [currentFilter].slice(0,limit);
  }
- const ranked=[...scoreByType.entries()].sort((a,b)=>b[1]-a[1]).map(([type])=>type);
- if(ranked.length)return ranked.slice(0,limit);
- if(currentFilter==='diversity')return diversityData(h.best).rows.slice(0,limit).map(x=>x.type);
- return whatCanGrowHere(h.best).slice(0,limit).map(([score,type])=>type);
+
+ // Różnorodność: ta sama kolejność co w panelu wydzielenia.
+ if(currentFilter==='diversity'){
+   return diversityData(h.best).rows
+     .map(x=>x.type)
+     .filter(Boolean)
+     .slice(0,limit);
+ }
+
+ // "Najlepsze miejsce":
+ // 1. dokładnie ten sam gatunek główny co w panelu,
+ // 2. potem dokładnie ta sama lista "inne grzyby", w tej samej kolejności.
+ // Dzięki temu np. jeśli Maślak zwyczajny ma 8.4, a Podgrzybek 8.3,
+ // ikonka maślaka zawsze jest przed podgrzybkiem.
+ const primary=unifiedFeatureType(h.best);
+ const rest=unifiedFeatureSpeciesRows(h.best,primary).map(x=>x.type);
+
+ const ranked=[];
+ const seen=new Set();
+ for(const type of [primary,...rest]){
+   if(!type||seen.has(type))continue;
+   seen.add(type);
+   ranked.push(type);
+ }
+
+ return ranked.slice(0,limit);
 }
+
+
+function auditHotspotSpeciesConsistency(){
+ const rows=(topSpots||[]).map(h=>{
+   const primary=unifiedFeatureType(h.best);
+   const panelOrder=[
+     primary,
+     ...unifiedFeatureSpeciesRows(h.best,primary).map(x=>x.type)
+   ].filter(Boolean);
+   const rackOrder=hotspotHintTypes(h,PICK_TYPES.length);
+   const same=panelOrder.length===rackOrder.length &&
+     panelOrder.every((t,i)=>t===rackOrder[i]);
+   return {
+     hotspot:hotspotLabel(h),
+     same,
+     panelTop:panelOrder.slice(0,6).map(t=>`${HUMAN_NAMES[t]||t} ${speciesDisplayScore(t,h.best).toFixed(1)}`),
+     rackTop:rackOrder.slice(0,6).map(t=>`${HUMAN_NAMES[t]||t} ${speciesDisplayScore(t,h.best).toFixed(1)}`),
+     total:rackOrder.length
+   };
+ });
+ console.table(rows);
+ return rows;
+}
+window.auditHotspotSpeciesConsistency=auditHotspotSpeciesConsistency;
 
 function hotspotLabelKey(h){
  return `${h.areaName}|${hotspotLabel(h)}`;
 }
 function hotspotRackTypes(h){
- const z=map.getZoom();
- // Pobieramy trochę więcej kandydatów, ale ilość faktycznie pokazywana
- // zależy od zoomu i jest liczona osobno.
- const limit=z<=11?4:(z<=13?5:6);
- return hotspotHintTypes(h,limit).filter(Boolean);
+ // Pełna lista potrzebna jest także po to, aby +N pokazywało prawdziwą
+ // liczbę pozostałych pasujących gatunków, a nie tylko resztę z limitu 4–6.
+ return hotspotHintTypes(h,PICK_TYPES.length).filter(Boolean);
 }
 function hotspotRackDirection(h){
  const n=Math.max(0,(h.localIndex||1)-1);
@@ -9416,10 +9487,15 @@ function hotspotRackMetrics(view){
 function hotspotRackHtml(h,types,view){
  const remaining=Math.max(0,types.length-view.visible.length);
  const key=escapeHtml(hotspotLabelKey(h));
+ const titleFor=t=>{
+   const score=h?.best?speciesDisplayScore(t,h.best):NaN;
+   const suffix=Number.isFinite(score)?` • ${score.toFixed(1)}/10`:'';
+   return `${HUMAN_NAMES[t]||t}${suffix}`;
+ };
 
  if(view.compact){
    const t=view.visible[0];
-   return `<div class="hotspot-icon-rack hotspot-rack-compact" data-hotspot-key="${key}" title="${escapeHtml(HUMAN_NAMES[t]||t)}">
+   return `<div class="hotspot-icon-rack hotspot-rack-compact" data-hotspot-key="${key}" title="${escapeHtml(titleFor(t))}">
      <span class="hotspot-icon-chip" data-type="${escapeHtml(t)}">
        <img src="${atlasSvg(t)}" alt="${escapeHtml(shortHintName(t))}">
      </span>
@@ -9428,10 +9504,10 @@ function hotspotRackHtml(h,types,view){
 
  return `<div class="hotspot-icon-rack" data-hotspot-key="${key}">
    ${view.visible.map(t=>`
-     <span class="hotspot-icon-chip" data-type="${escapeHtml(t)}" title="${escapeHtml(HUMAN_NAMES[t]||t)}">
+     <span class="hotspot-icon-chip" data-type="${escapeHtml(t)}" title="${escapeHtml(titleFor(t))}">
        <img src="${atlasSvg(t)}" alt="${escapeHtml(shortHintName(t))}">
      </span>`).join('')}
-   ${view.showMore&&remaining?`<span class="hotspot-icon-more">+${remaining}</span>`:''}
+   ${view.showMore&&remaining?`<span class="hotspot-icon-more" title="${remaining} kolejnych pasujących gatunków">+${remaining}</span>`:''}
  </div>`;
 }
 function hotspotUiObstacleRects(){

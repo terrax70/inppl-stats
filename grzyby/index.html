@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v15: atlas selection state audit + stale hover filter fix -->
+<!-- GitHub production v16: initial TODAY stale-cache lifecycle fix -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -3164,6 +3164,7 @@ async function loadSoilGrid(){
    soilReady=soilSamples.length>=12;
    el.textContent=soilReady?soilSamples.length+'/'+tasks.length+' pkt':'brak';
    el.className=soilReady?'st-ok':'st-warn';
+   invalidateScoringCaches('SoilGrids');
    if(allFeatures.length)render();
  }catch(e){
    console.warn('SoilGrids',e);soilReady=false;el.textContent='niedostępne';el.className='st-warn';
@@ -3299,6 +3300,7 @@ async function loadWeather(){
    if(rows.length!==pts.length)throw new Error('Niepełna odpowiedź forecast');
    weatherSamples=rows.map((x,i)=>parseWeatherPayload(x,pts[i][0],pts[i][1],pts[i][2],true));
    centerWeather=weatherSamples[0];weatherReady=true;
+   invalidateScoringCaches('weather forecast');
    ds.textContent='gotowe';ds.className='st-ok';
    updateWeatherCard();
    return;
@@ -3320,6 +3322,7 @@ async function loadWeather(){
    if(rows.length!==pts.length)throw new Error('Niepełna odpowiedź historical forecast');
    weatherSamples=rows.map((x,i)=>parseWeatherPayload(x,pts[i][0],pts[i][1],pts[i][2],false));
    centerWeather=weatherSamples[0];weatherReady=true;
+   invalidateScoringCaches('weather historical fallback');
    ds.textContent='hist. OK';ds.className='st-ok';
    updateWeatherCard();
    return;
@@ -3328,6 +3331,7 @@ async function loadWeather(){
  }
 
  weatherReady=false;centerWeather=null;
+ invalidateScoringCaches('weather unavailable');
  ds.textContent='niedostępne';ds.className='st-warn';
  document.getElementById('weatherScore').textContent='—';
  document.getElementById('weatherVerdict').textContent='Pogoda niedostępna — tryb DZIŚ nie używa wtedy komponentu pogodowego.';
@@ -3526,6 +3530,7 @@ async function ensureObservations(type){
  observationData[type]=arr;obsLoaded[type]=true;obsReady=Object.values(observationData).some(x=>x?.length);
  el.textContent=arr.length+' obserw.';el.className=arr.length?'st-ok':'st-warn';
  showObsLayer(type);
+ invalidateScoringCaches('observations '+type);
  if(allFeatures.length)render();
  if(centerWeather)updateWeatherCard();
 }
@@ -3628,6 +3633,7 @@ async function loadOpenHabitats(){
      }
    }
    el.textContent=openReady?feats.length+' obsz.':'brak';el.className=openReady?'st-ok':'st-warn';
+   invalidateScoringCaches('OSM open habitats');
    render();
  }catch(e){
    console.warn('Open habitats',e);openReady=false;el.textContent='niedostępne';el.className='st-warn';
@@ -3692,6 +3698,7 @@ async function loadTerrain(){
    addTerrainContext(allFeatures);
    terrainReady=allFeatures.some(f=>Number.isFinite(f._elev));
    el.textContent=terrainReady?pts.length+' pkt':'brak';el.className=terrainReady?'st-ok':'st-warn';
+   invalidateScoringCaches('terrain DEM');
    if(allFeatures.length)render();
  }catch(e){
    console.warn('Terrain',e);terrainReady=false;
@@ -3814,11 +3821,11 @@ function rerunForestDerived(feats){
  for(const f of feats)f._scores=calcScores(f);
  addDiversityBonus(feats);
  addEcologyContext(feats);
- staticCacheFilter='';
- resetStaticCachesIfNeeded();
+ invalidateScoringCaches('forest enrichment');
 }
 function renderForestBaseImmediately(feats,label='bazowe'){
  allFeatures=feats;
+ invalidateScoringCaches('new forest base');
  analysisGroup.clearLayers();
  analysisLayers=[];
  feats.forEach(addAnalysisFeature);
@@ -3871,8 +3878,7 @@ async function loadReserveEnrichment(feats){
  try{
    await loadReserves();
    feats.forEach(f=>f._blocked=inReserve(f));
-   staticCacheFilter='';
-   resetStaticCachesIfNeeded();
+   invalidateScoringCaches('reserve enrichment');
    return true;
  }catch(e){
    console.warn('Rezerwaty enrichment',e);
@@ -3979,6 +3985,11 @@ async function main(){
    })();
 
    Promise.allSettled([habitatPromise,koPromise,reservePromise,weatherPromise]).then(()=>{
+     // Bariera końcowa: po inicjalnym ładowaniu wymuszamy świeży scoring i skalę kolorów.
+     // Zapobiega sytuacji, w której pierwszy render zostaje na cache z danych bazowych.
+     invalidateScoringCaches('initial enrichment barrier');
+     try{render();}catch(e){console.warn('Final initial rerender',e);}
+
      const blocked=feats.filter(f=>f._blocked).length;
      const quality=degraded?'tryb awaryjny BDL':'pełny model BDL';
      st.innerHTML=`✅ Przeanalizowano <b>${feats.length}</b> drzewostanów • ${quality}. `+
@@ -4029,15 +4040,46 @@ const ALL_MODE_WEIGHT={
 };
 
 const perfCanvasRenderer=L.canvas({padding:.35});
+let scoringRevision=0;
 let perfKeyLast='';
 let perfScoreCache=new WeakMap();
 let perfBestCache=new WeakMap();
 let perfDiversityCache=new WeakMap();
 let perfRenderRAF=0;
 
+function invalidateScoringCaches(reason=''){
+ scoringRevision++;
+
+ // Dynamiczny scoring DZIŚ / najlepszy gatunek / różnorodność.
+ perfKeyLast='';
+ perfScoreCache=new WeakMap();
+ perfBestCache=new WeakMap();
+ perfDiversityCache=new WeakMap();
+
+ // Stały scoring / hotspoty.
+ staticCacheFilter='';
+ staticTypeCache=new WeakMap();
+ staticScoreCache=new WeakMap();
+ forestGridKey='';
+ forestGrid=null;
+ forestContextCache=new WeakMap();
+ hotspotCacheKey='';
+ hotspotCache=[];
+ balancedScaleKey='';
+ balancedScales={};
+ atlasSpeciesScaleCache.clear();
+ hotspotMembershipKey='';
+
+ // Kluczowy fragment: skala kolorów DZIŚ też musi zostać policzona od nowa.
+ todayScaleCacheKey='';
+ todayScales={};
+
+ if(reason)console.debug('Scoring cache invalidated:',reason,'rev',scoringRevision);
+}
+
 function perfKey(){
  const obs=(currentFilter!=='all'&&currentFilter!=='diversity')?((observationData[currentFilter]||[]).length):0;
- return [currentFilter,mapMode,weatherReady?1:0,weatherSamples.length,soilReady?1:0,soilSamples.length,
+ return [scoringRevision,currentFilter,mapMode,weatherReady?1:0,weatherSamples.length,soilReady?1:0,soilSamples.length,
          terrainReady?1:0,openReady?1:0,openFeatures.length,obs,Math.round(radarScores.all||0),allFeatures.length].join('|');
 }
 function ensurePerfCache(){
@@ -4330,6 +4372,8 @@ function resetStaticCachesIfNeeded(){
  staticCacheFilter=k;staticTypeCache=new WeakMap();staticScoreCache=new WeakMap();
  forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();hotspotCacheKey='';hotspotCache=[];
  balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();hotspotMembershipKey='';
+ todayScaleCacheKey='';todayScales={};
+ perfKeyLast='';perfScoreCache=new WeakMap();perfBestCache=new WeakMap();perfDiversityCache=new WeakMap();
 }
 
 function stableHabitatScore(type,f){
@@ -4833,6 +4877,7 @@ function buildTodayScales(){
  ensurePerfCache();
  const dayKey=new Date().toISOString().slice(0,10);
  const key=[
+   scoringRevision,
    currentFilter,
    atlasSelectionKey(),
    allFeatures.length,
@@ -5348,6 +5393,29 @@ function renderAtlasCards(){
  syncAtlasSelectionUI();
 }
 
+
+
+function auditScoringCache(){
+ const sample=allFeatures.find(f=>!f._blocked&&f._kind!=='open')||null;
+ const report={
+   scoringRevision,
+   currentFilter,
+   mapMode,
+   weatherReady,
+   soilReady,
+   terrainReady,
+   openReady,
+   allFeatures:allFeatures.length,
+   perfKey:perfKey(),
+   perfKeyLast,
+   todayScaleCacheKey,
+   sampleScore:sample?todayScoreForStyle(sample):null,
+   todayScaleAreas:Object.keys(todayScales)
+ };
+ console.info('SCORING CACHE AUDIT',report);
+ return report;
+}
+window.auditScoringCache=auditScoringCache;
 
 function auditAtlasState(){
  const cards=[...document.querySelectorAll('#atlasStrip .atlas-mini[data-type]')];

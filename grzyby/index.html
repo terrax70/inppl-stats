@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v53: unified ten-band contrast scale for all modes -->
+<!-- GitHub production v54: stronger score separation with border-weight hierarchy -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2924,6 +2924,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 .score-legend-bar{
   height:12px;
+  border-radius:999px;
   box-shadow:
     inset 0 0 0 1px rgba(0,0,0,.26),
     0 0 0 1px rgba(255,255,255,.03);
@@ -7662,26 +7663,28 @@ function balancedClass(f){
  return 0;
 }
 
-// v53 — JEDEN system wizualny, ale z DUŻO większym kontrastem.
-// Zachowujemy tę samą logikę danych i hotspotów, ale zamiast 5 dość podobnych
-// kolorów dostajemy 10 wizualnych pasów (2 na każdą klasę 0–4).
-// Dzięki temu "rezerwowo" i "średnio" nie giną na zielonym tle OSM.
+// v54 — ta sama logika danych, ale mocniejsza hierarchia wizualna.
+// Użytkownik chciał:
+// - jeszcze lepsze odróżnienie miejsc,
+// - coraz grubszą ramkę przy rosnącej ocenie,
+// - brak ramki przy słabych wynikach.
 //
-// Zasada:
-// - klasa bazowa 0–4 nadal pochodzi z istniejącej logiki trybu
-// - wewnątrz klasy wyliczamy sub-band 0/1
-// - łącznie daje to 10 poziomów wizualnych, wspólnych dla KAŻDEGO trybu
+// Dlatego nadal mamy 10 pasów kolorystycznych i 5 poziomów semantycznych,
+// ale ramka jest teraz osobnym, wyraźnym sygnałem jakości.
+// Niskie wyniki: praktycznie bez obrysu.
+// Średnie: cienki obrys.
+// Dobre: grubszy.
+// TOP: bardzo wyraźny.
 
 const UNIFIED_MAP_LEVELS=[
-  { label:'odpuść',     fill:'#d9d9d3', border:'#b8b9b1', fillOpacity:.040, weight:.10, opacity:.10 },
-  { label:'rezerwowo',  fill:'#e0b5a5', border:'#b37d6b', fillOpacity:.115, weight:.22, opacity:.28 },
-  { label:'średnio',    fill:'#d58b4d', border:'#9a5f35', fillOpacity:.205, weight:.34, opacity:.48 },
-  { label:'warto',      fill:'#b7a33f', border:'#82742b', fillOpacity:.315, weight:.48, opacity:.63 },
-  { label:'TOP',        fill:'#0f7d42', border:'#084f2b', fillOpacity:.700, weight:.94, opacity:.98 }
+  { label:'odpuść',     fill:'#d9d9d3', border:'#b8b9b1', fillOpacity:.040, weight:.00, opacity:.06 },
+  { label:'rezerwowo',  fill:'#e0b5a5', border:'#b37d6b', fillOpacity:.115, weight:.00, opacity:.14 },
+  { label:'średnio',    fill:'#d58b4d', border:'#9a5f35', fillOpacity:.205, weight:.22, opacity:.34 },
+  { label:'warto',      fill:'#b7a33f', border:'#82742b', fillOpacity:.315, weight:.64, opacity:.62 },
+  { label:'TOP',        fill:'#0f7d42', border:'#084f2b', fillOpacity:.700, weight:1.28, opacity:.96 }
 ];
 
-// 10 wizualnych pasów. Kolejno:
-// 0-1 = odpuść, 2-3 = rezerwowo, 4-5 = średnio, 6-7 = warto, 8-9 = TOP.
+// 10 wizualnych pasów. 2 pasy na każdą klasę 0–4.
 const UNIFIED_COLOR_BANDS=[
   '#d9d9d3', // 0
   '#cbbdb6', // 1
@@ -7693,6 +7696,24 @@ const UNIFIED_COLOR_BANDS=[
   '#8b9641', // 7
   '#4fa45c', // 8
   '#0f7d42'  // 9
+];
+
+// Osobne profile obrysu dla każdego z 10 pasów.
+// 0-3: brak/almost brak ramki
+// 4-5: cienka
+// 6-7: wyraźna
+// 8-9: bardzo mocna
+const UNIFIED_STROKE_BANDS=[
+  {weight:0.00, opacity:0.00}, // 0 odpuść
+  {weight:0.00, opacity:0.00}, // 1 odpuść+
+  {weight:0.00, opacity:0.00}, // 2 rezerwowo
+  {weight:0.05, opacity:0.10}, // 3 rezerwowo+
+  {weight:0.22, opacity:0.28}, // 4 średnio
+  {weight:0.40, opacity:0.42}, // 5 średnio+
+  {weight:0.82, opacity:0.68}, // 6 warto
+  {weight:1.18, opacity:0.82}, // 7 warto+
+  {weight:1.85, opacity:0.94}, // 8 TOP
+  {weight:2.40, opacity:1.00}  // 9 TOP+
 ];
 
 function mixHexColor(a,b,t){
@@ -7711,7 +7732,6 @@ function mixHexColor(a,b,t){
  return '#'+[r,g,bl].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
 
-// Subtelny progres wewnątrz klasy 0-4.
 function unifiedWithinClassProgress(f,c,today=false,score=NaN){
  if(!Number.isFinite(score)||c<0||c>4)return .5;
 
@@ -7756,11 +7776,9 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
  return Math.max(0,Math.min(1,(score-lo)/(hi-lo)));
 }
 
-// Zamiana klasy 0-4 + progresu na 10 kontrastowych pasów.
 function unifiedBandIndex(c,progress=.5){
  c=Math.max(0,Math.min(4,Number(c)||0));
  progress=Math.max(0,Math.min(1,Number(progress)||0));
- // 2 pasy na klasę
  return Math.max(0,Math.min(9,c*2 + (progress>=.50?1:0)));
 }
 
@@ -7770,26 +7788,36 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  const progress=unifiedWithinClassProgress(f,c,today,score);
  const band=unifiedBandIndex(c,progress);
  const fill=UNIFIED_COLOR_BANDS[band];
+ const stroke=UNIFIED_STROKE_BANDS[band];
 
- // Im wyższy band, tym obrys trochę ciemniejszy i bardziej czytelny.
- let border=mixHexColor(fill,'#12241b', .48 + (band/9)*.10);
- let fillOpacity=p.fillOpacity + (band%2 ? .035 : 0);
- let weight=p.weight + (band%2 ? .05 : 0);
- let opacity=p.opacity + (band%2 ? .03 : 0);
+ // Obrys: niski band = brak ramki, wysoki band = coraz ciemniejsza i grubsza.
+ let border=stroke.weight>0
+   ? mixHexColor(fill,'#102118', .54 + (band/9)*.14)
+   : 'transparent';
+
+ let fillOpacity=p.fillOpacity + (band%2 ? .040 : 0);
+ let weight=stroke.weight;
+ let opacity=stroke.opacity;
 
  if(open){
-   fillOpacity=Math.min(.62,fillOpacity*.86);
-   weight=Math.max(.18,weight*.95);
-   opacity=Math.max(.15,opacity*.91);
-   border=mixHexColor(border,'#0f1f18',.10);
+   fillOpacity=Math.min(.62,fillOpacity*.88);
+   weight=weight>0?Math.max(.16,weight*.92):0;
+   opacity=weight>0?Math.max(.18,opacity*.90):0;
  }
 
+ // Hotspot nie zmienia klasy koloru, ale wzmacnia obrys miejsca.
  if(f?._hotspotIndex){
-   weight=Math.max(weight,f._hotspotBest?2.10:1.02);
-   opacity=Math.max(opacity,.80);
    if(f._hotspotBest){
-     border=mixHexColor(border,'#032f1d',.52);
+     weight=Math.max(weight,2.10);
+     opacity=Math.max(opacity,.96);
+     border=border==='transparent'
+       ? '#294f39'
+       : mixHexColor(border,'#022d1c',.56);
      fillOpacity=Math.min(.81,fillOpacity+.04);
+   }else{
+     weight=Math.max(weight,.92);
+     opacity=Math.max(opacity,.70);
+     if(border==='transparent')border='#59735f';
    }
  }
 
@@ -7797,7 +7825,7 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
    color:border,
    weight,
    fillColor:fill,
-   fillOpacity:Math.min(.82,fillOpacity),
+   fillOpacity:Math.min(.84,fillOpacity),
    opacity:Math.min(1,opacity),
    ...(open?{dashArray:'5 4',lineCap:'butt'}:{})
  };
@@ -7853,10 +7881,8 @@ function updateScoreLegend(){
  mode.textContent=mapMode==='today'?'DZIŚ':'POTENCJAŁ';
 
  bar.style.background=unifiedLegendGradient();
- // 5 etykiet semantycznych, ale 10 realnych pasów kolorystycznych.
  setLegendWords(UNIFIED_MAP_LEVELS.map(x=>x.label));
 }
-
 function balancedClassLabel(c){
  c=Math.max(0,Math.min(4,Number(c)||0));
  return UNIFIED_MAP_LEVELS[c]?.label||'—';
@@ -8024,8 +8050,8 @@ function todayPotentialStyle(f,show=true){
 
  if(topOnly&&c<3){
    return {
-     color:'#aaa',
-     weight:.08,
+     color:'transparent',
+     weight:0,
      fillColor:'#d9d9d3',
      fillOpacity:.008,
      opacity:.035
@@ -10530,8 +10556,11 @@ function auditScoreSpectrum(){
        class:cls,
        classLabel:UNIFIED_MAP_LEVELS[cls]?.label||'—',
        band,
+       strokeWeight:Number(style.weight.toFixed(2)),
+       strokeOpacity:Number(style.opacity.toFixed(2)),
        fillOpacity:Number(style.fillOpacity.toFixed(3)),
        color:style.fillColor,
+       border:style.color,
        hotspot:f._hotspotLabel||'',
        kind:f._kind||'forest'
      };
@@ -10554,6 +10583,7 @@ window.auditScoreSpectrum=auditScoreSpectrum;
 window.auditScoreSpectrum=auditScoreSpectrum;
 window.auditScoreSpectrum=auditScoreSpectrum;
 window.auditScoreSpectrum=auditScoreSpectrum;
+window.auditScoreSpectrum=auditScoreSpectrum;
 
 
 function auditLegendAndVisibility(){
@@ -10572,8 +10602,8 @@ function auditLegendAndVisibility(){
  const classCounts=[0,0,0,0,0];
  const bandCounts=[0,0,0,0,0,0,0,0,0,0];
  for(const x of rows){
-   classCounts[x.cls]=(classCounts[x.cls]||0)+1
-   bandCounts[x.band]=(bandCounts[x.band]||0)+1
+   classCounts[x.cls]=(classCounts[x.cls]||0)+1;
+   bandCounts[x.band]=(bandCounts[x.band]||0)+1;
  }
 
  const total=Math.max(1,rows.length);
@@ -10590,7 +10620,9 @@ function auditLegendAndVisibility(){
    group:UNIFIED_MAP_LEVELS[Math.floor(i/2)]?.label||'—',
    count:bandCounts[i]||0,
    pct:Number((((bandCounts[i]||0)/total)*100).toFixed(1)),
-   color
+   color,
+   strokeWeight:UNIFIED_STROKE_BANDS[i].weight,
+   strokeOpacity:UNIFIED_STROKE_BANDS[i].opacity
  }));
 
  const report={
@@ -10603,7 +10635,7 @@ function auditLegendAndVisibility(){
    analyzed:rows.length,
    distribution,
    bandDistribution,
-   note:'Ta sama legenda i ten sam 10-pasmowy system kolorów działają dla każdego trybu.'
+   note:'Kolor i obrys są wspólne dla wszystkich trybów. Niskie wyniki mają brak lub prawie brak ramki.'
  };
 
  console.table(distribution);
@@ -10611,6 +10643,7 @@ function auditLegendAndVisibility(){
  console.info('UNIFIED LEGEND + VISIBILITY AUDIT',report);
  return report;
 }
+window.auditLegendAndVisibility=auditLegendAndVisibility;
 window.auditLegendAndVisibility=auditLegendAndVisibility;
 window.auditLegendAndVisibility=auditLegendAndVisibility;
 window.auditLegendAndVisibility=auditLegendAndVisibility;
@@ -11887,7 +11920,7 @@ syncUiComparisonVisibility();
 </html>
 
 <style id="v52-unified-map-scale-note">
-/* v53: jedna skala semantyczna, ale 10 wyraźnie odróżnialnych pasów kolorystycznych. */
+/* v54: jedna skala semantyczna + 10 pasów + hierarchia grubości ramki zależna od oceny. */
 .score-legend-words{
   grid-template-columns:repeat(5,1fr)!important;
 }

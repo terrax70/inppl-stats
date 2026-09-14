@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v16: initial TODAY stale-cache lifecycle fix -->
+<!-- GitHub production v17: dynamic atlas widths + stable one-step final scoring reveal -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2110,6 +2110,43 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
+
+<style id="v17-dynamic-atlas-width">
+/* Grupa atlasu kurczy się/rozszerza wraz z liczbą aktualnie widocznych gatunków. */
+.atlas-group-card{
+  --atlas-visible:var(--atlas-members,1);
+  --atlas-unit:98px;
+  width:max(118px,calc(var(--atlas-visible) * var(--atlas-unit) + 18px))!important;
+  flex:0 0 max(118px,calc(var(--atlas-visible) * var(--atlas-unit) + 18px))!important;
+  transition:width .16s ease,flex-basis .16s ease,border-color .14s ease,opacity .14s ease!important;
+}
+.atlas-group-card[data-visible-count="1"]{--atlas-unit:100px}
+.atlas-group-card[data-visible-count="2"]{--atlas-unit:96px}
+.atlas-group-card[data-visible-count="3"]{--atlas-unit:94px}
+
+@media(max-width:900px){
+  .atlas-group-card{--atlas-unit:92px;min-width:112px!important}
+}
+@media(max-width:700px){
+  .atlas-group-card{
+    --atlas-unit:82px;
+    min-width:102px!important;
+    width:max(102px,calc(var(--atlas-visible) * var(--atlas-unit) + 16px))!important;
+    flex-basis:max(102px,calc(var(--atlas-visible) * var(--atlas-unit) + 16px))!important;
+  }
+}
+</style>
+
+
+<style id="v17-loading-status">
+#status.scoring-wait{
+  color:#d7dfda!important;
+}
+#status.scoring-wait::before{
+  content:'⏳ ';
+}
+</style>
+
 </head>
 <body>
 <div id="map"></div>
@@ -3936,8 +3973,9 @@ async function main(){
 
      // KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
      renderForestBaseImmediately(feats,'bazowe');
+     st.classList.add('scoring-wait');
      hideBdlFallback();
-     st.innerHTML=`✅ Mapa bazowa gotowa: <b>${feats.length}</b> wydzieleń. Uzupełniam siedliska i ochronę w tle…`;
+     st.innerHTML=`✅ Mapa bazowa gotowa: <b>${feats.length}</b> wydzieleń. Liczę końcowe kolory z pogody, siedlisk, gleby i terenu…`;
 
    }else{
      // Druga ścieżka: layer 11/12 nie działa -> próbujemy geometrii 5/6.
@@ -3952,9 +3990,10 @@ async function main(){
      if(!feats.length)throw new Error('Awaryjne dane BDL nie zawierają wydzieleń w tym rejonie.');
 
      renderForestBaseImmediately(feats,'tryb awaryjny');
+     st.classList.add('scoring-wait');
      // Zostawiamy delikatny WMS pod spodem, bo fallback ma mniej informacji.
      if(map.hasLayer(bdl))bdl.setOpacity(.18);
-     st.innerHTML=`⚠️ Tryb awaryjny: pokazuję <b>${feats.length}</b> wydzieleń z BDL 5/6. Dokładność rankingu może być trochę niższa.`;
+     st.innerHTML=`⚠️ Tryb awaryjny: pokazuję <b>${feats.length}</b> wydzieleń z BDL 5/6. Końcowy ranking pojawi się po zebraniu pozostałych danych.`;
    }
 
    // Enrichmenty nie blokują już widoku.
@@ -3977,18 +4016,20 @@ async function main(){
      .then(ok=>{if(ok)render();return ok;})
      .catch(e=>{console.warn('Reserve enrichment',e);return false;});
 
-   // Pozostałe źródła też tylko w tle.
-   (async()=>{
+   // Źródła dokładnościowe są nadal pobierane równolegle,
+   // ale nie zmieniamy po każdym z nich kolorów na oczach użytkownika.
+   const secondaryPromise=(async()=>{
      try{await loadOpenHabitats();}catch(e){console.warn('Open habitats background',e);}
      await Promise.allSettled([loadSoilGrid(),loadTerrain(),ensureObservations(currentFilter)]);
-     try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Background refresh',e);}
+     return true;
    })();
 
-   Promise.allSettled([habitatPromise,koPromise,reservePromise,weatherPromise]).then(()=>{
-     // Bariera końcowa: po inicjalnym ładowaniu wymuszamy świeży scoring i skalę kolorów.
-     // Zapobiega sytuacji, w której pierwszy render zostaje na cache z danych bazowych.
-     invalidateScoringCaches('initial enrichment barrier');
-     try{render();}catch(e){console.warn('Final initial rerender',e);}
+   Promise.allSettled([habitatPromise,koPromise,reservePromise,weatherPromise,secondaryPromise]).then(()=>{
+     // Dopiero teraz pokazujemy finalne kolory i hotspoty.
+     analysisScoringReady=true;
+     st.classList.remove('scoring-wait');
+     invalidateScoringCaches('initial full-data barrier');
+     try{render();if(centerWeather)updateWeatherCard();}catch(e){console.warn('Final initial rerender',e);}
 
      const blocked=feats.filter(f=>f._blocked).length;
      const quality=degraded?'tryb awaryjny BDL':'pełny model BDL';
@@ -3999,6 +4040,8 @@ async function main(){
 
  }catch(e){
    console.error('BDL base failed',e);
+   analysisScoringReady=false;
+   st.classList.remove('scoring-wait');
    ds.textContent='API niedostępne';ds.className='st-warn';
 
    // WMS zostaje widoczny, więc użytkownik widzi przynajmniej oficjalne lasy BDL.
@@ -4983,7 +5026,22 @@ function todayPotentialStyle(f,show=true){
  return {color:border,weight,fillColor:p.fill,fillOpacity,opacity};
 }
 
+function loadingForestStyle(f,show=true){
+ if(!show)return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
+ if(f._kind==='open'){
+   return {color:'#8fb89a',weight:.18,fillColor:'#b7cdbb',fillOpacity:.035,opacity:.16};
+ }
+ return {
+   color:'#6f9278',
+   weight:.18,
+   fillColor:'#9fbea4',
+   fillOpacity:.13,
+   opacity:.28
+ };
+}
+
 function currentForestStyle(f,show=true){
+ if(!analysisScoringReady)return loadingForestStyle(f,show);
  return mapMode==='today'
    ? todayPotentialStyle(f,show)
    : stablePotentialStyle(f,show);
@@ -5316,13 +5374,19 @@ function applyAtlasHoverFilter(typesSet){
  const root=document.getElementById('atlasStrip'); if(!root)return;
  const active=typesSet&&typesSet.size>0;
  root.dataset.hoverFiltered=active?'1':'0';
+
  root.querySelectorAll('.atlas-mini[data-type]').forEach(card=>{
    const show=!active||typesSet.has(card.dataset.type);
    card.classList.toggle('filtered-out',!show);
  });
+
  root.querySelectorAll('.atlas-group-card').forEach(group=>{
-   const any=[...group.querySelectorAll('.atlas-mini[data-type]')].some(x=>!x.classList.contains('filtered-out'));
-   group.classList.toggle('filtered-out',active&&!any);
+   const cards=[...group.querySelectorAll('.atlas-mini[data-type]')];
+   const visible=cards.filter(x=>!x.classList.contains('filtered-out')).length;
+
+   group.dataset.visibleCount=String(visible);
+   group.style.setProperty('--atlas-visible',String(Math.max(1,visible)));
+   group.classList.toggle('filtered-out',active&&visible===0);
  });
 }
 function atlasHoverFeature(f){
@@ -5381,7 +5445,7 @@ function renderAtlasCards(){
      g.members.length===1?'group-single':
      g.members.length===2?'group-two':
      g.members.length===3?'group-three':'group-four-plus';
-   return `<section class="atlas-group-card ${cls}" data-group="${g.id}" style="--atlas-members:${g.members.length}">
+   return `<section class="atlas-group-card ${cls}" data-group="${g.id}" data-visible-count="${g.members.length}" style="--atlas-members:${g.members.length};--atlas-visible:${g.members.length}">
     <button type="button" class="atlas-group-head" data-group-toggle="${g.id}" title="${escapeHtml(g.label)} — zaznacz/odznacz całą grupę"><span class="atlas-group-icon"><img src="${atlasSvg(g.rep)}" alt=""></span><span><span class="atlas-group-title">${escapeHtml(ATLAS_GROUP_SHORT[g.id]||g.label)}</span><span class="atlas-group-sub">${escapeHtml(g.sub)}</span></span><span class="atlas-group-check">+</span></button>
     <div class="atlas-mini-grid">${g.members.map(t=>{const m=SPECIES_META[t]||{};return `<button type="button" class="atlas-mini" data-type="${t}" title="${escapeHtml(m.label||t)}"><span class="atlas-mini-check">+</span><span class="atlas-mini-score"></span><span class="atlas-mini-name">${escapeHtml(ATLAS_SHORT_NAMES[t]||m.label||t)}</span><span class="atlas-mini-photo"><img loading="lazy" src="${atlasSvg(t)}" alt="${escapeHtml(m.label||t)}"></span></button>`;}).join('')}</div>
     <div class="atlas-family-note">Wspólny typ siedliska; każdy gatunek nadal ma własną ocenę w modelu.</div>
@@ -5540,6 +5604,7 @@ function invalidateInteractionGrid(){
  interactionGridKey='';
 }
 function interactionFeatureIsClickable(f){
+ if(!analysisScoringReady)return false;
  if(!f||f._kind==='open'||!f.geometry)return false;
  if(f._blocked)return true;
  return atlasSelected.size ? atlasShowsFeature(f) : filterShowsFeature(f);
@@ -5777,6 +5842,14 @@ function perfRenderNow(){
  topGroup.clearLayers();
  hintGroup.clearLayers();
  if(!allFeatures.length)return;
+
+ if(!analysisScoringReady){
+   for(const {f,layer:ly} of analysisLayers){
+     const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
+     ly.setStyle(loadingForestStyle(f,show));
+   }
+   return;
+ }
 
  ensurePerfCache();
  buildBalancedScales();
@@ -6127,6 +6200,7 @@ let pickMode=false;
 let searchTimer=null;
 let searchSeq=0;
 let analysisRunning=false;
+let analysisScoringReady=true;
 let autoAnalyzeTimer=null;
 let autoAnalyzeQueued=false;
 
@@ -6290,6 +6364,7 @@ async function reverseName(lat,lon,index){
 }
 
 function clearAnalysisData(){
+ analysisScoringReady=false;
  invalidateInteractionGrid();
  clearMapHoverInteraction();
  atlasHoverTypes.clear();

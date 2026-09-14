@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v44: single-species TODAY consistency across BEST, atlas and hotspots -->
+<!-- GitHub production v45: live-refresh unified details panel on mode/filter/atlas changes -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2805,6 +2805,17 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 
 <style id="v44-single-species-consistency">
 .u-species-score[title]{cursor:help}
+</style>
+
+
+<style id="v45-live-details-refresh">
+.place-details-body.details-refreshed{
+  animation:detailsRefreshPulse .26s ease-out;
+}
+@keyframes detailsRefreshPulse{
+  0%{opacity:.72}
+  100%{opacity:1}
+}
 </style>
 
 </head>
@@ -8135,33 +8146,95 @@ function closeUnifiedDetails(clearLock=true){
  }
 }
 
+function unifiedDetailsTitleFor(f,h=null){
+ if(h)return `Hotspot ${hotspotLabel(h)} • ${h.areaName}`;
+ const t=unifiedFeatureType(f);
+ if(currentFilter==='diversity')return 'Różnorodność • wybrane miejsce';
+ if(atlasSelected.size===1){
+   const only=[...atlasSelected][0];
+   return `${HUMAN_NAMES[only]||only} • wybrane miejsce`;
+ }
+ if(atlasSelected.size>1)return `Atlas: ${atlasSelected.size} gat. • wybrane miejsce`;
+ return t?(HUMAN_NAMES[t]||'Wybrane miejsce'):'Wybrane miejsce';
+}
+
+function renderUnifiedDetailsContent(f,h=null,{preserveScroll=false,flash=false}={}){
+ const panel=document.getElementById('placeDetailsPanel');
+ const body=document.getElementById('placeDetailsBody');
+ const title=document.getElementById('placeDetailsTitle');
+ if(!panel||!body||!f)return false;
+
+ // Hotspot musi być liczony na nowo, bo po zmianie DZIŚ/POTENCJAŁ,
+ // filtra lub atlasu przynależność wydzielenia może się zmienić.
+ h=h||hotspotForFeature(f);
+
+ let oldScroll=0;
+ let openSummaries=[];
+ if(preserveScroll){
+   oldScroll=body.scrollTop;
+   openSummaries=[...body.querySelectorAll('details[open] > summary')]
+     .map(x=>x.textContent.trim());
+ }
+
+ body.innerHTML=unifiedPopupHtml(f,h);
+ if(title)title.textContent=unifiedDetailsTitleFor(f,h);
+
+ if(preserveScroll){
+   // Zachowujemy otwarte sekcje techniczne i pozycję przewijania,
+   // żeby zmiana trybu nie "wyrzucała" użytkownika na górę panelu.
+   for(const d of body.querySelectorAll('details')){
+     const summary=d.querySelector(':scope > summary');
+     if(summary&&openSummaries.includes(summary.textContent.trim()))d.open=true;
+   }
+   body.scrollTop=Math.min(oldScroll,Math.max(0,body.scrollHeight-body.clientHeight));
+ }else{
+   body.scrollTop=0;
+ }
+
+ if(flash){
+   body.classList.remove('details-refreshed');
+   // wymusza ponowne odpalenie krótkiej animacji po każdej aktualizacji
+   void body.offsetWidth;
+   body.classList.add('details-refreshed');
+ }
+
+ return true;
+}
+
+function refreshUnifiedDetails({preserveScroll=true,flash=true}={}){
+ const panel=document.getElementById('placeDetailsPanel');
+ if(!panel?.classList.contains('open'))return false;
+
+ const f=linkedLockedFeature;
+ if(!f)return false;
+
+ return renderUnifiedDetailsContent(
+   f,
+   hotspotForFeature(f),
+   {preserveScroll,flash}
+ );
+}
+
 function openUnifiedDetails(f,h=null){
  if(!f&&h)f=h.best;
  if(!f)return;
  if(!h)h=hotspotForFeature(f);
 
  const panel=document.getElementById('placeDetailsPanel');
- const body=document.getElementById('placeDetailsBody');
- const title=document.getElementById('placeDetailsTitle');
- if(!panel||!body)return;
+ if(!panel)return;
 
  try{map.closePopup();}catch(_){}
- body.innerHTML=unifiedPopupHtml(f,h);
 
- if(title){
-   const t=unifiedFeatureType(f);
-   title.textContent=h
-     ? `Hotspot ${hotspotLabel(h)} • ${h.areaName}`
-     : (t?(HUMAN_NAMES[t]||'Wybrane miejsce'):'Wybrane miejsce');
- }
+ renderUnifiedDetailsContent(f,h,{preserveScroll:false,flash:false});
 
  panel.classList.add('open');
  panel.setAttribute('aria-hidden','false');
- body.scrollTop=0;
 
  linkedLayerClickSuppressUntil=performance.now()+450;
  try{lockLinkedFeature(f,analysisLayerForFeature(f));}catch(err){console.warn('Unified linked focus',err);}
 }
+
+window.refreshUnifiedDetails=refreshUnifiedDetails;
 
 (function installUnifiedDetailsPanel(){
  const closeBtn=document.getElementById('placeDetailsClose');
@@ -8448,6 +8521,7 @@ function toggleAtlasType(t){
  applyAtlasHoverFilter(null);
  currentFilter='all';atlasSelected.has(t)?atlasSelected.delete(t):atlasSelected.add(t);
  syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();
+ refreshUnifiedDetails({preserveScroll:true,flash:false});
  if(allFeatures.length)render();else{const hint=document.getElementById('locatorHint');if(hint)hint.textContent=atlasSelected.size?'🍄 Wybrane gatunki zapisane. Wybierz lokalizację — mapa użyje tego zestawu.':'📍 Wybierz lokalizację — analiza ruszy automatycznie.';}
 }
 function toggleAtlasGroup(groupId){
@@ -8457,7 +8531,9 @@ function toggleAtlasGroup(groupId){
  currentFilter='all';
  const allSelected=g.members.every(t=>atlasSelected.has(t));
  if(allSelected)g.members.forEach(t=>atlasSelected.delete(t));else g.members.forEach(t=>atlasSelected.add(t));
- clearAtlasHover();syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();if(allFeatures.length)render();
+ clearAtlasHover();syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();
+ refreshUnifiedDetails({preserveScroll:true,flash:false});
+ if(allFeatures.length)render();
 }
 function syncAtlasSelectionUI(){
  const root=document.getElementById('atlasStrip');if(!root)return;
@@ -9461,7 +9537,13 @@ function perfRenderNow(){
    console.error('Hotspot labels render failed — mapa pozostaje aktywna',err);
    try{hintGroup.clearLayers();}catch(_){}
  }
- if(linkedLockedFeature)drawLockedForestContext(linkedLockedFeature,new Set(linkedRowsForFeature(linkedLockedFeature).map(x=>x.type)));
+ if(linkedLockedFeature){
+   drawLockedForestContext(linkedLockedFeature,new Set(linkedRowsForFeature(linkedLockedFeature).map(x=>x.type)));
+   // Panel szczegółów jest częścią aktualnego stanu mapy.
+   // Każde render() po zmianie DZIŚ/POTENCJAŁ, filtra lub atlasu
+   // odświeża jego liczby, gatunki, werdykt i przynależność do hotspotu.
+   refreshUnifiedDetails({preserveScroll:true,flash:true});
+ }
 }
 function render(){if(perfRenderRAF)cancelAnimationFrame(perfRenderRAF);perfRenderRAF=requestAnimationFrame(perfRenderNow);}
 
@@ -9514,6 +9596,25 @@ function hotspotHintTypes(h,limitOverride){
 }
 
 
+
+
+function auditUnifiedDetailsRefresh(){
+ const panel=document.getElementById('placeDetailsPanel');
+ const f=linkedLockedFeature;
+ const report={
+   panelOpen:!!panel?.classList.contains('open'),
+   lockedFeature:!!f,
+   mode:mapMode,
+   filter:currentFilter,
+   atlas:[...atlasSelected],
+   hotspot:f?hotspotForFeature(f)?.areaName||null:null,
+   type:f?unifiedFeatureType(f):null,
+   score:f?Number(unifiedFeatureVerdict(f).score.toFixed(2)):null
+ };
+ console.info('UNIFIED DETAILS LIVE REFRESH',report);
+ return report;
+}
+window.auditUnifiedDetailsRefresh=auditUnifiedDetailsRefresh;
 
 function auditSingleSpeciesTodayConsistency(type='rydz'){
  if(!SPECIES_META[type])throw new Error(`Nieznany gatunek: ${type}`);
@@ -10557,6 +10658,7 @@ async function setSpeciesDisplayMode(mode){
  updateSpeciesMeta();
  updateRadarCard();
  if(centerWeather)updateWeatherCard();
+ refreshUnifiedDetails({preserveScroll:true,flash:false});
  if(allFeatures.length)render();
 }
 
@@ -10578,7 +10680,9 @@ document.getElementById('speciesSelect').onchange=async e=>{
  atlasHoverTypes.clear();
  applyAtlasHoverFilter(null);
  atlasSelected.clear();renderAtlasCards();updateAtlasHead();
- currentFilter=e.target.value;resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();updateRadarCard();if(centerWeather)updateWeatherCard();render();
+ currentFilter=e.target.value;resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();updateRadarCard();if(centerWeather)updateWeatherCard();
+ refreshUnifiedDetails({preserveScroll:true,flash:false});
+ render();
  if(currentFilter!=='all'&&currentFilter!=='diversity')await ensureObservations(currentFilter);
 };
 document.getElementById('speciesModeBest').onclick=()=>setSpeciesDisplayMode('all');
@@ -10594,6 +10698,7 @@ document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{
  todayHotspotCacheKey='';
 
  ensurePerfCache();
+ refreshUnifiedDetails({preserveScroll:true,flash:false});
  render();
  if(centerWeather)updateWeatherCard();
 });

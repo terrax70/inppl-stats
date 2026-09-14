@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v21: vertical source status + resilient SoilGrids retry -->
+<!-- GitHub production v22: SoilGrids failure no longer changes scoring + faster 7-point soil sampling -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2678,7 +2678,7 @@ let topSpots=[];
 let weatherSamples=[];
 let weatherReady=false;
 let centerWeather=null;
-let soilSamples=[], soilReady=false;
+let soilSamples=[], soilReady=false, soilCoverage=0;
 let terrainReady=false;
 let obsReady=false;
 let openFeatures=[], openReady=false;
@@ -3468,12 +3468,17 @@ function soilPhysical(layer){
  const factor=Number(layer.unit_measure?.d_factor||1);
  return raw/factor;
 }
-async function fetchSoilPoint(lat,lon){
+async function fetchSoilPoint(lat,lon,timeoutMs=9000,tries=1){
  const props=['phh2o','soc','sand','clay'];
  const q=new URLSearchParams({lat:String(lat),lon:String(lon),value:'mean'});
  props.forEach(x=>q.append('property',x));
  q.append('depth','0-5cm'); q.append('depth','5-15cm');
- const j=await fetchJsonWithTimeout('https://rest.isric.org/soilgrids/v2.0/properties/query?'+q,16000,2), layers=j.properties?.layers||[];
+ const j=await fetchJsonWithTimeout(
+   'https://rest.isric.org/soilgrids/v2.0/properties/query?'+q,
+   timeoutMs,
+   tries
+ );
+ const layers=j.properties?.layers||[];
  const get=n=>soilPhysical(layers.find(x=>x.name===n));
  return {lat,lon,ph:get('phh2o'),soc:get('soc'),sand:get('sand'),clay:get('clay')};
 }
@@ -3488,34 +3493,51 @@ async function runLimited(tasks,limit=5){
  await Promise.all(Array.from({length:Math.min(limit,tasks.length)},worker));
  return out;
 }
-async function loadSoilGrid(){
- const el=document.getElementById('dsSoil'); el.textContent='ładowanie';el.className='st-load';
- try{
-   const points=[],N=ANALYSIS_CENTERS.length>=3?3:4;
+function soilSamplingPoints(){
+ const pts=[];
+ for(const area of ANALYSIS_CENTERS){
+   const [lat,lon]=area.point;
+   pts.push([lat,lon]);
 
-   for(const bb of analysisBboxes()){
-     for(let iy=0;iy<N;iy++)for(let ix=0;ix<N;ix++){
-       const lat=bb[1]+(bb[3]-bb[1])*iy/(N-1);
-       const lon=bb[0]+(bb[2]-bb[0])*ix/(N-1);
-       if(!inAnalysisArea([lat,lon],3.0))continue;
-       points.push([lat,lon]);
-     }
+   const rKm=Math.max(2.5,RADIUS_KM*.62);
+   const cosLat=Math.max(.18,Math.cos(lat*Math.PI/180));
+
+   for(let i=0;i<6;i++){
+     const a=i*Math.PI/3;
+     const dLat=(Math.cos(a)*rKm)/111.32;
+     const dLon=(Math.sin(a)*rKm)/(111.32*cosLat);
+     pts.push([lat+dLat,lon+dLon]);
    }
+ }
+ return pts;
+}
 
-   // SoilGrids bywa wrażliwy na bursty. 4 równoległe zapytania są szybsze
-   // niż sekwencyjne, ale mniej podatne na 429/5xx niż wcześniejsze 6.
-   const firstTasks=points.map(([lat,lon])=>()=>fetchSoilPoint(lat,lon));
+async function loadSoilGrid(){
+ const el=document.getElementById('dsSoil');
+ el.textContent='ładowanie';
+ el.className='st-load';
+
+ // Bardzo ważne: poprzedni zestaw nie może wyciekać do nowej analizy.
+ soilReady=false;
+ soilCoverage=0;
+ soilSamples=[];
+
+ try{
+   const points=soilSamplingPoints();
+
+   // Pierwsza tura: 4 równolegle, bez wielokrotnych retry wewnątrz requestu.
+   const firstTasks=points.map(([lat,lon])=>()=>fetchSoilPoint(lat,lon,9000,1));
    const first=await runLimited(firstTasks,4);
 
-   // Retry TYLKO punktów, które nie wyszły w pierwszej turze.
    const failed=[];
    first.forEach((v,i)=>{if(!v)failed.push(i);});
 
+   // Jedna krótka, spokojna próba wyłącznie dla nieudanych punktów.
    if(failed.length){
-     await waitMs(700);
+     await waitMs(450);
      const retryTasks=failed.map(i=>{
        const [lat,lon]=points[i];
-       return ()=>fetchSoilPoint(lat,lon);
+       return ()=>fetchSoilPoint(lat,lon,6500,1);
      });
      const retried=await runLimited(retryTasks,2);
      failed.forEach((idx,j)=>{
@@ -3523,33 +3545,42 @@ async function loadSoilGrid(){
      });
    }
 
-   soilSamples=first.filter(Boolean);
+   const valid=first.filter(Boolean);
+   soilCoverage=points.length ? valid.length/points.length : 0;
 
-   // Nie wymagamy już magicznego "12/12".
-   // Jeśli mamy >=55% siatki i co najmniej 4 punkty, interpolacja jest użyteczna.
+   // Minimum 4 punkty i >=55% planowanej siatki.
    const minNeeded=Math.max(4,Math.ceil(points.length*.55));
-   soilReady=soilSamples.length>=minNeeded;
+   soilReady=valid.length>=minNeeded;
 
    if(soilReady){
-     const partial=soilSamples.length<points.length;
-     el.textContent=`${soilSamples.length}/${points.length} pkt${partial?' • częściowe':''}`;
+     soilSamples=valid;
+     const partial=valid.length<points.length;
+     el.textContent=`${valid.length}/${points.length} pkt${partial?' • częściowe':''}`;
      el.className='st-ok';
+
+     // Tylko WIARYGODNY zestaw gleby zmienia scoring.
+     invalidateScoringCaches('SoilGrids ready');
+     if(allFeatures.length&&!deferSecondaryRenders)render();
    }else{
-     el.textContent=soilSamples.length?`${soilSamples.length}/${points.length} pkt • za mało`:'brak';
+     // BUGFIX: jeśli SoilGrids kończy się błędem / za małą liczbą próbek,
+     // NIE używamy tych kilku punktów do scoringu.
+     // Model pozostaje przy neutralnym wyniku gleby 7/10.
+     soilSamples=[];
+     soilCoverage=0;
+     el.textContent=valid.length?`${valid.length}/${points.length} pkt • za mało`:'brak';
      el.className='st-warn';
    }
-
-   invalidateScoringCaches('SoilGrids');
-   if(allFeatures.length&&!deferSecondaryRenders)render();
  }catch(e){
    console.warn('SoilGrids',e);
    soilReady=false;
+   soilCoverage=0;
+   soilSamples=[];
    el.textContent='niedostępne';
    el.className='st-warn';
  }
 }
 function soilAt(c){
- if(!soilSamples.length)return null;
+ if(!soilReady||!soilSamples.length)return null;
  let sw=0,acc={ph:0,soc:0,sand:0,clay:0};
  for(const s of soilSamples){
    const d=Math.max(.35,hav(c,[s.lat,s.lon])),w=1/(d*d);
@@ -4427,7 +4458,7 @@ async function main(){
          soilReady?'ok':'error',
          soilReady
            ? `SoilGrids używane • ${soilSamples.length} punktów${soilEl?.textContent?.includes('częściowe')?' • dane częściowe':''}`
-           : `SoilGrids: za mało poprawnych punktów (${soilSamples.length})`
+           : `SoilGrids niedostępne — model używa neutralnej gleby (7/10)`
        );
        return soilReady;
      })
@@ -4642,6 +4673,22 @@ function hostGate(type,f){
  return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
 }
 
+
+function soilReliability(){
+ if(!soilReady)return 0;
+ return piecewise(soilCoverage,[
+   [.55,.35],
+   [.65,.50],
+   [.75,.67],
+   [.88,.84],
+   [1,1]
+ ]);
+}
+function blendSoilWithNeutral(score){
+ const rel=soilReliability();
+ return 7+(score-7)*rel;
+}
+
 function soilSuitability(type,f){
  const m=SPECIES_META[type],s=soilAt(f._center);if(!m||!s)return 7;
  if(type==='ponury'){
@@ -4650,7 +4697,7 @@ function soilSuitability(type,f){
    let sand=Number(s.sand);if(sand>100)sand/=10;
    const texture=Number.isFinite(sand)?piecewise(sand,[[8,8.8],[22,9.3],[40,8.8],[58,7.2],[72,5.6],[88,3.8]]):7.2;
    const socScore=Number.isFinite(s.soc)?piecewise(s.soc,[[0,4.8],[10,6.6],[25,8.0],[45,8.8],[80,8.2],[120,6.5]]):7;
-   return .72*phScore+.18*texture+.10*socScore;
+   return blendSoilWithNeutral(.72*phScore+.18*texture+.10*socScore);
  }
  const lo=m.ph?.[0]??4.5,hi=m.ph?.[1]??7,mid=(lo+hi)/2;
  const phScore=piecewise(s.ph,[[lo-1.6,3.5],[lo,8],[mid,9.5],[hi,8],[hi+1.4,3.5]]);
@@ -4662,7 +4709,7 @@ function soilSuitability(type,f){
    else texture=piecewise(sand,[[5,6],[25,8],[50,8.7],[75,7.7],[92,5.5]]);
  }
  const socScore=Number.isFinite(s.soc)?piecewise(s.soc,[[0,5],[10,7],[25,8.5],[60,9],[120,7]]):7;
- return .62*phScore+.24*texture+.14*socScore;
+ return blendSoilWithNeutral(.62*phScore+.24*texture+.14*socScore);
 }
 
 function practicalAllScore(type,f){
@@ -6109,6 +6156,21 @@ function renderAtlasCards(){
 
 
 
+
+function auditSoilState(){
+ const report={
+   soilReady,
+   soilCoverage:Number((soilCoverage||0).toFixed(3)),
+   samples:soilSamples.length,
+   reliability:Number(soilReliability().toFixed(3)),
+   scoringUsesSoil:soilReady&&soilSamples.length>0,
+   fallbackWhenUnavailable:'neutral 7/10'
+ };
+ console.info('SOIL AUDIT',report);
+ return report;
+}
+window.auditSoilState=auditSoilState;
+
 function auditModeCombinations(){
  const savedFilter=currentFilter;
  const savedMode=mapMode;
@@ -7194,7 +7256,7 @@ function clearAnalysisData(){
  analysisGroup.clearLayers();topGroup.clearLayers();hintGroup.clearLayers();reserveGroup.clearLayers();obsGroup.clearLayers();openGroup.clearLayers();
  allFeatures=[];analysisLayers=[];reserves=[];topSpots=[];
  weatherSamples=[];weatherReady=false;centerWeather=null;
- soilSamples=[];soilReady=false;terrainReady=false;obsReady=false;
+ soilSamples=[];soilReady=false;soilCoverage=0;terrainReady=false;obsReady=false;
  openFeatures=[];openReady=false;
  for(const k of Object.keys(observationData))delete observationData[k];
  for(const k of Object.keys(obsLoaded))delete obsLoaded[k];

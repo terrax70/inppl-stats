@@ -9,7 +9,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v22: SoilGrids failure no longer changes scoring + faster 7-point soil sampling -->
+<!-- GitHub production v23: disable paused ISRIC SoilGrids REST API, instant neutral soil fallback -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2405,14 +2405,14 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   .data-source-mini{
     top:126px!important;
     right:7px!important;
-    max-width:132px!important;
+    max-width:148px!important;
   }
   .data-source-summary{
     font-size:8.5px!important;
     padding:5px 7px!important;
   }
   .source-chip{
-    min-width:104px!important;
+    min-width:122px!important;
     font-size:8px!important;
     padding:4px 6px!important;
   }
@@ -2440,7 +2440,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
     <div class="source-chip" data-source="habitat" data-state="off"><span class="source-dot"></span><span>Siedliska</span></div>
     <div class="source-chip" data-source="weather" data-state="off"><span class="source-dot"></span><span>Pogoda</span></div>
     <div class="source-chip" data-source="reserve" data-state="off"><span class="source-dot"></span><span>Ochrona</span></div>
-    <div class="source-chip" data-source="soil" data-state="off"><span class="source-dot"></span><span>Gleba</span></div>
+    <div class="source-chip" data-source="soil" data-state="off"><span class="source-dot"></span><span>Gleba · API pauza</span></div>
     <div class="source-chip" data-source="terrain" data-state="off"><span class="source-dot"></span><span>Teren</span></div>
     <div class="source-chip" data-source="open" data-state="off"><span class="source-dot"></span><span>OSM</span></div>
     <div class="source-chip" data-source="obs" data-state="off"><span class="source-dot"></span><span>Historia</span></div>
@@ -2679,6 +2679,8 @@ let weatherSamples=[];
 let weatherReady=false;
 let centerWeather=null;
 let soilSamples=[], soilReady=false, soilCoverage=0;
+const SOIL_REST_ENABLED=false;
+const SOIL_REST_DISABLED_REASON='ISRIC SoilGrids REST API jest obecnie oficjalnie wstrzymane';
 let terrainReady=false;
 let obsReady=false;
 let openFeatures=[], openReady=false;
@@ -3514,25 +3516,31 @@ function soilSamplingPoints(){
 
 async function loadSoilGrid(){
  const el=document.getElementById('dsSoil');
- el.textContent='ładowanie';
- el.className='st-load';
 
- // Bardzo ważne: poprzedni zestaw nie może wyciekać do nowej analizy.
  soilReady=false;
  soilCoverage=0;
  soilSamples=[];
 
+ if(!SOIL_REST_ENABLED){
+   el.textContent='REST wstrzymane';
+   el.className='st-warn';
+
+   // Świadomie NIE oznaczamy tego jako błąd całej analizy.
+   // Model korzysta z neutralnej wartości gleby 7/10.
+   setSourceState('soil','off',SOIL_REST_DISABLED_REASON+' • model używa neutralnej gleby 7/10');
+   return false;
+ }
+
+ // Ten blok zostaje na przyszłość — wystarczy przełączyć flagę,
+ // gdy ISRIC przywróci stabilne REST API.
  try{
    const points=soilSamplingPoints();
-
-   // Pierwsza tura: 4 równolegle, bez wielokrotnych retry wewnątrz requestu.
    const firstTasks=points.map(([lat,lon])=>()=>fetchSoilPoint(lat,lon,9000,1));
    const first=await runLimited(firstTasks,4);
 
    const failed=[];
    first.forEach((v,i)=>{if(!v)failed.push(i);});
 
-   // Jedna krótka, spokojna próba wyłącznie dla nieudanych punktów.
    if(failed.length){
      await waitMs(450);
      const retryTasks=failed.map(i=>{
@@ -3548,7 +3556,6 @@ async function loadSoilGrid(){
    const valid=first.filter(Boolean);
    soilCoverage=points.length ? valid.length/points.length : 0;
 
-   // Minimum 4 punkty i >=55% planowanej siatki.
    const minNeeded=Math.max(4,Math.ceil(points.length*.55));
    soilReady=valid.length>=minNeeded;
 
@@ -3558,13 +3565,9 @@ async function loadSoilGrid(){
      el.textContent=`${valid.length}/${points.length} pkt${partial?' • częściowe':''}`;
      el.className='st-ok';
 
-     // Tylko WIARYGODNY zestaw gleby zmienia scoring.
      invalidateScoringCaches('SoilGrids ready');
      if(allFeatures.length&&!deferSecondaryRenders)render();
    }else{
-     // BUGFIX: jeśli SoilGrids kończy się błędem / za małą liczbą próbek,
-     // NIE używamy tych kilku punktów do scoringu.
-     // Model pozostaje przy neutralnym wyniku gleby 7/10.
      soilSamples=[];
      soilCoverage=0;
      el.textContent=valid.length?`${valid.length}/${points.length} pkt • za mało`:'brak';
@@ -3578,6 +3581,7 @@ async function loadSoilGrid(){
    el.textContent='niedostępne';
    el.className='st-warn';
  }
+ return soilReady;
 }
 function soilAt(c){
  if(!soilReady||!soilSamples.length)return null;
@@ -4399,7 +4403,11 @@ async function main(){
    deferSecondaryRenders=true;
    setSourceState('habitat','load','Pobieram typ siedliska i dane uzupełniające BDL');
    setSourceState('reserve','load','Sprawdzam rezerwaty i obszary ochronne');
-   setSourceState('soil','load','Pobieram SoilGrids');
+   setSourceState(
+     'soil',
+     SOIL_REST_ENABLED?'load':'off',
+     SOIL_REST_ENABLED?'Pobieram SoilGrids':SOIL_REST_DISABLED_REASON+' • neutralna gleba 7/10'
+   );
    setSourceState('terrain','load','Pobieram model wysokości terenu');
    setSourceState('open','load','Pobieram łąki, polany i pastwiska OSM');
 
@@ -4441,7 +4449,7 @@ async function main(){
        return false;
      });
 
-   updateAnalysisLoader('Dociągam glebę, teren, OSM i pozostałe dane…');
+   updateAnalysisLoader('Dociągam teren, OSM i pozostałe dane…');
 
    const openPromise=loadOpenHabitats()
      .then(()=>{
@@ -4452,6 +4460,11 @@ async function main(){
 
    const soilPromise=loadSoilGrid()
      .then(()=>{
+       if(!SOIL_REST_ENABLED){
+         setSourceState('soil','off',SOIL_REST_DISABLED_REASON+' • neutralna gleba 7/10');
+         return false;
+       }
+
        const soilEl=document.getElementById('dsSoil');
        setSourceState(
          'soil',
@@ -4462,7 +4475,11 @@ async function main(){
        );
        return soilReady;
      })
-     .catch(e=>{setSourceState('soil','error',String(e?.message||e));return false;});
+     .catch(e=>{
+       if(SOIL_REST_ENABLED)setSourceState('soil','error',String(e?.message||e));
+       else setSourceState('soil','off',SOIL_REST_DISABLED_REASON+' • neutralna gleba 7/10');
+       return false;
+     });
 
    const terrainPromise=loadTerrain()
      .then(()=>{
@@ -6164,7 +6181,9 @@ function auditSoilState(){
    samples:soilSamples.length,
    reliability:Number(soilReliability().toFixed(3)),
    scoringUsesSoil:soilReady&&soilSamples.length>0,
-   fallbackWhenUnavailable:'neutral 7/10'
+   fallbackWhenUnavailable:'neutral 7/10',
+   soilRestEnabled:SOIL_REST_ENABLED,
+   soilRestReason:SOIL_REST_DISABLED_REASON
  };
  console.info('SOIL AUDIT',report);
  return report;

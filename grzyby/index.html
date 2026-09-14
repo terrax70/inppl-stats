@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v40: mobile settings header + auto-collapsing data status dots -->
+<!-- GitHub production v41: mobile source beans collapse in-place to vertical dots -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2520,141 +2520,88 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 </style>
 
 
-<style id="v40-mobile-settings-status">
-/* ===== v40: telefon — Ustawienia nad statusami, status po chwili = same kropki ===== */
+<style id="v41-mobile-source-collapse-in-place">
 @media(max-width:700px){
-  /* Status jest przez JS przenoszony do panelu, między nagłówek a treść. */
-  .panel > .data-source-mini{
-    position:relative!important;
-    top:auto!important;
-    right:auto!important;
-    left:auto!important;
-    width:auto!important;
-    max-width:none!important;
-    margin:0 10px 8px!important;
-    padding:0!important;
-    z-index:1!important;
-    display:flex!important;
-    flex-direction:column!important;
-    align-items:stretch!important;
-    gap:5px!important;
+  .data-source-mini{
+    transition:max-width .18s ease,gap .18s ease!important;
+  }
+
+  .data-source-summary,
+  .source-chip{
+    transition:
+      min-width .18s ease,
+      width .18s ease,
+      height .18s ease,
+      padding .18s ease,
+      border-radius .18s ease,
+      background .18s ease!important;
+  }
+
+  /* NICZEGO nie przenosimy.
+     To nadal ten sam pionowy panel po prawej stronie, tylko skurczony. */
+  .data-source-mini.compact{
+    max-width:30px!important;
+    align-items:flex-end!important;
+    gap:4px!important;
     pointer-events:auto!important;
   }
 
-  .panel > .data-source-mini .data-source-summary{
-    align-self:stretch!important;
-    min-height:27px!important;
-    padding:5px 8px!important;
-    border-radius:9px!important;
-    font-size:8.8px!important;
-    justify-content:flex-start!important;
-  }
-
-  .panel > .data-source-mini .data-source-list{
-    display:grid!important;
-    grid-template-columns:repeat(4,minmax(0,1fr))!important;
-    gap:4px!important;
-    max-width:none!important;
-    width:100%!important;
-  }
-
-  .panel > .data-source-mini .source-chip{
-    min-width:0!important;
-    width:auto!important;
-    height:27px!important;
+  .data-source-mini.compact .data-source-summary{
+    width:26px!important;
+    min-width:26px!important;
+    height:26px!important;
     box-sizing:border-box!important;
-    padding:4px 6px!important;
-    border-radius:8px!important;
-    justify-content:flex-start!important;
-    font-size:7.7px!important;
+    padding:0!important;
+    border-radius:999px!important;
+    justify-content:center!important;
+    align-self:flex-end!important;
+    overflow:hidden!important;
+    cursor:pointer!important;
+  }
+
+  .data-source-mini.compact #dataSourceSummaryText{
+    display:none!important;
+  }
+
+  .data-source-mini.compact .data-source-list{
+    width:26px!important;
+    max-width:26px!important;
+    align-items:flex-end!important;
+    gap:4px!important;
+  }
+
+  .data-source-mini.compact .source-chip{
+    width:26px!important;
+    min-width:26px!important;
+    height:26px!important;
+    box-sizing:border-box!important;
+    padding:0!important;
+    gap:0!important;
+    border-radius:999px!important;
+    justify-content:center!important;
     overflow:hidden!important;
   }
 
-  .panel > .data-source-mini .source-chip > span:last-child{
-    min-width:0;
-    overflow:hidden;
-    white-space:nowrap;
-    text-overflow:ellipsis;
-  }
-
-  /* Po zakończeniu aktualizacji zostaje tylko dyskretny pasek kropek. */
-  .panel > .data-source-mini.compact{
-    margin-top:-2px!important;
-    margin-bottom:6px!important;
-  }
-
-  .panel > .data-source-mini.compact .data-source-summary{
+  .data-source-mini.compact .source-chip > span:last-child{
     display:none!important;
   }
 
-  .panel > .data-source-mini.compact .data-source-list{
-    display:flex!important;
-    flex-direction:row!important;
-    flex-wrap:nowrap!important;
-    justify-content:flex-end!important;
-    align-items:center!important;
-    gap:7px!important;
-    min-height:21px!important;
-    padding:2px 4px!important;
-    border-radius:9px!important;
-    background:rgba(18,24,20,.52)!important;
-    border:1px solid rgba(255,255,255,.06)!important;
+  .data-source-mini.compact .source-dot{
+    width:9px!important;
+    height:9px!important;
+    flex:0 0 9px!important;
   }
 
-  .panel > .data-source-mini.compact .source-chip{
-    flex:0 0 14px!important;
-    min-width:14px!important;
-    width:14px!important;
-    height:14px!important;
-    padding:0!important;
-    border:0!important;
-    border-radius:50%!important;
-    background:transparent!important;
-    box-shadow:none!important;
-    backdrop-filter:none!important;
-    overflow:visible!important;
-    justify-content:center!important;
-  }
-
-  .panel > .data-source-mini.compact .source-chip > span:last-child{
-    display:none!important;
-  }
-
-  .panel > .data-source-mini.compact .source-dot{
-    width:10px!important;
-    height:10px!important;
-    flex:0 0 10px!important;
-  }
-
-  .panel > .data-source-mini.compact .source-chip[data-state="load"] .source-dot{
+  .data-source-mini.compact .source-chip[data-state="load"] .source-dot{
     width:10px!important;
     height:10px!important;
     flex-basis:10px!important;
   }
 
-  /* Nagłówek ustawień zawsze jest nad paskiem źródeł. */
-  .panel > .panel-toggle{
-    position:relative!important;
-    z-index:2!important;
-  }
-
-  .panel > .panel-toggle .sub{
-    display:block!important;
-    font-size:9.5px!important;
-    opacity:.78;
-  }
-
-  .panel.mobile-collapsed > .data-source-mini{
-    margin-left:8px!important;
-    margin-right:8px!important;
-  }
-
-  /* Detail źródła ma nie przykrywać całego ekranu. */
-  .source-detail-box{
-    top:132px!important;
-    right:8px!important;
-    width:min(260px,calc(100vw - 16px))!important;
-    font-size:9px!important;
+  .data-source-mini.compact .source-summary-dot{
+    width:10px!important;
+    height:10px!important;
+    flex:0 0 10px!important;
   }
 }
 </style>
@@ -2744,7 +2691,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
       <div>
         <h1>Ustawienia</h1>
         <div class="sub">
-          Mapa grzybowa Polski
+          Znajdź dobre miejsca na grzyby w dowolnym rejonie Polski.
         </div>
       </div>
       <span id="panelChevron" class="panel-chev">▾</span>
@@ -9522,23 +9469,8 @@ const sourceStates={
 
 let sourceStatusCollapseTimer=0;
 
-function placeMobileSourceStatus(){
- const mini=document.getElementById('dataSourceMini');
- const panel=document.querySelector('.panel');
- const body=document.getElementById('panelBody');
- if(!mini||!panel||!body)return;
-
- const mobile=window.matchMedia('(max-width:700px)').matches;
- if(mobile){
-   if(mini.parentElement!==panel)panel.insertBefore(mini,body);
- }else{
-   if(mini.parentElement===panel){
-     const detail=document.getElementById('sourceDetailBox');
-     if(detail&&detail.parentElement)detail.parentElement.insertBefore(mini,detail);
-     else document.body.appendChild(mini);
-   }
-   mini.classList.remove('compact');
- }
+function sourceStatusIsMobile(){
+ return window.matchMedia('(max-width:700px)').matches;
 }
 
 function sourceStatusHasLoading(){
@@ -9552,13 +9484,16 @@ function sourceStatusHasRelevant(){
 function sourceStatusScheduleCollapse(){
  const mini=document.getElementById('dataSourceMini');
  if(!mini)return;
+
  clearTimeout(sourceStatusCollapseTimer);
 
- if(!window.matchMedia('(max-width:700px)').matches){
+ // Desktop zostaje dokładnie jak wcześniej.
+ if(!sourceStatusIsMobile()){
    mini.classList.remove('compact');
    return;
  }
 
+ // W czasie aktualizacji pokazujemy pełne fasolki z podpisami.
  if(sourceStatusHasLoading()){
    mini.classList.remove('compact');
    return;
@@ -9566,40 +9501,61 @@ function sourceStatusScheduleCollapse(){
 
  if(!sourceStatusHasRelevant())return;
 
- // Po zakończeniu pobierania przez moment widać nazwy/statusy,
- // potem zostają same kolorowe kropki.
+ // Po chwili każda istniejąca fasolka kurczy się W TYM SAMYM MIEJSCU do kropki.
  sourceStatusCollapseTimer=setTimeout(()=>{
    mini.classList.add('compact');
  },3200);
 }
 
-function expandSourceStatusTemporarily(){
+function sourceStatusExpandTemporarily(){
  const mini=document.getElementById('dataSourceMini');
- if(!mini||!window.matchMedia('(max-width:700px)').matches)return;
+ if(!mini||!sourceStatusIsMobile())return;
+
  mini.classList.remove('compact');
  clearTimeout(sourceStatusCollapseTimer);
+
  sourceStatusCollapseTimer=setTimeout(()=>{
    if(!sourceStatusHasLoading())mini.classList.add('compact');
  },6500);
 }
 
-(function installMobileSourceStatus(){
- const run=()=>{placeMobileSourceStatus();sourceStatusScheduleCollapse();};
- if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run,{once:true});
- else run();
+(function installSourceStatusCollapseInPlace(){
+ const run=()=>sourceStatusScheduleCollapse();
+
+ if(document.readyState==='loading'){
+   document.addEventListener('DOMContentLoaded',run,{once:true});
+ }else{
+   run();
+ }
 
  window.addEventListener('resize',()=>{
    clearTimeout(window.__sourceStatusResizeTimer);
    window.__sourceStatusResizeTimer=setTimeout(run,120);
  },{passive:true});
 
- const mini=document.getElementById('dataSourceMini');
- if(mini&&!mini.dataset.v40Tap){
-   mini.dataset.v40Tap='1';
-   mini.addEventListener('click',()=>{
-     if(mini.classList.contains('compact'))expandSourceStatusTemporarily();
+ const summary=document.getElementById('dataSourceSummary');
+ if(summary&&!summary.dataset.v41Expand){
+   summary.dataset.v41Expand='1';
+   summary.style.pointerEvents='auto';
+   summary.style.cursor='pointer';
+   summary.addEventListener('click',()=>{
+     if(document.getElementById('dataSourceMini')?.classList.contains('compact')){
+       sourceStatusExpandTemporarily();
+     }
    });
  }
+
+ // Kliknięcie dowolnej kropki może nadal pokazać jej dotychczasowy szczegół,
+ // ale przy okazji na chwilę rozwija podpisy.
+ document.querySelectorAll('.source-chip').forEach(chip=>{
+   if(chip.dataset.v41Expand)return;
+   chip.dataset.v41Expand='1';
+   chip.addEventListener('click',()=>{
+     if(document.getElementById('dataSourceMini')?.classList.contains('compact')){
+       sourceStatusExpandTemporarily();
+     }
+   },true);
+ });
 })();
 function setSourceState(id,state,detail=''){
  sourceStates[id]=state;
@@ -9622,16 +9578,6 @@ function resetSourceStates(){
 }
 
 function installSourceDetailClicks(){
- const summary=document.getElementById('dataSourceSummary');
- if(summary&&!summary.dataset.v40Ready){
-   summary.dataset.v40Ready='1';
-   summary.style.pointerEvents='auto';
-   summary.style.cursor='pointer';
-   summary.addEventListener('click',e=>{
-     e.stopPropagation();
-     expandSourceStatusTemporarily();
-   });
- }
  document.querySelectorAll('.source-chip').forEach(chip=>{
    if(chip.dataset.detailReady==='1')return;
    chip.dataset.detailReady='1';

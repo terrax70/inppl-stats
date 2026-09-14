@@ -10,7 +10,7 @@
 
 <title>Mapa grzybowa Polski — siedliska, warunki i hotspoty</title>
 <meta name="theme-color" content="#121713">
-<!-- GitHub production v49: repaired BEST modes + hybrid score intensity -->
+<!-- GitHub production v50: intuitive score spectrum + preserved hotspot ranking -->
 <!-- public linked-focus hotfix 2 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -2818,9 +2818,86 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
-<style id="v49-hybrid-visual-note">
-/* v49: klasy/hotspoty z v47; wynik 0–10 jedynie moduluje ton i intensywność w obrębie klasy. */
+<style id="v50-spectrum-note">
+/* v50: hotspoty/ranking bez zmian; BEST i pojedynczy gatunek używają czytelnego spektrum wyników 0–10. */
 </style>
+
+<style id="v50-score-spectrum">
+.score-legend{
+  position:fixed;
+  right:12px;
+  bottom:244px;
+  z-index:1200;
+  width:300px;
+  padding:7px 9px 8px;
+  border-radius:11px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(19,26,21,.91);
+  color:#eef5ef;
+  box-shadow:0 5px 18px rgba(0,0,0,.23);
+  backdrop-filter:blur(7px);
+  pointer-events:none;
+  opacity:0;
+  transform:translateY(4px);
+  transition:opacity .15s ease,transform .15s ease;
+  font-family:Inter,Segoe UI,Arial,sans-serif;
+}
+.score-legend.visible{
+  opacity:1;
+  transform:none;
+}
+.score-legend-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:5px;
+  font-size:9px;
+  font-weight:900;
+}
+.score-legend-head b{
+  font-size:7.5px;
+  padding:2px 5px;
+  border-radius:999px;
+  background:rgba(255,255,255,.09);
+  color:#cad7ce;
+}
+.score-legend-bar{
+  height:9px;
+  border-radius:999px;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.22);
+}
+.score-legend-words{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  align-items:start;
+  gap:2px;
+  margin-top:4px;
+  font-size:6.8px;
+  line-height:1.05;
+  color:#c1ccc5;
+}
+.score-legend-words span:nth-child(1){text-align:left}
+.score-legend-words span:nth-child(2),
+.score-legend-words span:nth-child(3),
+.score-legend-words span:nth-child(4){text-align:center}
+.score-legend-words span:nth-child(5){text-align:right}
+
+@media(max-width:700px){
+  .score-legend{
+    right:7px;
+    bottom:137px;
+    width:210px;
+    padding:6px 7px 7px;
+    border-radius:10px;
+  }
+  .score-legend-head{font-size:8px;margin-bottom:4px}
+  .score-legend-head b{font-size:6.8px}
+  .score-legend-bar{height:8px}
+  .score-legend-words{font-size:5.9px}
+}
+</style>
+
 </head>
 
 <style>
@@ -2859,6 +2936,22 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 
 <body>
 <div id="map"></div>
+
+<div id="scoreLegend" class="score-legend" aria-hidden="true">
+  <div class="score-legend-head">
+    <span id="scoreLegendTitle">Ocena miejsca</span>
+    <b id="scoreLegendMode">DZIŚ</b>
+  </div>
+  <div id="scoreLegendBar" class="score-legend-bar"></div>
+  <div class="score-legend-words">
+    <span>odpuść</span>
+    <span>średnio</span>
+    <span>warto</span>
+    <span>bardzo dobrze</span>
+    <span>TOP</span>
+  </div>
+</div>
+
 
 <div id="placeDetailsPanel" class="place-details-panel" aria-hidden="true">
   <div class="place-details-shell">
@@ -7527,18 +7620,35 @@ function balancedClass(f){
  return 0;
 }
 
-// v49 — HYBRYDOWA intensywność mapy.
-// Klasa koloru nadal pochodzi z istniejącego balancedClass/todayBalancedClass,
-// więc zachowujemy hotspoty, lokalny ranking i rozkład mapy z v47.
-// Wynik 0–10 tylko przyciemnia/rozjaśnia odcień WEWNĄTRZ tej klasy.
-function hybridScoreFactor(score,today=false){
- score=Number(score);
- if(!Number.isFinite(score))return .5;
+// v50 — szerokie, intuicyjne spektrum kolorów.
+// Ważne: hotspoty i lokalny ranking NADAL używają balancedClass/todayBalancedClass.
+// Kolor wypełnienia pokazuje bezwzględny wynik 0–10, a klasa lokalna steruje
+// głównie intensywnością/obrysem. Dzięki temu 8.4 jest od razu czytelnie
+// lepsze niż 7.7, ale nie rozwalamy istniejącej logiki hotspotów.
 
- const lo=today?5.0:6.0;
- const hi=today?8.8:9.4;
- return Math.max(0,Math.min(1,(score-lo)/(hi-lo)));
-}
+const SCORE_STOPS_POTENTIAL=[
+  [0.0,'#b8b9b4'],
+  [4.8,'#c98d69'],
+  [5.8,'#d5ad59'],
+  [6.7,'#d0c95b'],
+  [7.4,'#9fbe59'],
+  [8.0,'#69aa55'],
+  [8.6,'#3b934f'],
+  [9.2,'#16713f'],
+  [10.0,'#064a2b']
+];
+
+const SCORE_STOPS_TODAY=[
+  [0.0,'#b9bab5'],
+  [4.4,'#c98264'],
+  [5.4,'#d3a752'],
+  [6.3,'#c9c657'],
+  [6.9,'#96ba54'],
+  [7.6,'#62a650'],
+  [8.2,'#368c49'],
+  [8.8,'#176d3c'],
+  [10.0,'#06482a']
+];
 
 function mixHexColor(a,b,t){
  t=Math.max(0,Math.min(1,Number(t)||0));
@@ -7556,44 +7666,79 @@ function mixHexColor(a,b,t){
  return '#'+[r,g,bl].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
 
-function hybridVisualAdjust(base,score,today=false){
- const f=hybridScoreFactor(score,today);
+function scoreSpectrumColor(score,today=false){
+ const stops=today?SCORE_STOPS_TODAY:SCORE_STOPS_POTENTIAL;
+ score=Math.max(0,Math.min(10,Number(score)||0));
 
- // Około środka skali nie zmieniamy bazowego koloru klasy.
- // Wyższy wynik = wyraźniej ciemniejszy; niższy = odrobinę łagodniejszy.
- let fill=base.fill;
- let border=base.border;
-
- if(f>.50){
-   const k=(f-.50)*.72; // max ~36% domieszki ciemnej zieleni
-   fill=mixHexColor(fill,'#064c2b',k);
-   border=mixHexColor(border,'#033c23',k*.72);
- }else if(f<.50){
-   const k=(.50-f)*.28;
-   fill=mixHexColor(fill,'#eef0c8',k);
-   border=mixHexColor(border,'#a5a77a',k*.55);
+ for(let i=1;i<stops.length;i++){
+   if(score<=stops[i][0]){
+     const [aS,aC]=stops[i-1];
+     const [bS,bC]=stops[i];
+     const t=(score-aS)/Math.max(.0001,bS-aS);
+     return mixHexColor(aC,bC,t);
+   }
  }
+ return stops.at(-1)[1];
+}
+
+function scoreSpectrumStyle(score,localClass,today=false){
+ const fill=scoreSpectrumColor(score,today);
+ const classOpacity=today
+   ? [.055,.15,.27,.43,.62]
+   : [.060,.16,.29,.46,.65];
+ const classWeight=[.12,.24,.38,.58,.86];
+ const local=Math.max(0,Math.min(4,Number(localClass)||0));
+
+ // Niewielka korekta ciągła, żeby również w obrębie tej samej klasy
+ // 8.4 było nieco mocniejsze od 8.1.
+ const scoreNorm=Math.max(0,Math.min(1,((Number(score)||0)-(today?4.5:5.0))/(today?4.7:4.5)));
 
  return {
    fill,
-   border,
-   fillOpacityDelta:(f-.50)*.14,
-   weightDelta:Math.max(0,f-.50)*.18,
-   opacityDelta:Math.max(0,f-.50)*.05,
-   factor:f
+   border:mixHexColor(fill,'#17251c',.40),
+   fillOpacity:Math.min(.78,classOpacity[local]+scoreNorm*.07),
+   opacity:Math.min(1,.35+local*.15+scoreNorm*.08),
+   weight:classWeight[local]+scoreNorm*.10
  };
 }
 
-function hybridVisualEnabledFor(f){
- // Różnorodność i atlas wielogatunkowy mają własną semantykę pokrycia.
- // Otwarte siedliska BEST mają własne ograniczenia v37.
+function scoreSpectrumEnabledFor(f){
+ // Różnorodność i atlas wielogatunkowy mają już dobrą, inną semantykę.
+ // W BEST i przy jednym gatunku chcemy maksymalnie intuicyjną mapę 0–10.
  return (
-   f &&
-   f._kind!=='open' &&
+   !!f &&
    currentFilter!=='diversity' &&
    atlasSelected.size<=1
  );
 }
+
+function updateScoreLegend(){
+ const el=document.getElementById('scoreLegend');
+ const bar=document.getElementById('scoreLegendBar');
+ const title=document.getElementById('scoreLegendTitle');
+ const mode=document.getElementById('scoreLegendMode');
+ if(!el||!bar||!title||!mode)return;
+
+ const visible=currentFilter!=='diversity'&&atlasSelected.size<=1;
+ el.classList.toggle('visible',visible);
+ el.setAttribute('aria-hidden',visible?'false':'true');
+ if(!visible)return;
+
+ const today=mapMode==='today';
+ const stops=today?SCORE_STOPS_TODAY:SCORE_STOPS_POTENTIAL;
+ const min=stops[0][0],max=stops.at(-1)[0];
+ const parts=stops.map(([s,c])=>{
+   const pct=((s-min)/(max-min))*100;
+   return `${c} ${pct.toFixed(1)}%`;
+ });
+
+ bar.style.background=`linear-gradient(90deg,${parts.join(',')})`;
+ title.textContent=atlasSelected.size===1
+   ? `Ocena miejsca • ${HUMAN_NAMES[[...atlasSelected][0]]||'gatunek'}`
+   : 'Ocena miejsca';
+ mode.textContent=today?'DZIŚ':'POTENCJAŁ';
+}
+
 function balancedClassLabel(c){
  if(atlasSelected.size>1){
    return ['brak','1–2 gatunki','kilka gatunków','dużo gatunków','bardzo dużo gatunków'][c]||'—';
@@ -7602,7 +7747,7 @@ function balancedClassLabel(c){
 }
 
 
-function openPotentialStyleFromClass(f,c,today=false){
+function openPotentialStyleFromClass(f,c,today=false,score=NaN){
  const palettes=today ? [
    {fill:'#d8d5c6',border:'#a9a58f',fo:.018,w:.18,op:.12},
    {fill:'#ddd694',border:'#9f9658',fo:.10,w:.34,op:.42},
@@ -7618,10 +7763,24 @@ function openPotentialStyleFromClass(f,c,today=false){
  ];
 
  const p=palettes[c]||palettes[0];
- let weight=p.w+hv.weightDelta,
-     border=hv.border,
-     fillOpacity=Math.max(.01,Math.min(.84,p.fo+hv.fillOpacityDelta)),
-     opacity=Math.min(1,p.op+hv.opacityDelta);
+ const hasScore=Number.isFinite(score);
+ const sv=hasScore?scoreSpectrumStyle(score,c,today):null;
+
+ let weight=p.w;
+ let border=p.border;
+ let fillColor=p.fill;
+ let fillOpacity=p.fo;
+ let opacity=p.op;
+
+ if(sv){
+   // Tereny otwarte też korzystają z szerokiej palety,
+   // ale dotychczasowe capy parków/trawników nadal wyznaczają klasę c.
+   fillColor=mixHexColor(p.fill,sv.fill,.62);
+   border=mixHexColor(p.border,sv.border,.58);
+   fillOpacity=Math.min(.62,Math.max(p.fo,sv.fillOpacity*.78));
+   opacity=Math.max(p.op,sv.opacity*.82);
+   weight=Math.max(p.w,sv.weight*.78);
+ }
 
  if(f._hotspotIndex){
    weight=Math.max(weight,f._hotspotBest?1.95:1.05);
@@ -7631,7 +7790,7 @@ function openPotentialStyleFromClass(f,c,today=false){
  return {
    color:border,
    weight,
-   fillColor:p.fill,
+   fillColor,
    fillOpacity,
    opacity,
    dashArray:'5 4',
@@ -7643,49 +7802,13 @@ function stablePotentialStyle(f,show=true){
  if(!show)return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
 
  const c=balancedClass(f);
- const visualScore=stableAnchorScore(f);
+ const score=stableAnchorScore(f);
 
  if(!atlasSelected.size&&currentFilter==='all'&&f._kind==='open'){
-   return openPotentialStyleFromClass(f,c,false);
+   return openPotentialStyleFromClass(f,c,false,score);
  }
 
- const palette=[
-   {fill:'#d7d7d7',border:'#b8b8b8',fo:.025,w:.10,op:.07},
-   {fill:'#eadf91',border:'#b7a65d',fo:.11,w:.20,op:.25},
-   {fill:'#c7cf78',border:'#929b55',fo:.22,w:.30,op:.43},
-   {fill:'#69a95f',border:'#477d45',fo:.43,w:.52,op:.70},
-   {fill:'#08713d',border:'#034d2a',fo:.72,w:.90,op:.96}
- ];
- const p=palette[c];
- const hv=hybridVisualEnabledFor(f)
-   ? hybridVisualAdjust(p,visualScore,false)
-   : {fill:p.fill,border:p.border,fillOpacityDelta:0,weightDelta:0,opacityDelta:0,factor:.5};
-
- // Atlas: 1 gatunek = klasyczne kolorowanie konkretnego gatunku.
- // Kilka gatunków = kolor zależy głównie od pokrycia (ile z wybranych gatunków tu pasuje),
- // a obrys pokazuje, czy dla któregoś gatunku miejsce jest wyjątkowo mocne.
- if(atlasSelected.size===1){
-   const u=atlasUnionInfo(f);
-   let border=hv.border,
-       weight=p.w+hv.weightDelta,
-       opacity=Math.min(1,p.op+hv.opacityDelta),
-       fillOpacity=Math.max(.01,Math.min(.86,p.fo+hv.fillOpacityDelta));
-   if(u.bestClass>=4){
-     border='#0b5d35';
-     weight=Math.max(weight,.95);
-     opacity=Math.max(opacity,.92);
-   }else if(u.bestClass>=3){
-     border='#396f43';
-     weight=Math.max(weight,.70);
-   }
-   if(f._hotspotIndex){
-     weight=Math.max(weight,f._hotspotBest?2.15:1.15);
-     border=f._hotspotBest?'#063e27':border;
-     if(f._hotspotBest)fillOpacity=Math.min(.84,fillOpacity+.10);
-   }
-   return {color:border,weight,fillColor:hv.fill,fillOpacity,opacity};
- }
-
+ // Atlas wielogatunkowy zachowuje swoją sprawdzoną semantykę pokrycia.
  if(atlasSelected.size>1){
    const u=atlasUnionVisualInfo(f);
    const multiPalette=[
@@ -7705,9 +7828,8 @@ function stablePotentialStyle(f,show=true){
      border='#295f3c';
      weight=Math.max(weight,.62);
    }
-   if(u.strong>=2){
-     weight=Math.max(weight,1.02);
-   }
+   if(u.strong>=2)weight=Math.max(weight,1.02);
+
    if(f._hotspotIndex){
      weight=Math.max(weight,f._hotspotBest?2.0:1.02);
      if(f._hotspotBest)border='#042f20';
@@ -7715,31 +7837,58 @@ function stablePotentialStyle(f,show=true){
    return {color:border,weight,fillColor:mp.fill,fillOpacity,opacity};
  }
 
- if(f._hotspotIndex){
-   if(f._hotspotBest){
-     return {
-       color:c>=3?mixHexColor('#063e27',hv.border,.28):hv.border,
-       weight:2.35+hv.weightDelta,
-       fillColor:hv.fill,
-       fillOpacity:Math.min(c>=3?.86:.46,p.fo+(c>=3?.10:.04)+hv.fillOpacityDelta),
-       opacity:1
-     };
+ // BEST / pojedynczy gatunek: kolor = realny wynik 0–10,
+ // lokalna klasa = intensywność/obrys.
+ if(scoreSpectrumEnabledFor(f)){
+   const sv=scoreSpectrumStyle(score,c,false);
+   let border=sv.border;
+   let weight=sv.weight;
+   let opacity=sv.opacity;
+   let fillOpacity=sv.fillOpacity;
+
+   // Przy pojedynczym atlasie zachowujemy specjalne wyróżnienie wyjątkowo mocnego dopasowania.
+   if(atlasSelected.size===1){
+     const u=atlasUnionInfo(f);
+     if(u.bestClass>=4){
+       border=mixHexColor(border,'#073c24',.62);
+       weight=Math.max(weight,.95);
+       opacity=Math.max(opacity,.92);
+     }else if(u.bestClass>=3){
+       weight=Math.max(weight,.70);
+     }
    }
+
+   if(f._hotspotIndex){
+     if(f._hotspotBest){
+       border=mixHexColor(border,'#032f1c',.68);
+       weight=Math.max(weight,2.35);
+       fillOpacity=Math.min(.84,fillOpacity+.08);
+       opacity=1;
+     }else{
+       weight=Math.max(weight,1.20);
+       opacity=Math.max(opacity,.78);
+     }
+   }
+
    return {
-     color:c>=3?mixHexColor('#17633e',hv.border,.34):hv.border,
-     weight:(c>=3?1.30:.80)+hv.weightDelta,
-     fillColor:hv.fill,
-     fillOpacity:Math.min(c>=3?.76:.40,p.fo+(c>=3?.06:.025)+hv.fillOpacityDelta),
-     opacity:Math.min(1,(c>=3?.95:.65)+hv.opacityDelta)
+     color:border,
+     weight,
+     fillColor:sv.fill,
+     fillOpacity,
+     opacity
    };
  }
- return {
-   color:hv.border,
-   weight:p.w+hv.weightDelta,
-   fillColor:hv.fill,
-   fillOpacity:Math.max(.01,Math.min(.82,p.fo+hv.fillOpacityDelta)),
-   opacity:Math.min(1,p.op+hv.opacityDelta)
- };
+
+ // Fallback zachowawczy.
+ const palette=[
+   {fill:'#d7d7d7',border:'#b8b8b8',fo:.025,w:.10,op:.07},
+   {fill:'#eadf91',border:'#b7a65d',fo:.11,w:.20,op:.25},
+   {fill:'#c7cf78',border:'#929b55',fo:.22,w:.30,op:.43},
+   {fill:'#69a95f',border:'#477d45',fo:.43,w:.52,op:.70},
+   {fill:'#08713d',border:'#034d2a',fo:.72,w:.90,op:.96}
+ ];
+ const p=palette[c]||palette[0];
+ return {color:p.border,weight:p.w,fillColor:p.fill,fillOpacity:p.fo,opacity:p.op};
 }
 
 let todayScaleCacheKey='';
@@ -7873,35 +8022,69 @@ function todayPotentialStyle(f,show=true){
  const c=todayBalancedClass(f,s);
 
  if(!atlasSelected.size&&currentFilter==='all'&&f._kind==='open'){
-   return openPotentialStyleFromClass(f,c,true);
+   return openPotentialStyleFromClass(f,c,true,s);
  }
 
- const palette=[
-   {fill:'#d7d7d7',border:'#b8b8b8',fo:.020,w:.10,op:.07},
-   {fill:'#e7d789',border:'#b29d54',fo:.11,w:.20,op:.24},
-   {fill:'#c3c96e',border:'#89904d',fo:.24,w:.31,op:.44},
-   {fill:'#65a85d',border:'#437a43',fo:.46,w:.55,op:.72},
-   {fill:'#08713d',border:'#034d2a',fo:.74,w:.92,op:.97}
- ];
- let p=palette[c];
- const hv=hybridVisualEnabledFor(f)
-   ? hybridVisualAdjust(p,s,true)
-   : {fill:p.fill,border:p.border,fillOpacityDelta:0,weightDelta:0,opacityDelta:0,factor:.5};
+ // Różnorodność / wiele gatunków: zostawiamy dotychczasowy sposób.
+ if(currentFilter==='diversity'||atlasSelected.size>1){
+   const palette=[
+     {fill:'#d7d7d7',border:'#b8b8b8',fo:.020,w:.10,op:.07},
+     {fill:'#e7d789',border:'#b29d54',fo:.11,w:.20,op:.24},
+     {fill:'#c3c96e',border:'#89904d',fo:.24,w:.31,op:.44},
+     {fill:'#65a85d',border:'#437a43',fo:.46,w:.55,op:.72},
+     {fill:'#08713d',border:'#034d2a',fo:.74,w:.92,op:.97}
+   ];
+   const p=palette[c]||palette[0];
+
+   if(topOnly&&c<3){
+     return {color:'#999',weight:.10,fillColor:'#d0d0d0',fillOpacity:.012,opacity:.04};
+   }
+
+   let weight=p.w,border=p.border,fillOpacity=p.fo,opacity=p.op;
+   if(f._hotspotIndex){
+     weight=Math.max(weight,f._hotspotBest?1.85:.95);
+     if(f._hotspotBest&&c>=3)border='#063e27';
+     opacity=Math.max(opacity,c>=2?.62:.22);
+   }
+   return {color:border,weight,fillColor:p.fill,fillOpacity,opacity};
+ }
+
+ // BEST / pojedynczy gatunek: pełne spektrum 0–10.
+ const sv=scoreSpectrumStyle(s,c,true);
 
  if(topOnly&&c<3){
-   return {color:'#999',weight:.10,fillColor:'#d0d0d0',fillOpacity:.012,opacity:.04};
+   return {
+     color:mixHexColor(sv.border,'#999999',.45),
+     weight:.10,
+     fillColor:sv.fill,
+     fillOpacity:.022,
+     opacity:.06
+   };
  }
 
- // Hotspot pozostaje widoczny jako obrys/marker, ale nie wymusza ciemnej zieleni.
- let weight=p.w,border=p.border,fillOpacity=p.fo,opacity=p.op;
+ let weight=sv.weight;
+ let border=sv.border;
+ let fillOpacity=sv.fillOpacity;
+ let opacity=sv.opacity;
 
  if(f._hotspotIndex){
-   weight=Math.max(weight,f._hotspotBest?1.85:.95);
-   if(f._hotspotBest&&c>=3)border='#063e27';
-   opacity=Math.max(opacity,c>=2?.62:.22);
+   weight=Math.max(weight,f._hotspotBest?1.95:1.10);
+   if(f._hotspotBest){
+     border=mixHexColor(border,'#032f1c',.66);
+     fillOpacity=Math.min(.82,fillOpacity+.07);
+     opacity=1;
+   }else{
+     opacity=Math.max(opacity,.74);
+   }
  }
 
- return {color:border,weight,fillColor:hv.fill,fillOpacity,opacity};
+ return {
+   color:border,
+   weight,
+   fillColor:sv.fill,
+   fillOpacity,
+   opacity
+ };
 }
 
 function loadingForestStyle(f,show=true){
@@ -10134,6 +10317,7 @@ function renderSingle(ly,f){
 function perfRenderNow(){
  const t0=performance.now();
  perfRenderRAF=0;
+ updateScoreLegend();
  invalidateInteractionGrid();
  topGroup.clearLayers();
  hintGroup.clearLayers();
@@ -10368,6 +10552,39 @@ function auditBestVisualMapping(){
  return report;
 }
 window.auditBestVisualMapping=auditBestVisualMapping;
+
+
+function auditScoreSpectrum(){
+ const simple=currentFilter!=='diversity'&&atlasSelected.size<=1;
+ const rows=allFeatures
+   .filter(f=>!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f)))
+   .map(f=>{
+     const score=mapMode==='today'?todayScoreForStyle(f):stableAnchorScore(f);
+     const cls=mapMode==='today'?todayBalancedClass(f,score):balancedClass(f);
+     return {
+       area:featureAreaName(f),
+       score:Number(score.toFixed(2)),
+       localClass:cls,
+       color:scoreSpectrumColor(score,mapMode==='today'),
+       hotspot:f._hotspotLabel||'',
+       kind:f._kind||'forest'
+     };
+   })
+   .sort((a,b)=>b.score-a.score);
+
+ const report={
+   mode:mapMode,
+   filter:currentFilter,
+   atlas:[...atlasSelected],
+   spectrumActive:simple,
+   hotspots:activeHotspots().length,
+   top:rows.slice(0,24)
+ };
+ console.table(report.top);
+ console.info('SCORE SPECTRUM AUDIT',report);
+ return report;
+}
+window.auditScoreSpectrum=auditScoreSpectrum;
 
 function auditPerformanceOptimization(){
  const rounded={};

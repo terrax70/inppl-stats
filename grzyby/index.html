@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v65: audyt scoringu - naprawa mesic_dry, rodzin siedliskowych,
+     spojnego potencjalu, roznorodnosci po grupach, okien opadowych i kaskady kolorow -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -3460,6 +3462,18 @@ function atlasSvg(type){
 }
 const HINT_SHORT={"borowik":"Borowik","borowik_usiatkowany":"Borowik usiatk.","borowik_sosnowy":"Borowik sosn.","ceglastopory":"Ceglastopory","ponury":"Ponury","gorzkoborowik":"Gorzkoborowik","kozlarz_babka":"Koźlarz babka","kozlarz_pomaranczowozolty":"Koźlarz pom.-ż.","kozlarz_czerwony":"Koźlarz czerw.","podgrzybek":"Podgrzybek","maslak_zwyczajny":"Maślak zw.","maslak_zolty":"Maślak żółty","maslak_sitarz":"Maślak sitarz","maslak_pstry":"Maślak pstry","rydz":"Mleczaj rydz","mleczaj_swierkowy":"Mleczaj świerk.","opienka_ciemna":"Opieńka ciemna","opienka_miodowa":"Opieńka miodowa","siedzun_sosnowy":"Siedzuń sosn.","kania":"Czubajka kania","kania_gwiazdzista":"Czubajka gw.","czernidlak":"Czernidłak","pieczarka_polna":"Pieczarka","purchawka_oczkowana":"Purchawka","kurka":"Kurka","goryczak":"Goryczak","szatanski":"Szatański"};
 function shortHintName(type){return HINT_SHORT[type]||HUMAN_NAMES[type]||type;}
+// v65 FIX: "roznorodnosc" liczyla wczesniej surowe taksony, wiec czysty bor
+// sosnowy dostawal 8 "gatunkow" (3 maslaki + rydz + borowik sosnowy + podgrzybek
+// + siedzun + opienka ciemna), bo wszystkie maja strong:['SO'].
+// Teraz liczymy unikalne grupy ekologiczne.
+function diversityGroupKey(type){
+ return SPECIES_META[type]?.group || SPECIES_META[type]?.radar || type;
+}
+function countDiversityGroups(types){
+ const g=new Set();
+ for(const t of types)g.add(diversityGroupKey(t));
+ return g.size;
+}
 const HOSTS=Object.fromEntries(Object.entries(SPECIES_META).map(([k,v])=>[k,{strong:v.strong||[],secondary:v.secondary||[]}]));
 
 const RADAR_REPORTS=[]; const RADAR_NOW=new Date(); const RADAR_PUBLIC_COUNT=0;
@@ -3625,6 +3639,56 @@ function eachCoord(coords,cb){
  if(typeof coords?.[0]==='number') cb(coords);
  else if(Array.isArray(coords)) coords.forEach(c=>eachCoord(c,cb));
 }
+// v65: probkowanie krawedzi poligonu (centroid + do N wierzcholkow),
+// zeby dystans las <-> teren otwarty liczyc realistycznie.
+function geomProbePoints(g,center,max=14){
+ const pts=[];
+ if(center)pts.push(center);
+ const ring=[];
+ eachCoord(g?.coordinates,c=>{ring.push([c[1],c[0]]);});
+ if(ring.length){
+   const step=Math.max(1,Math.ceil(ring.length/max));
+   for(let i=0;i<ring.length;i+=step)pts.push(ring[i]);
+ }
+ return pts;
+}
+// v65: prosty indeks siatkowy punktow probkujacych (~0,5 km na komorke).
+const PROBE_CELL=.0045;
+function buildProbeGrid(features){
+ const grid=new Map();
+ for(const f of features){
+   for(const pt of (f._probe||[])){
+     const k=Math.round(pt[0]/PROBE_CELL)+','+Math.round(pt[1]/PROBE_CELL);
+     let arr=grid.get(k);
+     if(!arr){arr=[];grid.set(k,arr);}
+     arr.push(pt);
+   }
+ }
+ return grid;
+}
+function nearestProbeDistance(probe,grid,maxRings=6){
+ if(!probe||!probe.length||!grid||!grid.size)return NaN;
+ let best=Infinity;
+ for(const pt of probe){
+   const ci=Math.round(pt[0]/PROBE_CELL),cj=Math.round(pt[1]/PROBE_CELL);
+   for(let r=0;r<=maxRings;r++){
+     let found=false;
+     for(let di=-r;di<=r;di++)for(let dj=-r;dj<=r;dj++){
+       if(r>0&&Math.abs(di)!==r&&Math.abs(dj)!==r)continue;
+       const arr=grid.get((ci+di)+','+(cj+dj));
+       if(!arr)continue;
+       found=true;
+       for(const q of arr){
+         const x=hav(pt,q);
+         if(x<best)best=x;
+       }
+     }
+     // gdy cos znaleziono, jeszcze jeden pierscien zapasu i konczymy
+     if(found&&r>0)break;
+   }
+ }
+ return Number.isFinite(best)?best:NaN;
+}
 function geomCenter(g){
  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
  eachCoord(g.coordinates,c=>{minX=Math.min(minX,c[0]);maxX=Math.max(maxX,c[0]);minY=Math.min(minY,c[1]);maxY=Math.max(maxY,c[1]);});
@@ -3680,6 +3744,14 @@ function pointInGeom(pt,g){
  if(g.type==='MultiPolygon') return g.coordinates.some(p=>p.length&&rayRing(pt,p[0]));
  return false;
 }
+// v65 FIX: brak wieku w BDL nie moze byc traktowany jak drzewostan 0-letni.
+// Wczesniej opienki i siedzun dostawaly 4/10 na komponencie o wadze .19-.20
+// wszedzie tam, gdzie BDL nie podal wieku.
+function woodAgeScore(f){
+ const a=Number(f?.properties?.species_age||0);
+ if(!a)return 6.0;
+ return piecewise(a,[[0,4],[20,5.5],[50,8],[100,9.3],[150,9]]);
+}
 function ageSuitability(type,age){
  const m=SPECIES_META[type]; age=Number(age||0);
  if(!m || m.ecology==='grassland')return 8;
@@ -3689,52 +3761,21 @@ function ageSuitability(type,age){
  if(age<=b)return 9.2;
  return piecewise(age,[[b,9.2],[b+40,7],[b+100,5.5]]);
 }
-const SPEC={
- borowik:{SO:8.6,MD:7.7,SW:8.8,JD:8.0,DB:9.5,BK:9.2,GB:7.7,BRZ:6.5,OS:5.5,TP:5.2,OL:3.5,AK:4.0,JS:6.8,JW:7.0},
- podgrzybek:{SO:9.5,MD:7.3,SW:9.1,JD:7.6,DB:6.7,BK:6.5,GB:6.0,BRZ:7.0,OS:5.5,TP:5.0,OL:4.0,AK:4.0,JS:5.2,JW:5.8},
- kozlarz:{BRZ:9.8,OS:8.7,TP:7.4,DB:5.4,BK:5.0,SO:4.7,SW:4.5,JD:4.5,GB:5.3,OL:6.5,AK:4.5,JS:5.0,JW:5.0,MD:4.5},
- maslak:{SO:9.6,MD:9.4,SW:5.8,JD:5.0,DB:4.0,BK:4.0,GB:4.0,BRZ:4.6,OS:4.0,TP:4.0,OL:3.0,AK:3.5,JS:3.5,JW:3.5},
- kurka:{SO:9.0,MD:7.3,SW:8.8,JD:7.7,DB:8.3,BK:8.5,GB:7.3,BRZ:7.0,OS:5.2,TP:5.0,OL:3.8,AK:4.0,JS:5.8,JW:6.0}
-};
+// v65: usunieto martwy legacy scoring (SPEC / oneScore / calcScores).
 const HAB={
  borowik:{BSW:.4,BMSW:.8,LMSW:.9,LSW:.7,BW:-.2,BMW:.2,LMW:.3,LW:0,BB:-1.7,BMB:-1.4,LMB:-1.2,OL:-1.8,OLJ:-1.5},
  podgrzybek:{BSW:1.0,BMSW:1.0,LMSW:.6,LSW:.2,BW:-.1,BMW:.2,LMW:.15,LW:-.2,BB:-1.5,BMB:-1.1,LMB:-1.0,OL:-1.7,OLJ:-1.4},
  kozlarz:{BSW:.1,BMSW:.4,LMSW:.5,LSW:.2,BW:.25,BMW:.55,LMW:.6,LW:.35,BB:-.5,BMB:-.2,LMB:-.1,OL:.15,OLJ:.1},
  maslak:{BSW:.8,BMSW:.8,LMSW:.3,LSW:0,BW:.1,BMW:.2,LMW:.1,LW:-.3,BB:-1.0,BMB:-.8,LMB:-.7,OL:-1.6,OLJ:-1.5},
  kurka:{BSW:.8,BMSW:.9,LMSW:.8,LSW:.4,BW:-.1,BMW:.1,LMW:.15,LW:-.2,BB:-1.0,BMB:-.8,LMB:-.7,OL:-1.4,OLJ:-1.2},
- mleczaj:{BSW:.9,BMSW:.95,LMSW:.75,LSW:.25,BW:-.1,BMW:.35,LMW:.35,LW:-.15,BB:-1.0,BMB:-.7,LMB:-.6,OL:-1.5,OLJ:-1.3}
+ mleczaj:{BSW:.9,BMSW:.95,LMSW:.75,LSW:.25,BW:-.1,BMW:.35,LMW:.35,LW:-.15,BB:-1.0,BMB:-.7,LMB:-.6,OL:-1.5,OLJ:-1.3},
+ // v65 FIX: gatunki drewna mialy wczesniej profil siedliskowy borowika/maslaka.
+ // Opienka miodowa byla przez to karana w olsach i legach, czyli tam gdzie
+ // realnie wystepuje najobficiej.
+ opienka_lisc:{BSW:-.9,BMSW:-.4,LMSW:.5,LSW:.9,BW:-.6,BMW:.1,LMW:.8,LW:1.0,BB:-.4,BMB:.2,LMB:.6,OL:1.0,OLJ:1.1},
+ opienka_igl:{BSW:.45,BMSW:.75,LMSW:.5,LSW:.1,BW:.2,BMW:.5,LMW:.3,LW:-.2,BB:-.5,BMB:-.15,LMB:-.1,OL:-.7,OLJ:-.6},
+ siedzun:{BSW:.9,BMSW:.9,LMSW:.35,LSW:0,BW:.2,BMW:.4,LMW:.1,LW:-.45,BB:-.9,BMB:-.7,LMB:-.6,OL:-1.4,OLJ:-1.3}
 };
-function oneScore(type,f){
- const p=f.properties||{}, sp=speciesCode(p), hab=habitatCode(p), age=Number(p.species_age||0), area=Number(p.sub_area||0);
- let base=SPEC[type][sp];
- if(base==null){
-   const grp=norm(p.gat_grp||'');
-   base=SPEC[type][grp] ?? 5.0;
- }
- let s=base+((type in SPECIES_META)?(ageSuitability(type,age)-7)*.55:0)+((HAB[type]||{})[hab]||0);
- if(area>0 && area<.2)s-=.5; else if(area<.5 && area>0)s-=.2; else if(area>=3)s+=.15;
- // Wycinka / odnowienie: u grzybów mikoryzowych utrata starszego gospodarza jest istotną karą.
- if(f._ko){
-   const penalty={borowik:1.25,podgrzybek:.85,kozlarz:.45,maslak:.20,kurka:.80}[type]||.6;
-   s-=penalty;
- }
- if(age>0 && age<=10){
-   const penalty={borowik:.8,podgrzybek:.55,kozlarz:.15,maslak:-.35,kurka:.55}[type]||.3;
-   s-=penalty;
- }
- return clamp(s);
-}
-function calcScores(f){
- const out={
-   borowik:oneScore('borowik',f),
-   podgrzybek:oneScore('podgrzybek',f),
-   kozlarz:oneScore('kozlarz',f),
-   maslak:oneScore('maslak',f),
-   kurka:oneScore('kurka',f)
- };
- out.all=clamp(Math.max(out.borowik,out.podgrzybek,out.kozlarz,out.maslak,out.kurka)-.15);
- return out;
-}
 function hexToRgb(h){
  h=h.replace('#',''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
 }
@@ -4113,28 +4154,8 @@ function disturbancePenalty(type,f){
  if(age>0&&age<=10)p+= (type.startsWith('maslak_')||type==='rydz'||type==='mleczaj_swierkowy')?.05:.45;
  return p;
 }
-function addDiversityBonus(feats){
- const cell=.0042, grid=new Map();
- for(const f of feats){
-   const c=f._center, k=Math.floor(c[0]/cell)+','+Math.floor(c[1]/cell);
-   if(!grid.has(k))grid.set(k,[]); grid.get(k).push(f);
- }
- for(const f of feats){
-   const c=f._center, i=Math.floor(c[0]/cell),j=Math.floor(c[1]/cell), species=new Set();
-   for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++){
-     for(const g of (grid.get((i+di)+','+(j+dj))||[])){
-       if(g===f)continue;
-       if(hav(c,g._center)<=.35)species.add(speciesCode(g.properties||{}));
-     }
-   }
-   const bonus=Math.min(.45,species.size*.10);
-   for(const t of ['borowik','podgrzybek','kurka'])f._scores[t]=clamp(f._scores[t]+bonus);
-   f._scores.maslak=clamp(f._scores.maslak+bonus*.35);
-   f._scores.all=clamp(Math.max(f._scores.borowik,f._scores.podgrzybek,f._scores.kozlarz,f._scores.maslak,f._scores.kurka)-.15);
-   f._diversity=species.size;
- }
-}
-
+// v65: usunieto addDiversityBonus - wynik (_scores/_diversity) nie byl nigdzie czytany,
+// a funkcja liczyla siatke przestrzenna przy kazdym wzbogaceniu danych.
 function lerp(x,x0,x1,y0,y1){
  if(x<=x0)return y0;if(x>=x1)return y1;
  return y0+(y1-y0)*(x-x0)/(x1-x0);
@@ -4872,15 +4893,24 @@ function parseWeatherPayload(j,name,lat,lon,allowFuture=true){
  let dryDays=0;
  for(let d=0;d<28;d++){
    const e=nowI-d*24,s=Math.max(0,e-23);
+   // v65 FIX: przy e<0 slice() liczylo od konca tablicy (czyli z przyszlosci).
+   if(e<0)break;
    const rr=sum((rain||[]).slice(s,e+1).map(Number));
    if(rr<.5)dryDays++;else break;
  }
 
  const soilScore=piecewise(soilM,[[.08,10],[.12,28],[.16,50],[.20,72],[.25,90],[.32,100],[.42,92]]);
- const r7=piecewise(rain7,[[0,8],[2,22],[5,42],[10,68],[20,90],[35,100],[65,90]]);
- const r14=piecewise(rain14,[[0,8],[5,25],[12,50],[22,72],[38,92],[60,100],[100,88]]);
- const r21=piecewise(rain21,[[0,8],[8,25],[18,50],[30,72],[48,92],[75,100],[125,88]]);
- const r28=piecewise(rain28,[[0,8],[10,24],[25,50],[42,72],[65,92],[95,100],[150,86]]);
+
+ // v65 FIX: rain7/14/21/28 to sumy SKUMULOWANE od teraz, wiec deszcz z ostatniego
+ // tygodnia wchodzil do wszystkich czterech skladnikow (efektywna waga 1,00),
+ // a opad sprzed 3-4 tygodni tylko z waga .15. Do scoringu uzywamy teraz
+ // ROZLACZNYCH okien tygodniowych; wartosci skumulowane zostaja do wyswietlania.
+ const w1=rain7;
+ const w2=Math.max(0,rain14-rain7);
+ const w3=Math.max(0,rain21-rain14);
+ const w4=Math.max(0,rain28-rain21);
+ const weekCurve=x=>piecewise(x,[[0,8],[2,22],[5,42],[10,68],[20,90],[35,100],[65,90]]);
+ const r7=weekCurve(w1),r14=weekCurve(w2),r21=weekCurve(w3),r28=weekCurve(w4);
  const rainScore=.34*r7+.29*r14+.22*r21+.15*r28;
  const tempScore=piecewise(soilT,[[0,8],[4,28],[8,62],[11,82],[14,100],[18,96],[21,78],[25,45],[30,12]]);
  const vpdScore=piecewise(vpd,[[0,100],[.35,96],[.7,82],[1.1,62],[1.6,40],[2.2,20],[3,8]]);
@@ -5030,7 +5060,9 @@ function moistureTerrainScore(type,f){
  const m=SPECIES_META[type],base=terrainSuitability(type,f);
  if(!m)return base;
  if(m.moist==='mesic_moist')return Math.min(10,base+.45);
- if(m.moist==='mesic_dry')return Math.min(10,10-(base-6.1)*.35);
+ // v65 FIX: poprawne odbicie skali terenu (lustro wokol ~6,6).
+ // Stara wersja dawala gatunkom suchym stala premie ~+2 pkt i zabijala zmiennosc.
+ if(m.moist==='mesic_dry')return clamp(13.2-base);
  return base;
 }
 function staticSuitability(type,f){
@@ -5063,14 +5095,13 @@ function staticSuitability(type,f){
   }else if(m.ecology==='wood'){
     if(f._kind==='open')return .6;
 
-    const old=piecewise(Number(f.properties?.species_age||0),[
-      [0,4],[20,5.5],[50,8],[100,9.3],[150,9]
-    ]);
+    const old=woodAgeScore(f);
     const stump=f._ko?9.3:6.2;
 
     raw=.30*tree+.20*old+.13*soil+.07*terr+.10*hab+.15*stump+.05*evidence;
   }else if(m.ecology==='edge'){
-    raw=.50*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age+.12*evidence;
+    // v65 FIX: disturbancePenalty bylo liczone i ignorowane w tej galezi.
+    raw=.50*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age+.12*evidence-disturb*.35;
   }else if(m.ecology==='grassland'){
     raw=.62*openHabitatScore(type,f)+.22*soil+.08*terr+.08*evidence;
   }
@@ -5128,19 +5159,17 @@ function featureRelevant(type,f){
    const d=Number(f._openNear);
    // Kania może wejść do wyniku lasu tylko przy rzeczywistym skraju/polanie
    // albo w wydzieleniu zaburzonym.
-   return (Number.isFinite(d)&&d<=.32)||!!f._ko;
+   if(Number.isFinite(d))return d<=.32||!!f._ko;
+
+   // v65 FIX: gdy Overpass padnie, _openNear zostaje niezdefiniowane i kanie
+   // znikaly po cichu z KAZDEGO wydzielenia poza KO/KDO. Bez danych OSM
+   // dopuszczamy je z neutralna ocena skraju (openHabitatScore zwraca wtedy 6).
+   return !openReady || !!f._ko;
  }
 
  return true;
 }
-function computeLocalRanks(){
- const active=allFeatures.filter(f=>!f._blocked && (currentFilter==='all'||featureRelevant(currentFilter,f)));
- const rows=active.map(f=>[effectiveScore(f),f]).sort((a,b)=>a[0]-b[0]);
- const n=Math.max(1,rows.length-1);
- rows.forEach((row,i)=>row[1]._localPct=100*i/n);
-}
-
-
+// v65: usunieto computeLocalRanks - nigdy nie bylo wywolywane.
 
 async function fetchINat(type){
  const out=[];
@@ -5360,7 +5389,6 @@ async function loadOpenHabitats(){
      if(inAnalysisArea(f._center,.2)){
        f._blocked=inReserve(f);
        f._nearSpecies=[];
-       f._scores={};
        feats.push(f);
      }
    }
@@ -5380,13 +5408,24 @@ async function loadOpenHabitats(){
    if(feats.length){
      const forests=allFeatures.filter(x=>x._kind!=='open'&&x._center&&!x._blocked);
 
+     // v65 FIX: wczesniej liczylismy dystans centroid->centroid. Wydzielenie 20 ha
+     // ma centroid ~250 m od wlasnej krawedzi, wiec prog 0,32 km byl w praktyce
+     // progiem "polana blizej niz polowa wydzielenia": dla duzych wydzielen kania
+     // nie wchodzila nigdy, dla malych zawsze. Teraz probkujemy krawedz poligonu.
+     for(const o of feats)o._probe=geomProbePoints(o.geometry,o._center,14);
+     for(const f of forests)f._probe=geomProbePoints(f.geometry,f._center,14);
+
+     // Indeks przestrzenny punktow probkujacych - bez niego byloby
+     // O(lasy x tereny otwarte x 14 x 14) porownan.
+     const openGrid=buildProbeGrid(feats);
+     const forestGridPts=buildProbeGrid(forests);
+
      // Dystans las -> najbliższy teren otwarty (dla kani na skraju lasu).
      for(const f of forests){
-       let d=Infinity;
-       for(const o of feats){
-         const x=hav(f._center,o._center);
-         if(x<d)d=x;
-         if(d<.12)break;
+       let d=nearestProbeDistance(f._probe,openGrid);
+       if(!Number.isFinite(d)){
+         d=Infinity;
+         for(const o of feats){const x=hav(f._center,o._center);if(x<d)d=x;}
        }
        f._openNear=d;
      }
@@ -5394,14 +5433,16 @@ async function loadOpenHabitats(){
      // Dystans teren otwarty -> najbliższy las. Pozwala odróżnić realną polanę/skraj
      // od samotnego trawnika w środku zabudowy.
      for(const o of feats){
-       let d=Infinity;
-       for(const f of forests){
-         const x=hav(o._center,f._center);
-         if(x<d)d=x;
-         if(d<.12)break;
+       let d=nearestProbeDistance(o._probe,forestGridPts);
+       if(!Number.isFinite(d)){
+         d=Infinity;
+         for(const f of forests){const x=hav(o._center,f._center);if(x<d)d=x;}
        }
        o._forestNear=d;
      }
+
+     for(const o of feats)o._probe=null;
+     for(const f of forests)f._probe=null;
    }
 
    el.textContent=openReady?feats.length+' obsz.':'brak';
@@ -5629,39 +5670,7 @@ function whatCanGrowHere(f){
  return rows.sort((a,b)=>b[0]-a[0]).slice(0,5);
 }
 
-function visualStyle(raw,pct,show=true){
- if(!show)return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
-
- if(currentFilter==='all' || currentFilter==='diversity'){
-   if(topOnly && pct<80){
-     return {color:'#888',weight:.15,fillColor:'#cfcfcf',fillOpacity:.012,opacity:.035};
-   }
-   if(pct<35){
-     return {color:'#999',weight:.15,fillColor:'#c7c7c7',fillOpacity:.018,opacity:.045};
-   }
-   if(pct<55){
-     return {color:'#b86a32',weight:.28,fillColor:'#e8893d',fillOpacity:.13,opacity:.24};
-   }
-   if(pct<75){
-     return {color:'#a98e1f',weight:.40,fillColor:'#e0c13d',fillOpacity:.26,opacity:.43};
-   }
-   if(pct<90){
-     return {color:'#67933b',weight:.68,fillColor:'#8fbd4a',fillOpacity:.46,opacity:.70};
-   }
-   if(pct<97){
-     return {color:'#1d7742',weight:1.15,fillColor:'#36a052',fillOpacity:.68,opacity:.91};
-   }
-   return {color:'#005f31',weight:1.8,fillColor:'#008a43',fillOpacity:.86,opacity:1};
- }
-
- // Dla konkretnego gatunku zostaje skala absolutna.
- if(raw<5.5)return {color:'#8b2a2a',weight:.30,fillColor:'#b74a4a',fillOpacity:.08,opacity:.18};
- if(raw<6.7)return {color:'#b55d2c',weight:.36,fillColor:'#e17b3a',fillOpacity:.18,opacity:.34};
- if(raw<7.8)return {color:'#b08d24',weight:.45,fillColor:'#dfbd43',fillOpacity:.30,opacity:.48};
- if(raw<8.8)return {color:'#789441',weight:.70,fillColor:'#9fc85a',fillOpacity:.48,opacity:.70};
- if(raw<9.4)return {color:'#2e7e44',weight:1.05,fillColor:'#47a95a',fillOpacity:.66,opacity:.90};
- return {color:'#075f33',weight:1.65,fillColor:'#00813f',fillOpacity:.84,opacity:1};
-}
+// v65: usunieto visualStyle - stara sciezka kolorow, nieuzywana od v33.
 function kmlEsc(s){return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
 computeRadarScores();
 
@@ -5676,14 +5685,10 @@ function prepareBaseForestFeatures(rows){
    f._blocked=false;
  });
  feats=feats.filter(f=>inAnalysisArea(f._center,.15));
- for(const f of feats)f._scores=calcScores(f);
- addDiversityBonus(feats);
  addEcologyContext(feats);
  return feats;
 }
 function rerunForestDerived(feats){
- for(const f of feats)f._scores=calcScores(f);
- addDiversityBonus(feats);
  addEcologyContext(feats);
  invalidateScoringCaches('forest enrichment');
 }
@@ -6597,18 +6602,19 @@ function diversityData(f){
  }
 
  rows.sort((a,b)=>b.score-a.score);
- const count=rows.length;
- const avg=count
-   ? rows.slice(0,Math.min(6,count)).reduce((a,x)=>a+x.score,0)/Math.min(6,count)
+ const taxaCount=rows.length;
+ const count=countDiversityGroups(rows.map(r=>r.type));
+ const avg=taxaCount
+   ? rows.slice(0,Math.min(6,taxaCount)).reduce((a,x)=>a+x.score,0)/Math.min(6,taxaCount)
    : 0;
 
+ // Skala przeskalowana pod liczbe GRUP (realnie 0-9), nie pod liczbe taksonow.
  let score=piecewise(count,[
-   [0,0],[1,2.5],[2,3.8],[3,4.8],[4,5.7],[5,6.5],[6,7.2],
-   [8,8.1],[10,8.8],[12,9.3],[14,9.7],[16,10]
+   [0,0],[1,3.2],[2,4.8],[3,6.2],[4,7.3],[5,8.2],[6,9.0],[7,9.6],[8,10]
  ]);
  if(count)score=clamp(score+(avg-8)*.10);
 
- const out={count,score,rows};
+ const out={count,taxaCount,score,rows};
  perfDiversityCache.set(f,out);
  return out;
 }
@@ -7454,12 +7460,15 @@ window.auditNationalBenchmarkTransport=function(){
 // To było matematycznie możliwe (wysokie dopasowanie biologiczne w słabym lokalnie miejscu),
 // lecz dla użytkownika mylące. Dlatego wynik pokazywany w panelu/atlasie jest teraz
 // procentowo dyskontowany klasą + pasem mapy. Model i hotspoty nadal używają surowych danych.
+// v65: mnoznik pochodzi z pasma, ktore samo jest funkcja tego wyniku.
+// Zakres zwezony (.70-1.00), zeby "wynik praktyczny" nie podwajal kontrastu
+// sygnalem, ktory juz jest w wyniku surowym.
 const PRACTICAL_SPECIES_MULTIPLIERS=[
-  .44,.49,.55,   // odpuść
-  .62,.68,       // rezerwowo
-  .74,.80,       // średnio
-  .86,.91,       // warto
-  .95,.98,1.00   // TOP
+  .70,.73,.76,   // odpuść
+  .79,.82,       // rezerwowo
+  .85,.88,       // średnio
+  .91,.94,       // warto
+  .96,.98,1.00   // TOP
 ];
 
 function currentMapBandForFeature(f){
@@ -7515,7 +7524,8 @@ function practicalSpeciesScoreInfo(type,f,rawScore=NaN){
 
 function verdictFor(f){
  if(currentFilter==='diversity'){
-   const d=diversityData(f),rank=d.score>=8.7?3:d.score>=7.2?2:d.score>=5.5?1:0;
+   // v65: progi dopasowane do skali liczonej po grupach ekologicznych.
+ const d=diversityData(f),rank=d.score>=9.0?3:d.score>=7.3?2:d.score>=5.0?1:0;
    return {rank,score:d.score,type:null,habitat:d.score,fruit:NaN,conf:{value:55,label:'średnia',local:false,notes:[]}};
  }
 
@@ -7554,7 +7564,10 @@ function verdictFor(f){
  // Dzięki temu niewidoczne / słabe lokalnie wydzielenie nie pokaże „WARTO”.
  const mapClass=currentMapClassForFeature(f);
  const mapRankCap=verdictRankCapFromMapClass(mapClass);
- const rank=Math.min(absoluteRank,mapRankCap);
+ // v65 FIX: mapRankCap pochodzi z tego samego score co absoluteRank, wiec pelne
+ // min() bylo podwojnym karaniem i czynilo progi biologiczne martwymi.
+ // Pozycja na mapie moze obnizyc werdykt najwyzej o jeden poziom.
+ const rank=Math.min(absoluteRank,Math.max(mapRankCap,absoluteRank-1));
 
  return {rank,score,type,habitat,fruit,conf,absoluteRank,mapClass,mapRankCap};
 }
@@ -7724,7 +7737,9 @@ function stableHabitatScore(type,f){
  else if(type.startsWith('maslak_'))family='maslak';
  else if(type==='rydz'||type==='mleczaj_swierkowy')family='mleczaj';
  else if(type==='kurka')family='kurka';
- else if(type==='siedzun_sosnowy')family='maslak';
+ else if(type==='siedzun_sosnowy')family='siedzun';
+ else if(type==='opienka_miodowa')family='opienka_lisc';
+ else if(type==='opienka_ciemna')family='opienka_igl';
 
  const base={BSW:6.8,BMSW:7.5,LMSW:8.0,LSW:7.7,BW:5.8,BMW:6.8,LMW:7.2,LW:6.5,BB:3.5,BMB:4.0,LMB:4.6,OL:4.2,OLJ:4.3}[hab]??6.4;
  let s=base+(((HAB[family]||{})[hab])||0);
@@ -7744,6 +7759,14 @@ function stableHabitatScore(type,f){
  if(type.startsWith('maslak_')||type==='podgrzybek'||type==='rydz'||type==='siedzun_sosnowy'){
    if(['BSW','BMSW','BMW'].includes(hab))s+=.55;
  }
+ if(type==='opienka_miodowa'){
+   if(['OL','OLJ','LW','LMW','LMB'].includes(hab))s+=1.8;
+   if(['BSW','BW'].includes(hab))s-=.6;
+ }
+ if(type==='opienka_ciemna'){
+   if(['BSW','BMSW','BMW','LMSW'].includes(hab))s+=.5;
+   if(['OL','OLJ'].includes(hab))s-=.6;
+ }
  if(type==='mleczaj_swierkowy'&&['BMSW','LMSW','LSW','BMW','LMW'].includes(hab))s+=.35;
  if(type.startsWith('kozlarz_')&&['BMW','LMW','LW','OL'].includes(hab))s+=.35;
 
@@ -7751,7 +7774,11 @@ function stableHabitatScore(type,f){
 }
 
 function stableSpeciesPotential(type,f){
- return perfTypeFeatureCache(perfStableSpeciesPotentialCache,type,f,()=>{
+ // v65 FIX: potencjal zawiera teraz ten sam komponent obserwacyjny co
+ // staticSuitability. Wczesniej bonus z iNat/GBIF podnosil tylko jedna z dwoch
+ // funkcji, a druga sluzyla jako sufit - wiec min() natychmiast go zjadal.
+ const cacheKey=`${type}|${observationEvidenceActive(type)?1:0}`;
+ return perfTypeFeatureCache(perfStableSpeciesPotentialCache,cacheKey,f,()=>{
  const m=SPECIES_META[type];if(!m||m.collect===false)return 0;
   if((m.ecology==='mycorrhiza'||m.ecology==='wood')&&f._kind==='open')return .3;
 
@@ -7762,25 +7789,24 @@ function stableSpeciesPotential(type,f){
   const soil=soilSuitability(type,f);
   const terr=moistureTerrainScore(type,f);
   const disturb=disturbancePenalty(type,f);
+  const evidence=7+Math.min(3,historyInfo(type,f).bonus*2.4);
 
   let s=0;
 
   if(m.ecology==='mycorrhiza'){
     if(STRICT_HOST_TYPES.has(type)){
-      s=.34*tree+.12*age+.24*gate+.10*hab+.15*soil+.05*terr-disturb*.55;
+      s=.32*tree+.11*age+.23*gate+.09*hab+.14*soil+.05*terr+.06*evidence-disturb*.55;
     }else{
-      s=.32*tree+.13*age+.17*gate+.13*hab+.18*soil+.07*terr-disturb*.55;
+      s=.30*tree+.12*age+.16*gate+.12*hab+.17*soil+.07*terr+.06*evidence-disturb*.55;
     }
   }else if(m.ecology==='wood'){
-    const old=piecewise(Number(f.properties?.species_age||0),[
-      [0,4],[20,5.5],[50,8],[100,9.3],[150,9]
-    ]);
+    const old=woodAgeScore(f);
     const stump=f._ko?9.1:6.1;
-    s=.30*tree+.20*old+.12*hab+.12*soil+.06*terr+.20*stump;
+    s=.28*tree+.19*old+.11*hab+.12*soil+.06*terr+.19*stump+.05*evidence;
   }else if(m.ecology==='edge'){
-    s=.62*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age;
+    s=.58*openHabitatScore(type,f)+.19*soil+.09*terr+.08*age+.06*evidence-disturb*.35;
   }else if(m.ecology==='grassland'){
-    s=.66*openHabitatScore(type,f)+.24*soil+.10*terr;
+    s=.62*openHabitatScore(type,f)+.23*soil+.09*terr+.06*evidence;
   }
 
   return clamp(s);
@@ -7811,11 +7837,12 @@ function stableAllType(f){
 }
 
 function stableDiversityPotential(f){
- const rows=[];
- for(const t of PICK_TYPES){if(featureRelevant(t,f)){const s=stableSpeciesPotential(t,f);if(s>=6.6)rows.push(s);}}
+ const rows=[],types=[];
+ for(const t of PICK_TYPES){if(featureRelevant(t,f)){const s=stableSpeciesPotential(t,f);if(s>=6.6){rows.push(s);types.push(t);}}}
  rows.sort((a,b)=>b-a);if(!rows.length)return 0;
- const count=rows.length,avg=rows.slice(0,Math.min(6,count)).reduce((a,b)=>a+b,0)/Math.min(6,count);
- return clamp(piecewise(count,[[0,0],[1,4],[2,5.2],[3,6.2],[4,7],[5,7.7],[7,8.6],[10,9.4],[14,10]])+(avg-7.5)*.12);
+ const count=countDiversityGroups(types);
+ const avg=rows.slice(0,Math.min(6,rows.length)).reduce((a,b)=>a+b,0)/Math.min(6,rows.length);
+ return clamp(piecewise(count,[[0,0],[1,4.4],[2,5.8],[3,6.9],[4,7.8],[5,8.6],[6,9.2],[7,9.7],[8,10]])+(avg-7.5)*.12);
 }
 
 function prepareForestGrid(){
@@ -8369,15 +8396,25 @@ function atlasSpeciesScale(type,areaName){
  return s;
 }
 
+// v65: wspolna absolutna podloga klas dla trybu POTENCJAL.
+function absoluteClassFloor(s){
+ if(!Number.isFinite(s))return 0;
+ if(s>=8.15)return 3;
+ if(s>=7.60)return 2;
+ if(s>=6.90)return 1;
+ return 0;
+}
+
 function atlasSingleSpeciesClass(type,f){
  if(!featureRelevant(type,f))return 0;
  const score=stableScoreForType(type,f);
  const s=atlasSpeciesScale(type,featureAreaName(f));
- if(score>=Math.max(s.q88,7.65))return 4;
- if(score>=Math.max(s.q70,7.05))return 3;
- if(score>=Math.max(s.q45,6.35))return 2;
- if(score>=Math.max(s.q20,5.55))return 1;
- return 0;
+ let c=0;
+ if(score>=Math.max(s.q88,7.65))c=4;
+ else if(score>=Math.max(s.q70,7.05))c=3;
+ else if(score>=Math.max(s.q45,6.35))c=2;
+ else if(score>=Math.max(s.q20,5.55))c=1;
+ return Math.max(c,absoluteClassFloor(score));
 }
 
 function atlasUnionInfo(f){
@@ -8491,11 +8528,16 @@ function balancedClass(f){
  const scale=buildBalancedScales()[featureAreaName(f)]||{
    q20:5.5,q45:6.4,q70:7.2,q88:8
  };
- if(s>=Math.max(scale.q88,7.65))return 4;
- if(s>=Math.max(scale.q70,7.05))return 3;
- if(s>=Math.max(scale.q45,6.35))return 2;
- if(s>=Math.max(scale.q20,5.55))return 1;
- return 0;
+ let c=0;
+ if(s>=Math.max(scale.q88,7.65))c=4;
+ else if(s>=Math.max(scale.q70,7.05))c=3;
+ else if(s>=Math.max(scale.q45,6.35))c=2;
+ else if(s>=Math.max(scale.q20,5.55))c=1;
+
+ // v65 FIX: skala kwantylowa chronila tylko przed falszywym TOP-em.
+ // Na dobrym obszarze obiektywnie mocne wydzielenie wpadalo w "odpusc"
+ // tylko dlatego, ze sasiedzi byli jeszcze lepsi. Teraz jest symetrycznie.
+ return Math.max(c, absoluteClassFloor(s));
 }
 
 // v56 — audyt i kalibracja skali kolorów.
@@ -8566,6 +8608,18 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
 
  const area=featureAreaName(f);
 
+ // v65 FIX: atlas z jednym gatunkiem liczyl KLASE wzgledem rozkladu gatunku,
+ // ale gradient wewnatrz klasy wzgledem stalej absolutnej (5.3-9.5).
+ if(!today&&atlasSelected.size===1){
+   const only=[...atlasSelected][0];
+   const sc=atlasSpeciesScale(only,area);
+   if(sc){
+     const cuts=[sc.min??0,Math.max(sc.q20??5.55,5.55),Math.max(sc.q45??6.35,6.35),Math.max(sc.q70??7.05,7.05),Math.max(sc.q88??7.65,7.65),sc.max??10];
+     const lo=cuts[c]??0,hi=cuts[c+1]??10;
+     return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+   }
+ }
+
  // Pojedynczy gatunek DZIŚ — własna skala gatunku.
  if(today){
    const single=activeSingleSpeciesType();
@@ -8614,6 +8668,15 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
  return Math.max(0,Math.min(1,(score-lo)/(hi-lo)));
 }
 
+// v65: zakres pasm nalezacych do danej klasy (potrzebny przy przesuwaniu
+// pasma przez benchmark krajowy zamiast mnozenia przezroczystosci).
+const UNIFIED_CLASS_SPANS=[3,2,2,2,3];
+const UNIFIED_CLASS_OFFSETS=[0,3,5,7,9];
+function unifiedClassBandRange(c){
+ c=Math.max(0,Math.min(4,Number(c)||0));
+ const lo=UNIFIED_CLASS_OFFSETS[c];
+ return [lo,lo+UNIFIED_CLASS_SPANS[c]-1];
+}
 function unifiedBandIndex(c,progress=.5){
  c=Math.max(0,Math.min(4,Number(c)||0));
  progress=Math.max(0,Math.min(1,Number(progress)||0));
@@ -8869,15 +8932,26 @@ function nationalVisualInfoForFeature(f,today=false){
  return {active:info.ready&&info.supported,factor:info.factor,percentile:info.percentile,type};
 }
 
-function nationalVisualOpacityMultiplier(factor){
- factor=Number(factor)||1;
- return piecewise(factor,[[.84,.72],[.88,.80],[.92,.87],[.96,.94],[1,1],[1.04,1.035],[1.07,1.06],[1.10,1.08]]);
-}
+// v65: usunieto nationalVisualOpacityMultiplier - benchmark krajowy przesuwa teraz pasmo.
 
 function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  c=Math.max(0,Math.min(4,Number(c)||0));
  const progress=unifiedWithinClassProgress(f,c,today,score);
- const band=unifiedBandIndex(c,progress);
+ let band=unifiedBandIndex(c,progress);
+
+ // v65 FIX: benchmark krajowy przesuwa PASMO (kolor) zamiast mnozyc krycie.
+ // Wczesniej ten sam sygnal modulowal fillOpacity trzy razy, a podloga
+ // czesciowo to cofala - stad bolesne strojenie w v56/v57/v68.
+ const nationalVisual=nationalVisualInfoForFeature(f,today);
+ if(nationalVisual.active&&!(f?._hotspotIndex)){
+   const nf=Number(nationalVisual.factor)||1;
+   const shift=nf>=1.055?1:(nf<=.905?-1:0);
+   if(shift){
+     const [blo,bhi]=unifiedClassBandRange(c);
+     band=Math.max(blo,Math.min(bhi,band+shift));
+   }
+ }
+
  const fill=UNIFIED_COLOR_BANDS[band];
  const stroke=UNIFIED_STROKE_BANDS[band];
  let border=stroke.weight>0 ? mixHexColor(fill,'#14231b', .40 + (band/11)*.14) : 'transparent';
@@ -8932,19 +9006,8 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
    fillOpacity=Math.max(visibleFloorByBand[band]||0,fillOpacity);
  }
 
- // 3) Krajowy benchmark subtelnie reguluje siłę, ale również nie może
- //    zepchnąć już widocznego wydzielenia poniżej sensownego minimum.
- const nationalVisual=nationalVisualInfoForFeature(f,today);
- if(nationalVisual.active&&!(f?._hotspotIndex)){
-   const nm=nationalVisualOpacityMultiplier(nationalVisual.factor);
-   fillOpacity*=nm;
-   weight*=Math.max(.72,Math.min(1.08,nm));
-   opacity*=Math.max(.78,Math.min(1.06,nm));
-
-   if(speciesVisual.active){
-     fillOpacity=Math.max(visibleFloorByBand[band]||0,fillOpacity);
-   }
- }
+ // 3) Benchmark krajowy zostal wyzej przeniesiony na przesuniecie pasma,
+ //    wiec nie mnozy juz przezroczystosci po raz trzeci.
 
  if(open){
    const openFloor=speciesVisual.active ? Math.max(.065,(visibleFloorByBand[band]||0)*.78) : .045;
@@ -9138,6 +9201,9 @@ function todayBalancedClass(f,sOverride=NaN){
    else if(s>=Math.max(scale.q45,6.15))todayClass=2;
    else if(s>=Math.max(scale.q20,5.15))todayClass=1;
 
+   // v65: symetryczna podloga rowniez w trybie DZIS (nadal ograniczona capami nizej).
+   todayClass=Math.max(todayClass, s>=7.60?3 : s>=6.90?2 : s>=6.10?1 : 0);
+
    const info=bestTodayInfo(f);
    return Math.min(todayClass,info.potentialClass,balancedClass(f));
  }
@@ -9219,7 +9285,7 @@ function diversityPopup(f){
  const src=f._kind==='open'?'OpenStreetMap':(f._src==='pgl'?'PGL LP':(f._src==='other'?'poza PGL LP':'KO/KDO'));
  const place=f._kind==='open'?`<b>Typ terenu:</b> ${p.open_type||'teren otwarty'} ${p.name?'• '+p.name:''}<br>`:
    `<b>Drzewo dominujące:</b> ${p.species_cd||p.gat_grp||'?'} • <b>wiek:</b> ${p.species_age??'?'} lat<br><b>Siedlisko:</b> ${p.site_type_cd||'?'}<br>`;
- return `<b style="font-size:13px">Różnorodność grzybów</b><br><b style="font-size:22px">${d.count} gatunków</b> • wynik ${d.score.toFixed(1)}/10<br>`+
+ return `<b style="font-size:13px">Różnorodność grzybów</b><br><b style="font-size:22px">${d.count} grup</b> (${d.taxaCount} gat.) • wynik ${d.score.toFixed(1)}/10<br>`+
    `<span style="color:#9eaaa3">Liczone są gatunki z Twojej listy mające tu sensowne warunki.</span><br><br>${place}`+
    `<div class="what-here"><b>Najlepiej pasujące:</b>${d.rows.slice(0,10).map(x=>`<div class="what-row"><span>${HUMAN_NAMES[x.type]}</span><b>${x.score.toFixed(1)}/10</b></div>`).join('')}`+
    (d.rows.length?'':'<div style="margin-top:5px;color:#aaa">Brak gatunków powyżej progu.</div>')+`</div><div style="margin-top:7px;color:#777;font-size:9px">Źródło geometrii: ${src}</div>`;
@@ -9514,7 +9580,7 @@ function unifiedPopupHtml(f,h=null){
    const d=diversityData(f);
    primaryHtml=`<div class="u-primary-species">
      <div style="width:42px;height:42px;border-radius:10px;background:#edf4ef;display:grid;place-items:center;font-size:25px">🍄</div>
-     <div><div class="u-primary-name">Różnorodność grzybów</div><div class="u-primary-latin">${d.count} gatunków powyżej progu</div></div>
+     <div><div class="u-primary-name">Różnorodność grzybów</div><div class="u-primary-latin">${d.count} grup / ${d.taxaCount} gat. powyżej progu</div></div>
      <div class="u-primary-score">${d.score.toFixed(1)}<small>/10</small></div>
    </div>`;
  }else if(type&&m){

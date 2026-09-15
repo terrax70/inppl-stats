@@ -1,17 +1,17 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v88: agregacja bez saturacji.
-     v87 ujawniło twardy problem: mediana najlepszego gatunku OGÓLNIE = 9.22/10, a dodawanie
-     bonusu różnorodności podniosło medianę całej mapy do 10/10. Zniknęły więc czerwone pola
-     i zlały się zielone klasy. v88 NIE DODAJE już punktów ponad najlepszy gatunek.
-     Przy wielu gatunkach wynik jest ważoną mieszanką:
-       64–77% najmocniejszy gatunek + 23–36% jakość 1–3 najlepszych INNYCH nisz.
-     Im więcej niezależnych nisz znajduje się w wybranym zestawie, tym większą wagę ma
-     szerokość siedlisk. Ta sama nisza nadal liczy się raz.
-     Dzięki temu różnorodność może zmienić ranking miejsc, ale wynik nie dobija masowo do 10.
-     Jeden gatunek pozostaje 1:1 bez zmian; wszystkie zaznaczone == brak wyboru;
-     DZIŚ <= OGÓLNIE pozostaje gwarantowane. -->
+<!-- GitHub production v89: normalizacja per gatunek przed agregacją.
+     Audyt v88 ujawnił właściwą przyczynę: przy 24 gatunkach najlepszy surowy score ma medianę
+     9.22/10, a cały wynik OGÓLNIE mieści się głównie w 8.76–9.24. To klasyczny efekt maksimum:
+     prawie każdy las znajdzie sobie jakiś gatunek z bardzo wysokim surowym dopasowaniem.
+     v89 NIE agreguje już surowych 8–10. Dla trybu wielu/wszystkich gatunków każdy gatunek
+     jest najpierw przeliczany na "siłę okazji": jego pozycję procentylową względem innych
+     wydzieleń dla TEGO SAMEGO gatunku, pomnożoną przez bramkę jakości absolutnej.
+     DZIŚ używa tej samej stałej skali OGÓLNEJ, więc nie może przeskoczyć OGÓLNIE.
+     Następnie bierzemy najlepszy wynik niszy + mały bonus za kolejne mocne, niezależne nisze
+     (max < +0.8). Dzięki temu szerokość może przebić samotny dobry gatunek, ale nie saturuje 10.
+     Jeden wybrany gatunek pozostaje dokładnie na dotychczasowym modelu. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -7742,85 +7742,120 @@ function opportunityNicheKey(type){
 function opportunityTargetTypes(){
  return atlasSelected.size?[...atlasSelected]:PICK_TYPES.slice();
 }
+
+const opportunitySpeciesDistributionCache=new Map();
+
+function opportunitySpeciesDistribution(type,areaName){
+ const key=`v89|${scoringRevision}|${type}|${areaName}|${allFeatures.length}|${openFeatures.length}`;
+ if(opportunitySpeciesDistributionCache.has(key))return opportunitySpeciesDistributionCache.get(key);
+
+ const rows=allFeatures
+   .filter(f=>!f._blocked&&featureAreaName(f)===areaName&&featureRelevant(type,f))
+   .map(f=>stableScoreForType(type,f))
+   .filter(Number.isFinite)
+   .sort((a,b)=>a-b);
+
+ const out={rows,min:rows[0]??0,max:rows.at(-1)??10};
+ opportunitySpeciesDistributionCache.set(key,out);
+ return out;
+}
+
+function opportunityPercentileFromSorted(rows,score){
+ if(!rows.length||!Number.isFinite(score))return 0;
+ let lo=0,hi=rows.length;
+ while(lo<hi){
+   const mid=(lo+hi)>>1;
+   if(rows[mid]<score)lo=mid+1;else hi=mid;
+ }
+ const lower=lo;
+ lo=0;hi=rows.length;
+ while(lo<hi){
+   const mid=(lo+hi)>>1;
+   if(rows[mid]<=score)lo=mid+1;else hi=mid;
+ }
+ const upper=lo;
+ const midRank=(lower+upper)*.5;
+ return Math.max(0,Math.min(1,midRank/rows.length));
+}
+
+function opportunityAbsoluteQualityGate(score){
+ return piecewise(score,[
+   [0,0],[4.5,0],[5.2,.12],[6.0,.35],[6.8,.58],
+   [7.6,.76],[8.4,.90],[9.1,.98],[10,1]
+ ]);
+}
+
+function opportunitySpeciesIndex(type,f,dynamic=false){
+ if(!featureRelevant(type,f))return null;
+
+ const potential=stableScoreForType(type,f);
+ const raw=dynamic?Math.min(speciesEffective(type,f),potential):potential;
+ const dist=opportunitySpeciesDistribution(type,featureAreaName(f));
+ const percentile=opportunityPercentileFromSorted(dist.rows,raw);
+
+ // Percentyl daje rozpiętość, jakość absolutna pilnuje, by "najlepsze z kiepskich"
+ // nie stawało się TOP. Krzywa .72 lekko rozciąga górę bez saturacji.
+ const relative=Math.pow(percentile,.72);
+ const qualityGate=opportunityAbsoluteQualityGate(raw);
+ const index=clamp(10*relative*qualityGate);
+
+ return {type,index,raw,potential,percentile:100*percentile,qualityGate,niche:opportunityNicheKey(type)};
+}
+
 function opportunityAggregateInfo(f,dynamic=false,typesOverride=null){
  const types=Array.isArray(typesOverride)?typesOverride:opportunityTargetTypes();
- const rows=[];
 
- for(const t of types){
-   if(!featureRelevant(t,f))continue;
+ // Jeden gatunek zachowuje dokładnie dotychczasowy model 0–10.
+ if(types.length===1){
+   const t=types[0];
+   if(!featureRelevant(t,f)){
+     return {score:0,best:0,bestType:null,bonus:0,strongNiches:0,nicheCount:0,matched:0,total:1,rows:[],nicheRows:[]};
+   }
    const potential=stableScoreForType(t,f);
-   const score=dynamic?Math.min(speciesEffective(t,f),potential):potential;
-   if(!Number.isFinite(score))continue;
-   rows.push({type:t,score:clamp(score),potential,niche:opportunityNicheKey(t)});
+   const raw=dynamic?Math.min(speciesEffective(t,f),potential):potential;
+   const row={type:t,score:raw,raw,potential,percentile:NaN,qualityGate:1,niche:opportunityNicheKey(t)};
+   return {score:raw,best:raw,bestType:t,bonus:0,strongNiches:raw>=7?1:0,nicheCount:1,matched:raw>=6.25?1:0,total:1,rows:[row],nicheRows:[row]};
  }
 
- rows.sort((a,b)=>b.score-a.score||b.potential-a.potential||
+ const rows=[];
+ for(const t of types){
+   const x=opportunitySpeciesIndex(t,f,dynamic);
+   if(x)rows.push({...x,score:x.index});
+ }
+
+ rows.sort((a,b)=>b.score-a.score||b.raw-a.raw||
    (HUMAN_NAMES[a.type]||a.type).localeCompare(HUMAN_NAMES[b.type]||b.type,'pl'));
 
- const selectedNiches=[...new Set(types.map(opportunityNicheKey))];
-
  if(!rows.length){
-   return {
-     score:0,best:0,bestType:null,supportScore:0,breadthWeight:0,adjustment:0,
-     nicheCount:0,strongNiches:0,matched:0,total:types.length,rows:[],nicheRows:[]
-   };
+   return {score:0,best:0,bestType:null,bonus:0,strongNiches:0,nicheCount:0,matched:0,total:types.length,rows:[],nicheRows:[]};
  }
 
- // Jeden gatunek: dokładnie jego dotychczasowy wynik.
- if(types.length===1){
-   const best=rows[0];
-   return {
-     score:best.score,best:best.score,bestType:best.type,
-     supportScore:best.score,breadthWeight:0,adjustment:0,
-     nicheCount:1,strongNiches:best.score>=7?1:0,
-     matched:best.score>=6.25?1:0,total:1,rows,nicheRows:[best]
-   };
- }
-
- // Jedna reprezentacja każdej niszy — kilka gatunków sosnowych nie liczy się kilka razy.
+ // Każda nisza liczy się tylko raz — bierze swojego najmocniejszego reprezentanta.
  const byNiche=new Map();
  for(const r of rows){
    const prev=byNiche.get(r.niche);
    if(!prev||r.score>prev.score)byNiche.set(r.niche,r);
  }
  const nicheRows=[...byNiche.values()].sort((a,b)=>b.score-a.score);
- const best=rows[0];
- const extras=nicheRows.filter(r=>r.niche!==best.niche);
+ const best=nicheRows[0];
+ const extras=nicheRows.slice(1);
 
- // Ile niezależnych dodatkowych nisz w ogóle ma sens oceniać dla wybranego zestawu?
- // 2 różne nisze -> 1 wspierająca; 3 -> 2; 4+ -> maksymalnie 3.
- const targetExtraCount=Math.min(3,Math.max(0,selectedNiches.length-1));
-
- let supportScore=best.score;
- let breadthWeight=0;
-
- if(targetExtraCount>0){
-   const supportWeights=[.50,.30,.20];
-   let weighted=0,weightSum=0;
-
-   for(let i=0;i<targetExtraCount;i++){
-     const w=supportWeights[i];
-     // Brak pasującej niezależnej niszy nie jest zerem, ale powinien obniżać
-     // szerokość miejsca. 4.6 = słabe/rezerwowe dopasowanie.
-     const s=extras[i]?.score ?? 4.60;
-     weighted+=w*s;
-     weightSum+=w;
-   }
-   supportScore=weightSum?weighted/weightSum:best.score;
-
-   // Przy dwóch niszach szerokość jest dodatkiem, przy 4+ staje się realnym
-   // drugim filarem mapy. Nigdy nie dominuje nad najmocniejszym gatunkiem.
-   breadthWeight=targetExtraCount===1?.23:(targetExtraCount===2?.30:.36);
+ // Mały, jakościowy bonus za szerokość. Może sprawić, że miejsce 8.2 z kilkoma
+ // mocnymi niezależnymi niszami wygra z samotnym 8.5, ale nie zrobi całej mapy 10/10.
+ const weights=[.35,.22,.13,.07]; // max 0.77
+ let bonus=0;
+ for(let i=0;i<Math.min(weights.length,extras.length);i++){
+   const q=Math.max(0,Math.min(1,(extras[i].score-5.5)/4.5));
+   bonus+=weights[i]*q;
  }
+ bonus=Math.min(.77,bonus);
 
- const score=clamp(best.score*(1-breadthWeight)+supportScore*breadthWeight);
- const adjustment=score-best.score; // zwykle <= 0; szerokość decyduje ile z "best" zachowujemy
+ const score=clamp(best.score+bonus);
 
  return {
-   score,best:best.score,bestType:best.type,
-   supportScore,breadthWeight,adjustment,
-   nicheCount:nicheRows.length,
+   score,best:best.score,bestType:best.type,bonus,
    strongNiches:nicheRows.filter(r=>r.score>=7).length,
+   nicheCount:nicheRows.length,
    matched:rows.filter(r=>r.score>=6.25).length,
    total:types.length,rows,nicheRows
  };
@@ -7859,7 +7894,7 @@ function resetStaticCachesIfNeeded(){
  staticCacheFilter=k;staticTypeCache=new WeakMap();staticScoreCache=new WeakMap();
  forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();hotspotCacheKey='';hotspotCache=[];
  todayHotspotCacheKey='';todayHotspotCache=[];
- balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();hotspotMembershipKey='';
+ balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();opportunitySpeciesDistributionCache.clear();hotspotMembershipKey='';
  todayScaleCacheKey='';todayScales={};bestTodayConditionScaleCache.clear();
  perfKeyLast='';
  perfScoreCache=new WeakMap();
@@ -8508,10 +8543,10 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v88',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v89',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
-   rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków nie przekracza najlepszego gatunku']
+   rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków używa per-gatunek percentyli + małego bonusu nisz']
  };
  console.table(examples);console.info('UNIFIED OPPORTUNITY MODEL AUDIT',report);return report;
 }
@@ -8528,10 +8563,7 @@ function auditOpportunityBalance(){
    const rows=features.map(f=>{
      const x=opportunityAggregateInfo(f,dynamic,PICK_TYPES);
      const cls=dynamic?todayBalancedClass(f,x.score):balancedClass(f);
-     return {
-       best:x.best,support:x.supportScore,score:x.score,
-       breadthWeight:x.breadthWeight,strongNiches:x.strongNiches,cls
-     };
+     return {best:x.best,bonus:x.bonus,score:x.score,strongNiches:x.strongNiches,cls};
    });
 
    const scores=rows.map(x=>x.score);
@@ -8540,18 +8572,18 @@ function auditOpportunityBalance(){
 
    return {
      n:rows.length,
+     bestQ10:Number(q(rows.map(x=>x.best),.10).toFixed(2)),
      bestMedian:Number(q(rows.map(x=>x.best),.50).toFixed(2)),
-     supportMedian:Number(q(rows.map(x=>x.support),.50).toFixed(2)),
+     bestQ90:Number(q(rows.map(x=>x.best),.90).toFixed(2)),
+     bonusMedian:Number(q(rows.map(x=>x.bonus),.50).toFixed(2)),
+     bonusQ90:Number(q(rows.map(x=>x.bonus),.90).toFixed(2)),
      scoreQ10:Number(q(scores,.10).toFixed(2)),
      scoreQ25:Number(q(scores,.25).toFixed(2)),
      scoreMedian:Number(q(scores,.50).toFixed(2)),
      scoreQ75:Number(q(scores,.75).toFixed(2)),
      scoreQ90:Number(q(scores,.90).toFixed(2)),
      scoreQ95:Number(q(scores,.95).toFixed(2)),
-     ceilingCount:rows.filter(x=>x.score>=9.98).length,
      ceilingPct:Number((100*rows.filter(x=>x.score>=9.98).length/n).toFixed(1)),
-     darkTopCount:classes[4],
-     darkTopPct:Number((100*classes[4]/n).toFixed(1)),
      class0Pct:Number((100*classes[0]/n).toFixed(1)),
      class1Pct:Number((100*classes[1]/n).toFixed(1)),
      class2Pct:Number((100*classes[2]/n).toFixed(1)),
@@ -8564,26 +8596,24 @@ function auditOpportunityBalance(){
  for(const area of ANALYSIS_CENTERS){
    const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
    if(!feats.length)continue;
-   perArea[area.name]={
-     overall:summarize(feats,false),
-     today:summarize(feats,true)
-   };
+   perArea[area.name]={overall:summarize(feats,false),today:summarize(feats,true)};
  }
 
  const report={
-   version:'v88',
-   model:'blend: strongest species + quality of up to 3 other independent niches',
-   weights:'best 64–77%, breadth 23–36% depending on selected niche count',
+   version:'v89',
+   model:'per-species percentile opportunity + absolute-quality gate + small independent-niche bonus',
+   classCuts:[4.35,5.90,7.35,8.60],
    perArea,
-   warning:'ceilingPct should stay low; if it grows, aggregation is saturating again.'
+   expectation:'scoreQ10..scoreQ95 powinny mieć dużo większą rozpiętość niż v88; class4Pct nie jest już wymuszone na 10%.'
  };
  for(const [name,x] of Object.entries(perArea)){
-   console.info(name,'OGÓLNIE'); console.table([x.overall]);
-   console.info(name,'DZIŚ'); console.table([x.today]);
+   console.info(name,'OGÓLNIE');console.table([x.overall]);
+   console.info(name,'DZIŚ');console.table([x.today]);
  }
  console.info('OPPORTUNITY BALANCE AUDIT',report);
  return report;
 }
+window.auditOpportunityBalance=auditOpportunityBalance;
 window.auditOpportunityBalance=auditOpportunityBalance;
 
 window.auditUnifiedOpportunityModel=auditUnifiedOpportunityModel;
@@ -8655,17 +8685,17 @@ function bestOpenHotspotEligible(f){
 function bestOpenPotentialClass(f){
  const s=stableAnchorScore(f);
  let c=0;
- if(s>=8.35)c=4; else if(s>=7.45)c=3; else if(s>=6.55)c=2; else if(s>=5.65)c=1;
+ if(s>=8.60)c=4; else if(s>=7.35)c=3; else if(s>=5.90)c=2; else if(s>=4.35)c=1;
  const agg=opportunityAggregateInfo(f,false,atlasSelected.size?[...atlasSelected]:PICK_TYPES);
  const type=activeSingleSpeciesType()||agg.bestType||stableAllType(f);
- const cap=openHabitatVerdictCap(type,f), visualCap=[1,2,3,4][cap]??4;
+ const cap=openHabitatVerdictCap(type,f),visualCap=[1,2,3,4][cap]??4;
  return Math.min(c,visualCap);
 }
 
 function bestOpenTodayClass(f){
  const s=todayScoreForStyle(f);
  let c=0;
- if(s>=8.10)c=4; else if(s>=7.05)c=3; else if(s>=6.05)c=2; else if(s>=5.10)c=1;
+ if(s>=8.60)c=4; else if(s>=7.35)c=3; else if(s>=5.90)c=2; else if(s>=4.35)c=1;
  const agg=opportunityAggregateInfo(f,true,atlasSelected.size?[...atlasSelected]:PICK_TYPES);
  const type=activeSingleSpeciesType()||agg.bestType||stableAllType(f);
  const cap=openHabitatVerdictCap(type,f),visualCap=[1,2,3,4][cap]??4;
@@ -9195,20 +9225,17 @@ function buildBalancedScales(){
 function balancedClass(f){
  const single=activeSingleSpeciesType();
  if(single)return atlasSingleSpeciesClass(single,f);
+
  const s=stableAnchorScore(f);
  if(f._kind==='open')return bestOpenPotentialClass(f);
- const scale=buildBalancedScales()[featureAreaName(f)]||{q25:5.7,q50:6.55,q72:7.3,q90:8.1};
- let c=0;
- if(s>=scale.q90)c=4;
- else if(s>=scale.q72)c=3;
- else if(s>=scale.q50)c=2;
- else if(s>=scale.q25)c=1;
- let cap=0;
- if(s>=6.20)cap=4;
- else if(s>=5.55)cap=3;
- else if(s>=4.95)cap=2;
- else if(s>=4.35)cap=1;
- return Math.min(c,cap);
+
+ // v89: wynik wielu/wszystkich gatunków jest już skalą "siły okazji" 0–10,
+ // więc klasy nie są wymuszanymi kwantylami. Kolor ma znaczyć to samo w każdym obszarze.
+ if(s>=8.60)return 4;
+ if(s>=7.35)return 3;
+ if(s>=5.90)return 2;
+ if(s>=4.35)return 1;
+ return 0;
 }
 
 // v56 — audyt i kalibracja skali kolorów.
@@ -9277,6 +9304,7 @@ function mixHexColor(a,b,t){
 function unifiedWithinClassProgress(f,c,today=false,score=NaN){
  if(!Number.isFinite(score)||c<0||c>4)return .5;
  const area=featureAreaName(f),single=activeSingleSpeciesType();
+
  if(!today&&single){
    const sc=atlasSpeciesScale(single,area);
    if(sc){
@@ -9285,6 +9313,7 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
      return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
    }
  }
+
  if(today&&single){
    const sc=buildTodayScales()[area];
    if(sc){
@@ -9293,22 +9322,13 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
      return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
    }
  }
- if(!single&&!today){
-   const sc=buildBalancedScales()[area];
-   if(sc){
-     const cuts=[sc.min??0,sc.q25??5.55,sc.q50??6.35,sc.q72??7.10,sc.q90??7.85,sc.max??10];
-     const lo=cuts[c]??0,hi=cuts[c+1]??10;
-     let p=hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
-     if(c===4)p=Math.pow(p,.72);
-     return p;
-   }
- }
- if(!single&&today){
-   const p=stableAnchorScore(f);
-   return Math.max(0,Math.min(1,score/Math.max(.001,p)));
- }
- const lo=today?4.8:5.3,hi=today?9.1:9.5;
- return Math.max(0,Math.min(1,(score-lo)/(hi-lo)));
+
+ // v89: wspólna, absolutna skala mapy zbiorczej.
+ const cuts=[0,4.35,5.90,7.35,8.60,10];
+ const lo=cuts[c],hi=cuts[c+1];
+ let p=hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+ if(c===4)p=Math.pow(p,.72);
+ return p;
 }
 
 // v65: zakres pasm nalezacych do danej klasy (potrzebny przy przesuwaniu
@@ -9928,21 +9948,15 @@ function todayBalancedClass(f,sOverride=NaN){
  const single=activeSingleSpeciesType();
  if(single)return singleSpeciesTodayClass(single,f);
  if(f._kind==='open')return bestOpenTodayClass(f);
- const pScore=stableAnchorScore(f),pClass=balancedClass(f);
- if(pClass<=0||pScore<=0)return 0;
- const retention=Math.max(0,Math.min(1,s/Math.max(.001,pScore)));
- let drop=0;
- if(retention>=.88)drop=0;
- else if(retention>=.75)drop=1;
- else if(retention>=.60)drop=2;
- else drop=3;
- let c=Math.max(0,pClass-drop);
- let cap=0;
- if(s>=5.65)cap=4;
- else if(s>=5.05)cap=3;
- else if(s>=4.45)cap=2;
- else if(s>=3.80)cap=1;
- return Math.min(c,cap,pClass);
+
+ let c=0;
+ if(s>=8.60)c=4;
+ else if(s>=7.35)c=3;
+ else if(s>=5.90)c=2;
+ else if(s>=4.35)c=1;
+
+ // Twardo: DZIŚ nie może być lepszą klasą niż to samo miejsce OGÓLNIE.
+ return Math.min(c,balancedClass(f));
 }
 
 function todayPotentialStyle(f,show=true){
@@ -10270,10 +10284,9 @@ function unifiedPopupHtml(f,h=null){
  let primaryHtml='';
  let reasonsHtml='';
  if(!singleType&&type&&m){
-   const support=opportunity?.supportScore??displayedPrimaryScore;
-   const breadthPct=Math.round((opportunity?.breadthWeight||0)*100);
+   const bonus=opportunity?.bonus||0;
    const nicheText=(opportunity?.strongNiches||0)>1
-     ? ` • ${opportunity.strongNiches} mocne nisze • szerokość ${modelScorePercentText(support)} (${breadthPct}% wyniku)`
+     ? ` • ${opportunity.strongNiches} mocne nisze${bonus>0?` • bonus +${bonus.toFixed(2)}`:''}`
      : '';
    primaryHtml=`<div class="u-primary-species">
      <img src="${atlasSvg(type)}" alt="${escapeHtml(m.label||type)}">
@@ -10298,8 +10311,8 @@ function unifiedPopupHtml(f,h=null){
  const otherRows=unifiedFeatureSpeciesRows(f,type);
  const scoreMeaningHtml=`<div style="font-size:9.5px;line-height:1.35;color:#68786e;margin:5px 2px 8px">
    Procent = ocena modelu miejsca (0–100), nie statystycznie skalibrowane prawdopodobieństwo znalezienia owocnika.
-   ${!singleType&&opportunity?.breadthWeight>0
-     ? ` Wynik łączy ${Math.round((1-opportunity.breadthWeight)*100)}% najmocniejszego gatunku i ${Math.round(opportunity.breadthWeight*100)}% jakości innych niezależnych nisz.`
+   ${!singleType
+     ? ' Wynik wielu gatunków jest najpierw normalizowany osobno dla każdego gatunku, żeby powszechnie wysokie surowe wyniki nie zlewały całej mapy. Dodatkowe mocne nisze mogą dodać tylko mały bonus.'
      : ''}
  </div>`;
  const otherSpeciesHtml=unifiedSpeciesGridHtml(otherRows);
@@ -10330,7 +10343,7 @@ function unifiedPopupHtml(f,h=null){
  let atlasNote='';
  if(atlasSelected.size){
    const agg=opportunityAggregateInfo(f,mapMode==='today',[...atlasSelected]);
-   atlasNote=`<div class="u-atlas-note">🎯 <b>Wybrany zestaw:</b> ${agg.total} gat. • najmocniejszy ${escapeHtml(HUMAN_NAMES[agg.bestType]||agg.bestType||'—')} ${modelScorePercentText(agg.best)} • ${agg.strongNiches} mocnych nisz • szerokość ${modelScorePercentText(agg.supportScore)}.</div>`;
+   atlasNote=`<div class="u-atlas-note">🎯 <b>Wybrany zestaw:</b> ${agg.total} gat. • najmocniejsza okazja ${escapeHtml(HUMAN_NAMES[agg.bestType]||agg.bestType||'—')} ${modelScorePercentText(agg.best)} • ${agg.strongNiches} mocnych nisz${agg.bonus>0?` • bonus +${agg.bonus.toFixed(2)}`:''}.</div>`;
  }
 
  // Szczegóły liczbowe — bez starej tekstowej listy "Co jeszcze może tu pasować?".
@@ -14233,10 +14246,10 @@ function updateSpeciesMeta(){
    return;
  }
  if(atlasSelected.size>1){
-   box.innerHTML=`<b>🍄 Mapa dla ${atlasSelected.size} wybranych gatunków</b><br><span style="opacity:.82">Wynik łączy <b>najmocniejszy gatunek</b> z jakością kilku najlepszych <b>innych nisz siedliskowych</b>. Im więcej niezależnych nisz wybierzesz, tym większe znaczenie ma ich jakość — ale najmocniejszy gatunek zawsze pozostaje głównym składnikiem.</span>`;
+   box.innerHTML=`<b>🍄 Mapa dla ${atlasSelected.size} wybranych gatunków</b><br><span style="opacity:.82">Każdy wybrany gatunek jest najpierw porównywany z innymi miejscami dla tego samego gatunku. Potem mapa wybiera <b>najmocniejszą okazję</b>, a inne mocne, niezależne nisze mogą dodać niewielki bonus.</span>`;
    return;
  }
- box.innerHTML='<b>🍄 Gdzie warto iść na grzyby?</b><br><span style="opacity:.82">Mapa automatycznie sprawdza wszystkie gatunki. Wynik łączy najmocniejszy grzyb z jakością kilku najlepszych innych nisz, więc miejsce szerokie gatunkowo może wyprzedzić „jednotrickowy” las bez sztucznego dobijania wyniku do 10/10. <b>Dziś</b> uwzględnia pogodę i sezon; <b>Ogólnie</b> pokazuje jakość miejsca bez dzisiejszej pogody.</span>';
+ box.innerHTML='<b>🍄 Gdzie warto iść na grzyby?</b><br><span style="opacity:.82">Mapa automatycznie sprawdza wszystkie gatunki. Każdy gatunek jest najpierw oceniany względem innych miejsc dla tego samego gatunku, dzięki czemu mapa pokazuje naprawdę wyjątkowe obszary zamiast prawie wszędzie wysokich 8–9/10. Kilka mocnych różnych nisz daje mały dodatkowy bonus. <b>Dziś</b> uwzględnia pogodę i sezon; <b>Ogólnie</b> pokazuje jakość miejsca bez dzisiejszej pogody.</span>';
 }
 document.getElementById('speciesSelect').onchange=async e=>{
  atlasHoverTypes.clear();applyAtlasHoverFilter(null);atlasSelected.clear();

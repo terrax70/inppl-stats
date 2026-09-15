@@ -1,11 +1,16 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v71: audyt scoringu - mesic_dry, rodziny siedliskowe grzybow drewna,
-     spojny potencjal z obserwacjami, roznorodnosc po niszach siedliskowych ATLAS_GROUPS,
-     rozlaczne okna opadowe, probkowanie krawedzi co ~60 m, jedna tabela podlog klas,
-     benchmark krajowy przesuwa pasmo zamiast mnozyc krycie.
-     Zawiera wszystkie wczesniejsze modulu v66-v70 (radar PL 10 km, kalibracje DZIS). -->
+<!-- GitHub production v72: jedno zrodlo prawdy dla roznorodnosci w POTENCJALE
+     (diversityData i stableDiversityPotential licza teraz to samo — ten sam prog 7.2,
+     ta sama funkcja stableScoreForType, ta sama krzywa; popup i kolor mapy juz sie nie roznia),
+     naprawiona podloga klas dla Roznorodnosc+Potencjal (balancedClass wywolywalo
+     absoluteClassFloor bez argumentu 'diversity'), probkowanie krawedzi per-ring
+     (Polygon z dziura / MultiPolygon nie tworzy juz sztucznego segmentu miedzy pierscieniami).
+     v71: mesic_dry, rodziny siedliskowe grzybow drewna, spojny potencjal z obserwacjami,
+     roznorodnosc po niszach ATLAS_GROUPS, rozlaczne okna opadowe, gesta interpolacja
+     krawedzi co ~60 m, jedna tabela podlog klas, benchmark krajowy przesuwa pasmo.
+     Zawiera wszystkie wczesniejsze moduly v66-v70 (radar PL 10 km, kalibracje DZIS). -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -3657,26 +3662,36 @@ function eachCoord(coords,cb){
 // v65 bralo centroid + max 14 wierzcholkow — przy prostokatnym wydzieleniu
 // z czterema dlugimi bokami laka stykajaca sie ze SRODKIEM boku nadal mogla
 // zostac niezauwazona. Teraz interpolujemy punkty co ~STEP_M metrow.
-const PROBE_STEP_M=60;
-const PROBE_MAX_PTS=90;
-function geomProbePoints(g,center,max=PROBE_MAX_PTS){
- const pts=[];
- if(center)pts.push(center);
- const ring=[];
- eachCoord(g?.coordinates,c=>{ring.push([c[1],c[0]]);});
- if(!ring.length)return pts;
-
- // dlugosc obwodu w metrach
+//
+// v72 FIX: v71 splaszczalo Polygon/MultiPolygon do jednej tablicy przez
+// eachCoord(), wiec przy dziurze albo MultiPolygonie powstawal sztuczny
+// "segment" miedzy koncem jednego pierscienia a poczatkiem kolejnego.
+// Teraz kazdy ring jest probkowany osobno, budzet punktow rozdzielony
+// proporcjonalnie do dlugosci pierscienia.
+function geomRings(g){
+ const rings=[];
+ if(!g)return rings;
+ const addPoly=coords=>{for(const ring of (coords||[]))if(ring&&ring.length)rings.push(ring.map(c=>[c[1],c[0]]));};
+ if(g.type==='Polygon')addPoly(g.coordinates);
+ else if(g.type==='MultiPolygon')for(const poly of (g.coordinates||[]))addPoly(poly);
+ else{
+   const ring=[];eachCoord(g?.coordinates,c=>ring.push([c[1],c[0]]));
+   if(ring.length)rings.push(ring);
+ }
+ return rings;
+}
+function ringPerimeterM(ring){
  let perim=0;
  for(let i=1;i<ring.length;i++)perim+=hav(ring[i-1],ring[i])*1000;
- if(perim<=0){pts.push(ring[0]);return pts;}
-
- const budget=Math.max(4,Math.min(max-1,Math.ceil(perim/PROBE_STEP_M)));
- const step=perim/budget;
-
+ return perim;
+}
+function sampleRing(ring,budget,pts,max){
+ const perim=ringPerimeterM(ring);
+ if(perim<=0){if(pts.length<max)pts.push(ring[0]);return;}
+ const step=perim/Math.max(1,budget);
  let acc=0,next=0;
- pts.push(ring[0]);
- for(let i=1;i<ring.length;i++){
+ if(pts.length<max)pts.push(ring[0]);
+ for(let i=1;i<ring.length&&pts.length<max;i++){
    const a=ring[i-1],b=ring[i];
    const segM=hav(a,b)*1000;
    if(segM<=0)continue;
@@ -3686,7 +3701,24 @@ function geomProbePoints(g,center,max=PROBE_MAX_PTS){
      next+=step;
    }
    acc+=segM;
-   if(pts.length>=max)break;
+ }
+}
+const PROBE_STEP_M=60;
+const PROBE_MAX_PTS=90;
+function geomProbePoints(g,center,max=PROBE_MAX_PTS){
+ const pts=[];
+ if(center)pts.push(center);
+ const rings=geomRings(g);
+ if(!rings.length)return pts;
+
+ const perims=rings.map(ringPerimeterM);
+ const totalPerim=perims.reduce((a,b)=>a+b,0);
+ if(totalPerim<=0){for(const r of rings)if(pts.length<max)pts.push(r[0]);return pts;}
+
+ const totalBudget=Math.max(rings.length*2,Math.min(max-1,Math.ceil(totalPerim/PROBE_STEP_M)));
+ for(let i=0;i<rings.length&&pts.length<max;i++){
+   const localBudget=Math.max(2,Math.round(totalBudget*perims[i]/totalPerim));
+   sampleRing(rings[i],localBudget,pts,max);
  }
  return pts;
 }
@@ -6615,45 +6647,72 @@ function speciesDisplayScore(type,f){
  return clamp(Math.min(speciesEffective(type,f),potential));
 }
 
-function diversityData(f){
- ensurePerfCache();
- if(perfDiversityCache.has(f))return perfDiversityCache.get(f);
-
+// v72 FIX: diversityData() (popup/legenda) i stableDiversityPotential()
+// (kolor mapy w trybie POTENCJAL, przez stableAnchorScore) liczyly
+// "roznorodnosc" DWOMA roznymi wzorami: inny prog kwalifikacji (7.2 vs 6.6),
+// inna funkcja bazowa (stableScoreForType z domieszka kontekstu lasu vs czysty
+// stableSpeciesPotential) i inna krzywa wyniku. Efekt: popup mogl pokazac
+// "2 nisze, 4.9/10", a kolor tego samego wydzielenia byl liczony z drugiego
+// modelu i wychodzil ~6-7/10. Teraz jest jedno zrodlo prawdy dla czesci
+// POTENCJALOWEJ; DZIS ma nadal wlasna sciezke z osobnym progiem "dzis>=6.8",
+// bo to inne pytanie (nie "co tu rosnie", tylko "co tu rosnie WLASNIE TERAZ").
+function diversityPotentialRows(f){
  const rows=[];
  for(const t of PICK_TYPES){
    if(!featureRelevant(t,f))continue;
-
    const potential=stableScoreForType(t,f);
-   const today=mapMode==='habitat'?potential:speciesDisplayScore(t,f);
-   const qualifies=mapMode==='habitat'
-     ? potential>=7.2
-     : (potential>=7.2&&today>=6.8);
-
-   if(qualifies){
-     rows.push({
-       type:t,
-       potential,
-       today,
-       score:mapMode==='habitat'?potential:today
-     });
-   }
+   if(potential>=7.2)rows.push({type:t,potential});
  }
-
- rows.sort((a,b)=>b.score-a.score);
+ rows.sort((a,b)=>b.potential-a.potential);
+ return rows;
+}
+function diversityScoreFromPotentialRows(rows){
  const taxaCount=rows.length;
+ if(!taxaCount)return {count:0,taxaCount:0,score:0,groupIds:[]};
  const groupIds=[...new Set(rows.map(r=>diversityGroupKey(r.type)))];
  const count=groupIds.length;
- const avg=taxaCount
-   ? rows.slice(0,Math.min(6,taxaCount)).reduce((a,x)=>a+x.score,0)/Math.min(6,taxaCount)
-   : 0;
-
+ const avg=rows.slice(0,Math.min(6,taxaCount)).reduce((a,x)=>a+x.potential,0)/Math.min(6,taxaCount);
  // Skala pod liczbe NISZ SIEDLISKOWYCH (realnie 0-8 dla wydzielenia lesnego).
  let score=piecewise(count,[
    [0,0],[1,3.0],[2,4.9],[3,6.4],[4,7.6],[5,8.6],[6,9.4],[7,9.8],[8,10]
  ]);
  if(count)score=clamp(score+(avg-8)*.10);
+ return {count,taxaCount,score,groupIds};
+}
 
- const out={count,taxaCount,score,rows,groups:groupIds.map(diversityGroupLabel)};
+function diversityData(f){
+ ensurePerfCache();
+ if(perfDiversityCache.has(f))return perfDiversityCache.get(f);
+
+ let out;
+ if(mapMode==='habitat'){
+   // Ta sama sciezka co stableDiversityPotential() nizej — jedno zrodlo prawdy.
+   const potRows=diversityPotentialRows(f);
+   const core=diversityScoreFromPotentialRows(potRows);
+   const rows=potRows.map(r=>({type:r.type,potential:r.potential,today:r.potential,score:r.potential}));
+   out={count:core.count,taxaCount:core.taxaCount,score:core.score,rows,groups:core.groupIds.map(diversityGroupLabel)};
+ }else{
+   const rows=[];
+   for(const t of PICK_TYPES){
+     if(!featureRelevant(t,f))continue;
+     const potential=stableScoreForType(t,f);
+     const today=speciesDisplayScore(t,f);
+     if(potential>=7.2&&today>=6.8)rows.push({type:t,potential,today,score:today});
+   }
+   rows.sort((a,b)=>b.score-a.score);
+   const taxaCount=rows.length;
+   const groupIds=[...new Set(rows.map(r=>diversityGroupKey(r.type)))];
+   const count=groupIds.length;
+   const avg=taxaCount
+     ? rows.slice(0,Math.min(6,taxaCount)).reduce((a,x)=>a+x.score,0)/Math.min(6,taxaCount)
+     : 0;
+   let score=piecewise(count,[
+     [0,0],[1,3.0],[2,4.9],[3,6.4],[4,7.6],[5,8.6],[6,9.4],[7,9.8],[8,10]
+   ]);
+   if(count)score=clamp(score+(avg-8)*.10);
+   out={count,taxaCount,score,rows,groups:groupIds.map(diversityGroupLabel)};
+ }
+
  perfDiversityCache.set(f,out);
  return out;
 }
@@ -7883,12 +7942,9 @@ function stableAllType(f){
 }
 
 function stableDiversityPotential(f){
- const rows=[],types=[];
- for(const t of PICK_TYPES){if(featureRelevant(t,f)){const s=stableSpeciesPotential(t,f);if(s>=6.6){rows.push(s);types.push(t);}}}
- rows.sort((a,b)=>b-a);if(!rows.length)return 0;
- const count=countDiversityGroups(types);
- const avg=rows.slice(0,Math.min(6,rows.length)).reduce((a,b)=>a+b,0)/Math.min(6,rows.length);
- return clamp(piecewise(count,[[0,0],[1,4.2],[2,6.0],[3,7.2],[4,8.2],[5,9.0],[6,9.5],[7,9.8],[8,10]])+(avg-7.5)*.12);
+ // v72 FIX: dawniej wlasny prog (6.6) i wlasna krzywa, rozjezdzajace sie
+ // z diversityData() pokazywanym w popupie. Teraz to samo zrodlo.
+ return diversityScoreFromPotentialRows(diversityPotentialRows(f)).score;
 }
 
 function prepareForestGrid(){
@@ -8590,7 +8646,12 @@ function balancedClass(f){
  // v65 FIX: skala kwantylowa chronila tylko przed falszywym TOP-em.
  // Na dobrym obszarze obiektywnie mocne wydzielenie wpadalo w "odpusc"
  // tylko dlatego, ze sasiedzi byli jeszcze lepsi. Teraz jest symetrycznie.
- return Math.max(c, absoluteClassFloor(s));
+ // v72 FIX: brakowalo drugiego argumentu, wiec Roznorodnosc+Potencjal zawsze
+ // dostawala progi dla 'potential' (8.15/7.60/6.90) zamiast dla 'diversity'
+ // (8.60/7.30/5.60) — w praktyce podloga rzadko sie aktywowala tam, gdzie
+ // powinna, a mogla falszywie zadzialac przy niskich wynikach roznorodnosci.
+ const floorKind=currentFilter==='diversity'?'diversity':'potential';
+ return Math.max(c, absoluteClassFloor(s,floorKind));
 }
 
 // v56 — audyt i kalibracja skali kolorów.

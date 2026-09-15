@@ -8526,26 +8526,26 @@ const UNIFIED_COLOR_BANDS=[
   '#c78f72',
   '#ca8850',
   '#ae6a32',
-  '#a39f46',
-  '#718c41',
-  '#54ab5d',
-  '#2a914d',
-  '#116f38'
+  '#9ca347',
+  '#6f9445',
+  '#45c97a',
+  '#1fab63',
+  '#0d7a44'
 ];
 
 const UNIFIED_STROKE_BANDS=[
   {weight:0.00, opacity:0.00},
   {weight:0.00, opacity:0.00},
-  {weight:0.04, opacity:0.08},
-  {weight:0.10, opacity:0.18},
-  {weight:0.18, opacity:0.26},
-  {weight:0.30, opacity:0.38},
-  {weight:0.54, opacity:0.52},
-  {weight:0.82, opacity:0.70},
-  {weight:1.15, opacity:0.82},
-  {weight:1.50, opacity:0.90},
-  {weight:1.85, opacity:0.96},
-  {weight:2.25, opacity:1.00}
+  {weight:0.05, opacity:0.10},
+  {weight:0.12, opacity:0.20},
+  {weight:0.22, opacity:0.30},
+  {weight:0.36, opacity:0.42},
+  {weight:0.62, opacity:0.56},
+  {weight:0.92, opacity:0.74},
+  {weight:1.30, opacity:0.86},
+  {weight:1.75, opacity:0.93},
+  {weight:2.05, opacity:0.98},
+  {weight:2.45, opacity:1.00}
 ];
 
 function mixHexColor(a,b,t){
@@ -8781,6 +8781,17 @@ function auditVisibleLowBands(){
  return report;
 }
 window.auditVisibleLowBands=auditVisibleLowBands;
+
+function auditGreenContrast(){
+ const greenBands=[8,9,10,11];
+ const rows=greenBands.map(i=>({band:i,color:UNIFIED_COLOR_BANDS[i],strokeWeight:UNIFIED_STROKE_BANDS[i].weight,strokeOpacity:UNIFIED_STROKE_BANDS[i].opacity}));
+ const report={version:'v69', note:'Jaśniejsze zielenie przesunięte w bardziej nasycony, chłodniejszy kierunek; górne bandy mają mocniejszy obrys.'};
+ console.info('GREEN CONTRAST AUDIT', report);
+ console.table(rows);
+ return {report, rows};
+}
+window.auditGreenContrast=auditGreenContrast;
+
 
 window.auditSingleSpeciesTodayCalibration=auditSingleSpeciesTodayCalibration;
 

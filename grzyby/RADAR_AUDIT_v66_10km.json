@@ -1,0 +1,208 @@
+{
+  "version": "v66",
+  "sourceUpload": "output 2.zip",
+  "realRadarData": {
+    "generatedAt": "2026-09-15T12:28:57Z",
+    "cellKm": 10.0,
+    "forestCells": 4165,
+    "species": 19,
+    "source": "BDL Wydzielenia layers 5+6, grouped by dominant tree/site/age"
+  },
+  "finding": "10 km radar gives much denser national coverage. v66 keeps national percentile calibration but hides the weakest tail and adds a blurred underlay to reduce the chessboard effect.",
+  "rendering": {
+    "nationalPercentileWeight": 0.88,
+    "absoluteScoreWeight": 0.12,
+    "mainVisibilityCutoff": 0.2,
+    "glowVisibilityCutoff": 0.24,
+    "mainMaxOpacity": 0.42,
+    "glowMaxOpacity": 0.23,
+    "maxZoom": 10,
+    "blurPanePx": 8
+  },
+  "speciesRawDistributions": {
+    "borowik": {
+      "label": "Borowik szlachetny",
+      "cells": 4165,
+      "min": 3.66,
+      "p10": 7.58,
+      "median": 8.35,
+      "p90": 8.48,
+      "max": 8.57
+    },
+    "borowik_sosnowy": {
+      "label": "Borowik sosnowy",
+      "cells": 4165,
+      "min": 3.57,
+      "p10": 6.03,
+      "median": 8.18,
+      "p90": 8.44,
+      "max": 8.63
+    },
+    "borowik_usiatkowany": {
+      "label": "Borowik usiatkowany",
+      "cells": 4165,
+      "min": 3.66,
+      "p10": 5.67,
+      "median": 5.94,
+      "p90": 7.87,
+      "max": 8.47
+    },
+    "ceglastopory": {
+      "label": "Krasnoborowik ceglastopory",
+      "cells": 4165,
+      "min": 3.66,
+      "p10": 6.91,
+      "median": 7.67,
+      "p90": 7.84,
+      "max": 8.47
+    },
+    "kozlarz_babka": {
+      "label": "Koźlarz babka",
+      "cells": 4165,
+      "min": 3.11,
+      "p10": 4.92,
+      "median": 5.2,
+      "p90": 5.32,
+      "max": 7.91
+    },
+    "kozlarz_czerwony": {
+      "label": "Koźlarz czerwony",
+      "cells": 4165,
+      "min": 3.11,
+      "p10": 4.6,
+      "median": 5.14,
+      "p90": 5.18,
+      "max": 7.79
+    },
+    "kozlarz_pomaranczowozolty": {
+      "label": "Koźlarz pomarańczowożółty",
+      "cells": 4165,
+      "min": 3.11,
+      "p10": 4.93,
+      "median": 5.2,
+      "p90": 5.33,
+      "max": 7.92
+    },
+    "kurka": {
+      "label": "Kurka",
+      "cells": 4165,
+      "min": 3.69,
+      "p10": 7.6,
+      "median": 8.36,
+      "p90": 8.49,
+      "max": 8.57
+    },
+    "maslak_pstry": {
+      "label": "Maślak pstry",
+      "cells": 4165,
+      "min": 2.98,
+      "p10": 5.11,
+      "median": 8.25,
+      "p90": 8.62,
+      "max": 8.81
+    },
+    "maslak_sitarz": {
+      "label": "Maślak sitarz",
+      "cells": 4165,
+      "min": 2.85,
+      "p10": 5.07,
+      "median": 8.2,
+      "p90": 8.6,
+      "max": 8.76
+    },
+    "maslak_zolty": {
+      "label": "Maślak żółty",
+      "cells": 4165,
+      "min": 2.93,
+      "p10": 4.2,
+      "median": 5.1,
+      "p90": 5.15,
+      "max": 7.03
+    },
+    "maslak_zwyczajny": {
+      "label": "Maślak zwyczajny",
+      "cells": 4165,
+      "min": 2.93,
+      "p10": 5.1,
+      "median": 8.24,
+      "p90": 8.62,
+      "max": 8.79
+    },
+    "mleczaj_swierkowy": {
+      "label": "Mleczaj świerkowy",
+      "cells": 4165,
+      "min": 3.08,
+      "p10": 3.96,
+      "median": 4.22,
+      "p90": 4.25,
+      "max": 4.35
+    },
+    "opienka_ciemna": {
+      "label": "Opieńka ciemna",
+      "cells": 4165,
+      "min": 4.38,
+      "p10": 6.93,
+      "median": 7.69,
+      "p90": 7.82,
+      "max": 7.92
+    },
+    "opienka_miodowa": {
+      "label": "Opieńka miodowa",
+      "cells": 4165,
+      "min": 4.38,
+      "p10": 6.56,
+      "median": 6.72,
+      "p90": 7.6,
+      "max": 7.94
+    },
+    "podgrzybek": {
+      "label": "Podgrzybek brunatny",
+      "cells": 4165,
+      "min": 3.67,
+      "p10": 7.35,
+      "median": 8.3,
+      "p90": 8.47,
+      "max": 8.62
+    },
+    "ponury": {
+      "label": "Modroborowik ponury",
+      "cells": 4165,
+      "min": 3.54,
+      "p10": 5.52,
+      "median": 5.74,
+      "p90": 7.82,
+      "max": 8.47
+    },
+    "rydz": {
+      "label": "Mleczaj rydz",
+      "cells": 4165,
+      "min": 2.97,
+      "p10": 5.11,
+      "median": 8.26,
+      "p90": 8.63,
+      "max": 8.82
+    },
+    "siedzun_sosnowy": {
+      "label": "Siedzuń sosnowy",
+      "cells": 4165,
+      "min": 4.38,
+      "p10": 6.54,
+      "median": 7.64,
+      "p90": 7.81,
+      "max": 7.92
+    }
+  },
+  "coreLogicUnchanged": {
+    "function buildHotspots()": true,
+    "function buildTodayHotspots()": true,
+    "function activeHotspots()": true,
+    "function balancedClass(f)": true,
+    "function todayBalancedClass(f,sOverride=NaN)": true,
+    "function bestTodayInfo(f)": true,
+    "function diversityData(f)": true,
+    "function speciesEffective(type,f)": true,
+    "function stableAnchorScore(f)": true,
+    "function stableAllType(f)": true
+  },
+  "jsSyntax": "OK"
+}

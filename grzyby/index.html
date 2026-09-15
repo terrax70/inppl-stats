@@ -3535,11 +3535,17 @@ const obsGroup=L.layerGroup();
 const openGroup=L.layerGroup();
 const selectionGroup=L.layerGroup().addTo(map);
 const nationalTopGroup=L.layerGroup().addTo(map);
-// v64 — statyczny radar całej Polski, generowany offline przez radar_poland_builder.
+// v66 — statyczny radar całej Polski, generowany offline przez radar_poland_builder.
+map.createPane('nationalRadarGlowPane');
+map.getPane('nationalRadarGlowPane').style.zIndex='205';
+map.getPane('nationalRadarGlowPane').style.pointerEvents='none';
+map.getPane('nationalRadarGlowPane').style.filter='blur(8px)';
+map.getPane('nationalRadarGlowPane').style.opacity='.9';
 map.createPane('nationalRadarPane');
 map.getPane('nationalRadarPane').style.zIndex='210';
 map.getPane('nationalRadarPane').style.pointerEvents='none';
 const nationalRadarGroup=L.layerGroup().addTo(map);
+const nationalRadarGlowRenderer=L.canvas({padding:.35,pane:'nationalRadarGlowPane'});
 const nationalRadarRenderer=L.canvas({padding:.25,pane:'nationalRadarPane'});
 
 function syncAreaMeta(){
@@ -11364,14 +11370,14 @@ function perfRenderNow(){
  };
 }
 
-// ========================= v65: RADAR POLSKI — REALNE DANE + KALIBRACJA KRAJOWA =========================
+// ========================= v66: RADAR POLSKI — 10 KM + PERCENTYLE + ŁAGODNIEJSZY RENDER =========================
 // Dane są policzone jednorazowo przez radar_poland_builder i zapisane w data/radar.
-// Kluczowa zmiana względem v64: kolor nie opiera się już wyłącznie na surowym wyniku.
-// Dla każdego wybranego gatunku liczymy pozycję komórki na tle WSZYSTKICH komórek leśnych Polski.
-// Dzięki temu radar odpowiada przede wszystkim na pytanie: "gdzie ten gatunek ma RELATYWNIE najlepszy teren w Polsce?".
+// v66 korzysta z gęstszej siatki 10 km, ale nadal zachowuje lekki render i krajową kalibrację.
+// Kolor odpowiada głównie pozycji danego miejsca na tle wszystkich komórek leśnych Polski.
+// Widoczność dołu jest ograniczona, żeby radar nie zamalowywał całej mapy słabymi obszarami.
 
 const NATIONAL_RADAR_BASE='./data/radar';
-const NATIONAL_RADAR_MAX_ZOOM=9;
+const NATIONAL_RADAR_MAX_ZOOM=10;
 
 let nationalRadarIndex=null;
 let nationalRadarIndexPromise=null;
@@ -11442,61 +11448,29 @@ async function nationalRadarDataForTarget(target){
 
 function nationalRadarRowRawScore(row,target){
  if(target.kind==='species')return Number(row?.[7]);
- if(target.kind==='diversity'){
-   // overview: [id,s,w,n,e,lat,lon,forest,coverage,best,bestType,diversity]
-   return Number(row?.[11]||0);
- }
+ if(target.kind==='diversity')return Number(row?.[11]||0);
  return Number(row?.[9]);
 }
+function nationalRadarRowCoverage(row,target){return Number(target.kind==='species'?row?.[14]:row?.[8])||0;}
+function nationalRadarRowForest(row,target){return Number(target.kind==='species'?row?.[13]:row?.[7])||0;}
+function nationalRadarRowQuality(row,target){return Number(target.kind==='species'?row?.[8]:row?.[9]);}
+function nationalRadarRowGoodShare(row,target){return target.kind==='species' ? Number(row?.[12]||0) : 0;}
+function nationalRadarRowBounds(row){return [[Number(row?.[1]),Number(row?.[2])],[Number(row?.[3]),Number(row?.[4])]];}
+function nationalRadarClamp01(x){return Math.max(0,Math.min(1,Number(x)||0));}
+function nationalRadarSmoothstep(a,b,x){ if(!(b>a))return x>=b?1:0; const t=nationalRadarClamp01((x-a)/(b-a)); return t*t*(3-2*t); }
 
-function nationalRadarRowCoverage(row,target){
- return Number(target.kind==='species'?row?.[14]:row?.[8])||0;
-}
-
-function nationalRadarRowForest(row,target){
- return Number(target.kind==='species'?row?.[13]:row?.[7])||0;
-}
-
-function nationalRadarRowQuality(row,target){
- if(target.kind==='species')return Number(row?.[8]);
- return Number(row?.[9]);
-}
-
-function nationalRadarRowGoodShare(row,target){
- return target.kind==='species' ? Number(row?.[12]||0) : 0;
-}
-
-function nationalRadarRowBounds(row){
- return [[Number(row?.[1]),Number(row?.[2])],[Number(row?.[3]),Number(row?.[4])]];
-}
-
-function nationalRadarClamp01(x){
- return Math.max(0,Math.min(1,Number(x)||0));
-}
-
-function nationalRadarSmoothstep(a,b,x){
- if(!(b>a))return x>=b?1:0;
- const t=nationalRadarClamp01((x-a)/(b-a));
- return t*t*(3-2*t);
-}
-
-// Średnia pozycja dla remisów. Jest ważna np. dla różnorodności, która ma wartości dyskretne.
 function nationalRadarPercentileRanks(items,keyFn){
- const sorted=items
-   .map((x,i)=>({x,i,k:keyFn(x)}))
-   .sort((a,b)=>{
-     const ak=a.k,bk=b.k;
-     for(let j=0;j<Math.max(ak.length,bk.length);j++){
-       const d=(Number(ak[j])||0)-(Number(bk[j])||0);
-       if(d)return d;
-     }
-     return a.i-b.i;
-   });
-
+ const sorted=items.map((x,i)=>({x,i,k:keyFn(x)})).sort((a,b)=>{
+   const ak=a.k,bk=b.k;
+   for(let j=0;j<Math.max(ak.length,bk.length);j++){
+     const d=(Number(ak[j])||0)-(Number(bk[j])||0);
+     if(d)return d;
+   }
+   return a.i-b.i;
+ });
  const pct=new Array(items.length).fill(.5);
  const n=sorted.length;
  if(!n)return pct;
-
  let i=0;
  while(i<n){
    let j=i+1;
@@ -11524,8 +11498,7 @@ function nationalRadarAbsoluteStrength(raw,target){
    const total=Math.max(1,Number(nationalRadarIndex?.species?.length||19));
    return nationalRadarClamp01(raw/Math.min(15,total));
  }
- // Surowe statyczne wyniki modelu najczęściej mieszczą się mniej więcej w 4–9.
- return nationalRadarClamp01((raw-4.5)/(8.8-4.5));
+ return nationalRadarClamp01((raw-4.6)/(8.9-4.6));
 }
 
 function nationalRadarPrepare(data,target){
@@ -11543,8 +11516,6 @@ function nationalRadarPrepare(data,target){
  })).filter(x=>Number.isFinite(x.raw));
 
  const ranks=nationalRadarPercentileRanks(base,x=>{
-   // Ranking jest przede wszystkim wg jakości gatunku.
-   // Dodatkowe pola rozstrzygają bardzo podobne/remisowe komórki.
    if(target.kind==='diversity')return [x.raw,x.quality,x.coverage,x.forest];
    return [x.raw,x.quality,x.good,x.coverage,x.forest];
  });
@@ -11553,15 +11524,13 @@ function nationalRadarPrepare(data,target){
    const percentile=ranks[i];
    const absolute=nationalRadarAbsoluteStrength(x.raw,target);
 
-   // 82% pozycji krajowej + 18% wartości absolutnej.
-   // Dzięki temu topowe miejsca dla "trudnego" gatunku nadal są widoczne,
-   // ale bardzo słaby absolutnie gatunek nie dostaje identycznej zieleni jak realne 8.5/10.
-   const visual=nationalRadarClamp01(.82*percentile+.18*absolute);
+   // Mocniej stawiamy na ranking krajowy niż na sam surowy wynik.
+   const visual=nationalRadarClamp01(.88*percentile+.12*absolute);
 
-   // Kolor mówi "jak wysoko w Polsce"; krycie dodatkowo uwzględnia ilość lasu w komórce.
-   // Udział lasu nie zmienia biologicznego rankingu — wpływa tylko na pewność/siłę plamy.
-   const forestFactor=.48+.52*Math.sqrt(nationalRadarClamp01(x.coverage/.40));
-   const relevance=nationalRadarClamp01(visual*forestFactor);
+   // Ilość lasu nie zmienia miejsca w rankingu, ale wpływa na to, jak silnie komórka ma być widoczna.
+   const coverageFactor=.42+.58*Math.sqrt(nationalRadarClamp01(x.coverage/.42));
+   const forestFactor=.48+.52*Math.sqrt(nationalRadarClamp01(x.forest/900));
+   const relevance=nationalRadarClamp01(visual*coverageFactor*.75 + visual*forestFactor*.25);
 
    return {...x,percentile,absolute,visual,relevance};
  });
@@ -11591,8 +11560,6 @@ function nationalRadarColorVisual(v){
  const bands=(typeof UNIFIED_COLOR_BANDS!=='undefined'&&Array.isArray(UNIFIED_COLOR_BANDS)&&UNIFIED_COLOR_BANDS.length)
    ?UNIFIED_COLOR_BANDS
    :['#f2efe8','#e8dfd2','#d5c2b0','#d7b39d','#c78f72','#ca8850','#ae6a32','#a39f46','#718c41','#54ab5d','#2a914d','#116f38'];
-
- // Dolna część mapy jest celowo pomijana. Radar ma wskazywać miejsca warte uwagi, nie zamalować całą Polskę.
  const p=nationalRadarClamp01((v-.10)/.90);
  const idx=Math.max(0,Math.min(bands.length-1,Math.floor(p*bands.length)));
  return bands[idx]||bands[bands.length-1];
@@ -11600,20 +11567,31 @@ function nationalRadarColorVisual(v){
 
 function nationalRadarOpacityVisual(x){
  const v=x.visual;
- if(!Number.isFinite(v)||v<.14)return 0;
+ if(!Number.isFinite(v)||v<.20)return 0;
+ let alpha=.03 + .48*nationalRadarSmoothstep(.20,.98,v);
+ const coverageFactor=.45+.55*Math.sqrt(nationalRadarClamp01(x.coverage/.40));
+ const forestFactor=.55+.45*Math.sqrt(nationalRadarClamp01(x.forest/850));
+ alpha*=coverageFactor*forestFactor;
+ return Math.max(0,Math.min(.42,alpha));
+}
 
- // TOP kraju ma być czytelny, ale nie "neonowy".
- let alpha=.055+.67*nationalRadarSmoothstep(.14,.98,v);
+function nationalRadarGlowOpacityVisual(x){
+ const v=x.visual;
+ if(!Number.isFinite(v)||v<.24)return 0;
+ let alpha=.035 + .22*nationalRadarSmoothstep(.24,.98,v);
+ const coverageFactor=.55+.45*Math.sqrt(nationalRadarClamp01(x.coverage/.42));
+ const forestFactor=.62+.38*Math.sqrt(nationalRadarClamp01(x.forest/900));
+ alpha*=coverageFactor*forestFactor;
+ return Math.max(0,Math.min(.23,alpha));
+}
 
- // Gdy w 20-km komórce jest mało lasu, plama jest słabsza.
- const forestFactor=.52+.48*Math.sqrt(nationalRadarClamp01(x.coverage/.35));
- alpha*=forestFactor;
-
- // Bardzo mały fragment lasu nie powinien tworzyć mocnej plamy radaru.
- if(x.forest<150)alpha*=.45;
- else if(x.forest<500)alpha*=.70;
-
- return Math.max(0,Math.min(.72,alpha));
+function nationalRadarExpandedBounds(bounds,ratio=.14){
+ const s=bounds?.[0],n=bounds?.[1];
+ if(!s||!n)return bounds;
+ const lat0=Number(s[0]), lng0=Number(s[1]), lat1=Number(n[0]), lng1=Number(n[1]);
+ const dLat=(lat1-lat0)*ratio;
+ const dLng=(lng1-lng0)*ratio;
+ return [[lat0-dLat,lng0-dLng],[lat1+dLat,lng1+dLng]];
 }
 
 function nationalRadarApplyLegend(target){
@@ -11630,19 +11608,15 @@ function nationalRadarApplyLegend(target){
  else if(target.kind==='diversity')title.textContent='Radar Polski • różnorodność';
  else title.textContent='Radar Polski • najlepsze tereny';
 
- // To jest statyczny potencjał BDL. Nie udajemy tutaj pogody "DZIŚ".
  mode.textContent='POTENCJAŁ';
 
  const bands=(typeof UNIFIED_COLOR_BANDS!=='undefined'&&Array.isArray(UNIFIED_COLOR_BANDS)&&UNIFIED_COLOR_BANDS.length)
    ?UNIFIED_COLOR_BANDS
    :['#f2efe8','#e8dfd2','#d5c2b0','#d7b39d','#c78f72','#ca8850','#ae6a32','#a39f46','#718c41','#54ab5d','#2a914d','#116f38'];
  const n=bands.length,parts=[];
- bands.forEach((fill,i)=>{
-   const a=i/n*100,b=(i+1)/n*100;
-   parts.push(`${fill} ${a.toFixed(1)}%`,`${fill} ${b.toFixed(1)}%`);
- });
+ bands.forEach((fill,i)=>{ const a=i/n*100,b=(i+1)/n*100; parts.push(`${fill} ${a.toFixed(1)}%`,`${fill} ${b.toFixed(1)}%`); });
  bar.style.background=`linear-gradient(90deg,${parts.join(',')})`;
- setLegendWords(['słabiej','przeciętnie','dobrze','bardzo dobrze','TOP Polska']);
+ setLegendWords(['słabo','przeciętnie','dobrze','bardzo dobrze','TOP Polska']);
 }
 
 async function refreshNationalRadar(){
@@ -11674,27 +11648,43 @@ async function refreshNationalRadar(){
    const prepared=nationalRadarPrepare(data,target);
    nationalRadarGroup.clearLayers();
 
-   let shown=0;
-   let top10=0;
+   let shown=0, shownGlow=0, top10=0;
    for(const x of prepared.rows){
      const opacity=nationalRadarOpacityVisual(x);
-     if(!(opacity>0))continue;
+     const glowOpacity=nationalRadarGlowOpacityVisual(x);
+     if(!(opacity>0 || glowOpacity>0))continue;
 
      const bounds=nationalRadarRowBounds(x.row);
      if(!bounds.flat().every(Number.isFinite))continue;
 
-     L.rectangle(bounds,{
-       pane:'nationalRadarPane',
-       renderer:nationalRadarRenderer,
-       interactive:false,
-       stroke:false,
-       fill:true,
-       fillColor:nationalRadarColorVisual(x.visual),
-       fillOpacity:opacity
-     }).addTo(nationalRadarGroup);
+     const fillColor=nationalRadarColorVisual(x.visual);
 
-     shown++;
-     if(x.percentile>=.90)top10++;
+     if(glowOpacity>0){
+       L.rectangle(nationalRadarExpandedBounds(bounds,.18),{
+         pane:'nationalRadarGlowPane',
+         renderer:nationalRadarGlowRenderer,
+         interactive:false,
+         stroke:false,
+         fill:true,
+         fillColor,
+         fillOpacity:glowOpacity
+       }).addTo(nationalRadarGroup);
+       shownGlow++;
+     }
+
+     if(opacity>0){
+       L.rectangle(bounds,{
+         pane:'nationalRadarPane',
+         renderer:nationalRadarRenderer,
+         interactive:false,
+         stroke:false,
+         fill:true,
+         fillColor,
+         fillOpacity:opacity
+       }).addTo(nationalRadarGroup);
+       shown++;
+       if(x.percentile>=.90)top10++;
+     }
    }
 
    nationalRadarLastKey=key;
@@ -11702,6 +11692,7 @@ async function refreshNationalRadar(){
    nationalRadarLastStats={
      ...prepared.stats,
      shown,
+     shownGlow,
      top10,
      target:target.kind==='species'?target.type:target.kind
    };
@@ -11724,7 +11715,7 @@ map.on('zoomend',scheduleNationalRadarRefresh);
 function auditNationalRadar(){
  const target=nationalRadarIndex?nationalRadarTarget():null;
  const report={
-   version:'v65-percentile-calibration',
+   version:'v66-10km-percentile-calibration',
    available:!!nationalRadarIndex,
    missing:nationalRadarMissing,
    error:nationalRadarLastError,
@@ -11741,14 +11732,13 @@ function auditNationalRadar(){
    zoom:map.getZoom(),
    maxZoom:NATIONAL_RADAR_MAX_ZOOM,
    cachedFiles:[...nationalRadarCache.keys()],
-   note:'Kolor = głównie percentyl krajowy. Krycie = percentyl + udział/ilość lasu. Radar jest statycznym potencjałem BDL, nie pogodą DZIŚ.'
+   note:'Kolor = głównie percentyl krajowy. Widoczne są głównie komórki od mniej więcej średnich wzwyż. Dodatkowy blur łagodzi efekt szachownicy.'
  };
  console.info('NATIONAL RADAR AUDIT',report);
  return report;
 }
 window.auditNationalRadar=auditNationalRadar;
 
-// Debug konkretnej warstwy: pokazuje surowe wyniki i ich krajowe percentyle.
 async function auditNationalRadarDistribution(type=null){
  await ensureNationalRadarIndex();
  const target=type?{kind:'species',type}:nationalRadarTarget();

@@ -1,13 +1,13 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v84: Największy wybór przywrócony wizualnie do v82;
-     poprawiana jest wyłącznie czytelność Najlepszej szansy.
-     v83 zmienilo palete różnorodności i przez to zepsulo sprawdzony wyglad tego trybu.
-     v84 wraca do wspólnej palety v82, ale w "Najlepszej szansie" stosuje fokus wizualny:
-     odpuść/rezerwowo są spokojniejsze, WARTO i TOP mocniej nasycone, TOP ma wyraźniejszy
-     obrys. Nie zmienia to klas, score, hotspotów ani semantyki; tylko sprawia, że mapa
-     odpowiedzi "gdzie iść" ma silniejszą hierarchię niż tło słabszych wydzieleń. -->
+<!-- GitHub production v85: mocny fokus "Najlepszej szansy" bez ruszania "Największego wyboru".
+     Audyt v84 potwierdzil poprawne przelaczanie stylu, ale screeny pokazaly, ze roznica byla
+     za mala: duza liczba ciemnych polygonow w "Największym wyborze" nadal optycznie wygrywala.
+     v85 nie dotyka ani jednego progu/koloru/logiki trybu wyboru. Zmienia TYLKO render BEST:
+     klasy 0-1 mocno schodza w tlo, srednia jest spokojna, WARTO dostaje wyrazny zielony sygnal,
+     a TOP mocne wypelnienie + grubszy obrys. Celem jest odpowiedz wzrokiem: "gdzie isc".
+     Scoring, klasy, hotspoty, DZIŚ<=POTENCJAŁ i radar PL pozostaja bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -8502,30 +8502,47 @@ function auditModeSemanticsUI(){
 }
 
 function auditBestChanceVisualFocus(){
+ const best=bestChanceVisualActive();
  const rows=[];
+ const colors=activeMapColorBands();
+
  for(let c=0;c<=4;c++){
-   const bands=unifiedClassBandRange(c);
-   const sampleBand=Math.round((bands[0]+bands[1])/2);
-   const colors=activeMapColorBands();
+   const [lo,hi]=unifiedClassBandRange(c);
+   const band=Math.round((lo+hi)/2);
+   const baseFill=[0.030,0.050,0.095,0.135,0.185,0.245,0.315,0.410,0.525,0.610,0.680,0.745][band];
+
+   let approx=baseFill;
+   if(best){
+     if(c===0)approx=Math.min(baseFill*.30,.055);
+     else if(c===1)approx=Math.min(baseFill*.44,.105);
+     else if(c===2)approx=Math.min(baseFill*.82,.285);
+     else if(c===3)approx=Math.max(.50,Math.min(.72,baseFill*1.28));
+     else if(c===4)approx=Math.max(.68,Math.min(.79,baseFill*1.38));
+   }
+
    rows.push({
      class:c,
      label:UNIFIED_MAP_LEVELS[c]?.label||c,
-     sampleBand,
-     color:colors[sampleBand],
-     mode:bestChanceVisualActive()?'BEST focus':'standard'
+     sampleBand:band,
+     color:colors[band],
+     approxFillOpacity:Number(approx.toFixed(3)),
+     mode:best?'BEST strong focus':'standard v82'
    });
  }
+
  const report={
-   version:'v84',
+   version:'v85',
    filter:currentFilter,
    mapMode,
-   bestChanceVisual:bestChanceVisualActive(),
-   note:'Największy wybór używa dokładnie standardowego wyglądu v82; fokus dotyczy tylko Najlepszej szansy.'
+   bestChanceVisual:best,
+   diversityUntouched:currentFilter==='diversity'&&!atlasSelected.size,
+   rule:'Największy wybór = standard v82. Tylko Najlepsza szansa ma silny fokus klas 3–4.'
  };
  console.table(rows);
  console.info('BEST CHANCE VISUAL FOCUS',report);
  return report;
 }
+window.auditBestChanceVisualFocus=auditBestChanceVisualFocus;
 window.auditBestChanceVisualFocus=auditBestChanceVisualFocus;
 
 window.auditModeSemanticsUI=auditModeSemanticsUI;
@@ -9250,18 +9267,18 @@ const UNIFIED_COLOR_BANDS=[
 // Najlepsza szansa dostaje tylko mocniej rozciągniętą górę skali,
 // żeby "warto / TOP" były natychmiast widoczne na tle słabszych pól.
 const BEST_CHANCE_COLOR_BANDS=[
-  '#f2efe8',
-  '#e8dfd2',
-  '#d5c2b0',
-  '#d7b39d',
-  '#c78f72',
-  '#ca8850',
-  '#ae6a32',
-  '#98a43e',
-  '#61a84c',
-  '#35c968',
-  '#13aa58',
-  '#05753d'
+  '#f3f1ec',
+  '#ebe6dd',
+  '#dccfc2',
+  '#d8b8a8',
+  '#c89478',
+  '#c98951',
+  '#ad6a32',
+  '#9ca341',
+  '#4fa653',
+  '#26bd58',
+  '#0c9648',
+  '#045f32'
 ];
 
 function bestChanceVisualActive(){
@@ -9702,22 +9719,34 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  // v84: fokus wizualny tylko dla "Najlepszej szansy".
  // Nie zmieniamy klasy ani bandu — tylko ich siłę na ekranie.
  if(isBest){
-   if(c<=1){
-     fillOpacity*=.64;
-     weight*=.72;
-     opacity*=.72;
+   if(c===0){
+     // "Odpuść" ma być tylko kontekstem mapy, nie sygnałem.
+     fillOpacity=Math.min(fillOpacity*.30,.055);
+     weight=0;
+     opacity=0;
+     border='transparent';
+   }else if(c===1){
+     // Rezerwowo: nadal widoczne, ale wyraźnie drugoplanowe.
+     fillOpacity=Math.min(fillOpacity*.44,.105);
+     weight*=.38;
+     opacity*=.48;
    }else if(c===2){
-     fillOpacity*=.88;
-     weight*=.90;
+     // Średnio: neutralny poziom przejściowy.
+     fillOpacity=Math.min(fillOpacity*.82,.285);
+     weight*=.82;
+     opacity*=.86;
    }else if(c===3){
-     fillOpacity=Math.min(.79,fillOpacity*1.12);
-     weight*=1.12;
-     opacity=Math.min(1,opacity*1.08);
+     // Warto: pierwszy poziom, który ma realnie przyciągać wzrok.
+     fillOpacity=Math.max(.50,Math.min(.72,fillOpacity*1.28));
+     weight=Math.max(1.15,weight*1.24);
+     opacity=Math.max(.78,Math.min(1,opacity*1.12));
+     border=border==='transparent'?'#2d5b32':mixHexColor(border,'#103d24',.28);
    }else if(c===4){
-     fillOpacity=Math.min(.79,fillOpacity*1.22);
-     weight=Math.max(weight*1.22,1.45);
-     opacity=Math.max(opacity,.90);
-     border=border==='transparent'?'#173d27':mixHexColor(border,'#062d1a',.38);
+     // TOP: zdecydowanie najmocniejszy sygnał na mapie.
+     fillOpacity=Math.max(.68,Math.min(.79,fillOpacity*1.38));
+     weight=Math.max(2.05,weight*1.34);
+     opacity=Math.max(.96,opacity);
+     border=border==='transparent'?'#0b3b20':mixHexColor(border,'#031f12',.52);
    }
  }
 
@@ -9759,7 +9788,14 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
 
    // Najważniejsza ochrona v68: widoczny band nie może zostać "wyzerowany"
    // przez species fade ani benchmark krajowy.
-   fillOpacity=Math.max(visibleFloorByBand[band]||0,fillOpacity);
+   if(isBest&&c<=1){
+     // W BEST celowo pozwalamy słabym klasom zejść poniżej ogólnego floor,
+     // inaczej po wcześniejszym przygaszeniu znowu robiły się zbyt widoczne.
+     const bestWeakFloor=c===0?0.018:0.055;
+     fillOpacity=Math.max(bestWeakFloor,fillOpacity);
+   }else{
+     fillOpacity=Math.max(visibleFloorByBand[band]||0,fillOpacity);
+   }
  }
 
  // 3) Benchmark krajowy zostal wyzej przeniesiony na przesuniecie pasma,
@@ -9774,7 +9810,7 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
 
  if(f?._hotspotIndex){
    if(f._hotspotBest){
-     weight=Math.max(weight,isBest?2.20:1.90);
+     weight=Math.max(weight,isBest?2.55:1.90);
      opacity=Math.max(opacity,.94);
      border=border==='transparent' ? '#345740' : mixHexColor(border,'#09361f',.46);
      fillOpacity=Math.min(.79,fillOpacity+.025);
@@ -9837,7 +9873,7 @@ function updateScoreLegend(){
  el.classList.add('visible');
  el.setAttribute('aria-hidden','false');
  title.textContent=currentLegendTitle();
- mode.textContent=mapMode==='today'?'DZIŚ':'POTENCJAŁ';
+ mode.textContent=(mapMode==='today'?'DZIŚ':'POTENCJAŁ')+(bestChanceVisualActive()?' • GDZIE IŚĆ':'');
  bar.style.background=unifiedLegendGradient();
  if(currentFilter==='diversity'&&!atlasSelected.size){
    setLegendWords(['mała','ograniczona','średnia','duża','bardzo duża']);
@@ -14423,10 +14459,10 @@ function updateSpeciesMeta(){
      'Ciemniejsza zieleń oznacza większy wybór różnych środowisk/grup grzybów.</span>';
    return;
  }
- box.innerHTML='<b>🍄 Najlepsza szansa = gdzie przede wszystkim warto iść</b><br>'+
-   '<span style="opacity:.82">Dla każdego wydzielenia mapa wybiera najmocniejszy pojedynczy gatunek. '+
-   'Słabe pola są celowo przygaszone, a WARTO/TOP mocniej wyróżnione, żeby mapa prowadziła wzrok do najlepszych miejsc. '+
-   '80% oznacza indeks 8.0/10 — to <b>nie jest</b> gwarantowane 80% prawdopodobieństwa znalezienia owocnika.</span>';
+ box.innerHTML='<b>🍄 Najlepsza szansa = mapa decyzji „gdzie iść”</b><br>'+
+   '<span style="opacity:.82">Dla każdego wydzielenia wybierany jest najmocniejszy pojedynczy gatunek. '+
+   '<b>WARTO i TOP są celowo dużo mocniejsze wizualnie</b>; odpuść/rezerwowo schodzą w tło. '+
+   '80% oznacza indeks 8.0/10 — to nie jest gwarantowane 80% prawdopodobieństwa znalezienia owocnika.</span>';
 }
 document.getElementById('speciesSelect').onchange=async e=>{
  atlasHoverTypes.clear();

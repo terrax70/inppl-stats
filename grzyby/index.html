@@ -1,14 +1,13 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v74: kalibracja BEST/Najlepsze miejsce w DZIS i POTENCJALE.
-     Problem v73: tryb ALL wybiera najlepszy gatunek osobno dla kazdego wydzielenia, wiec
-     surowe wyniki sa naturalnie wysokie. Absolutna PODLOGA klas podbijala wtedy ogromna
-     czesc lasu do zieleni i mapa przestawala wskazywac, gdzie naprawde jest najlepiej.
-     v74: BEST jest przede wszystkim rankingiem WZGLEDNYM w obrebie analizowanego rejonu:
-     q30/q58/q80/q95 dla POTENCJALU oraz q25/q55/q78/q94 dla DZIS, z absolutnymi SUFITAMI
-     zamiast podlog. Roznorodnosc, pojedyncze gatunki, scoring biologiczny i radar PL bez zmian.
-     Zachowane wszystkie poprawki v71-v73 oraz moduly v66-v70. -->
+<!-- GitHub production v75: TOP w trybie Najlepsze miejsce z adaptacyjnym sufitem.
+     v74 poprawnie rozdzielilo las percentylami, ale absolutne progi TOP (7.85 POTENCJAL,
+     7.65 DZIS) byly za wysokie wzgledem realnego rozkladu BEST i potrafily wyciac klase TOP
+     calkowicie. v75 zachowuje ranking q30/q58/q80/q95 oraz q25/q55/q78/q94, lecz obniza
+     jedynie SUFIT bezpieczenstwa: percentyl nadal decyduje KTO jest TOP, a absolutny wynik
+     blokuje TOP tylko w naprawde slabym rejonie. Najciemniejszy band jest rozciagany do max.
+     Roznorodnosc, pojedyncze gatunki, scoring biologiczny i radar PL pozostaja bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -8119,6 +8118,46 @@ function auditBestModeCalibration(){
  console.info('BEST MODE CALIBRATION',report);
  return report;
 }
+
+function auditBestTopAvailability(){
+ if(currentFilter!=='all'||atlasSelected.size){
+   const out={ok:false,reason:'Wyczysc atlas i wlacz Najlepsze miejsce.'};
+   console.warn('BEST TOP AVAILABILITY',out);
+   return out;
+ }
+ const today=mapMode==='today';
+ const perArea={};
+
+ for(const a of ANALYSIS_CENTERS){
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===a.name);
+   if(!feats.length)continue;
+
+   const scale=today?buildTodayScales()[a.name]:buildBalancedScales()[a.name];
+   const rows=feats.map(f=>{
+     const score=today?todayScoreForStyle(f):stableAnchorScore(f);
+     const cls=today?todayBalancedClass(f,score):balancedClass(f);
+     const progress=unifiedWithinClassProgress(f,cls,today,score);
+     return {score,cls,band:unifiedBandIndex(cls,progress)};
+   });
+
+   const topRows=rows.filter(x=>x.cls===4);
+   perArea[a.name]={
+     n:rows.length,
+     min:Number(Math.min(...rows.map(x=>x.score)).toFixed(2)),
+     max:Number(Math.max(...rows.map(x=>x.score)).toFixed(2)),
+     qTop:Number((today?(scale?.q94??NaN):(scale?.q95??NaN)).toFixed?.(2) ?? NaN),
+     topCount:topRows.length,
+     topPct:Number((100*topRows.length/Math.max(1,rows.length)).toFixed(1)),
+     darkestCount:rows.filter(x=>x.band===11).length
+   };
+ }
+ const report={ok:true,version:'v75',mode:mapMode,perArea};
+ console.table(perArea);
+ console.info('BEST TOP AVAILABILITY',report);
+ return report;
+}
+window.auditBestTopAvailability=auditBestTopAvailability;
+
 window.auditBestModeCalibration=auditBestModeCalibration;
 
 window.auditDiversitySingleSource=auditDiversitySingleSource;
@@ -8762,13 +8801,15 @@ function balancedClass(f){
    else if(s>=scale.q58)c=2;
    else if(s>=scale.q30)c=1;
 
-   // Absolutny wynik jest tylko SUFITEM bezpieczeństwa:
-   // najlepsze ze słabych nie może stać się TOP-em.
+   // v75: absolutny wynik jest tylko SUFITEM bezpieczeństwa.
+   // q95 już ogranicza TOP do ~5% najlepszych wydzieleń w rejonie, więc próg 7.85
+   // był drugim, zbyt ostrym filtrem i potrafił usunąć TOP całkowicie.
+   // Teraz TOP jest blokowany dopiero wtedy, gdy nawet absolutnie wynik jest słaby.
    let cap=0;
-   if(s>=7.85)cap=4;
-   else if(s>=7.10)cap=3;
-   else if(s>=6.35)cap=2;
-   else if(s>=5.55)cap=1;
+   if(s>=6.45)cap=4;
+   else if(s>=5.85)cap=3;
+   else if(s>=5.20)cap=2;
+   else if(s>=4.55)cap=1;
 
    return Math.min(c,cap);
  }
@@ -9453,12 +9494,14 @@ function todayBalancedClass(f,sOverride=NaN){
    else if(s>=scale.q55)todayClass=2;
    else if(s>=scale.q25)todayClass=1;
 
-   // Surowy wynik może tylko ograniczyć zbyt optymistyczną klasę.
+   // v75: q94 już wybiera tylko ścisłą czołówkę DZIŚ.
+   // Próg 7.65 był za wysoki i potrafił wyciąć klasę TOP mimo bardzo dobrych
+   // warunków względnych. Absolutny cap zostaje jako veto tylko dla naprawdę słabego dnia.
    let absoluteCap=0;
-   if(s>=7.65)absoluteCap=4;
-   else if(s>=6.95)absoluteCap=3;
-   else if(s>=6.20)absoluteCap=2;
-   else if(s>=5.25)absoluteCap=1;
+   if(s>=5.95)absoluteCap=4;
+   else if(s>=5.35)absoluteCap=3;
+   else if(s>=4.70)absoluteCap=2;
+   else if(s>=3.95)absoluteCap=1;
 
    const info=bestTodayInfo(f);
    return Math.min(todayClass,absoluteCap,info.potentialClass,balancedClass(f));

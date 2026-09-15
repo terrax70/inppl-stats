@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v61: nationwide BDL benchmark + exact TOP Poland candidate locations -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2941,6 +2942,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
+<style id="v61-national-top-ui">.national-top-panel{position:fixed;inset:0;z-index:2600;background:rgba(7,12,9,.46);display:none;align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(3px)}.national-top-panel.open{display:flex}.national-top-shell{width:min(980px,96vw);max-height:min(820px,92vh);display:flex;flex-direction:column;border:1px solid rgba(255,255,255,.13);border-radius:18px;background:#131b16;color:#eef5ef;box-shadow:0 24px 70px rgba(0,0,0,.45);overflow:hidden;font-family:Inter,Segoe UI,Arial,sans-serif}.national-top-head{display:flex;justify-content:space-between;gap:18px;padding:17px 18px 13px;border-bottom:1px solid rgba(255,255,255,.09);background:linear-gradient(180deg,#1a251e,#151e18)}.national-top-kicker{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:#91a99a;font-weight:900}.national-top-title{font-size:21px;font-weight:950;margin-top:3px}.national-top-sub{margin-top:5px;font-size:11px;line-height:1.35;color:#aebcb3;max-width:760px}#nationalTopClose{width:38px;height:38px;border-radius:12px;border:1px solid rgba(255,255,255,.13);background:#202b24;color:#fff;font-size:25px;line-height:1;cursor:pointer}.national-top-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.07);background:#111813}.national-top-status{font-size:11px;color:#c1cec5}.national-top-status.busy{color:#f1d57c}.national-top-status.err{color:#ff9c8d}#nationalTopRebuild{border:1px solid #3d5546;background:#1d2b22;color:#e9f3ec;border-radius:9px;padding:7px 10px;font-weight:850;cursor:pointer}.national-top-body{overflow:auto;padding:13px;display:grid;gap:13px}.national-species-section{border:1px solid rgba(255,255,255,.09);border-radius:14px;background:#18221b;overflow:hidden}.national-species-head{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.07)}.national-species-head img{width:36px;height:36px;object-fit:contain}.national-species-name{font-size:14px;font-weight:950}.national-species-meta{font-size:9px;color:#9fb0a5;margin-top:2px}.national-rank-list{display:grid;gap:7px;padding:9px}.national-rank-row{display:grid;grid-template-columns:42px 1fr auto;gap:10px;align-items:center;border:1px solid rgba(255,255,255,.07);border-radius:11px;background:#111914;padding:8px 9px}.national-rank-no{font-size:16px;font-weight:950;color:#e5d36d;text-align:center}.national-rank-main{min-width:0}.national-rank-title{font-size:11px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.national-rank-details{font-size:9px;color:#9fafa4;margin-top:3px;line-height:1.35}.national-rank-score{display:flex;align-items:center;gap:7px}.national-rank-score b{font-size:16px;color:#8ed19f}.national-rank-score small{display:block;color:#91a096;font-size:8px}.national-rank-show{border:1px solid #45624f;background:#1e3025;color:#eaf4ed;border-radius:8px;padding:6px 8px;font-size:9px;font-weight:900;cursor:pointer}.national-rank-empty{padding:14px;color:#a9b7ae;font-size:11px}.national-top-foot{padding:9px 14px 12px;color:#899990;font-size:9px;line-height:1.4;border-top:1px solid rgba(255,255,255,.07)}.national-top-map-label{background:#102118!important;color:#fff!important;border:1px solid #80c993!important;border-radius:7px!important;box-shadow:0 4px 12px rgba(0,0,0,.24)!important;font-weight:900!important}@media(max-width:700px){.national-top-panel{padding:0;align-items:flex-end}.national-top-shell{width:100%;max-height:88vh;border-radius:18px 18px 0 0}.national-top-title{font-size:17px}.national-top-sub{font-size:10px}.national-rank-row{grid-template-columns:34px 1fr}.national-rank-score{grid-column:2;justify-content:space-between}.national-rank-show{margin-left:auto}.national-top-foot{font-size:8px}}</style>
 </head>
 
 <style>
@@ -3227,6 +3229,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
       <button id="atlasPrev" class="atlas-scroll-btn" type="button" title="Przewiń w lewo">◀</button>
       <button id="atlasNext" class="atlas-scroll-btn" type="button" title="Przewiń w prawo">▶</button>
       <button id="atlasClear" type="button">Wyczyść</button>
+      <button id="nationalTopOpen" type="button" title="Najlepsze modelowo miejsca w Polsce dla wybranych gatunków">TOP Polska</button>
       <a href="https://www.nagrzyby.pl/atlas" target="_blank" rel="noopener noreferrer">Atlas online</a>
       <button id="atlasToggle" type="button">Zwiń</button>
     </div>
@@ -3237,6 +3240,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   </div>
 </div>
 
+<div id="nationalTopPanel" class="national-top-panel" aria-hidden="true"><div class="national-top-shell"><div class="national-top-head"><div><div class="national-top-kicker">Ranking krajowy BDL</div><div class="national-top-title">TOP Polska dla wybranych grzybów</div><div class="national-top-sub">Statyczny ranking modelowy: gospodarz + siedlisko + wiek drzewostanu. Pogoda „DZIŚ” nie zmienia kolejności krajowej.</div></div><button id="nationalTopClose" type="button" aria-label="Zamknij">×</button></div><div class="national-top-toolbar"><div id="nationalTopStatus" class="national-top-status">Wybierz gatunek w atlasie.</div><button id="nationalTopRebuild" type="button">Przelicz</button></div><div id="nationalTopBody" class="national-top-body"></div><div class="national-top-foot">„#1” oznacza najlepszy kandydat według statycznego modelu BDL wśród konkretnych wydzieleń. Przy identycznym siedlisku większe wydzielenie służy wyłącznie jako tie-breaker. To nie jest gwarancja aktualnych owocników.</div></div></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const CENTER = [52.0692,19.4803]; // geometryczny środek Polski — tylko startowy widok mapy
@@ -3530,6 +3534,7 @@ function scheduleSpeciesHintLayout(){
 const obsGroup=L.layerGroup();
 const openGroup=L.layerGroup();
 const selectionGroup=L.layerGroup().addTo(map);
+const nationalTopGroup=L.layerGroup().addTo(map);
 
 function syncAreaMeta(){
  for(const k of Object.keys(AREA_META))delete AREA_META[k];
@@ -5832,6 +5837,9 @@ async function main(){
      st.innerHTML=`⚠️ Tryb awaryjny: pokazuję <b>${feats.length}</b> wydzieleń z BDL 5/6. Końcowy ranking pojawi się za chwilę.`;
    }
 
+   // Krajowy benchmark BDL liczy się w tle i nie blokuje pierwszego renderu.
+   startNationalBenchmarkInBackground();
+
    // Wszystkie enrichmenty lecą równolegle i podczas pierwszego ładowania
    // nie wywołują osobnych renderów.
    deferSecondaryRenders=true;
@@ -6721,6 +6729,318 @@ function verdictRankCapFromMapClass(c){
 }
 
 
+
+// v60 — KRAJOWY BENCHMARK BDL.
+//
+// Zamiast pobierać miliony poligonów z całej Polski, prosimy ArcGIS BDL o
+// zagregowanie CAŁEJ krajowej bazy wydzieleń po trzech polach, które mają
+// największy udział w statycznym potencjale gatunku:
+//   - dominujący gatunek drzewa,
+//   - typ siedliskowy lasu,
+//   - wiek drzewostanu.
+//
+// Dostajemy więc kilka-kilkanaście tysięcy kombinacji + ich liczebność,
+// a nie miliony geometrii. Na tej podstawie budujemy dla każdego grzyba
+// ważony rozkład "BDL core potential" i percentyl krajowy.
+//
+// To jest DODATKOWA kalibracja względna. Nie zastępuje gleby, mikroterenu,
+// pogody ani lokalnego rankingu. W praktycznej punktacji działa jako
+// umiarkowany mnożnik ok. 0.84–1.10.
+
+const NATIONAL_BENCHMARK_VERSION='bdl-pl-v2-top-combos';
+const NATIONAL_BENCHMARK_CACHE_KEY='grzyby:national-benchmark:'+NATIONAL_BENCHMARK_VERSION;
+const NATIONAL_BENCHMARK_MAX_AGE_MS=365*24*3600*1000;
+const NATIONAL_BENCHMARK_BIN_STEP=.05;
+const NATIONAL_BENCHMARK_BIN_COUNT=201;
+
+let nationalBenchmark=null;
+let nationalBenchmarkState='idle'; // idle | loading | ready | error
+let nationalBenchmarkPromise=null;
+let nationalBenchmarkLastError='';
+
+function nationalBenchmarkSupportsType(type){
+ const m=SPECIES_META[type];
+ return !!m && m.collect!==false && (m.ecology==='mycorrhiza'||m.ecology==='wood');
+}
+
+function nationalCorePotentialForProps(type,props){
+ const m=SPECIES_META[type];
+ if(!m||!nationalBenchmarkSupportsType(type))return NaN;
+
+ // Celowo bez geometrii / gleby / DEM / obserwacji. Porównujemy wyłącznie
+ // komponent BDL, bo dokładnie takie dane możemy policzyć dla całej Polski.
+ const f={
+   _kind:'forest',
+   _nearSpecies:[],
+   _ko:false,
+   properties:{
+     species_cd_d:props?.species_cd_d||props?.species_cd||props?.gat_grp||'',
+     species_cd:props?.species_cd||props?.species_cd_d||props?.gat_grp||'',
+     gat_grp:props?.gat_grp||props?.species_cd_d||props?.species_cd||'',
+     site_type_cd:props?.site_type_cd||'',
+     species_age:Number(props?.species_age||0),
+     sub_area:Number(props?.sub_area||0)
+   }
+ };
+
+ const age=ageSuitability(type,Number(f.properties.species_age||0));
+ const tree=treePreference(type,f);
+ const gate=hostGate(type,f)*10;
+ const hab=stableHabitatScore(type,f);
+ const soil=7; // neutralny — benchmark dotyczy BDL, nie SoilGrids
+ const terr=7; // neutralny — benchmark dotyczy BDL, nie DEM
+
+ let s=0;
+ if(m.ecology==='mycorrhiza'){
+   if(STRICT_HOST_TYPES.has(type)){
+     s=.34*tree+.12*age+.24*gate+.10*hab+.15*soil+.05*terr;
+   }else{
+     s=.32*tree+.13*age+.17*gate+.13*hab+.18*soil+.07*terr;
+   }
+ }else if(m.ecology==='wood'){
+   const old=piecewise(Number(f.properties.species_age||0),[
+     [0,4],[20,5.5],[50,8],[100,9.3],[150,9]
+   ]);
+   const stump=6.1; // neutralny brak informacji KO/KDO w benchmarku grupowym
+   s=.30*tree+.20*old+.12*hab+.12*soil+.06*terr+.20*stump;
+ }
+ return clamp(s);
+}
+
+function nationalCorePotentialForFeature(type,f){
+ if(!f||f._kind==='open')return NaN;
+ return nationalCorePotentialForProps(type,f.properties||{});
+}
+
+function nationalHistogramQuantile(hist,total,q){
+ if(!Array.isArray(hist)||!total)return NaN;
+ const target=Math.max(0,Math.min(1,q))*total;
+ let cum=0;
+ for(let i=0;i<hist.length;i++){
+   cum+=Number(hist[i]||0);
+   if(cum>=target)return i*NATIONAL_BENCHMARK_BIN_STEP;
+ }
+ return 10;
+}
+
+function nationalPercentileFromHistogram(profile,score){
+ if(!profile||!Array.isArray(profile.hist)||!profile.total||!Number.isFinite(score))return NaN;
+ const idx=Math.max(0,Math.min(profile.hist.length-1,Math.round(score/NATIONAL_BENCHMARK_BIN_STEP)));
+ let below=0;
+ for(let i=0;i<idx;i++)below+=Number(profile.hist[i]||0);
+ const same=Number(profile.hist[idx]||0);
+ return Math.max(0,Math.min(100,100*(below+.5*same)/profile.total));
+}
+
+function nationalQualityFactor(percentile){
+ if(!Number.isFinite(percentile))return 1;
+ // Celowo umiarkowany zakres. Benchmark ma kalibrować, a nie ponownie liczyć
+ // całe siedlisko i dublować wpływ gospodarza / wieku / typu lasu.
+ return piecewise(percentile,[
+   [0,.84],[5,.85],[10,.87],[25,.91],[40,.94],[50,.96],
+   [65,.99],[75,1.01],[85,1.04],[92,1.06],[97,1.08],[99,1.09],[100,1.10]
+ ]);
+}
+
+function nationalBenchmarkInfo(type,f){
+ if(!nationalBenchmarkSupportsType(type)||!f||f._kind==='open'){
+   return {ready:true,supported:false,percentile:NaN,factor:1,core:NaN,state:'not-applicable'};
+ }
+ const core=nationalCorePotentialForFeature(type,f);
+ if(!nationalBenchmark||nationalBenchmarkState!=='ready'){
+   return {ready:false,supported:true,percentile:NaN,factor:1,core,state:nationalBenchmarkState};
+ }
+ const profile=nationalBenchmark.types?.[type];
+ if(!profile?.total){
+   return {ready:true,supported:true,percentile:NaN,factor:1,core,state:'missing-profile'};
+ }
+ const percentile=nationalPercentileFromHistogram(profile,core);
+ const factor=nationalQualityFactor(percentile);
+ return {
+   ready:true,
+   supported:true,
+   percentile,
+   factor,
+   core,
+   state:'ready',
+   q10:profile.q10,q25:profile.q25,q50:profile.q50,q75:profile.q75,q90:profile.q90,q97:profile.q97,
+   sample:profile.total
+ };
+}
+
+function readNationalBenchmarkCache(){
+ try{
+   const raw=localStorage.getItem(NATIONAL_BENCHMARK_CACHE_KEY);
+   if(!raw)return null;
+   const obj=JSON.parse(raw);
+   if(!obj||obj.version!==NATIONAL_BENCHMARK_VERSION||!obj.types)return null;
+   return obj;
+ }catch(_){return null;}
+}
+
+function writeNationalBenchmarkCache(obj){
+ try{localStorage.setItem(NATIONAL_BENCHMARK_CACHE_KEY,JSON.stringify(obj));}catch(_){ }
+}
+
+async function fetchNationalGroupedBdlLayer(layerId){
+ const rows=[];
+ let offset=0;
+ let page=0;
+
+ while(true){
+   const stats=[{
+     statisticType:'count',
+     onStatisticField:'adress_forest',
+     outStatisticFieldName:'n'
+   }];
+   const q=new URLSearchParams({
+     where:'1=1',
+     outStatistics:JSON.stringify(stats),
+     groupByFieldsForStatistics:'species_cd_d,site_type_cd,species_age',
+     orderByFields:'species_cd_d ASC,site_type_cd ASC,species_age ASC',
+     returnGeometry:'false',
+     resultOffset:String(offset),
+     resultRecordCount:'2000',
+     f:'json'
+   });
+   const url=`${BDL_BASE}/${layerId}/query?${q}`;
+   const js=await prodFetchJson(url,{
+     timeoutMs:22000,
+     tries:3,
+     policy:{ttl:30*86400e3,stale:365*86400e3}
+   });
+   if(js?.error)throw new Error(`BDL benchmark layer ${layerId}: ${js.error.message||'błąd statystyk'}`);
+   const feats=js?.features||[];
+   for(const ft of feats){
+     const a=ft?.attributes||ft?.properties||{};
+     const n=Number(a.n||0);
+     if(n>0)rows.push({
+       species_cd_d:a.species_cd_d||'',
+       site_type_cd:a.site_type_cd||'',
+       species_age:Number(a.species_age||0),
+       n
+     });
+   }
+   page++;
+   if(feats.length<2000 && !js?.exceededTransferLimit)break;
+   offset+=feats.length;
+   if(page>35)throw new Error(`BDL benchmark layer ${layerId}: zbyt dużo stron agregacji`);
+   // oddaj klatkę UI — benchmark ma być niewidocznym zadaniem w tle
+   await new Promise(r=>setTimeout(r,0));
+ }
+ return rows;
+}
+
+async function buildNationalBenchmarkFromGroups(groups){
+ const types=PICK_TYPES.filter(nationalBenchmarkSupportsType),histByType={};
+ for(const t of types)histByType[t]=new Array(NATIONAL_BENCHMARK_BIN_COUNT).fill(0);
+ let totalRecords=0;const comboMap=new Map();
+ for(const row of groups){const w=Math.max(0,Number(row.n||0));if(!w)continue;totalRecords+=w;const combo={species_cd_d:String(row.species_cd_d||''),site_type_cd:String(row.site_type_cd||''),species_age:Number(row.species_age||0)};const key=`${combo.species_cd_d}|${combo.site_type_cd}|${combo.species_age}`;const prev=comboMap.get(key);if(prev)prev.n+=w;else comboMap.set(key,{...combo,n:w});}
+ const combos=[...comboMap.values()];
+ for(let i=0;i<combos.length;i++){const row=combos[i],props={species_cd_d:row.species_cd_d,site_type_cd:row.site_type_cd,species_age:row.species_age};for(const type of types){const score=nationalCorePotentialForProps(type,props);if(!Number.isFinite(score))continue;const bin=Math.max(0,Math.min(NATIONAL_BENCHMARK_BIN_COUNT-1,Math.round(score/NATIONAL_BENCHMARK_BIN_STEP)));histByType[type][bin]+=row.n;}if(i%500===0)await new Promise(r=>setTimeout(r,0));}
+ const profiles={};
+ for(const type of types){const hist=histByType[type],total=hist.reduce((a,b)=>a+Number(b||0),0);const baseProfile={hist,total,q10:nationalHistogramQuantile(hist,total,.10),q25:nationalHistogramQuantile(hist,total,.25),q50:nationalHistogramQuantile(hist,total,.50),q75:nationalHistogramQuantile(hist,total,.75),q90:nationalHistogramQuantile(hist,total,.90),q97:nationalHistogramQuantile(hist,total,.97)};const topCombos=combos.map(c=>{const core=nationalCorePotentialForProps(type,c);return {species_cd_d:c.species_cd_d,site_type_cd:c.site_type_cd,species_age:c.species_age,n:c.n,core,percentile:nationalPercentileFromHistogram(baseProfile,core)};}).filter(x=>Number.isFinite(x.core)).sort((a,b)=>b.core-a.core||b.n-a.n).slice(0,30);profiles[type]={...baseProfile,topCombos};}
+ return {version:NATIONAL_BENCHMARK_VERSION,builtAt:Date.now(),source:'BDL layers 5+6 • nationwide grouped statistics + concrete TOP candidates',groupedRows:groups.length,uniqueCombos:combos.length,totalRecords,types:profiles};
+}
+
+async function ensureNationalBenchmark({force=false}={}){
+ if(nationalBenchmarkPromise&&!force)return nationalBenchmarkPromise;
+ nationalBenchmarkPromise=(async()=>{
+   try{
+     nationalBenchmarkState='loading';
+     nationalBenchmarkLastError='';
+
+     const cached=readNationalBenchmarkCache();
+     if(cached&&!force){
+       nationalBenchmark=cached;
+       nationalBenchmarkState='ready';
+       const age=Date.now()-Number(cached.builtAt||0);
+       // Świeży cache = koniec. Stary cache działa od razu, ale odświeżamy w tle.
+       if(age<=NATIONAL_BENCHMARK_MAX_AGE_MS)return cached;
+     }
+
+     const [a,b]=await Promise.all([
+       fetchNationalGroupedBdlLayer(5),
+       fetchNationalGroupedBdlLayer(6)
+     ]);
+     const built=await buildNationalBenchmarkFromGroups([...a,...b]);
+     nationalBenchmark=built;
+     nationalBenchmarkState='ready';
+     writeNationalBenchmarkCache(built);
+     return built;
+   }catch(e){
+     nationalBenchmarkLastError=String(e?.message||e);
+     if(nationalBenchmark){
+       // Stary cache jest lepszy niż brak kalibracji.
+       nationalBenchmarkState='ready';
+       return nationalBenchmark;
+     }
+     nationalBenchmarkState='error';
+     console.warn('National BDL benchmark',e);
+     return null;
+   }
+ })();
+ return nationalBenchmarkPromise;
+}
+
+function startNationalBenchmarkInBackground(){
+ ensureNationalBenchmark().then(b=>{
+   if(!b)return;
+   try{
+     // Mnożnik praktyczny może zmienić ranking kart / werdykt w otwartym panelu.
+     if(allFeatures.length){
+       render();
+       refreshUnifiedDetails({preserveScroll:true,flash:true});
+       updateAtlasHead();
+     }
+   }catch(e){console.warn('National benchmark refresh',e);}
+ });
+}
+
+async function rebuildNationalBenchmark(){
+ try{localStorage.removeItem(NATIONAL_BENCHMARK_CACHE_KEY);}catch(_){ }
+ nationalBenchmark=null;
+ nationalBenchmarkState='idle';
+ nationalBenchmarkPromise=null;
+ const out=await ensureNationalBenchmark({force:true});
+ if(out&&allFeatures.length){
+   try{render();refreshUnifiedDetails({preserveScroll:true,flash:true});updateAtlasHead();}catch(_){ }
+ }
+ return out;
+}
+window.rebuildNationalBenchmark=rebuildNationalBenchmark;
+
+// v61 — KONKRETNE TOP MIEJSCA W POLSCE DLA GATUNKU.
+const NATIONAL_TOP_VERSION='bdl-top-pl-v1';
+const NATIONAL_TOP_CACHE_KEY='grzyby:national-top:'+NATIONAL_TOP_VERSION;
+const NATIONAL_TOP_MAX_AGE_MS=365*24*3600*1000;
+const NATIONAL_TOP_LIMIT=10;
+const NATIONAL_TOP_PER_LAYER_COMBO=14;
+let nationalTopCache=null,nationalTopBusy=false,nationalTopLastError='';
+function readNationalTopCache(){try{const raw=localStorage.getItem(NATIONAL_TOP_CACHE_KEY);if(!raw)return {version:NATIONAL_TOP_VERSION,builtAt:Date.now(),types:{}};const obj=JSON.parse(raw);if(!obj||obj.version!==NATIONAL_TOP_VERSION||!obj.types)return {version:NATIONAL_TOP_VERSION,builtAt:Date.now(),types:{}};return obj;}catch(_){return {version:NATIONAL_TOP_VERSION,builtAt:Date.now(),types:{}};}}
+function writeNationalTopCache(){try{localStorage.setItem(NATIONAL_TOP_CACHE_KEY,JSON.stringify(nationalTopCache));}catch(_){}}
+function ensureNationalTopCache(){if(!nationalTopCache)nationalTopCache=readNationalTopCache();return nationalTopCache;}
+function nationalTopCacheFresh(entry){return !!entry?.builtAt&&Date.now()-Number(entry.builtAt)<NATIONAL_TOP_MAX_AGE_MS&&Array.isArray(entry.items);}
+function sqlQuote(v){return `'${String(v??'').replace(/'/g,"''")}'`;}
+function nationalComboWhere(c){const tree=String(c?.species_cd_d||''),site=String(c?.site_type_cd||''),age=Number(c?.species_age||0);return [tree?`species_cd_d=${sqlQuote(tree)}`:`(species_cd_d IS NULL OR species_cd_d='')`,site?`site_type_cd=${sqlQuote(site)}`:`(site_type_cd IS NULL OR site_type_cd='')`,`species_age=${Number.isFinite(age)?Math.round(age):0}`].join(' AND ');}
+async function fetchNationalTopComboLayer(type,combo,layerId){const q=new URLSearchParams({where:nationalComboWhere(combo),outFields:'subarea_id,adress_forest,species_cd_d,site_type_cd,species_age,sub_area',returnGeometry:'false',orderByFields:'sub_area DESC',resultRecordCount:String(NATIONAL_TOP_PER_LAYER_COMBO),f:'json'});const js=await prodFetchJson(`${BDL_BASE}/${layerId}/query?${q}`,{timeoutMs:18000,tries:2,policy:{ttl:30*86400e3,stale:365*86400e3}});if(js?.error)throw new Error(`BDL TOP ${layerId}: ${js.error.message||'błąd zapytania'}`);const profile=nationalBenchmark?.types?.[type],core=Number(combo.core),percentile=Number.isFinite(combo.percentile)?Number(combo.percentile):nationalPercentileFromHistogram(profile,core);return (js?.features||[]).map(ft=>{const a=ft?.attributes||ft?.properties||{};return {layerId,subarea_id:Number(a.subarea_id),adress_forest:String(a.adress_forest||''),species_cd_d:String(a.species_cd_d||combo.species_cd_d||''),site_type_cd:String(a.site_type_cd||combo.site_type_cd||''),species_age:Number(a.species_age||combo.species_age||0),sub_area:Number(a.sub_area||0),core,percentile};}).filter(x=>Number.isFinite(x.subarea_id));}
+function nationalTopCandidateSort(a,b){return b.core-a.core||b.sub_area-a.sub_area||b.percentile-a.percentile||a.subarea_id-b.subarea_id;}
+async function fetchNationalTopGeometry(items){const byLayer=new Map();for(const it of items){if(!byLayer.has(it.layerId))byLayer.set(it.layerId,[]);byLayer.get(it.layerId).push(it);}for(const [layerId,rows] of byLayer){const ids=rows.map(x=>x.subarea_id).filter(Number.isFinite);if(!ids.length)continue;const q=new URLSearchParams({where:`subarea_id IN (${ids.join(',')})`,outFields:'subarea_id',returnGeometry:'true',outSR:'4326',f:'json'});try{const js=await prodFetchJson(`${BDL_BASE}/${layerId}/query?${q}`,{timeoutMs:20000,tries:2,policy:{ttl:30*86400e3,stale:365*86400e3}});const lookup=new Map(rows.map(x=>[Number(x.subarea_id),x]));for(const ft of js?.features||[]){const id=Number((ft.attributes||{}).subarea_id),target=lookup.get(id),rings=ft?.geometry?.rings;if(!target||!Array.isArray(rings))continue;let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity,sx=0,sy=0,n=0;for(const ring of rings)for(const pt of ring||[]){const x=Number(pt?.[0]),y=Number(pt?.[1]);if(!Number.isFinite(x)||!Number.isFinite(y))continue;minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);sx+=x;sy+=y;n++;}if(n){target.centroid=[sy/n,sx/n];target.bbox=[minY,minX,maxY,maxX];}}}catch(e){console.warn('National TOP geometry enrichment',layerId,e);}}return items;}
+async function buildNationalTopForType(type,{force=false,limit=NATIONAL_TOP_LIMIT}={}){if(!nationalBenchmarkSupportsType(type))return {type,builtAt:Date.now(),unsupported:true,items:[]};await ensureNationalBenchmark();const profile=nationalBenchmark?.types?.[type];if(!profile?.topCombos?.length)throw new Error('Benchmark Polski nie ma listy najlepszych kombinacji. Przelicz benchmark.');const cache=ensureNationalTopCache(),cached=cache.types?.[type];if(!force&&nationalTopCacheFresh(cached))return cached;const candidates=[],seen=new Set(),combos=profile.topCombos.slice(0,24);for(let i=0;i<combos.length;i++){const combo=combos[i];const [a,b]=await Promise.all([fetchNationalTopComboLayer(type,combo,5).catch(()=>[]),fetchNationalTopComboLayer(type,combo,6).catch(()=>[])]);for(const item of [...a,...b]){const key=`${item.layerId}:${item.subarea_id}`;if(seen.has(key))continue;seen.add(key);candidates.push(item);}candidates.sort(nationalTopCandidateSort);if(candidates.length>=limit*2){const cutoff=candidates[Math.min(limit-1,candidates.length-1)]?.core??-Infinity,next=combos[i+1]?.core??-Infinity;if(next<cutoff-1e-9)break;if(i>=4)break;}await new Promise(r=>setTimeout(r,0));}const top=candidates.sort(nationalTopCandidateSort).slice(0,limit);await fetchNationalTopGeometry(top);const entry={type,builtAt:Date.now(),source:'BDL layers 5+6 • concrete subareas from nationwide TOP habitat combinations',candidateCount:candidates.length,items:top.map((x,i)=>({...x,rank:i+1}))};cache.types[type]=entry;cache.builtAt=Date.now();writeNationalTopCache();return entry;}
+async function fetchNationalTopFeatureGeometry(item){if(!item)return null;const q=new URLSearchParams({where:`subarea_id=${Number(item.subarea_id)}`,outFields:'subarea_id,adress_forest,species_cd_d,site_type_cd,species_age,sub_area',returnGeometry:'true',outSR:'4326',f:'json'});const js=await prodFetchJson(`${BDL_BASE}/${item.layerId}/query?${q}`,{timeoutMs:18000,tries:2,policy:{ttl:30*86400e3,stale:365*86400e3}});const ft=js?.features?.[0];if(!ft?.geometry?.rings)return null;return {type:'Feature',properties:ft.attributes||{},geometry:{type:'Polygon',coordinates:ft.geometry.rings}};}
+function nationalTopSelectedTypes(){if(atlasSelected.size)return [...atlasSelected];if(currentFilter!=='all'&&currentFilter!=='diversity')return [currentFilter];return [];}
+function openNationalTopPanel(){const p=document.getElementById('nationalTopPanel');if(!p)return;p.classList.add('open');p.setAttribute('aria-hidden','false');renderNationalTopPanel();}
+function closeNationalTopPanel(){const p=document.getElementById('nationalTopPanel');if(!p)return;p.classList.remove('open');p.setAttribute('aria-hidden','true');}
+function nationalTopStatus(msg,cls=''){const el=document.getElementById('nationalTopStatus');if(!el)return;el.textContent=msg;el.className='national-top-status'+(cls?' '+cls:'');}
+function nationalTopSectionHtml(type,entry){const m=SPECIES_META[type]||{};if(entry?.unsupported)return `<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(type)}" alt=""><div><div class="national-species-name">${escapeHtml(m.label||type)}</div><div class="national-species-meta">Poza leśnym benchmarkiem BDL.</div></div></div><div class="national-rank-empty">Dla tego gatunku ranking „najlepszy las w Polsce” nie jest liczony.</div></section>`;const rows=entry?.items||[];const list=rows.length?rows.map(x=>{const coord=Array.isArray(x.centroid)?`${x.centroid[0].toFixed(4)}, ${x.centroid[1].toFixed(4)}`:'lokalizacja po kliknięciu';return `<div class="national-rank-row"><div class="national-rank-no">#${x.rank}</div><div class="national-rank-main"><div class="national-rank-title">${escapeHtml(x.adress_forest||'Wydzielenie BDL')} • ${escapeHtml(x.species_cd_d||'?')} • ${escapeHtml(x.site_type_cd||'?')}</div><div class="national-rank-details">wiek ${Number(x.species_age||0)} lat • ${Number(x.sub_area||0).toFixed(2)} ha • P${Number(x.percentile||0).toFixed(1)} • ${coord}</div></div><div class="national-rank-score"><div><b>${Number(x.core||0).toFixed(2)}</b><small>rdzeń BDL /10</small></div><button class="national-rank-show" type="button" data-national-show="${type}|${x.layerId}|${x.subarea_id}">Pokaż</button></div></div>`;}).join(''):`<div class="national-rank-empty">Brak konkretnych kandydatów.</div>`;return `<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(type)}" alt=""><div><div class="national-species-name">${escapeHtml(m.label||type)}</div><div class="national-species-meta">TOP ${rows.length} konkretnych wydzieleń • ${entry?.candidateCount||0} kandydatów</div></div></div><div class="national-rank-list">${list}</div></section>`;}
+async function renderNationalTopPanel({force=false}={}){const body=document.getElementById('nationalTopBody');if(!body)return;const types=nationalTopSelectedTypes();if(!types.length){nationalTopStatus('Wybierz jeden lub kilka gatunków w atlasie.');body.innerHTML='<div class="national-rank-empty">Zaznacz gatunek w dolnym atlasie, a następnie kliknij „TOP Polska”.</div>';return;}if(nationalTopBusy)return;nationalTopBusy=true;nationalTopLastError='';nationalTopStatus(`Buduję ranking Polski dla ${types.length} gat.…`,'busy');body.innerHTML=types.map(t=>`<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(t)}" alt=""><div><div class="national-species-name">${escapeHtml(HUMAN_NAMES[t]||t)}</div><div class="national-species-meta">pobieranie kandydatów BDL…</div></div></div></section>`).join('');try{const entries=[];for(let i=0;i<types.length;i++){const type=types[i];nationalTopStatus(`Ranking Polski ${i+1}/${types.length}: ${HUMAN_NAMES[type]||type}…`,'busy');const entry=await buildNationalTopForType(type,{force});entries.push([type,entry]);body.innerHTML=entries.map(([t,e])=>nationalTopSectionHtml(t,e)).join('')+types.slice(i+1).map(t=>`<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(t)}" alt=""><div><div class="national-species-name">${escapeHtml(HUMAN_NAMES[t]||t)}</div><div class="national-species-meta">oczekuje…</div></div></div></section>`).join('');}nationalTopStatus(`Gotowe • ${types.length} gat. • wyniki zapisane lokalnie`);}catch(e){nationalTopLastError=String(e?.message||e);nationalTopStatus(`Błąd: ${nationalTopLastError}`,'err');console.warn('National TOP Poland',e);}finally{nationalTopBusy=false;}}
+async function showNationalTopPlace(type,layerId,subareaId){const cache=ensureNationalTopCache(),entry=cache.types?.[type],item=entry?.items?.find(x=>Number(x.layerId)===Number(layerId)&&Number(x.subarea_id)===Number(subareaId));if(!item)return;nationalTopStatus(`Otwieram #${item.rank} • ${HUMAN_NAMES[type]||type}…`,'busy');try{const gj=await fetchNationalTopFeatureGeometry(item);nationalTopGroup.clearLayers();if(gj){const layer=L.geoJSON(gj,{style:{color:'#f1d867',weight:4,opacity:1,fillColor:'#36a95a',fillOpacity:.25}}).addTo(nationalTopGroup);const bounds=layer.getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[55,55],maxZoom:15});layer.bindTooltip(`#${item.rank} Polska • ${HUMAN_NAMES[type]||type}`,{permanent:false,direction:'top',className:'national-top-map-label'}).openTooltip();}else if(item.centroid)map.setView(item.centroid,15);closeNationalTopPanel();}catch(e){nationalTopStatus(`Nie udało się otworzyć miejsca: ${e?.message||e}`,'err');}}
+async function rebuildNationalTopForSelected(){const types=nationalTopSelectedTypes(),cache=ensureNationalTopCache();for(const t of types)delete cache.types[t];writeNationalTopCache();await renderNationalTopPanel({force:true});}
+function auditNationalTopPoland(){const cache=ensureNationalTopCache(),rows=[];for(const [type,e] of Object.entries(cache.types||{}))for(const x of e.items||[])rows.push({type,name:HUMAN_NAMES[type]||type,rank:x.rank,core:x.core,percentile:x.percentile,tree:x.species_cd_d,site:x.site_type_cd,age:x.species_age,area:x.sub_area,address:x.adress_forest,layer:x.layerId,id:x.subarea_id});const out={benchmarkState:nationalBenchmarkState,benchmarkVersion:NATIONAL_BENCHMARK_VERSION,topVersion:NATIONAL_TOP_VERSION,cachedSpecies:Object.keys(cache.types||{}).length,error:nationalTopLastError||null,rows};console.table(rows);console.info('NATIONAL TOP POLAND AUDIT',out);return out;}
+window.auditNationalTopPoland=auditNationalTopPoland;
+window.rebuildNationalTopForSelected=rebuildNationalTopForSelected;
+
+
 // v59 — rozdzielamy DWA znaczenia punktacji:
 // 1) rawSpeciesScore = biologiczne dopasowanie gatunku do siedliska/warunków,
 // 2) practicalSpeciesScore = "czy naprawdę warto iść właśnie TU".
@@ -6756,23 +7076,35 @@ function practicalLocationMultiplier(f){
 function practicalSpeciesScore(type,f,rawScore=NaN){
  const raw=Number.isFinite(rawScore)?rawScore:speciesDisplayScore(type,f);
  if(!Number.isFinite(raw))return 0;
- const q=practicalLocationMultiplier(f);
- return clamp(raw*q.multiplier);
+ const local=practicalLocationMultiplier(f);
+ const national=nationalBenchmarkInfo(type,f);
+ return clamp(raw*local.multiplier*national.factor);
 }
 
 function practicalSpeciesScoreInfo(type,f,rawScore=NaN){
  const raw=Number.isFinite(rawScore)?rawScore:speciesDisplayScore(type,f);
- const q=practicalLocationMultiplier(f);
- const practical=Number.isFinite(raw)?clamp(raw*q.multiplier):0;
+ const local=practicalLocationMultiplier(f);
+ const national=nationalBenchmarkInfo(type,f);
+ const combined=local.multiplier*national.factor;
+ const practical=Number.isFinite(raw)?clamp(raw*combined):0;
  return {
    type,
    raw:Number.isFinite(raw)?raw:0,
    practical,
-   multiplier:q.multiplier,
-   class:q.class,
-   band:q.band,
-   progress:q.progress,
-   mapScore:q.score
+   multiplier:local.multiplier,
+   localMultiplier:local.multiplier,
+   nationalMultiplier:national.factor,
+   nationalPercentile:national.percentile,
+   nationalCore:national.core,
+   nationalReady:national.ready,
+   nationalSupported:national.supported,
+   nationalState:national.state,
+   nationalSample:national.sample||0,
+   combinedMultiplier:combined,
+   class:local.class,
+   band:local.band,
+   progress:local.progress,
+   mapScore:local.score
  };
 }
 
@@ -7894,12 +8226,19 @@ function speciesVisualStrengthFromScore(score,today=false){
 
 function speciesVisualStrengthForFeature(f,today=false){
  const type=currentSingleSpeciesType();
- if(!type)return {active:false,type:null,score:NaN,strength:1};
- const score=speciesDisplayScore(type,f);
+ if(!type)return {active:false,type:null,score:NaN,rawScore:NaN,nationalFactor:1,strength:1};
+ const rawScore=speciesDisplayScore(type,f);
+ const national=nationalBenchmarkInfo(type,f);
+ // Lokalna klasa jest już uwzględniana przez unifiedMapStyleForClass().
+ // Tu dokładamy tylko krajową kalibrację konkretnego gatunku.
+ const score=Number.isFinite(rawScore)?clamp(rawScore*national.factor):rawScore;
  return {
    active:true,
    type,
    score,
+   rawScore,
+   nationalFactor:national.factor,
+   nationalPercentile:national.percentile,
    strength:speciesVisualStrengthFromScore(score,today)
  };
 }
@@ -7924,6 +8263,23 @@ function speciesRackVisual(score,today=false){
  return {strength:s,opacity,scale,saturation,brightness};
 }
 
+
+function nationalVisualInfoForFeature(f,today=false){
+ if(!f||nationalBenchmarkState!=='ready')return {active:false,factor:1,percentile:NaN,type:null};
+ let type=null;
+ const single=currentSingleSpeciesType();
+ if(single)type=single;
+ else if(!atlasSelected.size&&currentFilter==='all')type=today?bestTodayInfo(f).type:stableAllType(f);
+ else if(atlasSelected.size===1)type=[...atlasSelected][0];
+ if(!type)return {active:false,factor:1,percentile:NaN,type:null};
+ const info=nationalBenchmarkInfo(type,f);
+ return {active:info.ready&&info.supported,factor:info.factor,percentile:info.percentile,type};
+}
+
+function nationalVisualOpacityMultiplier(factor){
+ factor=Number(factor)||1;
+ return piecewise(factor,[[.84,.72],[.88,.80],[.92,.87],[.96,.94],[1,1],[1.04,1.035],[1.07,1.06],[1.10,1.08]]);
+}
 
 function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  c=Math.max(0,Math.min(4,Number(c)||0));
@@ -7969,6 +8325,17 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
      weight*=.55;
      opacity*=.62;
    }
+ }
+
+ // 3) Krajowy benchmark: nie zmienia klasy ani hotspotu, ale subtelnie reguluje
+ //    siłę całego wydzielenia. Lokalny TOP w słabym krajowo siedlisku nie powinien
+ //    wyglądać równie mocno jak lokalny TOP w 95. percentylu Polski.
+ const nationalVisual=nationalVisualInfoForFeature(f,today);
+ if(nationalVisual.active&&!(f?._hotspotIndex)){
+   const nm=nationalVisualOpacityMultiplier(nationalVisual.factor);
+   fillOpacity*=nm;
+   weight*=Math.max(.72,Math.min(1.08,nm));
+   opacity*=Math.max(.78,Math.min(1.06,nm));
  }
 
  if(open){
@@ -8361,9 +8728,32 @@ function unifiedFeatureType(f){
  if(currentFilter==='all')return mapMode==='today'?bestTodayInfo(f).type:stableAllType(f);
  return currentFilter;
 }
+function practicalVerdictRankCap(score){
+ score=Number(score);
+ if(!Number.isFinite(score))return 0;
+ if(score>=8.30)return 3;
+ if(score>=6.70)return 2;
+ if(score>=5.50)return 1;
+ return 0;
+}
+
 function unifiedFeatureVerdict(f){
- if(atlasSelected.size)return atlasVerdictFor(f);
- return verdictFor(f);
+ let v=atlasSelected.size?atlasVerdictFor(f):verdictFor(f);
+ if(!f||currentFilter==='diversity')return v;
+
+ const type=v?.type||unifiedFeatureType(f);
+ if(!type)return v;
+
+ const info=practicalSpeciesScoreInfo(type,f,v.score);
+ const rank=Math.min(Number(v.rank||0),practicalVerdictRankCap(info.practical));
+ return {
+   ...v,
+   rank,
+   practicalScore:info.practical,
+   nationalMultiplier:info.nationalMultiplier,
+   nationalPercentile:info.nationalPercentile,
+   localMultiplier:info.localMultiplier
+ };
 }
 function unifiedHotspotSpeciesRows(h,limit=8){
  if(!h)return [];
@@ -8373,7 +8763,8 @@ function unifiedHotspotSpeciesRows(h,limit=8){
    const vals=[];
    for(const f of (h.members||[])){
      if(!featureRelevant(type,f))continue;
-     const v=speciesDisplayScore(type,f);
+     const raw=speciesDisplayScore(type,f);
+     const v=practicalSpeciesScore(type,f,raw);
      if(Number.isFinite(v))vals.push(v);
    }
    vals.sort((a,b)=>b-a);
@@ -8408,7 +8799,10 @@ function unifiedFeatureSpeciesRows(f,primaryType=null,limit=null){
      type,
      score:info.practical,
      rawScore,
-     multiplier:info.multiplier,
+     multiplier:info.localMultiplier,
+     nationalMultiplier:info.nationalMultiplier,
+     nationalPercentile:info.nationalPercentile,
+     nationalReady:info.nationalReady,
      mapClass:info.class,
      mapBand:info.band,
      potential,
@@ -8436,7 +8830,10 @@ function unifiedSpeciesGridHtml(rows){
    const width=Math.max(0,Math.min(100,x.score*10));
    const raw=Number.isFinite(x.rawScore)?x.rawScore:x.score;
    const pct=Number.isFinite(x.multiplier)?Math.round(x.multiplier*100):100;
-   const title=`Ocena praktyczna ${x.score.toFixed(1)}/10 • dopasowanie biologiczne ${raw.toFixed(1)}/10 • lokalna korekta ${pct}%`;
+   const nationalPct=Number.isFinite(x.nationalPercentile)?Math.round(x.nationalPercentile):null;
+   const nationalFactor=Number.isFinite(x.nationalMultiplier)?x.nationalMultiplier:1;
+   const nationalText=nationalPct==null?'benchmark Polski: wczytywanie':`Polska P${nationalPct} • ×${nationalFactor.toFixed(2)}`;
+   const title=`Ocena praktyczna ${x.score.toFixed(1)}/10 • dopasowanie biologiczne ${raw.toFixed(1)}/10 • lokalna korekta ${pct}% • ${nationalText}`;
    return `<div class="u-species-card ${cls}" title="${escapeHtml(title)}">
      <img src="${atlasSvg(x.type)}" alt="${escapeHtml(sm.label||x.type)}">
      <div>
@@ -8564,7 +8961,9 @@ function unifiedPopupHtml(f,h=null){
      (mapMode==='today'?`<div class="factor"><span>Warunki teraz</span><b>${(v.fruit/10).toFixed(1)}/10</b></div>`:'')+
      (mapMode==='today'?`<div class="factor"><span>Sezon gatunku</span><b>${(seasonScore(type)/10).toFixed(1)}/10</b></div>`:'')+
      `<div class="factor"><span>Dopasowanie biologiczne</span><b>${v.score.toFixed(1)}/10</b></div>`+
-     (primaryScoreInfo?`<div class="factor"><span>Korekta lokalna</span><b>${Math.round(primaryScoreInfo.multiplier*100)}%</b></div>`:'')+
+     (primaryScoreInfo?`<div class="factor"><span>Korekta lokalna</span><b>${Math.round(primaryScoreInfo.localMultiplier*100)}%</b></div>`:'')+
+     (primaryScoreInfo&&primaryScoreInfo.nationalSupported?`<div class="factor"><span>Benchmark Polski</span><b>${Number.isFinite(primaryScoreInfo.nationalPercentile)?('P'+Math.round(primaryScoreInfo.nationalPercentile)+' • ×'+primaryScoreInfo.nationalMultiplier.toFixed(2)):'wczytywanie…'}</b></div>`:'')+
+     (primaryScoreInfo?`<div class="factor"><span>Łączny mnożnik</span><b>${Math.round(primaryScoreInfo.combinedMultiplier*100)}%</b></div>`:'')+
      (primaryScoreInfo?`<div class="factor"><span>Ocena praktyczna</span><b>${displayedPrimaryScore.toFixed(1)}/10</b></div>`:'')+
      `<div class="factor"><span>Dopasowanie gospodarza</span><b>${Math.round(hostGate(type,f)*100)}%</b></div>`+
      `<div class="factor"><span>Gleba</span><b>${soilSuitability(type,f).toFixed(1)}</b></div>`+
@@ -8598,7 +8997,7 @@ function unifiedPopupHtml(f,h=null){
      <div class="u-section-head">
        <div>
          <div class="u-section-title">${currentFilter==='all'?'🍄 Najlepszy gatunek w tym miejscu':'🍄 Główny wynik dla tego miejsca'}</div>
-         <div class="u-section-sub">Pokazany wynik to ocena praktyczna wyjazdu do tego wydzielenia; surowe dopasowanie biologiczne jest w szczegółach.</div>
+         <div class="u-section-sub">Wynik praktyczny łączy dopasowanie biologiczne, lokalną klasę miejsca i — po wczytaniu — pozycję tego siedliska na tle całej Polski.</div>
        </div>
      </div>
      ${primaryHtml}
@@ -8625,7 +9024,7 @@ function unifiedPopupHtml(f,h=null){
    ${detailsHtml}
 
    <details class="popup-more"><summary>ℹ️ Źródła / techniczne</summary>
-     <div class="popup-mini">Źródło geometrii: ${escapeHtml(src)}. Wynik jest heurystyczną rekomendacją terenową, nie gwarancją owocników.</div>
+     <div class="popup-mini">Źródło geometrii: ${escapeHtml(src)}. Benchmark krajowy: ${nationalBenchmarkState==='ready'?escapeHtml(nationalBenchmark?.source||'BDL Polska'):(nationalBenchmarkState==='loading'?'budowanie w tle':'niedostępny — mnożnik 1.00')}. Wynik jest heurystyczną rekomendacją terenową, nie gwarancją owocników.</div>
    </details>
  </div>`;
 }
@@ -10872,43 +11271,61 @@ function auditVerdictMapConsistency(){
 window.auditVerdictMapConsistency=auditVerdictMapConsistency;
 
 
+function auditNationalBenchmark(){
+ const types=nationalBenchmark?.types||{};
+ const rows=Object.entries(types).map(([type,p])=>({
+   type,
+   name:HUMAN_NAMES[type]||type,
+   total:p.total||0,
+   q10:p.q10,q25:p.q25,q50:p.q50,q75:p.q75,q90:p.q90,q97:p.q97
+ })).sort((a,b)=>(a.name||'').localeCompare(b.name||'','pl'));
+ const out={
+   state:nationalBenchmarkState,
+   error:nationalBenchmarkLastError||null,
+   source:nationalBenchmark?.source||null,
+   builtAt:nationalBenchmark?.builtAt?new Date(nationalBenchmark.builtAt).toISOString():null,
+   groupedRows:nationalBenchmark?.groupedRows||0,
+   totalRecords:nationalBenchmark?.totalRecords||0,
+   profiles:rows.length
+ };
+ console.table(rows);console.info('NATIONAL BDL BENCHMARK AUDIT',out);return {...out,rows};
+}
+window.auditNationalBenchmark=auditNationalBenchmark;
+
 function auditPracticalSpeciesScores(){
  const f=linkedLockedFeature;
  if(!f){
-   const out={ok:false,reason:'Najpierw kliknij wydzielenie, aby audyt miał konkretny punkt odniesienia.'};
-   console.warn('PRACTICAL SPECIES SCORE AUDIT',out);
-   return out;
+   const out={ok:false,reason:'Najpierw kliknij wydzielenie.'};
+   console.info('PRACTICAL SPECIES SCORE AUDIT',out);return out;
  }
-
- const map=practicalLocationMultiplier(f);
- const rows=PICK_TYPES
-   .filter(t=>featureRelevant(t,f))
-   .map(t=>{
-     const raw=speciesDisplayScore(t,f);
-     const practical=practicalSpeciesScore(t,f,raw);
-     return {
-       type:HUMAN_NAMES[t]||t,
-       raw:Number(raw.toFixed(2)),
-       practical:Number(practical.toFixed(2)),
-       multiplierPct:Math.round(map.multiplier*100),
-       mapClass:balancedClassLabel(map.class),
-       mapBand:map.band
-     };
-   })
-   .sort((a,b)=>b.practical-a.practical);
-
- const report={
-   mode:mapMode,
-   filter:currentFilter,
-   mapClass:balancedClassLabel(map.class),
-   mapBand:map.band,
-   multiplierPct:Math.round(map.multiplier*100),
+ const local=practicalLocationMultiplier(f);
+ const rows=PICK_TYPES.filter(t=>featureRelevant(t,f)).map(t=>{
+   const raw=speciesDisplayScore(t,f);
+   const info=practicalSpeciesScoreInfo(t,f,raw);
+   return {
+     type:t,
+     name:HUMAN_NAMES[t]||t,
+     raw:Number(raw.toFixed(2)),
+     localPct:Math.round(local.multiplier*100),
+     nationalPercentile:Number.isFinite(info.nationalPercentile)?Number(info.nationalPercentile.toFixed(1)):null,
+     nationalFactor:Number(info.nationalMultiplier.toFixed(3)),
+     combinedPct:Math.round(info.combinedMultiplier*100),
+     practical:Number(info.practical.toFixed(2))
+   };
+ }).sort((a,b)=>b.practical-a.practical);
+ const out={
+   ok:true,
+   benchmarkState:nationalBenchmarkState,
+   benchmarkSource:nationalBenchmark?.source||null,
+   benchmarkRecords:nationalBenchmark?.totalRecords||0,
+   mapClass:local.class,
+   mapBand:local.band,
+   localMultiplier:local.multiplier,
    rows
  };
- console.table(rows);
- console.info('PRACTICAL SPECIES SCORE AUDIT',report);
- return report;
+ console.table(rows);console.info('PRACTICAL SPECIES SCORE AUDIT',out);return out;
 }
+window.auditPracticalSpeciesScores=auditPracticalSpeciesScores;
 window.auditPracticalSpeciesScores=auditPracticalSpeciesScores;
 
 function auditPerformanceOptimization(){
@@ -11081,12 +11498,16 @@ function hotspotRackHtml(h,types,view){
  const remaining=Math.max(0,types.length-view.visible.length);
  const key=escapeHtml(hotspotLabelKey(h));
  const titleFor=t=>{
-   const score=h?.best?speciesDisplayScore(t,h.best):NaN;
-   const suffix=Number.isFinite(score)?` • ${score.toFixed(1)}/10`:'';
-   return `${HUMAN_NAMES[t]||t}${suffix}`;
+   const raw=h?.best?speciesDisplayScore(t,h.best):NaN;
+   const info=h?.best?practicalSpeciesScoreInfo(t,h.best,raw):null;
+   const score=info?.practical;
+   const suffix=Number.isFinite(score)?` • praktycznie ${score.toFixed(1)}/10`:'';
+   const nat=Number.isFinite(info?.nationalPercentile)?` • Polska P${Math.round(info.nationalPercentile)}`:'';
+   return `${HUMAN_NAMES[t]||t}${suffix}${nat}`;
  };
  const visualFor=t=>{
-   const score=h?.best?speciesDisplayScore(t,h.best):NaN;
+   const raw=h?.best?speciesDisplayScore(t,h.best):NaN;
+   const score=h?.best?practicalSpeciesScore(t,h.best,raw):raw;
    return speciesRackVisual(score,mapMode==='today');
  };
  const chipStyle=t=>{
@@ -12111,6 +12532,16 @@ const atlasPanel=document.getElementById('mushroomAtlas');
 const atlasClearBtn=document.getElementById('atlasClear');
 const atlasToggleBtn=document.getElementById('atlasToggle');
 if(atlasClearBtn)atlasClearBtn.onclick=clearAtlasSelection;
+const nationalTopOpenBtn=document.getElementById('nationalTopOpen');
+const nationalTopCloseBtn=document.getElementById('nationalTopClose');
+const nationalTopRebuildBtn=document.getElementById('nationalTopRebuild');
+if(nationalTopOpenBtn)nationalTopOpenBtn.onclick=openNationalTopPanel;
+if(nationalTopCloseBtn)nationalTopCloseBtn.onclick=closeNationalTopPanel;
+if(nationalTopRebuildBtn)nationalTopRebuildBtn.onclick=rebuildNationalTopForSelected;
+document.getElementById('nationalTopPanel')?.addEventListener('click',e=>{if(e.target?.id==='nationalTopPanel')closeNationalTopPanel();});
+document.getElementById('nationalTopBody')?.addEventListener('click',e=>{const b=e.target.closest?.('[data-national-show]');if(!b)return;const [type,layer,id]=String(b.dataset.nationalShow||'').split('|');showNationalTopPlace(type,Number(layer),Number(id));});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('nationalTopPanel')?.classList.contains('open'))closeNationalTopPanel();});
+
 if(atlasToggleBtn)atlasToggleBtn.onclick=()=>{
  atlasPanel.classList.toggle('collapsed');
  const collapsed=atlasPanel.classList.contains('collapsed');

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v61: nationwide BDL benchmark + exact TOP Poland candidate locations -->
+<!-- GitHub production v62: self-healing nationwide benchmark + TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -6747,7 +6747,7 @@ function verdictRankCapFromMapClass(c){
 // pogody ani lokalnego rankingu. W praktycznej punktacji działa jako
 // umiarkowany mnożnik ok. 0.84–1.10.
 
-const NATIONAL_BENCHMARK_VERSION='bdl-pl-v2-top-combos';
+const NATIONAL_BENCHMARK_VERSION='bdl-pl-v3-top-combos-heal';
 const NATIONAL_BENCHMARK_CACHE_KEY='grzyby:national-benchmark:'+NATIONAL_BENCHMARK_VERSION;
 const NATIONAL_BENCHMARK_MAX_AGE_MS=365*24*3600*1000;
 const NATIONAL_BENCHMARK_BIN_STEP=.05;
@@ -6868,18 +6868,46 @@ function nationalBenchmarkInfo(type,f){
  };
 }
 
+function nationalBenchmarkTopCombosStatus(obj){
+ const required=PICK_TYPES.filter(nationalBenchmarkSupportsType);
+ const missing=[];
+ const counts={};
+ for(const type of required){
+   const rows=obj?.types?.[type]?.topCombos;
+   const n=Array.isArray(rows)?rows.length:0;
+   counts[type]=n;
+   if(!n)missing.push(type);
+ }
+ return {ok:missing.length===0,missing,counts,required:required.length};
+}
+
+function nationalBenchmarkCacheValid(obj){
+ if(!obj||obj.version!==NATIONAL_BENCHMARK_VERSION||!obj.types)return false;
+ const top=nationalBenchmarkTopCombosStatus(obj);
+ return top.ok;
+}
+
 function readNationalBenchmarkCache(){
  try{
    const raw=localStorage.getItem(NATIONAL_BENCHMARK_CACHE_KEY);
    if(!raw)return null;
    const obj=JSON.parse(raw);
-   if(!obj||obj.version!==NATIONAL_BENCHMARK_VERSION||!obj.types)return null;
+   if(!nationalBenchmarkCacheValid(obj)){
+     try{localStorage.removeItem(NATIONAL_BENCHMARK_CACHE_KEY);}catch(_){}
+     return null;
+   }
    return obj;
  }catch(_){return null;}
 }
 
 function writeNationalBenchmarkCache(obj){
- try{localStorage.setItem(NATIONAL_BENCHMARK_CACHE_KEY,JSON.stringify(obj));}catch(_){ }
+ try{
+   localStorage.setItem(NATIONAL_BENCHMARK_CACHE_KEY,JSON.stringify(obj));
+   return true;
+ }catch(e){
+   console.warn('National benchmark cache write failed',e);
+   return false;
+ }
 }
 
 async function fetchNationalGroupedBdlLayer(layerId){
@@ -6955,7 +6983,6 @@ async function ensureNationalBenchmark({force=false}={}){
        nationalBenchmark=cached;
        nationalBenchmarkState='ready';
        const age=Date.now()-Number(cached.builtAt||0);
-       // Świeży cache = koniec. Stary cache działa od razu, ale odświeżamy w tle.
        if(age<=NATIONAL_BENCHMARK_MAX_AGE_MS)return cached;
      }
 
@@ -6964,20 +6991,31 @@ async function ensureNationalBenchmark({force=false}={}){
        fetchNationalGroupedBdlLayer(6)
      ]);
      const built=await buildNationalBenchmarkFromGroups([...a,...b]);
+     const status=nationalBenchmarkTopCombosStatus(built);
+     if(!status.ok){
+       throw new Error(`Benchmark zbudowany bez TOP kombinacji dla: ${status.missing.join(', ')}`);
+     }
+
      nationalBenchmark=built;
      nationalBenchmarkState='ready';
      writeNationalBenchmarkCache(built);
      return built;
    }catch(e){
      nationalBenchmarkLastError=String(e?.message||e);
-     if(nationalBenchmark){
-       // Stary cache jest lepszy niż brak kalibracji.
+
+     // Fallback tylko wtedy, gdy obiekt w pamięci jest naprawdę kompletny.
+     if(nationalBenchmark&&nationalBenchmarkCacheValid(nationalBenchmark)){
        nationalBenchmarkState='ready';
        return nationalBenchmark;
      }
+
+     nationalBenchmark=null;
      nationalBenchmarkState='error';
      console.warn('National BDL benchmark',e);
      return null;
+   }finally{
+     // Po zakończeniu pozwól późniejszemu force=true uruchomić nową próbę.
+     if(nationalBenchmarkState==='error')nationalBenchmarkPromise=null;
    }
  })();
  return nationalBenchmarkPromise;
@@ -6998,20 +7036,22 @@ function startNationalBenchmarkInBackground(){
 }
 
 async function rebuildNationalBenchmark(){
- try{localStorage.removeItem(NATIONAL_BENCHMARK_CACHE_KEY);}catch(_){ }
+ try{localStorage.removeItem(NATIONAL_BENCHMARK_CACHE_KEY);}catch(_){}
+ try{localStorage.removeItem(NATIONAL_TOP_CACHE_KEY);}catch(_){}
  nationalBenchmark=null;
  nationalBenchmarkState='idle';
  nationalBenchmarkPromise=null;
+ nationalTopCache=null;
  const out=await ensureNationalBenchmark({force:true});
  if(out&&allFeatures.length){
-   try{render();refreshUnifiedDetails({preserveScroll:true,flash:true});updateAtlasHead();}catch(_){ }
+   try{render();refreshUnifiedDetails({preserveScroll:true,flash:true});updateAtlasHead();}catch(_){}
  }
  return out;
 }
 window.rebuildNationalBenchmark=rebuildNationalBenchmark;
 
 // v61 — KONKRETNE TOP MIEJSCA W POLSCE DLA GATUNKU.
-const NATIONAL_TOP_VERSION='bdl-top-pl-v1';
+const NATIONAL_TOP_VERSION='bdl-top-pl-v2';
 const NATIONAL_TOP_CACHE_KEY='grzyby:national-top:'+NATIONAL_TOP_VERSION;
 const NATIONAL_TOP_MAX_AGE_MS=365*24*3600*1000;
 const NATIONAL_TOP_LIMIT=10;
@@ -7026,7 +7066,83 @@ function nationalComboWhere(c){const tree=String(c?.species_cd_d||''),site=Strin
 async function fetchNationalTopComboLayer(type,combo,layerId){const q=new URLSearchParams({where:nationalComboWhere(combo),outFields:'subarea_id,adress_forest,species_cd_d,site_type_cd,species_age,sub_area',returnGeometry:'false',orderByFields:'sub_area DESC',resultRecordCount:String(NATIONAL_TOP_PER_LAYER_COMBO),f:'json'});const js=await prodFetchJson(`${BDL_BASE}/${layerId}/query?${q}`,{timeoutMs:18000,tries:2,policy:{ttl:30*86400e3,stale:365*86400e3}});if(js?.error)throw new Error(`BDL TOP ${layerId}: ${js.error.message||'błąd zapytania'}`);const profile=nationalBenchmark?.types?.[type],core=Number(combo.core),percentile=Number.isFinite(combo.percentile)?Number(combo.percentile):nationalPercentileFromHistogram(profile,core);return (js?.features||[]).map(ft=>{const a=ft?.attributes||ft?.properties||{};return {layerId,subarea_id:Number(a.subarea_id),adress_forest:String(a.adress_forest||''),species_cd_d:String(a.species_cd_d||combo.species_cd_d||''),site_type_cd:String(a.site_type_cd||combo.site_type_cd||''),species_age:Number(a.species_age||combo.species_age||0),sub_area:Number(a.sub_area||0),core,percentile};}).filter(x=>Number.isFinite(x.subarea_id));}
 function nationalTopCandidateSort(a,b){return b.core-a.core||b.sub_area-a.sub_area||b.percentile-a.percentile||a.subarea_id-b.subarea_id;}
 async function fetchNationalTopGeometry(items){const byLayer=new Map();for(const it of items){if(!byLayer.has(it.layerId))byLayer.set(it.layerId,[]);byLayer.get(it.layerId).push(it);}for(const [layerId,rows] of byLayer){const ids=rows.map(x=>x.subarea_id).filter(Number.isFinite);if(!ids.length)continue;const q=new URLSearchParams({where:`subarea_id IN (${ids.join(',')})`,outFields:'subarea_id',returnGeometry:'true',outSR:'4326',f:'json'});try{const js=await prodFetchJson(`${BDL_BASE}/${layerId}/query?${q}`,{timeoutMs:20000,tries:2,policy:{ttl:30*86400e3,stale:365*86400e3}});const lookup=new Map(rows.map(x=>[Number(x.subarea_id),x]));for(const ft of js?.features||[]){const id=Number((ft.attributes||{}).subarea_id),target=lookup.get(id),rings=ft?.geometry?.rings;if(!target||!Array.isArray(rings))continue;let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity,sx=0,sy=0,n=0;for(const ring of rings)for(const pt of ring||[]){const x=Number(pt?.[0]),y=Number(pt?.[1]);if(!Number.isFinite(x)||!Number.isFinite(y))continue;minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);sx+=x;sy+=y;n++;}if(n){target.centroid=[sy/n,sx/n];target.bbox=[minY,minX,maxY,maxX];}}}catch(e){console.warn('National TOP geometry enrichment',layerId,e);}}return items;}
-async function buildNationalTopForType(type,{force=false,limit=NATIONAL_TOP_LIMIT}={}){if(!nationalBenchmarkSupportsType(type))return {type,builtAt:Date.now(),unsupported:true,items:[]};await ensureNationalBenchmark();const profile=nationalBenchmark?.types?.[type];if(!profile?.topCombos?.length)throw new Error('Benchmark Polski nie ma listy najlepszych kombinacji. Przelicz benchmark.');const cache=ensureNationalTopCache(),cached=cache.types?.[type];if(!force&&nationalTopCacheFresh(cached))return cached;const candidates=[],seen=new Set(),combos=profile.topCombos.slice(0,24);for(let i=0;i<combos.length;i++){const combo=combos[i];const [a,b]=await Promise.all([fetchNationalTopComboLayer(type,combo,5).catch(()=>[]),fetchNationalTopComboLayer(type,combo,6).catch(()=>[])]);for(const item of [...a,...b]){const key=`${item.layerId}:${item.subarea_id}`;if(seen.has(key))continue;seen.add(key);candidates.push(item);}candidates.sort(nationalTopCandidateSort);if(candidates.length>=limit*2){const cutoff=candidates[Math.min(limit-1,candidates.length-1)]?.core??-Infinity,next=combos[i+1]?.core??-Infinity;if(next<cutoff-1e-9)break;if(i>=4)break;}await new Promise(r=>setTimeout(r,0));}const top=candidates.sort(nationalTopCandidateSort).slice(0,limit);await fetchNationalTopGeometry(top);const entry={type,builtAt:Date.now(),source:'BDL layers 5+6 • concrete subareas from nationwide TOP habitat combinations',candidateCount:candidates.length,items:top.map((x,i)=>({...x,rank:i+1}))};cache.types[type]=entry;cache.builtAt=Date.now();writeNationalTopCache();return entry;}
+async function ensureNationalTopCombosForType(type){
+ await ensureNationalBenchmark();
+ let profile=nationalBenchmark?.types?.[type];
+ if(profile?.topCombos?.length)return profile;
+
+ console.warn(`National TOP: missing topCombos for ${type}; rebuilding benchmark automatically`);
+ nationalTopStatus?.(`Benchmark Polski wymaga jednorazowej aktualizacji dla ${HUMAN_NAMES[type]||type}…`,'busy');
+
+ try{localStorage.removeItem(NATIONAL_BENCHMARK_CACHE_KEY);}catch(_){}
+ nationalBenchmark=null;
+ nationalBenchmarkState='idle';
+ nationalBenchmarkPromise=null;
+
+ const rebuilt=await ensureNationalBenchmark({force:true});
+ profile=rebuilt?.types?.[type];
+ if(profile?.topCombos?.length)return profile;
+
+ const state=nationalBenchmarkTopCombosStatus(rebuilt);
+ throw new Error(`Nie udało się zbudować TOP kombinacji dla ${HUMAN_NAMES[type]||type}. Brak: ${state.missing.join(', ')||type}.`);
+}
+
+async function buildNationalTopForType(type,{force=false,limit=NATIONAL_TOP_LIMIT}={}){
+ if(!nationalBenchmarkSupportsType(type)){
+   return {type,builtAt:Date.now(),unsupported:true,items:[]};
+ }
+
+ const profile=await ensureNationalTopCombosForType(type);
+ const cache=ensureNationalTopCache();
+ const cached=cache.types?.[type];
+ if(!force&&nationalTopCacheFresh(cached))return cached;
+
+ const candidates=[];
+ const seen=new Set();
+ const combos=profile.topCombos.slice(0,24);
+
+ for(let i=0;i<combos.length;i++){
+   const combo=combos[i];
+   const [a,b]=await Promise.all([
+     fetchNationalTopComboLayer(type,combo,5).catch(e=>{console.warn('TOP combo layer 5',combo,e);return [];}),
+     fetchNationalTopComboLayer(type,combo,6).catch(e=>{console.warn('TOP combo layer 6',combo,e);return [];})
+   ]);
+
+   for(const item of [...a,...b]){
+     const key=`${item.layerId}:${item.subarea_id}`;
+     if(seen.has(key))continue;
+     seen.add(key);
+     candidates.push(item);
+   }
+
+   candidates.sort(nationalTopCandidateSort);
+   if(candidates.length>=limit*2){
+     const cutoff=candidates[Math.min(limit-1,candidates.length-1)]?.core??-Infinity;
+     const next=combos[i+1]?.core??-Infinity;
+     if(next<cutoff-1e-9)break;
+     if(i>=4)break;
+   }
+   await new Promise(r=>setTimeout(r,0));
+ }
+
+ const top=candidates.sort(nationalTopCandidateSort).slice(0,limit);
+ await fetchNationalTopGeometry(top);
+
+ const entry={
+   type,
+   builtAt:Date.now(),
+   source:'BDL layers 5+6 • concrete subareas from nationwide TOP habitat combinations',
+   benchmarkVersion:NATIONAL_BENCHMARK_VERSION,
+   comboCount:combos.length,
+   candidateCount:candidates.length,
+   items:top.map((x,i)=>({...x,rank:i+1}))
+ };
+
+ cache.types[type]=entry;
+ cache.builtAt=Date.now();
+ writeNationalTopCache();
+ return entry;
+}
 async function fetchNationalTopFeatureGeometry(item){if(!item)return null;const q=new URLSearchParams({where:`subarea_id=${Number(item.subarea_id)}`,outFields:'subarea_id,adress_forest,species_cd_d,site_type_cd,species_age,sub_area',returnGeometry:'true',outSR:'4326',f:'json'});const js=await prodFetchJson(`${BDL_BASE}/${item.layerId}/query?${q}`,{timeoutMs:18000,tries:2,policy:{ttl:30*86400e3,stale:365*86400e3}});const ft=js?.features?.[0];if(!ft?.geometry?.rings)return null;return {type:'Feature',properties:ft.attributes||{},geometry:{type:'Polygon',coordinates:ft.geometry.rings}};}
 function nationalTopSelectedTypes(){if(atlasSelected.size)return [...atlasSelected];if(currentFilter!=='all'&&currentFilter!=='diversity')return [currentFilter];return [];}
 function openNationalTopPanel(){const p=document.getElementById('nationalTopPanel');if(!p)return;p.classList.add('open');p.setAttribute('aria-hidden','false');renderNationalTopPanel();}
@@ -7036,8 +7152,39 @@ function nationalTopSectionHtml(type,entry){const m=SPECIES_META[type]||{};if(en
 async function renderNationalTopPanel({force=false}={}){const body=document.getElementById('nationalTopBody');if(!body)return;const types=nationalTopSelectedTypes();if(!types.length){nationalTopStatus('Wybierz jeden lub kilka gatunków w atlasie.');body.innerHTML='<div class="national-rank-empty">Zaznacz gatunek w dolnym atlasie, a następnie kliknij „TOP Polska”.</div>';return;}if(nationalTopBusy)return;nationalTopBusy=true;nationalTopLastError='';nationalTopStatus(`Buduję ranking Polski dla ${types.length} gat.…`,'busy');body.innerHTML=types.map(t=>`<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(t)}" alt=""><div><div class="national-species-name">${escapeHtml(HUMAN_NAMES[t]||t)}</div><div class="national-species-meta">pobieranie kandydatów BDL…</div></div></div></section>`).join('');try{const entries=[];for(let i=0;i<types.length;i++){const type=types[i];nationalTopStatus(`Ranking Polski ${i+1}/${types.length}: ${HUMAN_NAMES[type]||type}…`,'busy');const entry=await buildNationalTopForType(type,{force});entries.push([type,entry]);body.innerHTML=entries.map(([t,e])=>nationalTopSectionHtml(t,e)).join('')+types.slice(i+1).map(t=>`<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(t)}" alt=""><div><div class="national-species-name">${escapeHtml(HUMAN_NAMES[t]||t)}</div><div class="national-species-meta">oczekuje…</div></div></div></section>`).join('');}nationalTopStatus(`Gotowe • ${types.length} gat. • wyniki zapisane lokalnie`);}catch(e){nationalTopLastError=String(e?.message||e);nationalTopStatus(`Błąd: ${nationalTopLastError}`,'err');console.warn('National TOP Poland',e);}finally{nationalTopBusy=false;}}
 async function showNationalTopPlace(type,layerId,subareaId){const cache=ensureNationalTopCache(),entry=cache.types?.[type],item=entry?.items?.find(x=>Number(x.layerId)===Number(layerId)&&Number(x.subarea_id)===Number(subareaId));if(!item)return;nationalTopStatus(`Otwieram #${item.rank} • ${HUMAN_NAMES[type]||type}…`,'busy');try{const gj=await fetchNationalTopFeatureGeometry(item);nationalTopGroup.clearLayers();if(gj){const layer=L.geoJSON(gj,{style:{color:'#f1d867',weight:4,opacity:1,fillColor:'#36a95a',fillOpacity:.25}}).addTo(nationalTopGroup);const bounds=layer.getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[55,55],maxZoom:15});layer.bindTooltip(`#${item.rank} Polska • ${HUMAN_NAMES[type]||type}`,{permanent:false,direction:'top',className:'national-top-map-label'}).openTooltip();}else if(item.centroid)map.setView(item.centroid,15);closeNationalTopPanel();}catch(e){nationalTopStatus(`Nie udało się otworzyć miejsca: ${e?.message||e}`,'err');}}
 async function rebuildNationalTopForSelected(){const types=nationalTopSelectedTypes(),cache=ensureNationalTopCache();for(const t of types)delete cache.types[t];writeNationalTopCache();await renderNationalTopPanel({force:true});}
-function auditNationalTopPoland(){const cache=ensureNationalTopCache(),rows=[];for(const [type,e] of Object.entries(cache.types||{}))for(const x of e.items||[])rows.push({type,name:HUMAN_NAMES[type]||type,rank:x.rank,core:x.core,percentile:x.percentile,tree:x.species_cd_d,site:x.site_type_cd,age:x.species_age,area:x.sub_area,address:x.adress_forest,layer:x.layerId,id:x.subarea_id});const out={benchmarkState:nationalBenchmarkState,benchmarkVersion:NATIONAL_BENCHMARK_VERSION,topVersion:NATIONAL_TOP_VERSION,cachedSpecies:Object.keys(cache.types||{}).length,error:nationalTopLastError||null,rows};console.table(rows);console.info('NATIONAL TOP POLAND AUDIT',out);return out;}
+function auditNationalTopPoland(){
+ const cache=ensureNationalTopCache();
+ const rows=[];
+ for(const [type,e] of Object.entries(cache.types||{})){
+   for(const x of e.items||[]){
+     rows.push({
+       type,name:HUMAN_NAMES[type]||type,rank:x.rank,core:x.core,percentile:x.percentile,
+       tree:x.species_cd_d,site:x.site_type_cd,age:x.species_age,area:x.sub_area,
+       address:x.adress_forest,layer:x.layerId,id:x.subarea_id
+     });
+   }
+ }
+ const comboStatus=nationalBenchmarkTopCombosStatus(nationalBenchmark);
+ const out={
+   benchmarkState:nationalBenchmarkState,
+   benchmarkVersion:NATIONAL_BENCHMARK_VERSION,
+   benchmarkBuiltAt:nationalBenchmark?.builtAt||null,
+   benchmarkGroupedRows:nationalBenchmark?.groupedRows||0,
+   benchmarkUniqueCombos:nationalBenchmark?.uniqueCombos||0,
+   topCombosOk:comboStatus.ok,
+   missingTopCombos:comboStatus.missing,
+   topComboCounts:comboStatus.counts,
+   topVersion:NATIONAL_TOP_VERSION,
+   cachedSpecies:Object.keys(cache.types||{}).length,
+   error:nationalTopLastError||null,
+   rows
+ };
+ console.table(rows);
+ console.info('NATIONAL TOP POLAND AUDIT',out);
+ return out;
+}
 window.auditNationalTopPoland=auditNationalTopPoland;
+window.repairNationalBenchmark=async()=>{await rebuildNationalBenchmark();return auditNationalTopPoland();};
 window.rebuildNationalTopForSelected=rebuildNationalTopForSelected;
 
 

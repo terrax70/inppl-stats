@@ -1,15 +1,14 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v81: jedno zrodlo potencjalu dla BEST/Najlepsze miejsce.
-     Audyt v80: 65 567 par gatunek×wydzielenie mialo 0 naruszen DZIŚ>POTENCJAŁ, wiec biologiczny
-     clamp per gatunek jest poprawny. Problem byl wyzej: BEST POTENCJAŁ wybieral gatunek na
-     stableSpeciesPotential(), a potem stableAnchorScore() drugi raz mieszalo 22% ogolnego
-     forestContext — nawet dla kani/terenow skrajowych. Tymczasem BEST DZIŚ porownuje sie do
-     stableScoreForType(), ktore ma juz wlasciwy, gatunkowy kontekst. v81:
-     stableAllType wybiera na stableScoreForType(), a BEST POTENCJAŁ zwraca ten sam score
-     bez drugiego ogolnego blendu. Dzięki temu POTENCJAŁ jest realnym sufitem tej samej skali.
-     Różnorodność, pojedyncze gatunki, pogoda, hotspoty, render v79 i radar PL bez zmian. -->
+<!-- GitHub production v82: jasna semantyka trybow + procentowy indeks modelu.
+     Scoring v81 pozostaje bez zmian. UI rozdziela dwa rozne pytania:
+     "Najlepsza szansa" = najmocniejszy pojedynczy gatunek w danym miejscu,
+     "Największy wybór" = liczba roznych nisz siedliskowych z dobrym dopasowaniem.
+     Różnorodność nie udaje juz "liczby gatunkow", a legenda ma osobne slowa.
+     Główne wyniki 0–10 sa pokazane jako 0–100% OCENY MODELU (np. 8.0 -> 80%),
+     ale interfejs jawnie zaznacza, ze nie jest to skalibrowane prawdopodobienstwo
+     znalezienia owocnika. Wszystkie funkcje scoringu/hotspotow pozostaja bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -3097,13 +3096,13 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 
 <div class="species-picker">
     <div class="species-mode-switch">
-      <button id="speciesModeBest" class="species-mode-btn active" type="button">Najlepsze miejsce<br><span style="font-weight:700;opacity:.8">dla dowolnego gatunku</span></button>
-      <button id="speciesModeDiversity" class="species-mode-btn" type="button">Różnorodność<br><span style="font-weight:700;opacity:.8">najwięcej pasujących gatunków</span></button>
+      <button id="speciesModeBest" class="species-mode-btn active" type="button">Najlepsza szansa<br><span style="font-weight:700;opacity:.8">najmocniejszy gatunek</span></button>
+      <button id="speciesModeDiversity" class="species-mode-btn" type="button">Największy wybór<br><span style="font-weight:700;opacity:.8">najwięcej różnych nisz</span></button>
       <div class="species-mode-selected">Atlas: <b id="speciesModeSelectedText">nie wybrano gatunków</b></div>
     </div>
     <select id="speciesSelect" aria-hidden="true">
-      <option value="all" selected>Najlepszy gatunek dla miejsca</option>
-      <option value="diversity">Największa różnorodność</option>
+      <option value="all" selected>Najmocniejszy gatunek dla miejsca</option>
+      <option value="diversity">Najwięcej różnych nisz</option>
       <option value="borowik">Borowik szlachetny</option>
       <option value="ceglastopory">Krasnoborowik ceglastopory</option>
       <option value="ponury">Modroborowik ponury</option>
@@ -8481,6 +8480,29 @@ function auditBestPotentialIdentity(){
  console.info('BEST POTENTIAL IDENTITY AUDIT',report);
  return report;
 }
+
+function auditModeSemanticsUI(){
+ const words=[...document.querySelectorAll('#scoreLegendWords span')].map(x=>x.textContent.trim());
+ const expected=currentFilter==='diversity'&&!atlasSelected.size
+   ? ['mała','ograniczona','średnia','duża','bardzo duża']
+   : ['odpuść','rezerwowo','średnio','warto','TOP'];
+ const report={
+   version:'v82',
+   filter:currentFilter,
+   mapMode,
+   legendTitle:document.getElementById('scoreLegendTitle')?.textContent||'',
+   legendWords:words,
+   legendCorrect:JSON.stringify(words)===JSON.stringify(expected),
+   bestButton:document.getElementById('speciesModeBest')?.innerText.replace(/\s+/g,' ').trim(),
+   diversityButton:document.getElementById('speciesModeDiversity')?.innerText.replace(/\s+/g,' ').trim(),
+   percentExamples:[0,4.9,7.6,8.0,9.38,10].map(x=>({score10:x,display:modelScorePercentText(x)})),
+   note:'% to indeks modelu; nie skalibrowane prawdopodobieństwo znalezienia.'
+ };
+ console.info('MODE SEMANTICS UI AUDIT',report);
+ return report;
+}
+window.auditModeSemanticsUI=auditModeSemanticsUI;
+
 window.auditBestPotentialIdentity=auditBestPotentialIdentity;
 
 window.auditSpeciesTodayVsPotential=auditSpeciesTodayVsPotential;
@@ -9709,6 +9731,12 @@ function unifiedLegendGradient(){
  return `linear-gradient(90deg,${parts.join(',')})`;
 }
 
+function modelScorePercent(score){
+ const s=Number(score);
+ return Math.round(Math.max(0,Math.min(10,Number.isFinite(s)?s:0))*10);
+}
+function modelScorePercentText(score){return `${modelScorePercent(score)}%`;}
+
 function setLegendWords(words){
  const box=document.getElementById('scoreLegendWords');
  if(!box)return;
@@ -9716,11 +9744,11 @@ function setLegendWords(words){
 }
 
 function currentLegendTitle(){
- if(currentFilter==='diversity')return 'Różnorodność grzybów';
+ if(currentFilter==='diversity')return 'Największy wybór';
  if(atlasSelected.size>1)return `Dopasowanie ${atlasSelected.size} gatunków`;
  if(atlasSelected.size===1){ const only=[...atlasSelected][0]; return HUMAN_NAMES[only]||'Wybrany gatunek'; }
  if(currentFilter!=='all')return HUMAN_NAMES[currentFilter]||'Wybrany gatunek';
- return 'Najlepsze miejsce';
+ return 'Najlepsza szansa';
 }
 
 function updateScoreLegend(){
@@ -9734,7 +9762,11 @@ function updateScoreLegend(){
  title.textContent=currentLegendTitle();
  mode.textContent=mapMode==='today'?'DZIŚ':'POTENCJAŁ';
  bar.style.background=unifiedLegendGradient();
- setLegendWords(UNIFIED_MAP_LEVELS.map(x=>x.label));
+ if(currentFilter==='diversity'&&!atlasSelected.size){
+   setLegendWords(['mała','ograniczona','średnia','duża','bardzo duża']);
+ }else{
+   setLegendWords(['odpuść','rezerwowo','średnio','warto','TOP']);
+ }
 }
 
 function auditColorScaleCalibration(){
@@ -10031,7 +10063,7 @@ function diversityPopup(f){
  const src=f._kind==='open'?'OpenStreetMap':(f._src==='pgl'?'PGL LP':(f._src==='other'?'poza PGL LP':'KO/KDO'));
  const place=f._kind==='open'?`<b>Typ terenu:</b> ${p.open_type||'teren otwarty'} ${p.name?'• '+p.name:''}<br>`:
    `<b>Drzewo dominujące:</b> ${p.species_cd||p.gat_grp||'?'} • <b>wiek:</b> ${p.species_age??'?'} lat<br><b>Siedlisko:</b> ${p.site_type_cd||'?'}<br>`;
- return `<b style="font-size:13px">Różnorodność grzybów</b><br><b style="font-size:22px">${d.count} nisz</b> (${d.taxaCount} gat.) • wynik ${d.score.toFixed(1)}/10<br>${d.groups?.length?`<span style="opacity:.75;font-size:10.5px">${d.groups.slice(0,4).join(' • ')}</span><br>`:''}`+
+ return `<b style="font-size:13px">Różnorodność grzybów</b><br><b style="font-size:22px">${d.count} nisz</b> (${d.taxaCount} gat.) • indeks ${modelScorePercentText(d.score)}<br>${d.groups?.length?`<span style="opacity:.75;font-size:10.5px">${d.groups.slice(0,4).join(' • ')}</span><br>`:''}`+
    `<span style="color:#9eaaa3">Liczone są gatunki z Twojej listy mające tu sensowne warunki.</span><br><br>${place}`+
    `<div class="what-here"><b>Najlepiej pasujące:</b>${d.rows.slice(0,10).map(x=>`<div class="what-row"><span>${HUMAN_NAMES[x.type]}</span><b>${x.score.toFixed(1)}/10</b></div>`).join('')}`+
    (d.rows.length?'':'<div style="margin-top:5px;color:#aaa">Brak gatunków powyżej progu.</div>')+`</div><div style="margin-top:7px;color:#777;font-size:9px">Źródło geometrii: ${src}</div>`;
@@ -10264,14 +10296,14 @@ function unifiedSpeciesGridHtml(rows){
    const nationalPct=Number.isFinite(x.nationalPercentile)?Math.round(x.nationalPercentile):null;
    const nationalFactor=Number.isFinite(x.nationalMultiplier)?x.nationalMultiplier:1;
    const nationalText=nationalPct==null?'benchmark Polski: wczytywanie':`Polska P${nationalPct} • ×${nationalFactor.toFixed(2)}`;
-   const title=`Ocena praktyczna ${x.score.toFixed(1)}/10 • dopasowanie biologiczne ${raw.toFixed(1)}/10 • lokalna korekta ${pct}% • ${nationalText}`;
+   const title=`Ocena modelu ${modelScorePercentText(x.score)} (${x.score.toFixed(1)}/10) • dopasowanie biologiczne ${raw.toFixed(1)}/10 • lokalna korekta ${pct}% • ${nationalText}`;
    return `<div class="u-species-card ${cls}" title="${escapeHtml(title)}">
      <img src="${atlasSvg(x.type)}" alt="${escapeHtml(sm.label||x.type)}">
      <div>
        <div class="u-species-name">${escapeHtml(sm.label||x.type)}</div>
        <div class="u-species-latin">${escapeHtml(sm.scientific||'')}</div>
      </div>
-     <div class="u-species-score ${cls}">${x.score.toFixed(1)}</div>
+     <div class="u-species-score ${cls}">${modelScorePercentText(x.score)}</div>
      <div class="u-species-bar"><span style="width:${width.toFixed(0)}%"></span></div>
    </div>`;
  }).join('')}</div>`;
@@ -10326,14 +10358,14 @@ function unifiedPopupHtml(f,h=null){
    const d=diversityData(f);
    primaryHtml=`<div class="u-primary-species">
      <div style="width:42px;height:42px;border-radius:10px;background:#edf4ef;display:grid;place-items:center;font-size:25px">🍄</div>
-     <div><div class="u-primary-name">Różnorodność grzybów</div><div class="u-primary-latin">${d.count} nisz / ${d.taxaCount} gat. powyżej progu</div></div>
-     <div class="u-primary-score">${d.score.toFixed(1)}<small>/10</small></div>
+     <div><div class="u-primary-name">Największy wybór</div><div class="u-primary-latin">${d.count} nisz / ${d.taxaCount} gat. powyżej progu</div></div>
+     <div class="u-primary-score">${modelScorePercentText(d.score)}<small>indeks wyboru</small></div>
    </div>`;
  }else if(type&&m){
    primaryHtml=`<div class="u-primary-species">
      <img src="${atlasSvg(type)}" alt="${escapeHtml(m.label||type)}">
      <div><div class="u-primary-name">${escapeHtml(m.label||type)}</div><div class="u-primary-latin">${escapeHtml(m.scientific||'')}</div></div>
-     <div class="u-primary-score">${displayedPrimaryScore.toFixed(1)}<small>/10</small></div>
+     <div class="u-primary-score">${modelScorePercentText(displayedPrimaryScore)}<small>ocena modelu</small></div>
    </div>`;
 
    const reasons=reasonsFor(type,f);
@@ -10352,6 +10384,11 @@ function unifiedPopupHtml(f,h=null){
  }else{
    otherRows=unifiedFeatureSpeciesRows(f,type);
  }
+ const scoreMeaningHtml=`<div style="font-size:9.5px;line-height:1.35;color:#68786e;margin:5px 2px 8px">
+   ${currentFilter==='diversity'
+     ? 'Procent = indeks różnorodności modelu (0–100), nie prawdopodobieństwo znalezienia grzyba.'
+     : 'Procent = ocena modelu miejsca (0–100). Nie jest to statystycznie skalibrowane prawdopodobieństwo znalezienia owocnika.'}
+ </div>`;
  const otherSpeciesHtml=unifiedSpeciesGridHtml(otherRows);
 
  // Hotspot to osobna, dodatkowa sekcja — nie zmienia werdyktu miejsca.
@@ -10417,7 +10454,7 @@ function unifiedPopupHtml(f,h=null){
      <div class="popup-verdict ${featureVm.cls}" style="margin-top:7px">${featureVm.label} • ${modeLabel}</div>
 
      <div class="u-core-stats">
-       <div class="u-core-stat"><span>Ocena praktyczna</span><b>${displayedPrimaryScore.toFixed(1)}/10</b></div>
+       <div class="u-core-stat"><span>Ocena modelu</span><b>${modelScorePercentText(displayedPrimaryScore)}</b></div>
        <div class="u-core-stat"><span>Stały potencjał</span><b>${stable.toFixed(1)}/10</b></div>
        <div class="u-core-stat"><span>Pewność danych</span><b>${escapeHtml(conf.label)} • ${conf.value}/100</b></div>
        <div class="u-core-stat"><span>Klasa mapy ${modeLabel}</span><b>${escapeHtml(balancedClassLabel(cls))}</b></div>
@@ -10432,6 +10469,7 @@ function unifiedPopupHtml(f,h=null){
        </div>
      </div>
      ${primaryHtml}
+     ${scoreMeaningHtml}
      <div class="popup-facts" style="margin-top:7px">
        <div class="popup-factline">${mainLine}</div>
        ${Number.isFinite(f._distance)?`<div class="popup-factline">📍 ${f._distance.toFixed(1)} km od najbliższego centrum${Number.isFinite(f._elev)?' • '+Math.round(f._elev)+' m':''}</div>`:''}
@@ -10473,7 +10511,7 @@ function closeUnifiedDetails(clearLock=true){
 function unifiedDetailsTitleFor(f,h=null){
  if(h)return `Hotspot ${hotspotLabel(h)} • ${h.areaName}`;
  const t=unifiedFeatureType(f);
- if(currentFilter==='diversity')return 'Różnorodność • wybrane miejsce';
+ if(currentFilter==='diversity')return 'Największy wybór • wybrane miejsce';
  if(atlasSelected.size===1){
    const only=[...atlasSelected][0];
    return `${HUMAN_NAMES[only]||only} • wybrane miejsce`;
@@ -14301,7 +14339,17 @@ function updateSpeciesMeta(){
        : 'Przy kilku gatunkach mapa pokazuje SUMĘ ich terenów: dodanie kolejnego grzyba nigdy nie usuwa miejsc dobrych dla wcześniej zaznaczonych. Każdy gatunek zachowuje własną skalę kolorów; mocniejszy obrys oznacza, że w tym samym miejscu dobrze pasuje kilka zaznaczonych gatunków.'} Najedź na wydzielenie — atlas pokaże, które grzyby konkretnie tu pasują.</span>`;
    return;
  }
- box.innerHTML='<b>🍄 Najlepsze miejsce = najlepszy gatunek dla danego siedliska</b><br><span style="opacity:.82">Las porównuje gatunki leśne, łąka/polana gatunki otwarte, a kanie tylko realne skraje. Hotspoty są dodatkowo równoważone, żeby kilka świetnych łąk nie wyparło całego rankingu leśnego. W DZIŚ dochodzi sezon i pogoda.</span>';
+ if(currentFilter==='diversity'){
+   box.innerHTML='<b>🍄 Największy wybór = różne nisze, nie sama liczba gatunków</b><br>'+
+     '<span style="opacity:.82">Kilka grzybów z tej samej niszy (np. bór sosnowy) nie pompuje wyniku kilka razy. '+
+     'POTENCJAŁ pokazuje, ile różnych typów siedlisk ma tu mocne dopasowanie; DZIŚ dodatkowo wymaga dobrych warunków teraz. '+
+     'Ciemniejsza zieleń oznacza większy wybór różnych środowisk/grup grzybów.</span>';
+   return;
+ }
+ box.innerHTML='<b>🍄 Najlepsza szansa = najmocniejszy pojedynczy gatunek</b><br>'+
+   '<span style="opacity:.82">Dla każdego wydzielenia mapa wybiera grzyba z najwyższą oceną modelu. '+
+   '80% oznacza indeks 8.0/10 — to <b>nie jest</b> gwarantowane 80% prawdopodobieństwa znalezienia owocnika. '+
+   'W DZIŚ dochodzi pogoda i sezon; POTENCJAŁ pokazuje najlepsze warunki siedliskowe.</span>';
 }
 document.getElementById('speciesSelect').onchange=async e=>{
  atlasHoverTypes.clear();

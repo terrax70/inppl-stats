@@ -1,14 +1,13 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v78: DZIŚ w BEST reaguje na rzeczywista jakosc warunkow, nie staly procent.
-     Audyt v77 potwierdzil mechanike, ale ujawnil wade: w kazdej klasie Potencjalu ZAWSZE
-     ~45% miejsc utrzymywalo klase, ~30% spadalo o 1 i ~25% o 2 — niezaleznie od tego,
-     czy pogoda byla swietna czy slaba. v78 liczy CONDITION dla najlepszego gatunku DZIŚ
-     z retencji wyniku DZIŚ/Potencjal oraz fruitingConditions (pogoda+sezon), a lokalny
-     percentyl jest tylko 22% korekta przestrzenna. Dobra pogoda moze wiec utrzymac wiecej
-     miejsc, slaba realnie obnizy wiecej. DZIŚ nadal nigdy nie przekracza Potencjalu.
-     Roznorodnosc, pojedyncze gatunki, scoring biologiczny, POTENCJAL BEST i radar PL bez zmian. -->
+<!-- GitHub production v79: twarda monotonicznosc wizualna DZIŚ <= POTENCJAŁ.
+     v78 pilnowalo klasy, ale nie koncowego pasma koloru. Gdy DZIŚ i POTENCJAŁ mialy te sama
+     klase (np. TOP), gradient wewnatrz klasy byl liczony osobno i DZIŚ moglo dostac ciemniejszy
+     zielony band niz POTENCJAŁ. To lamalo znaczenie interfejsu mimo poprawnych klas.
+     v79 centralizuje wybor koncowego bandu (wraz z benchmarkiem krajowym) i w trybie DZIŚ
+     ogranicza go bandem, jaki to samo wydzielenie ma w POTENCJALE. Zatem nie tylko klasa,
+     ale tez finalny kolor DZIŚ nigdy nie jest "lepszy" od Potencjału. Scoring bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -7576,9 +7575,8 @@ function currentMapBandForFeature(f){
  const today=mapMode==='today';
  const score=today?todayScoreForStyle(f):stableAnchorScore(f);
  const c=today?todayBalancedClass(f,score):balancedClass(f);
- const progress=unifiedWithinClassProgress(f,c,today,score);
- const band=unifiedBandIndex(c,progress);
- return {class:c,band,progress,score};
+ const visual=unifiedVisualBandInfo(f,c,today,score,true);
+ return {class:c,band:visual.band,progress:visual.progress,score};
 }
 
 function practicalLocationMultiplier(f){
@@ -8195,6 +8193,58 @@ function auditBestTopAvailability(){
  console.info('BEST TOP AVAILABILITY',report);
  return report;
 }
+
+function auditTodayNeverGreenerThanPotential(){
+ const rows=[];
+ let classViolations=0,bandViolations=0,equalClassDarkerBeforeCap=0;
+
+ for(const f of allFeatures){
+   if(f._blocked||f._kind==='open')continue;
+
+   const ps=stableAnchorScore(f);
+   const pc=balancedClass(f);
+   const pv=unifiedVisualBandInfo(f,pc,false,ps,false);
+
+   const ts=todayScoreForStyle(f);
+   const tc=todayBalancedClass(f,ts);
+
+   // surowy band DZIŚ przed capem — tylko diagnostycznie
+   const rawToday=unifiedVisualBandInfo(f,tc,true,ts,false);
+   const cappedToday=unifiedVisualBandInfo(f,tc,true,ts,true);
+
+   if(tc>pc)classViolations++;
+   if(cappedToday.band>pv.band)bandViolations++;
+   if(tc===pc&&rawToday.band>pv.band)equalClassDarkerBeforeCap++;
+
+   if(rows.length<80&&(rawToday.band>pv.band||tc>pc)){
+     rows.push({
+       area:featureAreaName(f),
+       potentialScore:Number(ps.toFixed(2)),
+       potentialClass:pc,
+       potentialBand:pv.band,
+       todayScore:Number(ts.toFixed(2)),
+       todayClass:tc,
+       todayBandRaw:rawToday.band,
+       todayBandFinal:cappedToday.band
+     });
+   }
+ }
+
+ const report={
+   ok:classViolations===0&&bandViolations===0,
+   version:'v79',
+   checked:allFeatures.filter(f=>!f._blocked&&f._kind!=='open').length,
+   classViolations,
+   bandViolations,
+   equalClassDarkerBeforeCap,
+   expectation:'todayClass <= potentialClass oraz todayFinalBand <= potentialBand'
+ };
+ console.table(rows);
+ console.info('TODAY <= POTENTIAL VISUAL AUDIT',report);
+ return report;
+}
+window.auditTodayNeverGreenerThanPotential=auditTodayNeverGreenerThanPotential;
+
 window.auditBestTopAvailability=auditBestTopAvailability;
 window.auditBestTopAvailability=auditBestTopAvailability;
 window.auditBestTopAvailability=auditBestTopAvailability;
@@ -9030,6 +9080,43 @@ function unifiedBandIndex(c,progress=.5){
  return Math.max(0,Math.min(11,idx));
 }
 
+function unifiedVisualBandInfo(f,c,today=false,score=NaN,capToday=true){
+ c=Math.max(0,Math.min(4,Number(c)||0));
+ let progress=unifiedWithinClassProgress(f,c,today,score);
+ let band=unifiedBandIndex(c,progress);
+
+ // Benchmark krajowy może przesunąć tylko pasmo wewnątrz tej samej klasy.
+ const nationalVisual=nationalVisualInfoForFeature(f,today);
+ if(nationalVisual.active&&!(f?._hotspotIndex)){
+   const nf=Number(nationalVisual.factor)||1;
+   const shift=nf>=1.055?1:(nf<=.905?-1:0);
+   if(shift){
+     const [blo,bhi]=unifiedClassBandRange(c);
+     band=Math.max(blo,Math.min(bhi,band+shift));
+   }
+ }
+
+ // v79: finalny kolor DZIŚ nie może być ciemniejszy od POTENCJAŁU
+ // tego samego wydzielenia. Klasy już są monotoniczne; tu domykamy band.
+ if(today&&capToday&&f){
+   const potentialClass=balancedClass(f);
+   const potentialScore=stableAnchorScore(f);
+   const potential=unifiedVisualBandInfo(f,potentialClass,false,potentialScore,false);
+   band=Math.min(band,potential.band);
+
+   // Gdy klasy są te same, przechowujemy także capped progress dla diagnostyki.
+   if(c===potentialClass){
+     const [lo,hi]=unifiedClassBandRange(c);
+     const span=Math.max(1,hi-lo+1);
+     const local=(band-lo+.5)/span;
+     progress=Math.min(progress,Math.max(0,Math.min(1,local)));
+   }
+ }
+
+ return {class:c,progress,band,nationalVisual};
+}
+
+
 // v57 — końcowy filtr prezentacyjny.
 // Nie zmienia scoringu, klas ani hotspotów. Decyduje tylko, ILE z już policzonego
 // wyniku ma być widoczne na mapie.
@@ -9276,21 +9363,10 @@ function nationalVisualInfoForFeature(f,today=false){
 
 function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  c=Math.max(0,Math.min(4,Number(c)||0));
- const progress=unifiedWithinClassProgress(f,c,today,score);
- let band=unifiedBandIndex(c,progress);
-
- // v65 FIX: benchmark krajowy przesuwa PASMO (kolor) zamiast mnozyc krycie.
- // Wczesniej ten sam sygnal modulowal fillOpacity trzy razy, a podloga
- // czesciowo to cofala - stad bolesne strojenie w v56/v57/v68.
- const nationalVisual=nationalVisualInfoForFeature(f,today);
- if(nationalVisual.active&&!(f?._hotspotIndex)){
-   const nf=Number(nationalVisual.factor)||1;
-   const shift=nf>=1.055?1:(nf<=.905?-1:0);
-   if(shift){
-     const [blo,bhi]=unifiedClassBandRange(c);
-     band=Math.max(blo,Math.min(bhi,band+shift));
-   }
- }
+ const visualBand=unifiedVisualBandInfo(f,c,today,score,true);
+ const progress=visualBand.progress;
+ const band=visualBand.band;
+ const nationalVisual=visualBand.nationalVisual;
 
  const fill=UNIFIED_COLOR_BANDS[band];
  const stroke=UNIFIED_STROKE_BANDS[band];

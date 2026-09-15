@@ -1,14 +1,13 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v83: dwa pytania = dwa jezyki kolorow.
-     v82 poprawilo nazwy, ale oba tryby nadal uzywaly tej samej czerwono-zielonej palety.
-     To wizualnie sugerowalo, ze "Największy wybór" jest po prostu lepszym miejscem do zbioru,
-     zwlaszcza gdy mial wiecej ciemnozielonych polygonow. v83:
-     Najlepsza szansa / pojedynczy gatunek zachowuje skale od czerwieni do zieleni,
-     a Największy wybór dostaje osobna, sekwencyjna palete fioletowo-niebieska.
-     Fiolet oznacza WIECEJ ROZNYCH NISZ, nie większą szanse znalezienia konkretnego grzyba.
-     Overlay wyboru jest tez lekko spokojniejszy optycznie. Scoring i klasy bez zmian. -->
+<!-- GitHub production v84: Największy wybór przywrócony wizualnie do v82;
+     poprawiana jest wyłącznie czytelność Najlepszej szansy.
+     v83 zmienilo palete różnorodności i przez to zepsulo sprawdzony wyglad tego trybu.
+     v84 wraca do wspólnej palety v82, ale w "Najlepszej szansie" stosuje fokus wizualny:
+     odpuść/rezerwowo są spokojniejsze, WARTO i TOP mocniej nasycone, TOP ma wyraźniejszy
+     obrys. Nie zmienia to klas, score, hotspotów ani semantyki; tylko sprawia, że mapa
+     odpowiedzi "gdzie iść" ma silniejszą hierarchię niż tło słabszych wydzieleń. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -8502,25 +8501,32 @@ function auditModeSemanticsUI(){
  return report;
 }
 
-function auditPaletteSemantics(){
- const diversity=diversityPaletteActive();
- const colors=activeMapColorBands();
+function auditBestChanceVisualFocus(){
+ const rows=[];
+ for(let c=0;c<=4;c++){
+   const bands=unifiedClassBandRange(c);
+   const sampleBand=Math.round((bands[0]+bands[1])/2);
+   const colors=activeMapColorBands();
+   rows.push({
+     class:c,
+     label:UNIFIED_MAP_LEVELS[c]?.label||c,
+     sampleBand,
+     color:colors[sampleBand],
+     mode:bestChanceVisualActive()?'BEST focus':'standard'
+   });
+ }
  const report={
-   version:'v83',
+   version:'v84',
    filter:currentFilter,
    mapMode,
-   diversityPalette:diversity,
-   paletteName:diversity?'fioletowa / liczba nisz':'czerwono-zielona / szansa',
-   first:colors[0],
-   middle:colors[Math.floor(colors.length/2)],
-   last:colors[colors.length-1],
-   legendBackground:document.getElementById('scoreLegendBar')?.style.background||'',
-   rule:'zielony = szansa / gatunek; fiolet = różnorodność nisz'
+   bestChanceVisual:bestChanceVisualActive(),
+   note:'Największy wybór używa dokładnie standardowego wyglądu v82; fokus dotyczy tylko Najlepszej szansy.'
  };
- console.info('PALETTE SEMANTICS AUDIT',report);
+ console.table(rows);
+ console.info('BEST CHANCE VISUAL FOCUS',report);
  return report;
 }
-window.auditPaletteSemantics=auditPaletteSemantics;
+window.auditBestChanceVisualFocus=auditBestChanceVisualFocus;
 
 window.auditModeSemanticsUI=auditModeSemanticsUI;
 
@@ -9240,28 +9246,29 @@ const UNIFIED_COLOR_BANDS=[
   '#0d7a44'
 ];
 
-// v83: osobna paleta dla "Największego wyboru".
-// To jest skala ILOŚCI / RÓŻNORODNOŚCI nisz, nie skala "idź tutaj".
-const DIVERSITY_COLOR_BANDS=[
-  '#f2f0f6',
-  '#e8e3f0',
-  '#d9d0e8',
-  '#cbbce0',
-  '#b8a2d5',
-  '#a486ca',
-  '#8d6cbd',
-  '#7654ae',
-  '#633f9d',
-  '#4f328b',
-  '#3c2576',
-  '#2b195f'
+// v84: Największy wybór zostaje dokładnie na palecie v82.
+// Najlepsza szansa dostaje tylko mocniej rozciągniętą górę skali,
+// żeby "warto / TOP" były natychmiast widoczne na tle słabszych pól.
+const BEST_CHANCE_COLOR_BANDS=[
+  '#f2efe8',
+  '#e8dfd2',
+  '#d5c2b0',
+  '#d7b39d',
+  '#c78f72',
+  '#ca8850',
+  '#ae6a32',
+  '#98a43e',
+  '#61a84c',
+  '#35c968',
+  '#13aa58',
+  '#05753d'
 ];
 
-function diversityPaletteActive(){
- return currentFilter==='diversity'&&!atlasSelected.size;
+function bestChanceVisualActive(){
+ return currentFilter==='all'&&!atlasSelected.size;
 }
 function activeMapColorBands(){
- return diversityPaletteActive()?DIVERSITY_COLOR_BANDS:UNIFIED_COLOR_BANDS;
+ return bestChanceVisualActive()?BEST_CHANCE_COLOR_BANDS:UNIFIED_COLOR_BANDS;
 }
 
 const UNIFIED_STROKE_BANDS=[
@@ -9678,11 +9685,10 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  const nationalVisual=visualBand.nationalVisual;
 
  const colors=activeMapColorBands();
- const isDiversity=diversityPaletteActive();
+ const isBest=bestChanceVisualActive();
  const fill=colors[band];
  const stroke=UNIFIED_STROKE_BANDS[band];
- const borderAnchor=isDiversity?'#21182f':'#14231b';
- let border=stroke.weight>0 ? mixHexColor(fill,borderAnchor, .40 + (band/11)*.14) : 'transparent';
+ let border=stroke.weight>0 ? mixHexColor(fill,'#14231b', .40 + (band/11)*.14) : 'transparent';
 
  const fillOpacityByBand=[0.030,0.050,0.095,0.135,0.185,0.245,0.315,0.410,0.525,0.610,0.680,0.745];
  // Minimalne krycie dla KAŻDEGO widocznego pasma.
@@ -9693,12 +9699,26 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  let weight=stroke.weight;
  let opacity=stroke.opacity;
 
- // Różnorodność ma być czytelna, ale nie może wyglądać jak silniejszy sygnał
- // "idź tutaj" niż mapa szansy. Informacja jest kodowana przede wszystkim kolorem.
- if(isDiversity){
-   fillOpacity*=.84;
-   weight*=.92;
-   opacity*=.92;
+ // v84: fokus wizualny tylko dla "Najlepszej szansy".
+ // Nie zmieniamy klasy ani bandu — tylko ich siłę na ekranie.
+ if(isBest){
+   if(c<=1){
+     fillOpacity*=.64;
+     weight*=.72;
+     opacity*=.72;
+   }else if(c===2){
+     fillOpacity*=.88;
+     weight*=.90;
+   }else if(c===3){
+     fillOpacity=Math.min(.79,fillOpacity*1.12);
+     weight*=1.12;
+     opacity=Math.min(1,opacity*1.08);
+   }else if(c===4){
+     fillOpacity=Math.min(.79,fillOpacity*1.22);
+     weight=Math.max(weight*1.22,1.45);
+     opacity=Math.max(opacity,.90);
+     border=border==='transparent'?'#173d27':mixHexColor(border,'#062d1a',.38);
+   }
  }
 
  // 1) Najniższy ogon skali nadal znika całkowicie.
@@ -9754,14 +9774,14 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
 
  if(f?._hotspotIndex){
    if(f._hotspotBest){
-     weight=Math.max(weight,1.90);
+     weight=Math.max(weight,isBest?2.20:1.90);
      opacity=Math.max(opacity,.94);
-     border=border==='transparent' ? (isDiversity?'#49346b':'#345740') : mixHexColor(border,isDiversity?'#1d1230':'#09361f',.46);
+     border=border==='transparent' ? '#345740' : mixHexColor(border,'#09361f',.46);
      fillOpacity=Math.min(.79,fillOpacity+.025);
    }else{
      weight=Math.max(weight,.92);
      opacity=Math.max(opacity,.68);
-     if(border==='transparent')border=isDiversity?'#6d5a88':'#667a67';
+     if(border==='transparent')border='#667a67';
    }
  }
 
@@ -9817,7 +9837,7 @@ function updateScoreLegend(){
  el.classList.add('visible');
  el.setAttribute('aria-hidden','false');
  title.textContent=currentLegendTitle();
- mode.textContent=(mapMode==='today'?'DZIŚ':'POTENCJAŁ')+(diversityPaletteActive()?' • NISZE':'');
+ mode.textContent=mapMode==='today'?'DZIŚ':'POTENCJAŁ';
  bar.style.background=unifiedLegendGradient();
  if(currentFilter==='diversity'&&!atlasSelected.size){
    setLegendWords(['mała','ograniczona','średnia','duża','bardzo duża']);
@@ -14397,16 +14417,16 @@ function updateSpeciesMeta(){
    return;
  }
  if(currentFilter==='diversity'){
-   box.innerHTML='<b>🟣 Największy wybór = różne nisze, nie „większa szansa”</b><br>'+
+   box.innerHTML='<b>🍄 Największy wybór = różne nisze, nie sama liczba gatunków</b><br>'+
      '<span style="opacity:.82">Kilka grzybów z tej samej niszy (np. bór sosnowy) nie pompuje wyniku kilka razy. '+
      'POTENCJAŁ pokazuje, ile różnych typów siedlisk ma tu mocne dopasowanie; DZIŚ dodatkowo wymaga dobrych warunków teraz. '+
-     '<b>Fiolet oznacza większy wybór różnych nisz.</b> Nie porównuj jego intensywności bezpośrednio z zielenią z „Najlepszej szansy”.</span>';
+     'Ciemniejsza zieleń oznacza większy wybór różnych środowisk/grup grzybów.</span>';
    return;
  }
- box.innerHTML='<b>🍄 Najlepsza szansa = najmocniejszy pojedynczy gatunek</b><br>'+
-   '<span style="opacity:.82">Dla każdego wydzielenia mapa wybiera grzyba z najwyższą oceną modelu. '+
-   '80% oznacza indeks 8.0/10 — to <b>nie jest</b> gwarantowane 80% prawdopodobieństwa znalezienia owocnika. '+
-   'W DZIŚ dochodzi pogoda i sezon; POTENCJAŁ pokazuje najlepsze warunki siedliskowe.</span>';
+ box.innerHTML='<b>🍄 Najlepsza szansa = gdzie przede wszystkim warto iść</b><br>'+
+   '<span style="opacity:.82">Dla każdego wydzielenia mapa wybiera najmocniejszy pojedynczy gatunek. '+
+   'Słabe pola są celowo przygaszone, a WARTO/TOP mocniej wyróżnione, żeby mapa prowadziła wzrok do najlepszych miejsc. '+
+   '80% oznacza indeks 8.0/10 — to <b>nie jest</b> gwarantowane 80% prawdopodobieństwa znalezienia owocnika.</span>';
 }
 document.getElementById('speciesSelect').onchange=async e=>{
  atlasHoverTypes.clear();

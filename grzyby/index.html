@@ -1,13 +1,14 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v76: BEST/Najlepsze miejsce jako czytelny ranking terenu.
-     Audyt v75 pokazal tylko 1.2% TOP (36/3052) mimo q94, bo DZIS bylo dodatkowo przecinane
-     przez potentialClass wybranego gatunku i przez bardzo rzadki TOP Potencjalu. v76:
-     klasy BEST rozkladaja sie szerzej (q25/q50/q72/q90), DZIS ma tylko jeden cap mapowy
-     balancedClass(f) — wystarczajacy do zasady DZIS <= POTENCJAL — a redundantny
-     info.potentialClass zostal usuniety. TOP ma mocniej rozciagniety najciemniejszy band.
-     Roznorodnosc, pojedyncze gatunki, scoring biologiczny i radar PL bez zmian. -->
+<!-- GitHub production v77: DZIŚ jako kontrolowane obnizenie mapy POTENCJALU w BEST.
+     Audyt v76: POTENCJAL jest zdrowy (10% TOP), ale DZIŚ mial tylko 2.6% TOP, bo globalne
+     q90 DZIŚ przecinalo sie tylko z czescia TOP Potencjalu (227/306 kandydatow blokowal cap).
+     v77 nie tworzy juz niezaleznego rankingu DZIŚ i potem go nie przecina. Najpierw bierze
+     klase POTENCJALU danego wydzielenia, a nastepnie ranking DZIŚ WSROD wydzielen tej samej
+     klasy potencjalu decyduje, czy miejsce utrzymuje klase, czy spada o 1–2 poziomy.
+     To realizuje doslownie zasade UI: DZIŚ = Potencjal obnizony przez pogode i sezon.
+     Roznorodnosc, pojedyncze gatunki, scoring biologiczny, POTENCJAL BEST i radar PL bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -7819,7 +7820,7 @@ function resetStaticCachesIfNeeded(){
  forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();hotspotCacheKey='';hotspotCache=[];
  todayHotspotCacheKey='';todayHotspotCache=[];
  balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();hotspotMembershipKey='';
- todayScaleCacheKey='';todayScales={};
+ todayScaleCacheKey='';todayScales={};bestTodayPotentialClassScaleCache.clear();
  perfKeyLast='';
  perfScoreCache=new WeakMap();
  perfBestCache=new WeakMap();
@@ -8132,63 +8133,55 @@ function auditBestTopAvailability(){
    const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===a.name);
    if(!feats.length)continue;
 
-   const scale=today?buildTodayScales()[a.name]:buildBalancedScales()[a.name];
-   let relativeTop=0,blockedAbsolute=0,blockedPotential=0,finalTop=0,darkest=0;
    const rows=[];
+   const matrix={};
+   for(let pc=0;pc<=4;pc++)matrix[pc]={n:0,stay:0,down1:0,down2plus:0};
 
    for(const f of feats){
+     const potentialClass=balancedClass(f);
      const score=today?todayScoreForStyle(f):stableAnchorScore(f);
-     const relativeTopHit=score >= (today?(scale?.q90??Infinity):(scale?.q90??Infinity));
-     if(relativeTopHit)relativeTop++;
-
-     let absoluteCap=4;
-     if(today){
-       if(score<3.80)absoluteCap=0;
-       else if(score<4.45)absoluteCap=1;
-       else if(score<5.05)absoluteCap=2;
-       else if(score<5.65)absoluteCap=3;
-     }else{
-       if(score<4.35)absoluteCap=0;
-       else if(score<4.95)absoluteCap=1;
-       else if(score<5.55)absoluteCap=2;
-       else if(score<6.20)absoluteCap=3;
-     }
-
-     const potentialClass=today?balancedClass(f):4;
-     if(relativeTopHit&&absoluteCap<4)blockedAbsolute++;
-     if(today&&relativeTopHit&&absoluteCap>=4&&potentialClass<4)blockedPotential++;
-
-     const cls=today?todayBalancedClass(f,score):balancedClass(f);
+     const cls=today?todayBalancedClass(f,score):potentialClass;
      const progress=unifiedWithinClassProgress(f,cls,today,score);
      const band=unifiedBandIndex(cls,progress);
-     if(cls===4)finalTop++;
-     if(band===11)darkest++;
 
-     rows.push({score,cls,band,potentialClass,relativeTopHit,absoluteCap});
+     matrix[potentialClass].n++;
+     if(cls===potentialClass)matrix[potentialClass].stay++;
+     else if(cls===potentialClass-1)matrix[potentialClass].down1++;
+     else if(cls<=potentialClass-2)matrix[potentialClass].down2plus++;
+
+     rows.push({score,cls,band,potentialClass});
    }
 
    const scores=rows.map(x=>x.score);
+   const topRows=rows.filter(x=>x.cls===4);
+   const potTop=rows.filter(x=>x.potentialClass===4);
+   const darkest=rows.filter(x=>x.band===11);
+
    perArea[a.name]={
      n:rows.length,
      min:Number(Math.min(...scores).toFixed(2)),
      max:Number(Math.max(...scores).toFixed(2)),
-     qTop:Number((scale?.q90??NaN).toFixed(2)),
-     relativeTop,
-     relativeTopPct:Number((100*relativeTop/rows.length).toFixed(1)),
-     blockedAbsolute,
-     blockedPotential,
-     topCount:finalTop,
-     topPct:Number((100*finalTop/rows.length).toFixed(1)),
-     darkestCount:darkest,
-     darkestPct:Number((100*darkest/rows.length).toFixed(1))
+     potentialTop:potTop.length,
+     potentialTopPct:Number((100*potTop.length/rows.length).toFixed(1)),
+     topCount:topRows.length,
+     topPct:Number((100*topRows.length/rows.length).toFixed(1)),
+     topRetentionPct:Number((100*topRows.length/Math.max(1,potTop.length)).toFixed(1)),
+     darkestCount:darkest.length,
+     darkestPct:Number((100*darkest.length/rows.length).toFixed(1)),
+     class4Scale:today?bestTodayPotentialClassScale(a.name,4):null,
+     matrix
    };
  }
 
- const report={ok:true,version:'v76',mode:mapMode,perArea};
- console.table(perArea);
+ const report={ok:true,version:'v77',mode:mapMode,perArea};
+ for(const [name,x] of Object.entries(perArea)){
+   console.info(name);
+   console.table(x.matrix);
+ }
  console.info('BEST TOP AVAILABILITY',report);
  return report;
 }
+window.auditBestTopAvailability=auditBestTopAvailability;
 window.auditBestTopAvailability=auditBestTopAvailability;
 window.auditBestTopAvailability=auditBestTopAvailability;
 
@@ -8968,14 +8961,20 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
 
  if(!atlasSelected.size && currentFilter!=='diversity'){
    if(today && currentFilter==='all'){
-     const s=buildTodayScales()[area];
-     if(s){
-       const cuts=[s.min??0,s.q25??5.25,s.q50??6.20,s.q72??6.95,s.q90??7.65,s.max??10];
-       const lo=cuts[c]??0,hi=cuts[c+1]??10;
-       let p=hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
-       // W TOP szybciej dochodzimy do najciemniejszego z 3 zielonych bandów.
-       if(c===4)p=Math.pow(p,.72);
-       return p;
+     const pc=balancedClass(f);
+     const s=bestTodayPotentialClassScale(area,pc);
+     if(s&&s.n){
+       // Gradient DZIŚ jest liczony wewnątrz klasy POTENCJAŁU, z której pochodzi obiekt.
+       // To zapobiega ponownemu spłaszczeniu kolorów po samej klasyfikacji.
+       let p=piecewise(score,[
+         [s.min??score,0],
+         [s.q25??score,.25],
+         [s.q55??score,.55],
+         [s.q85??score,.85],
+         [s.max??score,1]
+       ]);
+       if(c===pc&&c>=3)p=Math.pow(Math.max(0,Math.min(1,p)),.72);
+       return Math.max(0,Math.min(1,p));
      }
    }
    if(!today&&currentFilter==='all'){
@@ -9517,6 +9516,67 @@ function buildTodayScales(){
  return out;
 }
 
+
+const bestTodayPotentialClassScaleCache=new Map();
+
+function bestTodayPotentialClassScale(areaName,potentialClass){
+ const key=`${perfKey()}|${areaName}|pc${potentialClass}`;
+ if(bestTodayPotentialClassScaleCache.has(key))return bestTodayPotentialClassScaleCache.get(key);
+
+ const rows=allFeatures
+   .filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===areaName&&balancedClass(f)===potentialClass)
+   .map(f=>todayScoreForStyle(f))
+   .filter(Number.isFinite)
+   .sort((a,b)=>a-b);
+
+ if(!rows.length){
+   const empty={min:0,q15:0,q25:0,q45:0,q55:0,q75:0,q85:0,max:0,n:0};
+   bestTodayPotentialClassScaleCache.set(key,empty);
+   return empty;
+ }
+
+ const out={
+   min:rows[0],
+   q15:quantileSorted(rows,.15),
+   q25:quantileSorted(rows,.25),
+   q45:quantileSorted(rows,.45),
+   q55:quantileSorted(rows,.55),
+   q75:quantileSorted(rows,.75),
+   q85:quantileSorted(rows,.85),
+   max:rows[rows.length-1],
+   n:rows.length
+ };
+ bestTodayPotentialClassScaleCache.set(key,out);
+ return out;
+}
+
+function bestTodayClassFromPotential(f,score){
+ const potentialClass=balancedClass(f);
+ if(potentialClass<=0)return 0;
+
+ const sc=bestTodayPotentialClassScale(featureAreaName(f),potentialClass);
+ if(!sc.n)return 0;
+
+ // v77:
+ // - górne ~45% w obrębie tej SAMEJ klasy potencjału utrzymuje klasę,
+ // - środkowe ~30% spada o 1,
+ // - dolne ~25% spada o 2.
+ // Dzięki temu DZIŚ zachowuje strukturę potencjału, ale realnie reaguje na pogodę/sezon.
+ let c;
+ if(score>=sc.q55)c=potentialClass;
+ else if(score>=sc.q25)c=Math.max(0,potentialClass-1);
+ else c=Math.max(0,potentialClass-2);
+
+ // Absolutne veto na naprawdę słaby dzień — nigdy nie podnosi klasy, tylko może ją obniżyć.
+ let absoluteCap=0;
+ if(score>=5.65)absoluteCap=4;
+ else if(score>=5.05)absoluteCap=3;
+ else if(score>=4.45)absoluteCap=2;
+ else if(score>=3.80)absoluteCap=1;
+
+ return Math.min(c,absoluteCap,potentialClass);
+}
+
 function todayBalancedClass(f,sOverride=NaN){
  const s=Number.isFinite(sOverride)?sOverride:todayScoreForStyle(f);
  const scale=buildTodayScales()[featureAreaName(f)]||{
@@ -9530,23 +9590,7 @@ function todayBalancedClass(f,sOverride=NaN){
  }
 
  if(!atlasSelected.size&&currentFilter==='all'){
-   // v76 — ten sam czytelny układ klas co POTENCJAŁ.
-   if(s>=scale.q90)todayClass=4;
-   else if(s>=scale.q72)todayClass=3;
-   else if(s>=scale.q50)todayClass=2;
-   else if(s>=scale.q25)todayClass=1;
-
-   let absoluteCap=0;
-   if(s>=5.65)absoluteCap=4;
-   else if(s>=5.05)absoluteCap=3;
-   else if(s>=4.45)absoluteCap=2;
-   else if(s>=3.80)absoluteCap=1;
-
-   // Ważne: s = min(DZIŚ, potencjał wybranego gatunku), więc potencjał
-   // biologiczny już ogranicza wynik liczbowo. balancedClass(f) wystarcza jako
-   // jedyny cap wizualny do zasady "DZIŚ nigdy bardziej zielone niż POTENCJAŁ".
-   // info.potentialClass było drugim, redundantnym capem i ścinało TOP do ~1%.
-   return Math.min(todayClass,absoluteCap,balancedClass(f));
+   return bestTodayClassFromPotential(f,s);
  }
 
  const singleType=activeSingleSpeciesType();
@@ -13636,7 +13680,7 @@ function clearAnalysisData(){
  hotspotCacheKey='';hotspotCache=[];
  todayHotspotCacheKey='';todayHotspotCache=[];
  hotspotMembershipKey='';
- todayScaleCacheKey='';todayScales={};
+ todayScaleCacheKey='';todayScales={};bestTodayPotentialClassScaleCache.clear();
  balancedScaleKey='';balancedScales={};
  document.getElementById('dsBDL').textContent='ładowanie';document.getElementById('dsBDL').className='st-load';
  document.getElementById('dsWeather').textContent='ładowanie';document.getElementById('dsWeather').className='st-load';

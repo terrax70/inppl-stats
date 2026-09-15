@@ -1,8 +1,11 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v65: audyt scoringu - naprawa mesic_dry, rodzin siedliskowych,
-     spojnego potencjalu, roznorodnosci po grupach, okien opadowych i kaskady kolorow -->
+<!-- GitHub production v71: audyt scoringu - mesic_dry, rodziny siedliskowe grzybow drewna,
+     spojny potencjal z obserwacjami, roznorodnosc po niszach siedliskowych ATLAS_GROUPS,
+     rozlaczne okna opadowe, probkowanie krawedzi co ~60 m, jedna tabela podlog klas,
+     benchmark krajowy przesuwa pasmo zamiast mnozyc krycie.
+     Zawiera wszystkie wczesniejsze modulu v66-v70 (radar PL 10 km, kalibracje DZIS). -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -3462,18 +3465,29 @@ function atlasSvg(type){
 }
 const HINT_SHORT={"borowik":"Borowik","borowik_usiatkowany":"Borowik usiatk.","borowik_sosnowy":"Borowik sosn.","ceglastopory":"Ceglastopory","ponury":"Ponury","gorzkoborowik":"Gorzkoborowik","kozlarz_babka":"Koźlarz babka","kozlarz_pomaranczowozolty":"Koźlarz pom.-ż.","kozlarz_czerwony":"Koźlarz czerw.","podgrzybek":"Podgrzybek","maslak_zwyczajny":"Maślak zw.","maslak_zolty":"Maślak żółty","maslak_sitarz":"Maślak sitarz","maslak_pstry":"Maślak pstry","rydz":"Mleczaj rydz","mleczaj_swierkowy":"Mleczaj świerk.","opienka_ciemna":"Opieńka ciemna","opienka_miodowa":"Opieńka miodowa","siedzun_sosnowy":"Siedzuń sosn.","kania":"Czubajka kania","kania_gwiazdzista":"Czubajka gw.","czernidlak":"Czernidłak","pieczarka_polna":"Pieczarka","purchawka_oczkowana":"Purchawka","kurka":"Kurka","goryczak":"Goryczak","szatanski":"Szatański"};
 function shortHintName(type){return HINT_SHORT[type]||HUMAN_NAMES[type]||type;}
-// v65 FIX: "roznorodnosc" liczyla wczesniej surowe taksony, wiec czysty bor
-// sosnowy dostawal 8 "gatunkow" (3 maslaki + rydz + borowik sosnowy + podgrzybek
-// + siedzun + opienka ciemna), bo wszystkie maja strong:['SO'].
-// Teraz liczymy unikalne grupy ekologiczne.
+// v71 FIX: "roznorodnosc" liczy unikalne NISZE SIEDLISKOWE, a nie rodziny grzybow.
+// v65 uzywalo SPECIES_META.group ("Maslaki", "Mleczaje", "Siedzunie"), czyli
+// grupy nazewnicze — czysty bor sosnowy nadal nabijal ~6 "grup", mimo ze
+// wszystkie te gatunki siedza na tej samej sosnie.
+// ATLAS_GROUPS ma juz gotowy podzial siedliskowy: Bory sosnowe, Brzozy i osiki,
+// Pniaki i korzenie, Skraje i polany, Laki, Swierkowe, Modrzewiowe itd.
+const DIVERSITY_GROUP_BY_TYPE=(()=>{
+ const map={};
+ for(const g of ATLAS_GROUPS)for(const t of g.members)map[t]=g.id;
+ return map;
+})();
 function diversityGroupKey(type){
- return SPECIES_META[type]?.group || SPECIES_META[type]?.radar || type;
+ return DIVERSITY_GROUP_BY_TYPE[type] || SPECIES_META[type]?.group || type;
+}
+function diversityGroupLabel(id){
+ return (ATLAS_GROUPS.find(g=>g.id===id)?.label)||id;
 }
 function countDiversityGroups(types){
  const g=new Set();
  for(const t of types)g.add(diversityGroupKey(t));
  return g.size;
 }
+
 const HOSTS=Object.fromEntries(Object.entries(SPECIES_META).map(([k,v])=>[k,{strong:v.strong||[],secondary:v.secondary||[]}]));
 
 const RADAR_REPORTS=[]; const RADAR_NOW=new Date(); const RADAR_PUBLIC_COUNT=0;
@@ -3639,16 +3653,40 @@ function eachCoord(coords,cb){
  if(typeof coords?.[0]==='number') cb(coords);
  else if(Array.isArray(coords)) coords.forEach(c=>eachCoord(c,cb));
 }
-// v65: probkowanie krawedzi poligonu (centroid + do N wierzcholkow),
-// zeby dystans las <-> teren otwarty liczyc realistycznie.
-function geomProbePoints(g,center,max=14){
+// v71 FIX: probkowanie WZDLUZ segmentow krawedzi, nie co n-ty wierzcholek.
+// v65 bralo centroid + max 14 wierzcholkow — przy prostokatnym wydzieleniu
+// z czterema dlugimi bokami laka stykajaca sie ze SRODKIEM boku nadal mogla
+// zostac niezauwazona. Teraz interpolujemy punkty co ~STEP_M metrow.
+const PROBE_STEP_M=60;
+const PROBE_MAX_PTS=90;
+function geomProbePoints(g,center,max=PROBE_MAX_PTS){
  const pts=[];
  if(center)pts.push(center);
  const ring=[];
  eachCoord(g?.coordinates,c=>{ring.push([c[1],c[0]]);});
- if(ring.length){
-   const step=Math.max(1,Math.ceil(ring.length/max));
-   for(let i=0;i<ring.length;i+=step)pts.push(ring[i]);
+ if(!ring.length)return pts;
+
+ // dlugosc obwodu w metrach
+ let perim=0;
+ for(let i=1;i<ring.length;i++)perim+=hav(ring[i-1],ring[i])*1000;
+ if(perim<=0){pts.push(ring[0]);return pts;}
+
+ const budget=Math.max(4,Math.min(max-1,Math.ceil(perim/PROBE_STEP_M)));
+ const step=perim/budget;
+
+ let acc=0,next=0;
+ pts.push(ring[0]);
+ for(let i=1;i<ring.length;i++){
+   const a=ring[i-1],b=ring[i];
+   const segM=hav(a,b)*1000;
+   if(segM<=0)continue;
+   while(next<=acc+segM&&pts.length<max){
+     const t=(next-acc)/segM;
+     pts.push([a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]);
+     next+=step;
+   }
+   acc+=segM;
+   if(pts.length>=max)break;
  }
  return pts;
 }
@@ -5412,8 +5450,8 @@ async function loadOpenHabitats(){
      // ma centroid ~250 m od wlasnej krawedzi, wiec prog 0,32 km byl w praktyce
      // progiem "polana blizej niz polowa wydzielenia": dla duzych wydzielen kania
      // nie wchodzila nigdy, dla malych zawsze. Teraz probkujemy krawedz poligonu.
-     for(const o of feats)o._probe=geomProbePoints(o.geometry,o._center,14);
-     for(const f of forests)f._probe=geomProbePoints(f.geometry,f._center,14);
+     for(const o of feats)o._probe=geomProbePoints(o.geometry,o._center);
+     for(const f of forests)f._probe=geomProbePoints(f.geometry,f._center);
 
      // Indeks przestrzenny punktow probkujacych - bez niego byloby
      // O(lasy x tereny otwarte x 14 x 14) porownan.
@@ -6603,18 +6641,19 @@ function diversityData(f){
 
  rows.sort((a,b)=>b.score-a.score);
  const taxaCount=rows.length;
- const count=countDiversityGroups(rows.map(r=>r.type));
+ const groupIds=[...new Set(rows.map(r=>diversityGroupKey(r.type)))];
+ const count=groupIds.length;
  const avg=taxaCount
    ? rows.slice(0,Math.min(6,taxaCount)).reduce((a,x)=>a+x.score,0)/Math.min(6,taxaCount)
    : 0;
 
- // Skala przeskalowana pod liczbe GRUP (realnie 0-9), nie pod liczbe taksonow.
+ // Skala pod liczbe NISZ SIEDLISKOWYCH (realnie 0-8 dla wydzielenia lesnego).
  let score=piecewise(count,[
-   [0,0],[1,3.2],[2,4.8],[3,6.2],[4,7.3],[5,8.2],[6,9.0],[7,9.6],[8,10]
+   [0,0],[1,3.0],[2,4.9],[3,6.4],[4,7.6],[5,8.6],[6,9.4],[7,9.8],[8,10]
  ]);
  if(count)score=clamp(score+(avg-8)*.10);
 
- const out={count,taxaCount,score,rows};
+ const out={count,taxaCount,score,rows,groups:groupIds.map(diversityGroupLabel)};
  perfDiversityCache.set(f,out);
  return out;
 }
@@ -6743,7 +6782,11 @@ function singleSpeciesTodayClass(type,f){
  // DZIŚ nie może być lepsze niż Potencjał tego samego miejsca.
  const potentialCap=atlasSingleSpeciesClass(type,f);
 
- return Math.max(0,Math.min(relativeClass,absoluteCap,potentialCap));
+ // v71: ta sama podloga co w BEST — mocny wynik nie znika tylko dlatego,
+ // ze sasiednie wydzielenia dla tego gatunku sa jeszcze lepsze.
+ const floor=absoluteClassFloor(score,'today');
+ const capped=Math.min(relativeClass,absoluteCap);
+ return Math.max(0,Math.min(Math.max(capped,floor),potentialCap));
 }
 
 
@@ -7760,7 +7803,10 @@ function stableHabitatScore(type,f){
    if(['BSW','BMSW','BMW'].includes(hab))s+=.55;
  }
  if(type==='opienka_miodowa'){
-   if(['OL','OLJ','LW','LMW','LMB'].includes(hab))s+=1.8;
+   // v71: rodzina opienka_lisc juz premiuje LW/LMW/LMB, wiec dodatkowy bonus
+   // zostaje TYLKO tam, gdzie tabela bazowa jest mocno karzaca (OL 4.2, OLJ 4.3).
+   // Wczesniej LMW wychodzilo ~9.8/10, czyli praktycznie pod sufitem.
+   if(['OL','OLJ'].includes(hab))s+=1.5;
    if(['BSW','BW'].includes(hab))s-=.6;
  }
  if(type==='opienka_ciemna'){
@@ -7842,7 +7888,7 @@ function stableDiversityPotential(f){
  rows.sort((a,b)=>b-a);if(!rows.length)return 0;
  const count=countDiversityGroups(types);
  const avg=rows.slice(0,Math.min(6,rows.length)).reduce((a,b)=>a+b,0)/Math.min(6,rows.length);
- return clamp(piecewise(count,[[0,0],[1,4.4],[2,5.8],[3,6.9],[4,7.8],[5,8.6],[6,9.2],[7,9.7],[8,10]])+(avg-7.5)*.12);
+ return clamp(piecewise(count,[[0,0],[1,4.2],[2,6.0],[3,7.2],[4,8.2],[5,9.0],[6,9.5],[7,9.8],[8,10]])+(avg-7.5)*.12);
 }
 
 function prepareForestGrid(){
@@ -8396,12 +8442,19 @@ function atlasSpeciesScale(type,areaName){
  return s;
 }
 
-// v65: wspolna absolutna podloga klas dla trybu POTENCJAL.
-function absoluteClassFloor(s){
+// v71: JEDNA tabela absolutnych podlog dla wszystkich trybow.
+// v65 mialo podloge tylko w POTENCJALE, a w DZIS BEST recznie wpisane progi —
+// zmiana jednej liczby rozjezdzala tryby. Progi roznia sie miedzy trybami,
+// bo skale wynikow sa rozne, ale zrodlo jest teraz jedno.
+const ABSOLUTE_CLASS_FLOORS={
+ potential:[[8.15,3],[7.60,2],[6.90,1]],
+ today:[[7.60,3],[6.90,2],[6.10,1]],
+ diversity:[[8.60,3],[7.30,2],[5.60,1]]
+};
+function absoluteClassFloor(s,kind='potential'){
  if(!Number.isFinite(s))return 0;
- if(s>=8.15)return 3;
- if(s>=7.60)return 2;
- if(s>=6.90)return 1;
+ const table=ABSOLUTE_CLASS_FLOORS[kind]||ABSOLUTE_CLASS_FLOORS.potential;
+ for(const [threshold,cls] of table)if(s>=threshold)return cls;
  return 0;
 }
 
@@ -9201,8 +9254,8 @@ function todayBalancedClass(f,sOverride=NaN){
    else if(s>=Math.max(scale.q45,6.15))todayClass=2;
    else if(s>=Math.max(scale.q20,5.15))todayClass=1;
 
-   // v65: symetryczna podloga rowniez w trybie DZIS (nadal ograniczona capami nizej).
-   todayClass=Math.max(todayClass, s>=7.60?3 : s>=6.90?2 : s>=6.10?1 : 0);
+   // v71: podloga z tej samej tabeli co POTENCJAL (nadal ograniczona capami nizej).
+   todayClass=Math.max(todayClass, absoluteClassFloor(s,'today'));
 
    const info=bestTodayInfo(f);
    return Math.min(todayClass,info.potentialClass,balancedClass(f));
@@ -9231,8 +9284,12 @@ function todayBalancedClass(f,sOverride=NaN){
    else if(s>=5.0)absoluteCap=2;
    else if(s>=3.3)absoluteCap=1;
 
+   // v71: podloga z tej samej tabeli (wlasne progi, bo skala roznorodnosci
+   // to liczba nisz, a nie punktacja gatunku).
+   const floor=absoluteClassFloor(s,'diversity');
+
    // DZIŚ nie może być lepsze niż POTENCJAŁ.
-   return Math.min(relativeClass,absoluteCap,balancedClass(f));
+   return Math.min(Math.max(Math.min(relativeClass,absoluteCap),floor),balancedClass(f));
  }
 
  // Atlas wielu gatunków zachowuje dotychczasową ostrzejszą skalę.
@@ -9285,7 +9342,7 @@ function diversityPopup(f){
  const src=f._kind==='open'?'OpenStreetMap':(f._src==='pgl'?'PGL LP':(f._src==='other'?'poza PGL LP':'KO/KDO'));
  const place=f._kind==='open'?`<b>Typ terenu:</b> ${p.open_type||'teren otwarty'} ${p.name?'• '+p.name:''}<br>`:
    `<b>Drzewo dominujące:</b> ${p.species_cd||p.gat_grp||'?'} • <b>wiek:</b> ${p.species_age??'?'} lat<br><b>Siedlisko:</b> ${p.site_type_cd||'?'}<br>`;
- return `<b style="font-size:13px">Różnorodność grzybów</b><br><b style="font-size:22px">${d.count} grup</b> (${d.taxaCount} gat.) • wynik ${d.score.toFixed(1)}/10<br>`+
+ return `<b style="font-size:13px">Różnorodność grzybów</b><br><b style="font-size:22px">${d.count} nisz</b> (${d.taxaCount} gat.) • wynik ${d.score.toFixed(1)}/10<br>${d.groups?.length?`<span style="opacity:.75;font-size:10.5px">${d.groups.slice(0,4).join(' • ')}</span><br>`:''}`+
    `<span style="color:#9eaaa3">Liczone są gatunki z Twojej listy mające tu sensowne warunki.</span><br><br>${place}`+
    `<div class="what-here"><b>Najlepiej pasujące:</b>${d.rows.slice(0,10).map(x=>`<div class="what-row"><span>${HUMAN_NAMES[x.type]}</span><b>${x.score.toFixed(1)}/10</b></div>`).join('')}`+
    (d.rows.length?'':'<div style="margin-top:5px;color:#aaa">Brak gatunków powyżej progu.</div>')+`</div><div style="margin-top:7px;color:#777;font-size:9px">Źródło geometrii: ${src}</div>`;
@@ -9580,7 +9637,7 @@ function unifiedPopupHtml(f,h=null){
    const d=diversityData(f);
    primaryHtml=`<div class="u-primary-species">
      <div style="width:42px;height:42px;border-radius:10px;background:#edf4ef;display:grid;place-items:center;font-size:25px">🍄</div>
-     <div><div class="u-primary-name">Różnorodność grzybów</div><div class="u-primary-latin">${d.count} grup / ${d.taxaCount} gat. powyżej progu</div></div>
+     <div><div class="u-primary-name">Różnorodność grzybów</div><div class="u-primary-latin">${d.count} nisz / ${d.taxaCount} gat. powyżej progu</div></div>
      <div class="u-primary-score">${d.score.toFixed(1)}<small>/10</small></div>
    </div>`;
  }else if(type&&m){

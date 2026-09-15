@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v62: self-healing nationwide benchmark + TOP Poland -->
+<!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -3535,6 +3535,12 @@ const obsGroup=L.layerGroup();
 const openGroup=L.layerGroup();
 const selectionGroup=L.layerGroup().addTo(map);
 const nationalTopGroup=L.layerGroup().addTo(map);
+// v64 — statyczny radar całej Polski, generowany offline przez radar_poland_builder.
+map.createPane('nationalRadarPane');
+map.getPane('nationalRadarPane').style.zIndex='210';
+map.getPane('nationalRadarPane').style.pointerEvents='none';
+const nationalRadarGroup=L.layerGroup().addTo(map);
+const nationalRadarRenderer=L.canvas({padding:.25,pane:'nationalRadarPane'});
 
 function syncAreaMeta(){
  for(const k of Object.keys(AREA_META))delete AREA_META[k];
@@ -3588,7 +3594,8 @@ L.control.layers({'OpenStreetMap':osm}, {
  'iNaturalist / GBIF — obserwacje':obsGroup,
  'OSM — łąki / polany / pastwiska':openGroup,
  'BDL — oficjalna warstwa awaryjna':bdl,
- 'Wybrane rejony':selectionGroup
+ 'Wybrane rejony':selectionGroup,
+ 'Radar Polski — statyczny':nationalRadarGroup
 },{collapsed:true}).addTo(map);
 
 function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -11356,7 +11363,176 @@ function perfRenderNow(){
    atlas:atlasSelected.size
  };
 }
-function render(){if(perfRenderRAF)cancelAnimationFrame(perfRenderRAF);perfRenderRAF=requestAnimationFrame(perfRenderNow);}
+
+// ========================= v64: RADAR POLSKI Z GOTOWYCH DANYCH =========================
+// Folder data/radar jest tworzony jednorazowo przez radar_poland_builder.
+// Frontend nie odpytuje całej Polski przy wejściu — ładuje tylko gotowy JSON.
+const NATIONAL_RADAR_BASE='./data/radar';
+const NATIONAL_RADAR_MAX_ZOOM=9;
+let nationalRadarIndex=null;
+let nationalRadarIndexPromise=null;
+let nationalRadarCache=new Map();
+let nationalRadarRequestToken=0;
+let nationalRadarMissing=false;
+let nationalRadarLastKey='';
+let nationalRadarLastCount=0;
+let nationalRadarLastError='';
+
+async function nationalRadarFetchJson(path){
+ const r=await fetch(path,{cache:'default'});
+ if(!r.ok)throw new Error(`HTTP ${r.status}: ${path}`);
+ return r.json();
+}
+
+async function ensureNationalRadarIndex(){
+ if(nationalRadarIndex)return nationalRadarIndex;
+ if(nationalRadarMissing)return null;
+ if(nationalRadarIndexPromise)return nationalRadarIndexPromise;
+ nationalRadarIndexPromise=(async()=>{
+   try{
+     const x=await nationalRadarFetchJson(`${NATIONAL_RADAR_BASE}/index.json`);
+     nationalRadarIndex=x;
+     nationalRadarLastError='';
+     return x;
+   }catch(e){
+     nationalRadarMissing=true;
+     nationalRadarLastError=e?.message||String(e);
+     console.info('Radar Polski: brak gotowych danych data/radar. Uruchom radar_poland_builder i wrzuć output jako data/radar.',e);
+     return null;
+   }finally{nationalRadarIndexPromise=null;}
+ })();
+ return nationalRadarIndexPromise;
+}
+
+function nationalRadarSupportedSet(){
+ return new Set((nationalRadarIndex?.species||[]).map(x=>x.id));
+}
+
+function nationalRadarTarget(){
+ const supported=nationalRadarSupportedSet();
+ if(atlasSelected.size===1){
+   const t=[...atlasSelected][0];
+   if(supported.has(t))return {kind:'species',type:t};
+ }
+ if(currentFilter!=='all'&&currentFilter!=='diversity'&&supported.has(currentFilter))return {kind:'species',type:currentFilter};
+ if(currentFilter==='diversity')return {kind:'diversity',type:''};
+ return {kind:'overview',type:''};
+}
+
+function nationalRadarColor(score){
+ if(!Number.isFinite(score))return 'transparent';
+ const bands=(typeof UNIFIED_COLOR_BANDS!=='undefined'&&Array.isArray(UNIFIED_COLOR_BANDS)&&UNIFIED_COLOR_BANDS.length)
+   ?UNIFIED_COLOR_BANDS
+   :['#f2efe8','#e8dfd2','#d5c2b0','#d7b39d','#c78f72','#ca8850','#ae6a32','#a39f46','#718c41','#54ab5d','#2a914d','#116f38'];
+ const p=Math.max(0,Math.min(1,(score-4.4)/(9.4-4.4)));
+ return bands[Math.max(0,Math.min(bands.length-1,Math.floor(p*bands.length)))]||bands[bands.length-1];
+}
+function nationalRadarOpacity(score){
+ if(!Number.isFinite(score)||score<4.8)return 0;
+ if(score<5.5)return .10;
+ if(score<6.2)return .18;
+ if(score<6.9)return .28;
+ if(score<7.6)return .40;
+ if(score<8.3)return .52;
+ if(score<8.9)return .63;
+ return .72;
+}
+
+async function nationalRadarDataForTarget(target){
+ const key=target.kind==='species'?`species:${target.type}`:'overview';
+ if(nationalRadarCache.has(key))return nationalRadarCache.get(key);
+ const path=target.kind==='species'
+   ?`${NATIONAL_RADAR_BASE}/species/${encodeURIComponent(target.type)}.json`
+   :`${NATIONAL_RADAR_BASE}/overview.json`;
+ const d=await nationalRadarFetchJson(path);
+ nationalRadarCache.set(key,d);
+ return d;
+}
+
+function nationalRadarRowScore(row,target){
+ if(target.kind==='species')return Number(row?.[7]);
+ if(target.kind==='diversity'){
+   const n=Number(row?.[11]||0);
+   const total=Math.max(1,Number(nationalRadarIndex?.species?.length||19));
+   return Math.max(0,Math.min(10,3.7+6.3*n/total));
+ }
+ return Number(row?.[9]);
+}
+
+function nationalRadarRowBounds(row){
+ return [[Number(row?.[1]),Number(row?.[2])],[Number(row?.[3]),Number(row?.[4])]];
+}
+
+async function refreshNationalRadar(){
+ const token=++nationalRadarRequestToken;
+ if(map.getZoom()>NATIONAL_RADAR_MAX_ZOOM){
+   nationalRadarGroup.clearLayers();
+   nationalRadarLastKey='';nationalRadarLastCount=0;
+   return;
+ }
+ const idx=await ensureNationalRadarIndex();
+ if(!idx||token!==nationalRadarRequestToken)return;
+ const target=nationalRadarTarget();
+ const key=`${target.kind}:${target.type||''}:z${map.getZoom()}`;
+ if(key===nationalRadarLastKey&&nationalRadarLastCount>0)return;
+ try{
+   const data=await nationalRadarDataForTarget(target);
+   if(token!==nationalRadarRequestToken)return;
+   nationalRadarGroup.clearLayers();
+   const rows=Array.isArray(data?.cells)?data.cells:[];
+   let shown=0;
+   for(const row of rows){
+     const score=nationalRadarRowScore(row,target);
+     const opacity=nationalRadarOpacity(score);
+     if(!(opacity>0))continue;
+     const bounds=nationalRadarRowBounds(row);
+     if(!bounds.flat().every(Number.isFinite))continue;
+     L.rectangle(bounds,{
+       pane:'nationalRadarPane',renderer:nationalRadarRenderer,
+       interactive:false,stroke:false,fill:true,
+       fillColor:nationalRadarColor(score),fillOpacity:opacity
+     }).addTo(nationalRadarGroup);
+     shown++;
+   }
+   nationalRadarLastKey=key;
+   nationalRadarLastCount=shown;
+   nationalRadarLastError='';
+ }catch(e){
+   nationalRadarLastError=e?.message||String(e);
+   console.warn('Radar Polski render error',e);
+ }
+}
+
+let nationalRadarRefreshTimer=0;
+function scheduleNationalRadarRefresh(){
+ clearTimeout(nationalRadarRefreshTimer);
+ nationalRadarRefreshTimer=setTimeout(()=>{refreshNationalRadar().catch(()=>{});},90);
+}
+map.on('zoomend',scheduleNationalRadarRefresh);
+
+function auditNationalRadar(){
+ const target=nationalRadarIndex?nationalRadarTarget():null;
+ const report={
+   available:!!nationalRadarIndex,
+   missing:nationalRadarMissing,
+   error:nationalRadarLastError,
+   index:nationalRadarIndex?{version:nationalRadarIndex.version,cellKm:nationalRadarIndex.cellKm,cells:nationalRadarIndex.cells,species:nationalRadarIndex.species?.length||0}:null,
+   target,
+   visibleCells:nationalRadarLastCount,
+   zoom:map.getZoom(),maxZoom:NATIONAL_RADAR_MAX_ZOOM,
+   cachedFiles:[...nationalRadarCache.keys()]
+ };
+ console.info('NATIONAL RADAR AUDIT',report);return report;
+}
+window.auditNationalRadar=auditNationalRadar;
+// =========================================================================================
+
+function render(){
+ if(perfRenderRAF)cancelAnimationFrame(perfRenderRAF);
+ perfRenderRAF=requestAnimationFrame(perfRenderNow);
+ scheduleNationalRadarRefresh();
+}
+
 
 function zoomHintLimit(){
  const z=map.getZoom();
@@ -12975,6 +13151,8 @@ if(uiSelectedLocations){
 }
 syncUiComparisonVisibility();
 
+
+setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 </script>
 
 </body>

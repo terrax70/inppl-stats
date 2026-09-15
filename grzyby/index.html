@@ -1,13 +1,15 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v80 AUDIT: spojnosc liczbowa DZIŚ <= POTENCJAŁ per gatunek i BEST.
-     Bez zmian scoringu/renderu względem v79. Dodany auditSpeciesTodayVsPotential(), który:
-     1) sprawdza każdy gatunek na każdym wydzieleniu: today(type,f) <= potential(type,f),
-     2) sprawdza wybrany przez BEST DZIŚ gatunek względem potencjału TEGO SAMEGO gatunku,
-     3) osobno raportuje przypadki, gdy końcowy score BEST DZIŚ > score mapy BEST POTENCJAŁ
-        z powodu wybrania innego gatunku / innej agregacji. To ma rozstrzygnąć semantykę
-        przed kolejną ingerencją w model. Kod v79 poza audytem pozostaje bajtowo bez zmian. -->
+<!-- GitHub production v81: jedno zrodlo potencjalu dla BEST/Najlepsze miejsce.
+     Audyt v80: 65 567 par gatunek×wydzielenie mialo 0 naruszen DZIŚ>POTENCJAŁ, wiec biologiczny
+     clamp per gatunek jest poprawny. Problem byl wyzej: BEST POTENCJAŁ wybieral gatunek na
+     stableSpeciesPotential(), a potem stableAnchorScore() drugi raz mieszalo 22% ogolnego
+     forestContext — nawet dla kani/terenow skrajowych. Tymczasem BEST DZIŚ porownuje sie do
+     stableScoreForType(), ktore ma juz wlasciwy, gatunkowy kontekst. v81:
+     stableAllType wybiera na stableScoreForType(), a BEST POTENCJAŁ zwraca ten sam score
+     bez drugiego ogolnego blendu. Dzięki temu POTENCJAŁ jest realnym sufitem tej samej skali.
+     Różnorodność, pojedyncze gatunki, pogoda, hotspoty, render v79 i radar PL bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -7921,7 +7923,11 @@ function stableAllType(f){
  for(const t of PICK_TYPES){
    if(!featureRelevant(t,f))continue;
 
-   const raw=stableSpeciesPotential(t,f);
+   // v81: jedno źródło prawdy dla POTENCJAŁU gatunku.
+   // stableScoreForType() = stableSpeciesPotential + właściwy dla ekologii kontekst.
+   // Wcześniej wybór gatunku używał czystego stableSpeciesPotential(), a mapa
+   // po wyborze dokładała inny, ogólny kontekst — stąd rozjazdy BEST.
+   const raw=stableScoreForType(t,f);
    const rank=raw*(ALL_MODE_WEIGHT[t]||1);
 
    if(
@@ -7980,33 +7986,49 @@ function forestContextInfo(f){
 function stableAnchorScore(f){
  resetStaticCachesIfNeeded();
  if(staticScoreCache.has(f))return staticScoreCache.get(f);
+
  let base;
+
  if(atlasSelected.size===1){
    const only=[...atlasSelected][0];
    base=stableSpeciesPotential(only,f);
  }else if(atlasSelected.size>1){
    const info=atlasUnionInfo(f);
    base=info.bestType?stableSpeciesPotential(info.bestType,f):0;
- }else if(currentFilter==='all')base=stableSpeciesPotential(stableAllType(f),f);
- else if(currentFilter==='diversity')base=stableDiversityPotential(f);
- else base=stableSpeciesPotential(currentFilter,f);
+ }else if(currentFilter==='all'){
+   // v81: BEST POTENCJAŁ używa dokładnie tej samej skali gatunkowej,
+   // która jest sufitem dla DZIŚ.
+   base=stableScoreForType(stableAllType(f),f);
+ }else if(currentFilter==='diversity'){
+   base=stableDiversityPotential(f);
+ }else{
+   base=stableSpeciesPotential(currentFilter,f);
+ }
 
- // v73 FIX:
- // stableDiversityPotential() jest juz zbudowany z diversityPotentialRows(),
- // a te uzywaja stableScoreForType() dla kazdego gatunku. stableScoreForType()
- // ma juz domieszke forestContextInfo dla mykoryzowych/drewnowych gatunkow.
- // Ponowne .78*base + .22*ctx liczylo ten sam sygnal drugi raz i znow rozjezdzalo
- // kolor POTENCJALU z wynikiem diversityData() pokazywanym w panelu.
- // Tylko "czysty" tryb Roznorodnosc dostaje bezposrednio wspolny wynik.
+ // v73: czysta Różnorodność ma jedno źródło prawdy.
  if(!atlasSelected.size&&currentFilter==='diversity'){
    const s=clamp(base);
    staticScoreCache.set(f,s);
    return s;
  }
 
- if(f._kind==='open'){staticScoreCache.set(f,base);return base;}
+ // v81: czysty BEST ma już kontekst w stableScoreForType().
+ // Nie wolno ponownie mieszać .78*base + .22*forestContext,
+ // bo zaniżało to m.in. kanię i łamało semantykę POTENCJAŁU jako sufitu DZIŚ.
+ if(!atlasSelected.size&&currentFilter==='all'){
+   const s=clamp(base);
+   staticScoreCache.set(f,s);
+   return s;
+ }
 
- const ctx=forestContextInfo(f);let s;
+ if(f._kind==='open'){
+   staticScoreCache.set(f,base);
+   return base;
+ }
+
+ const ctx=forestContextInfo(f);
+ let s;
+
  if(atlasSelected.size){
    const bt=atlasSelected.size===1?[...atlasSelected][0]:atlasUnionInfo(f).bestType;
    const eco=SPECIES_META[bt]?.ecology;
@@ -8014,9 +8036,6 @@ function stableAnchorScore(f){
      s=.86*base+.14*ctx.score;
      if(ctx.score<4.2)s-=(4.2-ctx.score)*.12;
    }else s=base;
- }else if(currentFilter==='all'){
-   s=.78*base+.22*ctx.score;
-   if(ctx.score<4.8)s-=(4.8-ctx.score)*.20;
  }else{
    const eco=SPECIES_META[currentFilter]?.ecology;
    if(eco==='mycorrhiza'||eco==='wood'){
@@ -8024,7 +8043,10 @@ function stableAnchorScore(f){
      if(ctx.score<4.2)s-=(4.2-ctx.score)*.12;
    }else s=base;
  }
- s=clamp(s);staticScoreCache.set(f,s);return s;
+
+ s=clamp(s);
+ staticScoreCache.set(f,s);
+ return s;
 }
 
 function auditDiversitySingleSource(){
@@ -8251,6 +8273,8 @@ function auditSpeciesTodayVsPotential(){
  let maxSpeciesViolation=0;
 
  let bestSameSpeciesViolations=0;
+ let bestPotentialIdentityViolations=0;
+ let maxPotentialIdentityDiff=0;
  let bestMapNumericViolations=0;
  let bestTypeChanges=0;
  let maxBestMapExcess=0;
@@ -8317,6 +8341,14 @@ function auditSpeciesTodayVsPotential(){
    // Aktualny score mapy POTENCJAŁU w BEST.
    const potentialBestType=stableAllType(f);
    const potentialMapScore=stableAnchorScore(f);
+   const potentialWinnerScore=stableScoreForType(potentialBestType,f);
+
+   const identityDiff=Math.abs(potentialMapScore-potentialWinnerScore);
+   if(identityDiff>eps){
+     bestPotentialIdentityViolations++;
+     maxPotentialIdentityDiff=Math.max(maxPotentialIdentityDiff,identityDiff);
+   }
+
    const todayMapScore=todayBest.score;
    const mapExcess=todayMapScore-potentialMapScore;
 
@@ -8355,18 +8387,21 @@ function auditSpeciesTodayVsPotential(){
 
  const report={
    okPerSpecies:speciesViolations===0,
-   version:'v80-audit',
+   version:'v81',
    speciesPairs,
    speciesViolations,
    maxSpeciesViolation,
    bestSameSpeciesViolations,
+   bestPotentialIdentityViolations,
+   maxPotentialIdentityDiff:Number(maxPotentialIdentityDiff.toFixed(6)),
    bestMapNumericViolations,
    maxBestMapExcess:Number(maxBestMapExcess.toFixed(6)),
    bestTypeChanges,
    interpretation:{
      perSpecies:'Musi być 0: DZIŚ tego samego gatunku nie może przekroczyć jego Potencjału.',
-     bestSameSpecies:'Musi być 0: BEST DZIŚ jest już clampowany potencjałem wybranego gatunku.',
-     bestMapNumeric:'Może być >0 w v79, bo BEST POTENCJAŁ i BEST DZIŚ mogą wybrać inne gatunki oraz używają innej agregacji. To jest przedmiot kolejnej decyzji modelowej.'
+     bestSameSpecies:'Musi być 0: BEST DZIŚ jest clampowany potencjałem wybranego gatunku.',
+     bestPotentialIdentity:'Musi być 0 w v81: score mapy BEST POTENCJAŁ ma być dokładnie score wybranego gatunku ze stableScoreForType.',
+     bestMapNumeric:'Po v81 ewentualne resztki >0 powinny wynikać już wyłącznie ze zmiany zwycięskiego gatunku / wag ALL_MODE_WEIGHT, a nie z podwójnego kontekstu.'
    },
    speciesSummary,
    examplesSpecies,
@@ -8386,6 +8421,68 @@ function auditSpeciesTodayVsPotential(){
 
  return report;
 }
+
+function auditBestPotentialIdentity(){
+ let checked=0,identityViolations=0,todayOverPotential=0,changedSpeciesOver=0;
+ let maxIdentityDiff=0,maxTodayExcess=0;
+ const examples=[];
+
+ for(const f of allFeatures){
+   if(f._blocked||f._kind==='open')continue;
+
+   const pType=stableAllType(f);
+   const pSpecies=stableScoreForType(pType,f);
+   const pMap=stableAnchorScore(f);
+
+   const tInfo=bestTodayInfo(f);
+
+   checked++;
+   const d=Math.abs(pMap-pSpecies);
+   if(d>1e-9){
+     identityViolations++;
+     maxIdentityDiff=Math.max(maxIdentityDiff,d);
+   }
+
+   const excess=tInfo.score-pMap;
+   if(excess>1e-9){
+     todayOverPotential++;
+     maxTodayExcess=Math.max(maxTodayExcess,excess);
+     if(tInfo.type!==pType)changedSpeciesOver++;
+
+     if(examples.length<50){
+       examples.push({
+         area:featureAreaName(f),
+         potentialType:pType,
+         potentialName:HUMAN_NAMES[pType]||pType,
+         potential:Number(pMap.toFixed(3)),
+         todayType:tInfo.type,
+         todayName:HUMAN_NAMES[tInfo.type]||tInfo.type,
+         today:Number(tInfo.score.toFixed(3)),
+         todaySameSpeciesPotential:Number(tInfo.potential.toFixed(3)),
+         excess:Number(excess.toFixed(3)),
+         changedSpecies:tInfo.type!==pType
+       });
+     }
+   }
+ }
+
+ const report={
+   okIdentity:identityViolations===0,
+   version:'v81',
+   checked,
+   identityViolations,
+   maxIdentityDiff:Number(maxIdentityDiff.toFixed(9)),
+   todayOverPotential,
+   changedSpeciesOver,
+   maxTodayExcess:Number(maxTodayExcess.toFixed(6)),
+   note:'identityViolations musi być 0. todayOverPotential po tym fixie pokazuje już tylko ewentualny problem semantyki wyboru różnych gatunków / wag.'
+ };
+ console.table(examples);
+ console.info('BEST POTENTIAL IDENTITY AUDIT',report);
+ return report;
+}
+window.auditBestPotentialIdentity=auditBestPotentialIdentity;
+
 window.auditSpeciesTodayVsPotential=auditSpeciesTodayVsPotential;
 
 window.auditTodayNeverGreenerThanPotential=auditTodayNeverGreenerThanPotential;

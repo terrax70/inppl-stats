@@ -1,13 +1,13 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v77: DZIŚ jako kontrolowane obnizenie mapy POTENCJALU w BEST.
-     Audyt v76: POTENCJAL jest zdrowy (10% TOP), ale DZIŚ mial tylko 2.6% TOP, bo globalne
-     q90 DZIŚ przecinalo sie tylko z czescia TOP Potencjalu (227/306 kandydatow blokowal cap).
-     v77 nie tworzy juz niezaleznego rankingu DZIŚ i potem go nie przecina. Najpierw bierze
-     klase POTENCJALU danego wydzielenia, a nastepnie ranking DZIŚ WSROD wydzielen tej samej
-     klasy potencjalu decyduje, czy miejsce utrzymuje klase, czy spada o 1–2 poziomy.
-     To realizuje doslownie zasade UI: DZIŚ = Potencjal obnizony przez pogode i sezon.
+<!-- GitHub production v78: DZIŚ w BEST reaguje na rzeczywista jakosc warunkow, nie staly procent.
+     Audyt v77 potwierdzil mechanike, ale ujawnil wade: w kazdej klasie Potencjalu ZAWSZE
+     ~45% miejsc utrzymywalo klase, ~30% spadalo o 1 i ~25% o 2 — niezaleznie od tego,
+     czy pogoda byla swietna czy slaba. v78 liczy CONDITION dla najlepszego gatunku DZIŚ
+     z retencji wyniku DZIŚ/Potencjal oraz fruitingConditions (pogoda+sezon), a lokalny
+     percentyl jest tylko 22% korekta przestrzenna. Dobra pogoda moze wiec utrzymac wiecej
+     miejsc, slaba realnie obnizy wiecej. DZIŚ nadal nigdy nie przekracza Potencjalu.
      Roznorodnosc, pojedyncze gatunki, scoring biologiczny, POTENCJAL BEST i radar PL bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
@@ -7820,7 +7820,7 @@ function resetStaticCachesIfNeeded(){
  forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();hotspotCacheKey='';hotspotCache=[];
  todayHotspotCacheKey='';todayHotspotCache=[];
  balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();hotspotMembershipKey='';
- todayScaleCacheKey='';todayScales={};bestTodayPotentialClassScaleCache.clear();
+ todayScaleCacheKey='';todayScales={};bestTodayConditionScaleCache.clear();
  perfKeyLast='';
  perfScoreCache=new WeakMap();
  perfBestCache=new WeakMap();
@@ -8135,7 +8135,9 @@ function auditBestTopAvailability(){
 
    const rows=[];
    const matrix={};
-   for(let pc=0;pc<=4;pc++)matrix[pc]={n:0,stay:0,down1:0,down2plus:0};
+   for(let pc=0;pc<=4;pc++)matrix[pc]={n:0,stay:0,down1:0,down2:0,down3plus:0};
+
+   let conditionSum=0,retentionSum=0,fruitSum=0;
 
    for(const f of feats){
      const potentialClass=balancedClass(f);
@@ -8145,11 +8147,20 @@ function auditBestTopAvailability(){
      const band=unifiedBandIndex(cls,progress);
 
      matrix[potentialClass].n++;
-     if(cls===potentialClass)matrix[potentialClass].stay++;
-     else if(cls===potentialClass-1)matrix[potentialClass].down1++;
-     else if(cls<=potentialClass-2)matrix[potentialClass].down2plus++;
+     const d=potentialClass-cls;
+     if(d<=0)matrix[potentialClass].stay++;
+     else if(d===1)matrix[potentialClass].down1++;
+     else if(d===2)matrix[potentialClass].down2++;
+     else matrix[potentialClass].down3plus++;
 
-     rows.push({score,cls,band,potentialClass});
+     let ci=null;
+     if(today){
+       ci=bestTodayConditionInfo(f);
+       conditionSum+=ci.condition;
+       retentionSum+=ci.retention;
+       fruitSum+=ci.fruit;
+     }
+     rows.push({score,cls,band,potentialClass,ci});
    }
 
    const scores=rows.map(x=>x.score);
@@ -8161,6 +8172,9 @@ function auditBestTopAvailability(){
      n:rows.length,
      min:Number(Math.min(...scores).toFixed(2)),
      max:Number(Math.max(...scores).toFixed(2)),
+     avgCondition:today?Number((conditionSum/rows.length).toFixed(3)):null,
+     avgRetention:today?Number((retentionSum/rows.length).toFixed(3)):null,
+     avgFruiting:today?Number((fruitSum/rows.length).toFixed(3)):null,
      potentialTop:potTop.length,
      potentialTopPct:Number((100*potTop.length/rows.length).toFixed(1)),
      topCount:topRows.length,
@@ -8168,12 +8182,12 @@ function auditBestTopAvailability(){
      topRetentionPct:Number((100*topRows.length/Math.max(1,potTop.length)).toFixed(1)),
      darkestCount:darkest.length,
      darkestPct:Number((100*darkest.length/rows.length).toFixed(1)),
-     class4Scale:today?bestTodayPotentialClassScale(a.name,4):null,
+     class4ConditionScale:today?bestTodayConditionScale(a.name,4):null,
      matrix
    };
  }
 
- const report={ok:true,version:'v77',mode:mapMode,perArea};
+ const report={ok:true,version:'v78',mode:mapMode,perArea};
  for(const [name,x] of Object.entries(perArea)){
    console.info(name);
    console.table(x.matrix);
@@ -8181,6 +8195,7 @@ function auditBestTopAvailability(){
  console.info('BEST TOP AVAILABILITY',report);
  return report;
 }
+window.auditBestTopAvailability=auditBestTopAvailability;
 window.auditBestTopAvailability=auditBestTopAvailability;
 window.auditBestTopAvailability=auditBestTopAvailability;
 window.auditBestTopAvailability=auditBestTopAvailability;
@@ -8962,16 +8977,15 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
  if(!atlasSelected.size && currentFilter!=='diversity'){
    if(today && currentFilter==='all'){
      const pc=balancedClass(f);
-     const s=bestTodayPotentialClassScale(area,pc);
+     const ci=bestTodayConditionInfo(f);
+     const s=bestTodayConditionScale(area,pc);
      if(s&&s.n){
-       // Gradient DZIŚ jest liczony wewnątrz klasy POTENCJAŁU, z której pochodzi obiekt.
-       // To zapobiega ponownemu spłaszczeniu kolorów po samej klasyfikacji.
-       let p=piecewise(score,[
-         [s.min??score,0],
-         [s.q25??score,.25],
-         [s.q55??score,.55],
-         [s.q85??score,.85],
-         [s.max??score,1]
+       let p=piecewise(ci.condition,[
+         [s.min??ci.condition,0],
+         [s.q25??ci.condition,.25],
+         [s.q50??ci.condition,.50],
+         [s.q75??ci.condition,.75],
+         [s.max??ci.condition,1]
        ]);
        if(c===pc&&c>=3)p=Math.pow(Math.max(0,Math.min(1,p)),.72);
        return Math.max(0,Math.min(1,p));
@@ -9517,36 +9531,57 @@ function buildTodayScales(){
 }
 
 
-const bestTodayPotentialClassScaleCache=new Map();
+const bestTodayConditionScaleCache=new Map();
 
-function bestTodayPotentialClassScale(areaName,potentialClass){
+function bestTodayConditionInfo(f){
+ const info=bestTodayInfo(f);
+ const potential=Math.max(.001,Number(info.potential)||0);
+ const score=Math.max(0,Number(info.score)||0);
+
+ // Retencja mówi, ile z potencjału tego SAMEGO, najlepszego DZIŚ gatunku
+ // zostało po uwzględnieniu bieżących warunków.
+ const retention=Math.max(0,Math.min(1,score/potential));
+
+ // fruitingConditions to czysty sygnał "czy ten gatunek powinien owocnikować teraz":
+ // pogoda + sezon, już z biologiczną bramką sezonową.
+ const fruit=Math.max(0,Math.min(1,fruitingConditions(info.type,f)/100));
+
+ // Oba sygnały są częściowo zależne, dlatego fruit nie dominuje.
+ // Retention ma większą wagę, bo jest końcowym efektem modelu DZIŚ.
+ const condition=Math.max(0,Math.min(1,.62*retention+.38*fruit));
+
+ return {type:info.type,score,potential,retention,fruit,condition};
+}
+
+function bestTodayConditionScale(areaName,potentialClass){
  const key=`${perfKey()}|${areaName}|pc${potentialClass}`;
- if(bestTodayPotentialClassScaleCache.has(key))return bestTodayPotentialClassScaleCache.get(key);
+ if(bestTodayConditionScaleCache.has(key))return bestTodayConditionScaleCache.get(key);
 
  const rows=allFeatures
    .filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===areaName&&balancedClass(f)===potentialClass)
-   .map(f=>todayScoreForStyle(f))
+   .map(f=>bestTodayConditionInfo(f).condition)
    .filter(Number.isFinite)
    .sort((a,b)=>a-b);
 
  if(!rows.length){
-   const empty={min:0,q15:0,q25:0,q45:0,q55:0,q75:0,q85:0,max:0,n:0};
-   bestTodayPotentialClassScaleCache.set(key,empty);
+   const empty={min:0,q10:0,q25:0,q50:0,q75:0,q90:0,max:0,n:0,avg:0};
+   bestTodayConditionScaleCache.set(key,empty);
    return empty;
  }
 
+ const avg=rows.reduce((a,b)=>a+b,0)/rows.length;
  const out={
    min:rows[0],
-   q15:quantileSorted(rows,.15),
+   q10:quantileSorted(rows,.10),
    q25:quantileSorted(rows,.25),
-   q45:quantileSorted(rows,.45),
-   q55:quantileSorted(rows,.55),
+   q50:quantileSorted(rows,.50),
    q75:quantileSorted(rows,.75),
-   q85:quantileSorted(rows,.85),
+   q90:quantileSorted(rows,.90),
    max:rows[rows.length-1],
+   avg,
    n:rows.length
  };
- bestTodayPotentialClassScaleCache.set(key,out);
+ bestTodayConditionScaleCache.set(key,out);
  return out;
 }
 
@@ -9554,20 +9589,33 @@ function bestTodayClassFromPotential(f,score){
  const potentialClass=balancedClass(f);
  if(potentialClass<=0)return 0;
 
- const sc=bestTodayPotentialClassScale(featureAreaName(f),potentialClass);
+ const ci=bestTodayConditionInfo(f);
+ const sc=bestTodayConditionScale(featureAreaName(f),potentialClass);
  if(!sc.n)return 0;
 
- // v77:
- // - górne ~45% w obrębie tej SAMEJ klasy potencjału utrzymuje klasę,
- // - środkowe ~30% spada o 1,
- // - dolne ~25% spada o 2.
- // Dzięki temu DZIŚ zachowuje strukturę potencjału, ale realnie reaguje na pogodę/sezon.
- let c;
- if(score>=sc.q55)c=potentialClass;
- else if(score>=sc.q25)c=Math.max(0,potentialClass-1);
- else c=Math.max(0,potentialClass-2);
+ // Lokalny percentyl tylko rozróżnia miejsca o podobnych warunkach.
+ // To NIE jest już mechanizm wymuszający stałe 45/30/25%.
+ const relative=piecewise(ci.condition,[
+   [sc.min,0],
+   [sc.q25,.25],
+   [sc.q50,.50],
+   [sc.q75,.75],
+   [sc.max,1]
+ ]);
 
- // Absolutne veto na naprawdę słaby dzień — nigdy nie podnosi klasy, tylko może ją obniżyć.
+ // 78% rzeczywistej jakości warunków + 22% pozycji lokalnej.
+ // Dzięki temu zmiana pogody przesuwa CALY rozkład klas, a nie tylko kolejność.
+ const dayQuality=Math.max(0,Math.min(1,.78*ci.condition+.22*relative));
+
+ let drop;
+ if(dayQuality>=.78)drop=0;
+ else if(dayQuality>=.64)drop=1;
+ else if(dayQuality>=.50)drop=2;
+ else drop=3;
+
+ let c=Math.max(0,potentialClass-drop);
+
+ // Surowy wynik DZIŚ pozostaje ostatnim veto dla skrajnie słabych przypadków.
  let absoluteCap=0;
  if(score>=5.65)absoluteCap=4;
  else if(score>=5.05)absoluteCap=3;
@@ -13680,7 +13728,7 @@ function clearAnalysisData(){
  hotspotCacheKey='';hotspotCache=[];
  todayHotspotCacheKey='';todayHotspotCache=[];
  hotspotMembershipKey='';
- todayScaleCacheKey='';todayScales={};bestTodayPotentialClassScaleCache.clear();
+ todayScaleCacheKey='';todayScales={};bestTodayConditionScaleCache.clear();
  balancedScaleKey='';balancedScales={};
  document.getElementById('dsBDL').textContent='ładowanie';document.getElementById('dsBDL').className='st-load';
  document.getElementById('dsWeather').textContent='ładowanie';document.getElementById('dsWeather').className='st-load';

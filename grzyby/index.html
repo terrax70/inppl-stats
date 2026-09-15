@@ -6705,16 +6705,39 @@ function speciesVerdictForType(type,f){
 function singleSpeciesTodayClass(type,f){
  if(!type||!featureRelevant(type,f))return 0;
 
- const v=speciesVerdictForType(type,f);
+ const score=speciesDisplayScore(type,f);
+ if(!Number.isFinite(score))return 0;
 
- // Kolor pojedynczego gatunku odpowiada temu samemu werdyktowi,
- // który widzi użytkownik w panelu.
- if(v.rank>=3)return 4;   // 🔥 JEDŹ NAJPIERW
- if(v.rank>=2)return 3;   // ✅ WARTO SPRAWDZIĆ
- if(v.rank>=1)return 2;   // 🟡 REZERWOWO
+ // v67: DZIŚ dla jednego gatunku jest skalowane WZGLĘDEM innych miejsc
+ // dla tego samego gatunku w aktualnym rejonie. To rozbija przypadek,
+ // w którym prawie cały las wpadał w jedną jasnozieloną klasę.
+ const s=buildTodayScales()[featureAreaName(f)]||{
+   q20:5.2,q45:6.0,q70:6.8,q88:7.5,min:0,max:10
+ };
 
- // Słabsze, ale nadal biologicznie możliwe miejsca mogą zostać delikatnie widoczne.
- return v.score>=4.8?1:0;
+ let relativeClass=0;
+ if(score>=s.q88)relativeClass=4;
+ else if(score>=s.q70)relativeClass=3;
+ else if(score>=s.q45)relativeClass=2;
+ else if(score>=s.q20)relativeClass=1;
+
+ // Ranking lokalny nie może sam zrobić TOP-u z biologicznie słabego wyniku.
+ let absoluteCap=0;
+ if(score>=6.8)absoluteCap=4;
+ else if(score>=6.0)absoluteCap=3;
+ else if(score>=5.2)absoluteCap=2;
+ else if(score>=4.2)absoluteCap=1;
+
+ // Sufit fenologiczno-pogodowy.
+ const fruit=fruitingConditions(type,f);
+ if(fruit<22)absoluteCap=Math.min(absoluteCap,1);
+ else if(fruit<40)absoluteCap=Math.min(absoluteCap,2);
+ else if(fruit<55)absoluteCap=Math.min(absoluteCap,3);
+
+ // DZIŚ nie może być lepsze niż Potencjał tego samego miejsca.
+ const potentialCap=atlasSingleSpeciesClass(type,f);
+
+ return Math.max(0,Math.min(relativeClass,absoluteCap,potentialCap));
 }
 
 
@@ -7498,8 +7521,8 @@ function verdictFor(f){
 
  const type=currentFilter==='all'?bestTypeFor(f):currentFilter;
 
- // Pojedynczy gatunek ma własną, absolutną semantykę i jego kolor jest już
- // bezpośrednio powiązany z tym werdyktem.
+ // Pojedynczy gatunek zachowuje absolutny werdykt biologiczny,
+ // ale jego kolor w v67 jest dodatkowo kalibrowany lokalnym rozkładem DZIŚ.
  if(currentFilter!=='all'){
    return speciesVerdictForType(type,f);
  }
@@ -8540,8 +8563,24 @@ function mixHexColor(a,b,t){
 
 function unifiedWithinClassProgress(f,c,today=false,score=NaN){
  if(!Number.isFinite(score)||c<0||c>4)return .5;
+
+ const area=featureAreaName(f);
+
+ // v67: dla jednego gatunku DZIŚ także 12 pasów koloru korzysta
+ // z jego własnego rozkładu lokalnego.
+ if(today){
+   const single=activeSingleSpeciesType();
+   if(single){
+     const s=buildTodayScales()[area];
+     if(s){
+       const cuts=[s.min??0,s.q20??5.2,s.q45??6.0,s.q70??6.8,s.q88??7.5,s.max??10];
+       const lo=cuts[c]??0,hi=cuts[c+1]??10;
+       return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+     }
+   }
+ }
+
  if(!atlasSelected.size && currentFilter!=='diversity'){
-   const area=featureAreaName(f);
    if(today && currentFilter==='all'){
      const s=buildTodayScales()[area];
      if(s){
@@ -8559,6 +8598,7 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
      }
    }
  }
+
  const lo=today?4.8:5.3;
  const hi=today?9.1:9.5;
  return Math.max(0,Math.min(1,(score-lo)/(hi-lo)));
@@ -8608,12 +8648,41 @@ function speciesVisualStrengthFromScore(score,today=false){
 
 function speciesVisualStrengthForFeature(f,today=false){
  const type=currentSingleSpeciesType();
- if(!type)return {active:false,type:null,score:NaN,rawScore:NaN,nationalFactor:1,strength:1};
+ if(!type)return {active:false,type:null,score:NaN,rawScore:NaN,nationalFactor:1,strength:1,relativeStrength:1};
+
  const rawScore=speciesDisplayScore(type,f);
  const national=nationalBenchmarkInfo(type,f);
- // Lokalna klasa jest już uwzględniana przez unifiedMapStyleForClass().
- // Tu dokładamy tylko krajową kalibrację konkretnego gatunku.
  const score=Number.isFinite(rawScore)?clamp(rawScore*national.factor):rawScore;
+ const absoluteStrength=speciesVisualStrengthFromScore(score,today);
+
+ let relativeStrength=absoluteStrength;
+
+ if(today&&Number.isFinite(rawScore)){
+   const s=buildTodayScales()[featureAreaName(f)];
+   if(s){
+     relativeStrength=piecewise(rawScore,[
+       [s.min??rawScore,.04],
+       [s.q20??rawScore,.14],
+       [s.q45??rawScore,.36],
+       [s.q70??rawScore,.62],
+       [s.q88??rawScore,.84],
+       [s.max??rawScore,1]
+     ]);
+
+     // Jeśli faktyczny rozrzut wyniku jest niemal zerowy, nie robimy
+     // sztucznie wielkiego kontrastu wyłącznie z kolejności rankingu.
+     const spread=Math.max(0,Number(s.max||0)-Number(s.min||0));
+     const spreadTrust=piecewise(spread,[[0,.15],[.18,.35],[.45,.65],[.9,.88],[1.5,1]]);
+     relativeStrength=absoluteStrength*(1-spreadTrust)+relativeStrength*spreadTrust;
+   }
+ }
+
+ // Relatywność różnicuje miejsca, ale nie może "uratować" wyniku,
+ // który jest biologicznie bardzo słaby.
+ const strength=today
+   ? Math.max(0,Math.min(1,Math.sqrt(Math.max(.001,absoluteStrength)*Math.max(.001,relativeStrength))))
+   : absoluteStrength;
+
  return {
    active:true,
    type,
@@ -8621,9 +8690,66 @@ function speciesVisualStrengthForFeature(f,today=false){
    rawScore,
    nationalFactor:national.factor,
    nationalPercentile:national.percentile,
-   strength:speciesVisualStrengthFromScore(score,today)
+   absoluteStrength,
+   relativeStrength,
+   strength
  };
 }
+
+function auditSingleSpeciesTodayCalibration(){
+ const type=activeSingleSpeciesType();
+ if(!type){
+   const out={ok:false,reason:'Wybierz dokładnie jeden gatunek w atlasie lub filtrze.'};
+   console.warn('SINGLE SPECIES TODAY CALIBRATION',out);
+   return out;
+ }
+ if(mapMode!=='today'){
+   const out={ok:false,type,name:HUMAN_NAMES[type]||type,reason:'Przełącz mapę na DZIŚ i uruchom audyt ponownie.'};
+   console.warn('SINGLE SPECIES TODAY CALIBRATION',out);
+   return out;
+ }
+
+ const rows=allFeatures
+   .filter(f=>!f._blocked&&featureRelevant(type,f))
+   .map(f=>{
+     const score=speciesDisplayScore(type,f);
+     const cls=singleSpeciesTodayClass(type,f);
+     const sv=speciesVisualStrengthForFeature(f,true);
+     return {
+       area:featureAreaName(f),
+       score:Number(score.toFixed(2)),
+       cls,
+       label:UNIFIED_MAP_LEVELS[cls]?.label||'—',
+       abs:Number((sv.absoluteStrength??0).toFixed(3)),
+       rel:Number((sv.relativeStrength??0).toFixed(3)),
+       strength:Number((sv.strength??0).toFixed(3)),
+       potentialClass:atlasSingleSpeciesClass(type,f)
+     };
+   });
+
+ const counts=[0,0,0,0,0];
+ rows.forEach(x=>counts[x.cls]++);
+ const total=Math.max(1,rows.length);
+ const distribution=counts.map((n,i)=>({
+   class:i,label:UNIFIED_MAP_LEVELS[i]?.label||'—',count:n,pct:Number((100*n/total).toFixed(1))
+ }));
+ const scales={};
+ for(const a of ANALYSIS_CENTERS)scales[a.name]=buildTodayScales()[a.name]||null;
+
+ const report={
+   ok:true,version:'v67',type,name:HUMAN_NAMES[type]||type,total:rows.length,
+   distribution,scales,
+   minScore:rows.length?Math.min(...rows.map(x=>x.score)):NaN,
+   maxScore:rows.length?Math.max(...rows.map(x=>x.score)):NaN,
+   top:rows.slice().sort((a,b)=>b.score-a.score).slice(0,30)
+ };
+ console.table(distribution);
+ console.table(report.top);
+ console.info('SINGLE SPECIES TODAY CALIBRATION',report);
+ return report;
+}
+window.auditSingleSpeciesTodayCalibration=auditSingleSpeciesTodayCalibration;
+
 
 function baseVisualCutoffForBand(band,f){
  // Skrajnie niski ogon skali nie niesie użytecznej informacji na mapie.

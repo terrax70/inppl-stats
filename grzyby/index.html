@@ -8566,14 +8566,24 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
 
  const area=featureAreaName(f);
 
- // v67: dla jednego gatunku DZIŚ także 12 pasów koloru korzysta
- // z jego własnego rozkładu lokalnego.
+ // Pojedynczy gatunek DZIŚ — własna skala gatunku.
  if(today){
    const single=activeSingleSpeciesType();
    if(single){
      const s=buildTodayScales()[area];
      if(s){
        const cuts=[s.min??0,s.q20??5.2,s.q45??6.0,s.q70??6.8,s.q88??7.5,s.max??10];
+       const lo=cuts[c]??0,hi=cuts[c+1]??10;
+       return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+     }
+   }
+
+   // v70: Różnorodność DZIŚ także rozciąga kolor w obrębie
+   // faktycznego lokalnego rozkładu różnorodności.
+   if(!atlasSelected.size&&currentFilter==='diversity'){
+     const s=buildTodayScales()[area];
+     if(s){
+       const cuts=[s.min??0,s.q20??3.3,s.q45??5.0,s.q70??6.4,s.q88??7.7,s.max??10];
        const lo=cuts[c]??0,hi=cuts[c+1]??10;
        return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
      }
@@ -8790,6 +8800,35 @@ function auditGreenContrast(){
  console.table(rows);
  return {report, rows};
 }
+
+function auditDiversityTodayCalibration(){
+ if(currentFilter!=='diversity'||mapMode!=='today'){
+   const out={ok:false,reason:'Włącz Różnorodność + DZIŚ.'};
+   console.warn('DIVERSITY TODAY CALIBRATION',out);
+   return out;
+ }
+ const rows=allFeatures.filter(f=>!f._blocked).map(f=>{
+   const d=diversityData(f);
+   const score=todayScoreForStyle(f);
+   const cls=todayBalancedClass(f,score);
+   const p=unifiedWithinClassProgress(f,cls,true,score);
+   const band=unifiedBandIndex(cls,p);
+   return {area:featureAreaName(f),count:d.count,score:Number(score.toFixed(2)),cls,label:UNIFIED_MAP_LEVELS[cls]?.label||'—',band};
+ });
+ const counts=[0,0,0,0,0];
+ rows.forEach(x=>counts[x.cls]++);
+ const total=Math.max(1,rows.length);
+ const distribution=counts.map((n,i)=>({class:i,label:UNIFIED_MAP_LEVELS[i]?.label||'—',count:n,pct:Number((n*100/total).toFixed(1))}));
+ const scale={};
+ for(const a of ANALYSIS_CENTERS)scale[a.name]=buildTodayScales()[a.name]||null;
+ const report={version:'v70',total:rows.length,distribution,scale,top:rows.slice().sort((a,b)=>b.score-a.score).slice(0,40)};
+ console.table(distribution);
+ console.table(report.top);
+ console.info('DIVERSITY TODAY CALIBRATION',report);
+ return report;
+}
+window.auditDiversityTodayCalibration=auditDiversityTodayCalibration;
+
 window.auditGreenContrast=auditGreenContrast;
 
 
@@ -9094,34 +9133,44 @@ function todayBalancedClass(f,sOverride=NaN){
  }
 
  if(!atlasSelected.size&&currentFilter==='all'){
-   // BEST + DZIŚ:
-   // wynik jest już dyskontem Potencjału, więc nie wymagamy absurdalnych 8.05+
-   // tylko po to, żeby dostać zwykłą zieloną klasę.
-   //
-   // Jednocześnie nadal wymagamy sensownego wyniku absolutnego.
    if(s>=Math.max(scale.q93,8.15))todayClass=4;
    else if(s>=Math.max(scale.q70,7.05))todayClass=3;
    else if(s>=Math.max(scale.q45,6.15))todayClass=2;
    else if(s>=Math.max(scale.q20,5.15))todayClass=1;
 
    const info=bestTodayInfo(f);
-
-   // Podwójny sufit:
-   // 1. potencjał tego samego wybranego dziś gatunku,
-   // 2. kolor widoczny w ogólnym trybie POTENCJAŁ.
    return Math.min(todayClass,info.potentialClass,balancedClass(f));
  }
-
 
  const singleType=activeSingleSpeciesType();
  if(singleType){
    return singleSpeciesTodayClass(singleType,f);
  }
 
- // Pozostałe tryby zachowują wcześniejszą ostrzejszą skalę.
- const broad=
-   (!atlasSelected.size&&currentFilter==='diversity') ||
-   atlasSelected.size>1;
+ // v70: Różnorodność + DZIŚ ma własną kalibrację.
+ // Poprzednio większość wydzieleń wpadała do podobnych zielonych klas,
+ // bo łączono szerokie progi absolutne z ogólną skalą.
+ if(!atlasSelected.size&&currentFilter==='diversity'){
+   let relativeClass=0;
+   if(s>=scale.q88)relativeClass=4;
+   else if(s>=scale.q70)relativeClass=3;
+   else if(s>=scale.q45)relativeClass=2;
+   else if(s>=scale.q20)relativeClass=1;
+
+   // Sufit absolutny: lokalny ranking nie może zrobić TOP-u,
+   // jeśli realnie prawie żaden gatunek nie przechodzi warunków DZIŚ.
+   let absoluteCap=0;
+   if(s>=7.7)absoluteCap=4;
+   else if(s>=6.4)absoluteCap=3;
+   else if(s>=5.0)absoluteCap=2;
+   else if(s>=3.3)absoluteCap=1;
+
+   // DZIŚ nie może być lepsze niż POTENCJAŁ.
+   return Math.min(relativeClass,absoluteCap,balancedClass(f));
+ }
+
+ // Atlas wielu gatunków zachowuje dotychczasową ostrzejszą skalę.
+ const broad=atlasSelected.size>1;
  const darkQ=broad?scale.q93:scale.q88;
 
  if(s>=Math.max(darkQ,8.95))todayClass=4;

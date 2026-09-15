@@ -1,16 +1,14 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v72: jedno zrodlo prawdy dla roznorodnosci w POTENCJALE
-     (diversityData i stableDiversityPotential licza teraz to samo — ten sam prog 7.2,
-     ta sama funkcja stableScoreForType, ta sama krzywa; popup i kolor mapy juz sie nie roznia),
-     naprawiona podloga klas dla Roznorodnosc+Potencjal (balancedClass wywolywalo
-     absoluteClassFloor bez argumentu 'diversity'), probkowanie krawedzi per-ring
-     (Polygon z dziura / MultiPolygon nie tworzy juz sztucznego segmentu miedzy pierscieniami).
-     v71: mesic_dry, rodziny siedliskowe grzybow drewna, spojny potencjal z obserwacjami,
-     roznorodnosc po niszach ATLAS_GROUPS, rozlaczne okna opadowe, gesta interpolacja
-     krawedzi co ~60 m, jedna tabela podlog klas, benchmark krajowy przesuwa pasmo.
-     Zawiera wszystkie wczesniejsze moduly v66-v70 (radar PL 10 km, kalibracje DZIS). -->
+<!-- GitHub production v73: domkniecie jednego zrodla prawdy dla Roznorodnosc+POTENCJAL.
+     v72 ujednolicilo diversityData() i stableDiversityPotential(), ale stableAnchorScore()
+     ponownie domieszkiwal forestContextInfo (22%), mimo ze kazdy gatunek byl juz oceniony
+     przez stableScoreForType() z wlasna domieszka kontekstu. v73 usuwa to podwojne liczenie:
+     dla czystego trybu Roznorodnosc POTENCJAL kolor, popup, legenda i hotspoty dostaja
+     dokladnie ten sam score bazowy. Dodany auditDiversitySingleSource().
+     Zachowane: poprawka floorKind='diversity', probkowanie per-ring, wszystkie zmiany v71
+     oraz moduly v66-v70 (radar PL 10 km, kalibracje DZIS). -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -7994,7 +7992,22 @@ function stableAnchorScore(f){
  }else if(currentFilter==='all')base=stableSpeciesPotential(stableAllType(f),f);
  else if(currentFilter==='diversity')base=stableDiversityPotential(f);
  else base=stableSpeciesPotential(currentFilter,f);
+
+ // v73 FIX:
+ // stableDiversityPotential() jest juz zbudowany z diversityPotentialRows(),
+ // a te uzywaja stableScoreForType() dla kazdego gatunku. stableScoreForType()
+ // ma juz domieszke forestContextInfo dla mykoryzowych/drewnowych gatunkow.
+ // Ponowne .78*base + .22*ctx liczylo ten sam sygnal drugi raz i znow rozjezdzalo
+ // kolor POTENCJALU z wynikiem diversityData() pokazywanym w panelu.
+ // Tylko "czysty" tryb Roznorodnosc dostaje bezposrednio wspolny wynik.
+ if(!atlasSelected.size&&currentFilter==='diversity'){
+   const s=clamp(base);
+   staticScoreCache.set(f,s);
+   return s;
+ }
+
  if(f._kind==='open'){staticScoreCache.set(f,base);return base;}
+
  const ctx=forestContextInfo(f);let s;
  if(atlasSelected.size){
    const bt=atlasSelected.size===1?[...atlasSelected][0]:atlasUnionInfo(f).bestType;
@@ -8003,14 +8016,74 @@ function stableAnchorScore(f){
      s=.86*base+.14*ctx.score;
      if(ctx.score<4.2)s-=(4.2-ctx.score)*.12;
    }else s=base;
- }else if(currentFilter==='all'||currentFilter==='diversity'){
-   s=.78*base+.22*ctx.score;if(ctx.score<4.8)s-=(4.8-ctx.score)*.20;
+ }else if(currentFilter==='all'){
+   s=.78*base+.22*ctx.score;
+   if(ctx.score<4.8)s-=(4.8-ctx.score)*.20;
  }else{
    const eco=SPECIES_META[currentFilter]?.ecology;
-   if(eco==='mycorrhiza'||eco==='wood'){s=.86*base+.14*ctx.score;if(ctx.score<4.2)s-=(4.2-ctx.score)*.12;}else s=base;
+   if(eco==='mycorrhiza'||eco==='wood'){
+     s=.86*base+.14*ctx.score;
+     if(ctx.score<4.2)s-=(4.2-ctx.score)*.12;
+   }else s=base;
  }
  s=clamp(s);staticScoreCache.set(f,s);return s;
 }
+
+function auditDiversitySingleSource(){
+ if(currentFilter!=='diversity'||atlasSelected.size||mapMode!=='habitat'){
+   const out={
+     ok:false,
+     version:'v73',
+     reason:'Wlacz Roznorodnosc + Potencjal i wyczysc wybor gatunkow w atlasie.'
+   };
+   console.warn('DIVERSITY SINGLE SOURCE AUDIT',out);
+   return out;
+ }
+
+ const rows=[];
+ let maxPopupVsCore=0,maxMapVsCore=0,maxPopupVsMap=0,mismatches=0;
+
+ for(const f of allFeatures){
+   if(f._blocked)continue;
+   const popup=diversityData(f).score;
+   const core=stableDiversityPotential(f);
+   const mapScore=stableAnchorScore(f);
+   const d1=Math.abs(popup-core);
+   const d2=Math.abs(mapScore-core);
+   const d3=Math.abs(popup-mapScore);
+   maxPopupVsCore=Math.max(maxPopupVsCore,d1);
+   maxMapVsCore=Math.max(maxMapVsCore,d2);
+   maxPopupVsMap=Math.max(maxPopupVsMap,d3);
+   if(d3>1e-9)mismatches++;
+   if(rows.length<40||d3>1e-9){
+     rows.push({
+       area:featureAreaName(f),
+       popup:Number(popup.toFixed(6)),
+       core:Number(core.toFixed(6)),
+       map:Number(mapScore.toFixed(6)),
+       diff:Number(d3.toFixed(9)),
+       niches:diversityData(f).count,
+       taxa:diversityData(f).taxaCount
+     });
+   }
+ }
+
+ const report={
+   ok:mismatches===0&&maxPopupVsMap<=1e-9,
+   version:'v73',
+   checked:allFeatures.filter(f=>!f._blocked).length,
+   mismatches,
+   maxPopupVsCore,
+   maxMapVsCore,
+   maxPopupVsMap,
+   expectation:'popup === stableDiversityPotential === stableAnchorScore'
+ };
+ console.table(rows.slice(0,60));
+ console.info('DIVERSITY SINGLE SOURCE AUDIT',report);
+ return report;
+}
+window.auditDiversitySingleSource=auditDiversitySingleSource;
+
 
 function stableCandidateFeatures(areaName){
  resetStaticCachesIfNeeded();

@@ -1,13 +1,13 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v79: twarda monotonicznosc wizualna DZIŚ <= POTENCJAŁ.
-     v78 pilnowalo klasy, ale nie koncowego pasma koloru. Gdy DZIŚ i POTENCJAŁ mialy te sama
-     klase (np. TOP), gradient wewnatrz klasy byl liczony osobno i DZIŚ moglo dostac ciemniejszy
-     zielony band niz POTENCJAŁ. To lamalo znaczenie interfejsu mimo poprawnych klas.
-     v79 centralizuje wybor koncowego bandu (wraz z benchmarkiem krajowym) i w trybie DZIŚ
-     ogranicza go bandem, jaki to samo wydzielenie ma w POTENCJALE. Zatem nie tylko klasa,
-     ale tez finalny kolor DZIŚ nigdy nie jest "lepszy" od Potencjału. Scoring bez zmian. -->
+<!-- GitHub production v80 AUDIT: spojnosc liczbowa DZIŚ <= POTENCJAŁ per gatunek i BEST.
+     Bez zmian scoringu/renderu względem v79. Dodany auditSpeciesTodayVsPotential(), który:
+     1) sprawdza każdy gatunek na każdym wydzieleniu: today(type,f) <= potential(type,f),
+     2) sprawdza wybrany przez BEST DZIŚ gatunek względem potencjału TEGO SAMEGO gatunku,
+     3) osobno raportuje przypadki, gdy końcowy score BEST DZIŚ > score mapy BEST POTENCJAŁ
+        z powodu wybrania innego gatunku / innej agregacji. To ma rozstrzygnąć semantykę
+        przed kolejną ingerencją w model. Kod v79 poza audytem pozostaje bajtowo bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -8243,6 +8243,151 @@ function auditTodayNeverGreenerThanPotential(){
  console.info('TODAY <= POTENTIAL VISUAL AUDIT',report);
  return report;
 }
+
+function auditSpeciesTodayVsPotential(){
+ const eps=1e-9;
+ let speciesPairs=0;
+ let speciesViolations=0;
+ let maxSpeciesViolation=0;
+
+ let bestSameSpeciesViolations=0;
+ let bestMapNumericViolations=0;
+ let bestTypeChanges=0;
+ let maxBestMapExcess=0;
+
+ const bySpecies={};
+ const examplesSpecies=[];
+ const examplesBest=[];
+
+ for(const t of PICK_TYPES){
+   bySpecies[t]={
+     name:HUMAN_NAMES[t]||t,
+     checked:0,
+     violations:0,
+     maxExcess:0
+   };
+ }
+
+ for(const f of allFeatures){
+   if(f._blocked)continue;
+
+   // 1) Twardy test per gatunek — niezależny od aktualnego mapMode.
+   for(const t of PICK_TYPES){
+     if(!featureRelevant(t,f))continue;
+
+     const potential=stableScoreForType(t,f);
+     const rawToday=speciesEffective(t,f);
+     const today=Math.min(rawToday,potential);
+     const excess=today-potential;
+
+     speciesPairs++;
+     bySpecies[t].checked++;
+
+     if(excess>eps){
+       speciesViolations++;
+       bySpecies[t].violations++;
+       bySpecies[t].maxExcess=Math.max(bySpecies[t].maxExcess,excess);
+       maxSpeciesViolation=Math.max(maxSpeciesViolation,excess);
+
+       if(examplesSpecies.length<30){
+         examplesSpecies.push({
+           area:featureAreaName(f),
+           type:t,
+           name:HUMAN_NAMES[t]||t,
+           potential:Number(potential.toFixed(4)),
+           rawToday:Number(rawToday.toFixed(4)),
+           today:Number(today.toFixed(4)),
+           excess:Number(excess.toFixed(6))
+         });
+       }
+     }
+   }
+
+   // BEST dotyczy tylko zwykłych wydzieleń; open ma osobną semantykę.
+   if(f._kind==='open')continue;
+
+   const todayBest=bestTodayInfo(f);
+   const sameSpeciesPotential=todayBest.potential;
+   const sameSpeciesExcess=todayBest.score-sameSpeciesPotential;
+
+   if(sameSpeciesExcess>eps){
+     bestSameSpeciesViolations++;
+   }
+
+   // Aktualny score mapy POTENCJAŁU w BEST.
+   const potentialBestType=stableAllType(f);
+   const potentialMapScore=stableAnchorScore(f);
+   const todayMapScore=todayBest.score;
+   const mapExcess=todayMapScore-potentialMapScore;
+
+   if(todayBest.type!==potentialBestType)bestTypeChanges++;
+
+   if(mapExcess>eps){
+     bestMapNumericViolations++;
+     maxBestMapExcess=Math.max(maxBestMapExcess,mapExcess);
+
+     if(examplesBest.length<60){
+       examplesBest.push({
+         area:featureAreaName(f),
+         potentialBestType,
+         potentialBestName:HUMAN_NAMES[potentialBestType]||potentialBestType,
+         potentialMapScore:Number(potentialMapScore.toFixed(3)),
+         todayBestType:todayBest.type,
+         todayBestName:HUMAN_NAMES[todayBest.type]||todayBest.type,
+         todayScore:Number(todayBest.score.toFixed(3)),
+         todaySameSpeciesPotential:Number(sameSpeciesPotential.toFixed(3)),
+         mapExcess:Number(mapExcess.toFixed(3)),
+         changedSpecies:todayBest.type!==potentialBestType
+       });
+     }
+   }
+ }
+
+ const speciesSummary=Object.entries(bySpecies)
+   .filter(([,x])=>x.checked)
+   .map(([type,x])=>({
+     type,
+     name:x.name,
+     checked:x.checked,
+     violations:x.violations,
+     maxExcess:Number(x.maxExcess.toFixed(6))
+   }));
+
+ const report={
+   okPerSpecies:speciesViolations===0,
+   version:'v80-audit',
+   speciesPairs,
+   speciesViolations,
+   maxSpeciesViolation,
+   bestSameSpeciesViolations,
+   bestMapNumericViolations,
+   maxBestMapExcess:Number(maxBestMapExcess.toFixed(6)),
+   bestTypeChanges,
+   interpretation:{
+     perSpecies:'Musi być 0: DZIŚ tego samego gatunku nie może przekroczyć jego Potencjału.',
+     bestSameSpecies:'Musi być 0: BEST DZIŚ jest już clampowany potencjałem wybranego gatunku.',
+     bestMapNumeric:'Może być >0 w v79, bo BEST POTENCJAŁ i BEST DZIŚ mogą wybrać inne gatunki oraz używają innej agregacji. To jest przedmiot kolejnej decyzji modelowej.'
+   },
+   speciesSummary,
+   examplesSpecies,
+   examplesBest
+ };
+
+ console.info('=== PER SPECIES ===');
+ console.table(speciesSummary);
+ if(examplesSpecies.length){
+   console.info('PER-SPECIES VIOLATION EXAMPLES');
+   console.table(examplesSpecies);
+ }
+
+ console.info('=== BEST MAP NUMERIC COMPARISON ===');
+ console.table(examplesBest);
+ console.info('SPECIES TODAY <= POTENTIAL AUDIT',report);
+
+ return report;
+}
+window.auditSpeciesTodayVsPotential=auditSpeciesTodayVsPotential;
+
 window.auditTodayNeverGreenerThanPotential=auditTodayNeverGreenerThanPotential;
 
 window.auditBestTopAvailability=auditBestTopAvailability;

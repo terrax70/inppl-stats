@@ -8748,15 +8748,50 @@ function auditSingleSpeciesTodayCalibration(){
  console.info('SINGLE SPECIES TODAY CALIBRATION',report);
  return report;
 }
+
+function auditVisibleLowBands(){
+ const type=activeSingleSpeciesType();
+ const today=mapMode==='today';
+ const rows=allFeatures
+   .filter(f=>!f._blocked&&(!type||featureRelevant(type,f)))
+   .map(f=>{
+     const score=today?todayScoreForStyle(f):stableAnchorScore(f);
+     const cls=today?(type?singleSpeciesTodayClass(type,f):todayBalancedClass(f,score)):balancedClass(f);
+     const progress=unifiedWithinClassProgress(f,cls,today,score);
+     const band=unifiedBandIndex(cls,progress);
+     const style=unifiedMapStyleForClass(f,cls,{today,score,open:f._kind==='open'});
+     return {band,cls,score:Number(score.toFixed(2)),fillOpacity:Number(style.fillOpacity.toFixed(3)),weight:Number(style.weight.toFixed(2)),hidden:style.fillOpacity===0};
+   });
+
+ const visible=rows.filter(x=>!x.hidden);
+ const weak=visible.filter(x=>x.band>=2&&x.band<=4);
+ const report={
+   version:'v68',
+   type:type||null,
+   mode:mapMode,
+   total:rows.length,
+   hidden:rows.filter(x=>x.hidden).length,
+   visible:visible.length,
+   lowVisible:weak.length,
+   lowMinOpacity:weak.length?Math.min(...weak.map(x=>x.fillOpacity)):NaN,
+   lowMaxOpacity:weak.length?Math.max(...weak.map(x=>x.fillOpacity)):NaN
+ };
+ console.info('VISIBLE LOW BANDS AUDIT',report);
+ console.table(weak.slice(0,30));
+ return report;
+}
+window.auditVisibleLowBands=auditVisibleLowBands;
+
 window.auditSingleSpeciesTodayCalibration=auditSingleSpeciesTodayCalibration;
 
 
 function baseVisualCutoffForBand(band,f){
- // Skrajnie niski ogon skali nie niesie użytecznej informacji na mapie.
- // Hotspot pozostaje wyjątkiem — nigdy nie usuwamy miejsca, które system sam oznaczył jako hotspot.
+ // v68:
+ // Tylko absolutnie najgorszy ogon znika. Band 2 ma pozostać czytelną,
+ // słabą klasą — wcześniej mnożnik .38 robił z niej niemal niewidoczną plamę.
  if(f?._hotspotIndex)return {hidden:false,multiplier:1,reason:'hotspot'};
  if(band<=1)return {hidden:true,multiplier:0,reason:'very-low-band'};
- if(band===2)return {hidden:false,multiplier:.38,reason:'upper-low-band'};
+ if(band===2)return {hidden:false,multiplier:1,reason:'visible-low-band'};
  return {hidden:false,multiplier:1,reason:'normal'};
 }
 
@@ -8796,58 +8831,74 @@ function unifiedMapStyleForClass(f,c,{today=false,score=NaN,open=false}={}){
  const fill=UNIFIED_COLOR_BANDS[band];
  const stroke=UNIFIED_STROKE_BANDS[band];
  let border=stroke.weight>0 ? mixHexColor(fill,'#14231b', .40 + (band/11)*.14) : 'transparent';
- const fillOpacityByBand=[0.030,0.050,0.080,0.120,0.165,0.225,0.300,0.400,0.520,0.605,0.680,0.745];
+
+ const fillOpacityByBand=[0.030,0.050,0.095,0.135,0.185,0.245,0.315,0.410,0.525,0.610,0.680,0.745];
+ // Minimalne krycie dla KAŻDEGO widocznego pasma.
+ // To chroni "czerwone / rezerwowe" wydzielenia przed zniknięciem po kolejnych mnożnikach.
+ const visibleFloorByBand=[0,0,0.085,0.105,0.135,0.165,0.205,0.255,0.315,0.390,0.465,0.535];
+
  let fillOpacity=fillOpacityByBand[band] ?? 0.22;
  let weight=stroke.weight;
  let opacity=stroke.opacity;
 
- // 1) Najniższy ogon skali: najgorsze wydzielenia po prostu znikają.
+ // 1) Najniższy ogon skali nadal znika całkowicie.
  const cutoff=baseVisualCutoffForBand(band,f);
  if(cutoff.hidden){
    if(f)f._visualHidden=true;
    return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
  }
+
  fillOpacity*=cutoff.multiplier;
  weight*=Math.max(.25,cutoff.multiplier);
  opacity*=Math.max(.25,cutoff.multiplier);
 
- // 2) Jeśli użytkownik ogląda KONKRETNY gatunek, jego osobna punktacja
- //    silniej steruje widocznością niż sama klasa lokalna.
+ // 2) Konkretna punktacja gatunku nadal reguluje siłę,
+ // ale v68 NIE mnoży już przezroczystości do prawie zera.
+ // Klasa + kolor niosą główną informację; opacity jest tylko drugą warstwą.
  const speciesVisual=speciesVisualStrengthForFeature(f,today);
  if(speciesVisual.active&&!(f?._hotspotIndex)){
-   const s=speciesVisual.strength;
-   if(s<=.015){
-     if(f)f._visualHidden=true;
-     return {color:'transparent',weight:0,fillColor:'transparent',fillOpacity:0,opacity:0};
-   }
-   const fillMult=.08+.92*Math.pow(s,1.45);
-   const strokeMult=Math.pow(s,1.30);
+   const s=Math.max(0,Math.min(1,Number(speciesVisual.strength)||0));
+
+   // Łagodna modulacja: 58–100% bazowej siły zamiast wcześniejszych ~8–100%.
+   const fillMult=.58+.42*Math.sqrt(s);
+   const strokeMult=.48+.52*Math.sqrt(s);
+
    fillOpacity*=fillMult;
    weight*=strokeMult;
-   opacity*=Math.max(.10,strokeMult);
-   if(s<.30){
+   opacity*=.52+.48*Math.sqrt(s);
+
+   // Słabe miejsca mogą nie mieć obrysu, ale sam kolor wydzielenia ma zostać widoczny.
+   if(s<.20){
      weight=0;
      opacity=0;
      border='transparent';
-   }else if(s<.52){
+   }else if(s<.38){
      weight*=.55;
-     opacity*=.62;
+     opacity*=.66;
    }
+
+   // Najważniejsza ochrona v68: widoczny band nie może zostać "wyzerowany"
+   // przez species fade ani benchmark krajowy.
+   fillOpacity=Math.max(visibleFloorByBand[band]||0,fillOpacity);
  }
 
- // 3) Krajowy benchmark: nie zmienia klasy ani hotspotu, ale subtelnie reguluje
- //    siłę całego wydzielenia. Lokalny TOP w słabym krajowo siedlisku nie powinien
- //    wyglądać równie mocno jak lokalny TOP w 95. percentylu Polski.
+ // 3) Krajowy benchmark subtelnie reguluje siłę, ale również nie może
+ //    zepchnąć już widocznego wydzielenia poniżej sensownego minimum.
  const nationalVisual=nationalVisualInfoForFeature(f,today);
  if(nationalVisual.active&&!(f?._hotspotIndex)){
    const nm=nationalVisualOpacityMultiplier(nationalVisual.factor);
    fillOpacity*=nm;
    weight*=Math.max(.72,Math.min(1.08,nm));
    opacity*=Math.max(.78,Math.min(1.06,nm));
+
+   if(speciesVisual.active){
+     fillOpacity=Math.max(visibleFloorByBand[band]||0,fillOpacity);
+   }
  }
 
  if(open){
-   fillOpacity=Math.max(speciesVisual.active?.008:.045, Math.min(.66, fillOpacity*.88));
+   const openFloor=speciesVisual.active ? Math.max(.065,(visibleFloorByBand[band]||0)*.78) : .045;
+   fillOpacity=Math.max(openFloor, Math.min(.66, fillOpacity*.88));
    weight=weight>0?Math.max(.08,weight*.90):0;
    opacity=weight>0?Math.max(.10,opacity*.90):0;
  }

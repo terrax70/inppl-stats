@@ -1,13 +1,13 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v75: TOP w trybie Najlepsze miejsce z adaptacyjnym sufitem.
-     v74 poprawnie rozdzielilo las percentylami, ale absolutne progi TOP (7.85 POTENCJAL,
-     7.65 DZIS) byly za wysokie wzgledem realnego rozkladu BEST i potrafily wyciac klase TOP
-     calkowicie. v75 zachowuje ranking q30/q58/q80/q95 oraz q25/q55/q78/q94, lecz obniza
-     jedynie SUFIT bezpieczenstwa: percentyl nadal decyduje KTO jest TOP, a absolutny wynik
-     blokuje TOP tylko w naprawde slabym rejonie. Najciemniejszy band jest rozciagany do max.
-     Roznorodnosc, pojedyncze gatunki, scoring biologiczny i radar PL pozostaja bez zmian. -->
+<!-- GitHub production v76: BEST/Najlepsze miejsce jako czytelny ranking terenu.
+     Audyt v75 pokazal tylko 1.2% TOP (36/3052) mimo q94, bo DZIS bylo dodatkowo przecinane
+     przez potentialClass wybranego gatunku i przez bardzo rzadki TOP Potencjalu. v76:
+     klasy BEST rozkladaja sie szerzej (q25/q50/q72/q90), DZIS ma tylko jeden cap mapowy
+     balancedClass(f) — wystarczajacy do zasady DZIS <= POTENCJAL — a redundantny
+     info.potentialClass zostal usuniety. TOP ma mocniej rozciagniety najciemniejszy band.
+     Roznorodnosc, pojedyncze gatunki, scoring biologiczny i radar PL bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -8133,29 +8133,63 @@ function auditBestTopAvailability(){
    if(!feats.length)continue;
 
    const scale=today?buildTodayScales()[a.name]:buildBalancedScales()[a.name];
-   const rows=feats.map(f=>{
+   let relativeTop=0,blockedAbsolute=0,blockedPotential=0,finalTop=0,darkest=0;
+   const rows=[];
+
+   for(const f of feats){
      const score=today?todayScoreForStyle(f):stableAnchorScore(f);
+     const relativeTopHit=score >= (today?(scale?.q90??Infinity):(scale?.q90??Infinity));
+     if(relativeTopHit)relativeTop++;
+
+     let absoluteCap=4;
+     if(today){
+       if(score<3.80)absoluteCap=0;
+       else if(score<4.45)absoluteCap=1;
+       else if(score<5.05)absoluteCap=2;
+       else if(score<5.65)absoluteCap=3;
+     }else{
+       if(score<4.35)absoluteCap=0;
+       else if(score<4.95)absoluteCap=1;
+       else if(score<5.55)absoluteCap=2;
+       else if(score<6.20)absoluteCap=3;
+     }
+
+     const potentialClass=today?balancedClass(f):4;
+     if(relativeTopHit&&absoluteCap<4)blockedAbsolute++;
+     if(today&&relativeTopHit&&absoluteCap>=4&&potentialClass<4)blockedPotential++;
+
      const cls=today?todayBalancedClass(f,score):balancedClass(f);
      const progress=unifiedWithinClassProgress(f,cls,today,score);
-     return {score,cls,band:unifiedBandIndex(cls,progress)};
-   });
+     const band=unifiedBandIndex(cls,progress);
+     if(cls===4)finalTop++;
+     if(band===11)darkest++;
 
-   const topRows=rows.filter(x=>x.cls===4);
+     rows.push({score,cls,band,potentialClass,relativeTopHit,absoluteCap});
+   }
+
+   const scores=rows.map(x=>x.score);
    perArea[a.name]={
      n:rows.length,
-     min:Number(Math.min(...rows.map(x=>x.score)).toFixed(2)),
-     max:Number(Math.max(...rows.map(x=>x.score)).toFixed(2)),
-     qTop:Number((today?(scale?.q94??NaN):(scale?.q95??NaN)).toFixed?.(2) ?? NaN),
-     topCount:topRows.length,
-     topPct:Number((100*topRows.length/Math.max(1,rows.length)).toFixed(1)),
-     darkestCount:rows.filter(x=>x.band===11).length
+     min:Number(Math.min(...scores).toFixed(2)),
+     max:Number(Math.max(...scores).toFixed(2)),
+     qTop:Number((scale?.q90??NaN).toFixed(2)),
+     relativeTop,
+     relativeTopPct:Number((100*relativeTop/rows.length).toFixed(1)),
+     blockedAbsolute,
+     blockedPotential,
+     topCount:finalTop,
+     topPct:Number((100*finalTop/rows.length).toFixed(1)),
+     darkestCount:darkest,
+     darkestPct:Number((100*darkest/rows.length).toFixed(1))
    };
  }
- const report={ok:true,version:'v75',mode:mapMode,perArea};
+
+ const report={ok:true,version:'v76',mode:mapMode,perArea};
  console.table(perArea);
  console.info('BEST TOP AVAILABILITY',report);
  return report;
 }
+window.auditBestTopAvailability=auditBestTopAvailability;
 window.auditBestTopAvailability=auditBestTopAvailability;
 
 window.auditBestModeCalibration=auditBestModeCalibration;
@@ -8749,13 +8783,17 @@ function buildBalancedScales(){
    out[area.name]=rows.length
      ? {
          q20:quantileSorted(rows,.20),
+         q25:quantileSorted(rows,.25),
          q30:quantileSorted(rows,.30),
          q45:quantileSorted(rows,.45),
+         q50:quantileSorted(rows,.50),
          q55:quantileSorted(rows,.55),
          q58:quantileSorted(rows,.58),
          q70:quantileSorted(rows,.70),
+         q72:quantileSorted(rows,.72),
          q80:quantileSorted(rows,.80),
          q88:quantileSorted(rows,.88),
+         q90:quantileSorted(rows,.90),
          q93:quantileSorted(rows,.93),
          q95:quantileSorted(rows,.95),
          q96:quantileSorted(rows,.96),
@@ -8788,33 +8826,31 @@ function balancedClass(f){
  }
 
  const scale=buildBalancedScales()[featureAreaName(f)]||{
-   q20:5.5,q30:5.9,q45:6.4,q55:6.7,q70:7.2,q80:7.5,q88:8,q95:8.4,q96:8.5
+   q20:5.5,q25:5.7,q45:6.4,q50:6.55,q70:7.2,q72:7.3,q88:8,q90:8.1
  };
 
- // v74: BEST/Najlepsze miejsce wybiera najlepszy gatunek dla KAŻDEGO wydzielenia.
- // To naturalnie zawyża rozkład surowych score'ów. Absolutna podłoga klas powodowała,
- // że prawie cały las był zielony. Tu liczy się więc przede wszystkim POZYCJA W REJONIE.
+ // v76 — BEST to mapa rankingu. Każde wydzielenie ma "najlepszy gatunek",
+ // dlatego wyniki absolutne są wysoko skupione i trzeba szerzej wykorzystać paletę.
+ // Docelowo przed capami: ~25% odpuść, 25% rezerwowo, 22% średnio,
+ // 18% warto, 10% TOP.
  if(!atlasSelected.size&&currentFilter==='all'){
    let c=0;
-   if(s>=scale.q95)c=4;
-   else if(s>=scale.q80)c=3;
-   else if(s>=scale.q58)c=2;
-   else if(s>=scale.q30)c=1;
+   if(s>=scale.q90)c=4;
+   else if(s>=scale.q72)c=3;
+   else if(s>=scale.q50)c=2;
+   else if(s>=scale.q25)c=1;
 
-   // v75: absolutny wynik jest tylko SUFITEM bezpieczeństwa.
-   // q95 już ogranicza TOP do ~5% najlepszych wydzieleń w rejonie, więc próg 7.85
-   // był drugim, zbyt ostrym filtrem i potrafił usunąć TOP całkowicie.
-   // Teraz TOP jest blokowany dopiero wtedy, gdy nawet absolutnie wynik jest słaby.
+   // Absolutny wynik jest wyłącznie veto na naprawdę słabe rejony.
    let cap=0;
-   if(s>=6.45)cap=4;
-   else if(s>=5.85)cap=3;
-   else if(s>=5.20)cap=2;
-   else if(s>=4.55)cap=1;
+   if(s>=6.20)cap=4;
+   else if(s>=5.55)cap=3;
+   else if(s>=4.95)cap=2;
+   else if(s>=4.35)cap=1;
 
    return Math.min(c,cap);
  }
 
- // Różnorodność zachowuje własną kalibrację v72/v73.
+ // Różnorodność — bez zmian.
  const scaleDiv=scale;
  let c=0;
  if(s>=Math.max(scaleDiv.q88,7.65))c=4;
@@ -8934,17 +8970,22 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
    if(today && currentFilter==='all'){
      const s=buildTodayScales()[area];
      if(s){
-       const cuts=[s.min??0,s.q25??5.25,s.q55??6.20,s.q78??6.95,s.q94??7.65,s.max??10];
+       const cuts=[s.min??0,s.q25??5.25,s.q50??6.20,s.q72??6.95,s.q90??7.65,s.max??10];
        const lo=cuts[c]??0,hi=cuts[c+1]??10;
-       return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+       let p=hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+       // W TOP szybciej dochodzimy do najciemniejszego z 3 zielonych bandów.
+       if(c===4)p=Math.pow(p,.72);
+       return p;
      }
    }
    if(!today&&currentFilter==='all'){
      const s=buildBalancedScales()[area];
      if(s){
-       const cuts=[s.min??0,s.q30??5.55,s.q58??6.35,s.q80??7.10,s.q95??7.85,s.max??10];
+       const cuts=[s.min??0,s.q25??5.55,s.q50??6.35,s.q72??7.10,s.q90??7.85,s.max??10];
        const lo=cuts[c]??0,hi=cuts[c+1]??10;
-       return hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+       let p=hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
+       if(c===4)p=Math.pow(p,.72);
+       return p;
      }
    }
  }
@@ -9454,10 +9495,13 @@ function buildTodayScales(){
      q20:quantileSorted(rows,.20),
      q25:quantileSorted(rows,.25),
      q45:quantileSorted(rows,.45),
+     q50:quantileSorted(rows,.50),
      q55:quantileSorted(rows,.55),
      q70:quantileSorted(rows,.70),
+     q72:quantileSorted(rows,.72),
      q78:quantileSorted(rows,.78),
      q88:quantileSorted(rows,.88),
+     q90:quantileSorted(rows,.90),
      q93:quantileSorted(rows,.93),
      q94:quantileSorted(rows,.94),
      q97:quantileSorted(rows,.97),
@@ -9476,7 +9520,7 @@ function buildTodayScales(){
 function todayBalancedClass(f,sOverride=NaN){
  const s=Number.isFinite(sOverride)?sOverride:todayScoreForStyle(f);
  const scale=buildTodayScales()[featureAreaName(f)]||{
-   q20:5.2,q25:5.5,q45:6.4,q55:6.7,q70:7.4,q78:7.7,q88:8.4,q93:8.8,q94:8.9,q97:9.2
+   q20:5.2,q25:5.4,q45:6.2,q50:6.4,q70:7.1,q72:7.2,q88:8.2,q90:8.3
  };
 
  let todayClass=0;
@@ -9486,25 +9530,23 @@ function todayBalancedClass(f,sOverride=NaN){
  }
 
  if(!atlasSelected.size&&currentFilter==='all'){
-   // v74: BEST DZIŚ jest rankingiem względnym. Usunięta absolutna PODŁOGA,
-   // która podnosiła większość lasu do zieleni, bo dla każdego wydzielenia
-   // wybieramy jego najlepszy gatunek.
-   if(s>=scale.q94)todayClass=4;
-   else if(s>=scale.q78)todayClass=3;
-   else if(s>=scale.q55)todayClass=2;
+   // v76 — ten sam czytelny układ klas co POTENCJAŁ.
+   if(s>=scale.q90)todayClass=4;
+   else if(s>=scale.q72)todayClass=3;
+   else if(s>=scale.q50)todayClass=2;
    else if(s>=scale.q25)todayClass=1;
 
-   // v75: q94 już wybiera tylko ścisłą czołówkę DZIŚ.
-   // Próg 7.65 był za wysoki i potrafił wyciąć klasę TOP mimo bardzo dobrych
-   // warunków względnych. Absolutny cap zostaje jako veto tylko dla naprawdę słabego dnia.
    let absoluteCap=0;
-   if(s>=5.95)absoluteCap=4;
-   else if(s>=5.35)absoluteCap=3;
-   else if(s>=4.70)absoluteCap=2;
-   else if(s>=3.95)absoluteCap=1;
+   if(s>=5.65)absoluteCap=4;
+   else if(s>=5.05)absoluteCap=3;
+   else if(s>=4.45)absoluteCap=2;
+   else if(s>=3.80)absoluteCap=1;
 
-   const info=bestTodayInfo(f);
-   return Math.min(todayClass,absoluteCap,info.potentialClass,balancedClass(f));
+   // Ważne: s = min(DZIŚ, potencjał wybranego gatunku), więc potencjał
+   // biologiczny już ogranicza wynik liczbowo. balancedClass(f) wystarcza jako
+   // jedyny cap wizualny do zasady "DZIŚ nigdy bardziej zielone niż POTENCJAŁ".
+   // info.potentialClass było drugim, redundantnym capem i ścinało TOP do ~1%.
+   return Math.min(todayClass,absoluteCap,balancedClass(f));
  }
 
  const singleType=activeSingleSpeciesType();
@@ -9512,7 +9554,7 @@ function todayBalancedClass(f,sOverride=NaN){
    return singleSpeciesTodayClass(singleType,f);
  }
 
- // v70: Różnorodność + DZIŚ — bez zmian.
+ // Różnorodność + DZIŚ — bez zmian.
  if(!atlasSelected.size&&currentFilter==='diversity'){
    let relativeClass=0;
    if(s>=scale.q88)relativeClass=4;

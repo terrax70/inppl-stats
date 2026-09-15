@@ -6747,7 +6747,7 @@ function verdictRankCapFromMapClass(c){
 // pogody ani lokalnego rankingu. W praktycznej punktacji działa jako
 // umiarkowany mnożnik ok. 0.84–1.10.
 
-const NATIONAL_BENCHMARK_VERSION='bdl-pl-v3-top-combos-heal';
+const NATIONAL_BENCHMARK_VERSION='bdl-pl-v4-robust-groups';
 const NATIONAL_BENCHMARK_CACHE_KEY='grzyby:national-benchmark:'+NATIONAL_BENCHMARK_VERSION;
 const NATIONAL_BENCHMARK_MAX_AGE_MS=365*24*3600*1000;
 const NATIONAL_BENCHMARK_BIN_STEP=.05;
@@ -6757,6 +6757,7 @@ let nationalBenchmark=null;
 let nationalBenchmarkState='idle'; // idle | loading | ready | error
 let nationalBenchmarkPromise=null;
 let nationalBenchmarkLastError='';
+let nationalGroupedFetchDiagnostics={};
 
 function nationalBenchmarkSupportsType(type){
  const m=SPECIES_META[type];
@@ -6883,6 +6884,9 @@ function nationalBenchmarkTopCombosStatus(obj){
 
 function nationalBenchmarkCacheValid(obj){
  if(!obj||obj.version!==NATIONAL_BENCHMARK_VERSION||!obj.types)return false;
+ const supported=PICK_TYPES.filter(nationalBenchmarkSupportsType);
+ const hasDistribution=supported.some(t=>Number(obj?.types?.[t]?.total||0)>0);
+ if(!hasDistribution)return false;
  const top=nationalBenchmarkTopCombosStatus(obj);
  return top.ok;
 }
@@ -6910,16 +6914,98 @@ function writeNationalBenchmarkCache(obj){
  }
 }
 
+
+function nationalAttrCI(attrs,name){
+ if(!attrs||typeof attrs!=='object')return undefined;
+ if(Object.prototype.hasOwnProperty.call(attrs,name))return attrs[name];
+ const target=String(name).toLowerCase();
+ const k=Object.keys(attrs).find(x=>String(x).toLowerCase()===target);
+ return k==null?undefined:attrs[k];
+}
+
+function nationalGroupedCount(attrs){
+ const preferred=['record_count','n','count','cnt','COUNT','RECORD_COUNT'];
+ for(const k of preferred){
+   const v=Number(nationalAttrCI(attrs,k));
+   if(Number.isFinite(v)&&v>0)return {value:v,mode:k};
+ }
+ const excluded=new Set(['species_cd_d','site_type_cd','species_age']);
+ for(const [k,v0] of Object.entries(attrs||{})){
+   const lk=String(k).toLowerCase();
+   if(excluded.has(lk))continue;
+   if(!(lk.includes('count')||lk==='n'||lk==='cnt'))continue;
+   const v=Number(v0);
+   if(Number.isFinite(v)&&v>0)return {value:v,mode:k};
+ }
+ // Ostatnia deska ratunku: grupa istnieje, więc jej waga co najmniej 1.
+ // Dzięki temu błąd aliasu pola COUNT nie zeruje całego benchmarku.
+ return {value:1,mode:'unweighted-fallback'};
+}
+
+async function nationalFetchJsonNoStore(url,{timeoutMs=24000,tries=3}={}){
+ let lastErr=null;
+ for(let attempt=0;attempt<tries;attempt++){
+   const ctrl=new AbortController();
+   const timer=setTimeout(()=>ctrl.abort(),timeoutMs);
+   try{
+     const r=await fetch(url,{signal:ctrl.signal,cache:'no-store'});
+     clearTimeout(timer);
+     if(!r.ok){const e=new Error(`HTTP ${r.status}`);e.status=r.status;throw e;}
+     const js=await r.json();
+     if(js?.error)throw new Error(js.error.message||'Błąd ArcGIS BDL');
+     return js;
+   }catch(e){
+     clearTimeout(timer);lastErr=e;
+     if(attempt+1<tries){await prodSleep(700*Math.pow(attempt+1,2));continue;}
+   }
+ }
+ throw lastErr||new Error('Błąd pobierania BDL');
+}
+
+const NATIONAL_BDL_SITE_CODES=['BSW','BMSW','LMSW','LSW','BW','BMW','LMW','LW','BB','BMB','LMB','OL','OLJ'];
+
+function nationalFallbackAgeRange(type){
+ const m=SPECIES_META[type]||{};
+ let lo=Math.max(1,Math.round(Number(m.age?.[0]??20)));
+ let hi=Math.max(lo,Math.round(Number(m.age?.[1]??120)));
+ if(m.ecology==='wood')lo=Math.max(lo,35);
+ return [lo,hi];
+}
+
+function nationalFallbackTrees(type){
+ const m=SPECIES_META[type]||{};
+ return [...new Set([...(m.strong||[]),...(m.secondary||[])].filter(Boolean))];
+}
+
+function nationalSyntheticTopCombos(type,profile=null){
+ if(!nationalBenchmarkSupportsType(type))return [];
+ const trees=nationalFallbackTrees(type);
+ const [ageMin,ageMax]=nationalFallbackAgeRange(type);
+ const repAge=Math.round((ageMin+ageMax)/2);
+ const rows=[];
+ for(const tree of trees){
+   for(const site of NATIONAL_BDL_SITE_CODES){
+     const core=nationalCorePotentialForProps(type,{species_cd_d:tree,site_type_cd:site,species_age:repAge});
+     if(!Number.isFinite(core))continue;
+     rows.push({
+       species_cd_d:tree,site_type_cd:site,species_age:repAge,
+       ageMin,ageMax,n:0,core,
+       percentile:profile?.total?nationalPercentileFromHistogram(profile,core):NaN,
+       synthetic:true
+     });
+   }
+ }
+ return rows.sort((a,b)=>b.core-a.core).slice(0,30);
+}
+
 async function fetchNationalGroupedBdlLayer(layerId){
  const rows=[];
- let offset=0;
- let page=0;
-
+ let offset=0,page=0,countMode='unknown',firstKeys=[];
  while(true){
    const stats=[{
      statisticType:'count',
-     onStatisticField:'adress_forest',
-     outStatisticFieldName:'n'
+     onStatisticField:'subarea_id',
+     outStatisticFieldName:'record_count'
    }];
    const q=new URLSearchParams({
      where:'1=1',
@@ -6929,33 +7015,53 @@ async function fetchNationalGroupedBdlLayer(layerId){
      returnGeometry:'false',
      resultOffset:String(offset),
      resultRecordCount:'2000',
+     cacheHint:'false',
      f:'json'
    });
+   // Wersja w URL + no-store omija stary cache v60-v62, który mógł przechować
+   // pustą odpowiedź statystyczną i potem odtwarzać ją przez 30 dni.
+   q.set('_nbv',NATIONAL_BENCHMARK_VERSION);
+   q.set('_page',String(page));
    const url=`${BDL_BASE}/${layerId}/query?${q}`;
-   const js=await prodFetchJson(url,{
-     timeoutMs:22000,
-     tries:3,
-     policy:{ttl:30*86400e3,stale:365*86400e3}
-   });
-   if(js?.error)throw new Error(`BDL benchmark layer ${layerId}: ${js.error.message||'błąd statystyk'}`);
-   const feats=js?.features||[];
+   const js=await nationalFetchJsonNoStore(url,{timeoutMs:26000,tries:3});
+   const feats=Array.isArray(js?.features)?js.features:[];
+   if(page===0&&feats[0]?.attributes)firstKeys=Object.keys(feats[0].attributes);
+
+   let accepted=0;
    for(const ft of feats){
      const a=ft?.attributes||ft?.properties||{};
-     const n=Number(a.n||0);
-     if(n>0)rows.push({
-       species_cd_d:a.species_cd_d||'',
-       site_type_cd:a.site_type_cd||'',
-       species_age:Number(a.species_age||0),
+     const count=nationalGroupedCount(a);
+     countMode=count.mode||countMode;
+     const n=Number(count.value||0);
+     if(!(n>0))continue;
+     rows.push({
+       species_cd_d:String(nationalAttrCI(a,'species_cd_d')??''),
+       site_type_cd:String(nationalAttrCI(a,'site_type_cd')??''),
+       species_age:Number(nationalAttrCI(a,'species_age')??0),
        n
      });
+     accepted++;
    }
+
+   // Najważniejsza poprawka: v62 traktowało 0 sparsowanych wierszy jak poprawny
+   // benchmark. Teraz zerowa pierwsza strona jest błędem transportu/parsing-u.
+   if(page===0&&feats.length===0){
+     nationalGroupedFetchDiagnostics[layerId]={rows:0,pages:1,firstKeys,error:'empty-first-page'};
+     throw new Error(`BDL benchmark layer ${layerId}: serwer zwrócił 0 grup`);
+   }
+   if(page===0&&feats.length>0&&accepted===0){
+     nationalGroupedFetchDiagnostics[layerId]={rows:0,pages:1,firstKeys,error:'unparsed-first-page'};
+     throw new Error(`BDL benchmark layer ${layerId}: nie udało się odczytać grup; pola: ${firstKeys.join(', ')}`);
+   }
+
    page++;
    if(feats.length<2000 && !js?.exceededTransferLimit)break;
+   if(!feats.length)break;
    offset+=feats.length;
-   if(page>35)throw new Error(`BDL benchmark layer ${layerId}: zbyt dużo stron agregacji`);
-   // oddaj klatkę UI — benchmark ma być niewidocznym zadaniem w tle
+   if(page>80)throw new Error(`BDL benchmark layer ${layerId}: zbyt dużo stron agregacji`);
    await new Promise(r=>setTimeout(r,0));
  }
+ nationalGroupedFetchDiagnostics[layerId]={rows:rows.length,pages:page,countMode,firstKeys,error:null};
  return rows;
 }
 
@@ -6963,12 +7069,48 @@ async function buildNationalBenchmarkFromGroups(groups){
  const types=PICK_TYPES.filter(nationalBenchmarkSupportsType),histByType={};
  for(const t of types)histByType[t]=new Array(NATIONAL_BENCHMARK_BIN_COUNT).fill(0);
  let totalRecords=0;const comboMap=new Map();
- for(const row of groups){const w=Math.max(0,Number(row.n||0));if(!w)continue;totalRecords+=w;const combo={species_cd_d:String(row.species_cd_d||''),site_type_cd:String(row.site_type_cd||''),species_age:Number(row.species_age||0)};const key=`${combo.species_cd_d}|${combo.site_type_cd}|${combo.species_age}`;const prev=comboMap.get(key);if(prev)prev.n+=w;else comboMap.set(key,{...combo,n:w});}
+ for(const row of groups){
+   const w=Math.max(0,Number(row.n||0));if(!w)continue;
+   totalRecords+=w;
+   const combo={species_cd_d:String(row.species_cd_d||''),site_type_cd:String(row.site_type_cd||''),species_age:Number(row.species_age||0)};
+   const key=`${combo.species_cd_d}|${combo.site_type_cd}|${combo.species_age}`;
+   const prev=comboMap.get(key);if(prev)prev.n+=w;else comboMap.set(key,{...combo,n:w});
+ }
  const combos=[...comboMap.values()];
- for(let i=0;i<combos.length;i++){const row=combos[i],props={species_cd_d:row.species_cd_d,site_type_cd:row.site_type_cd,species_age:row.species_age};for(const type of types){const score=nationalCorePotentialForProps(type,props);if(!Number.isFinite(score))continue;const bin=Math.max(0,Math.min(NATIONAL_BENCHMARK_BIN_COUNT-1,Math.round(score/NATIONAL_BENCHMARK_BIN_STEP)));histByType[type][bin]+=row.n;}if(i%500===0)await new Promise(r=>setTimeout(r,0));}
+ if(!combos.length)throw new Error('Benchmark Polski: po agregacji BDL nie ma żadnych kombinacji');
+
+ for(let i=0;i<combos.length;i++){
+   const row=combos[i],props={species_cd_d:row.species_cd_d,site_type_cd:row.site_type_cd,species_age:row.species_age};
+   for(const type of types){
+     const score=nationalCorePotentialForProps(type,props);if(!Number.isFinite(score))continue;
+     const bin=Math.max(0,Math.min(NATIONAL_BENCHMARK_BIN_COUNT-1,Math.round(score/NATIONAL_BENCHMARK_BIN_STEP)));
+     histByType[type][bin]+=row.n;
+   }
+   if(i%500===0)await new Promise(r=>setTimeout(r,0));
+ }
+
  const profiles={};
- for(const type of types){const hist=histByType[type],total=hist.reduce((a,b)=>a+Number(b||0),0);const baseProfile={hist,total,q10:nationalHistogramQuantile(hist,total,.10),q25:nationalHistogramQuantile(hist,total,.25),q50:nationalHistogramQuantile(hist,total,.50),q75:nationalHistogramQuantile(hist,total,.75),q90:nationalHistogramQuantile(hist,total,.90),q97:nationalHistogramQuantile(hist,total,.97)};const topCombos=combos.map(c=>{const core=nationalCorePotentialForProps(type,c);return {species_cd_d:c.species_cd_d,site_type_cd:c.site_type_cd,species_age:c.species_age,n:c.n,core,percentile:nationalPercentileFromHistogram(baseProfile,core)};}).filter(x=>Number.isFinite(x.core)).sort((a,b)=>b.core-a.core||b.n-a.n).slice(0,30);profiles[type]={...baseProfile,topCombos};}
- return {version:NATIONAL_BENCHMARK_VERSION,builtAt:Date.now(),source:'BDL layers 5+6 • nationwide grouped statistics + concrete TOP candidates',groupedRows:groups.length,uniqueCombos:combos.length,totalRecords,types:profiles};
+ for(const type of types){
+   const hist=histByType[type],total=hist.reduce((a,b)=>a+Number(b||0),0);
+   const baseProfile={hist,total,q10:nationalHistogramQuantile(hist,total,.10),q25:nationalHistogramQuantile(hist,total,.25),q50:nationalHistogramQuantile(hist,total,.50),q75:nationalHistogramQuantile(hist,total,.75),q90:nationalHistogramQuantile(hist,total,.90),q97:nationalHistogramQuantile(hist,total,.97)};
+   let topCombos=combos.map(c=>{
+     const core=nationalCorePotentialForProps(type,c);
+     return {species_cd_d:c.species_cd_d,site_type_cd:c.site_type_cd,species_age:c.species_age,n:c.n,core,percentile:nationalPercentileFromHistogram(baseProfile,core)};
+   }).filter(x=>Number.isFinite(x.core)).sort((a,b)=>b.core-a.core||b.n-a.n).slice(0,30);
+   let topCombosSource='bdl-grouped';
+   if(!topCombos.length){
+     topCombos=nationalSyntheticTopCombos(type,baseProfile);
+     topCombosSource='model-fallback';
+   }
+   profiles[type]={...baseProfile,topCombos,topCombosSource};
+ }
+ return {
+   version:NATIONAL_BENCHMARK_VERSION,builtAt:Date.now(),
+   source:'BDL layers 5+6 • nationwide grouped statistics + robust TOP fallback',
+   groupedRows:groups.length,uniqueCombos:combos.length,totalRecords,
+   transportDiagnostics:nationalGroupedFetchDiagnostics,
+   types:profiles
+ };
 }
 
 async function ensureNationalBenchmark({force=false}={}){
@@ -6977,6 +7119,7 @@ async function ensureNationalBenchmark({force=false}={}){
    try{
      nationalBenchmarkState='loading';
      nationalBenchmarkLastError='';
+     nationalGroupedFetchDiagnostics={};
 
      const cached=readNationalBenchmarkCache();
      if(cached&&!force){
@@ -6986,14 +7129,29 @@ async function ensureNationalBenchmark({force=false}={}){
        if(age<=NATIONAL_BENCHMARK_MAX_AGE_MS)return cached;
      }
 
-     const [a,b]=await Promise.all([
+     const settled=await Promise.allSettled([
        fetchNationalGroupedBdlLayer(5),
        fetchNationalGroupedBdlLayer(6)
      ]);
-     const built=await buildNationalBenchmarkFromGroups([...a,...b]);
+     const groups=[];const errs=[];
+     settled.forEach((r,i)=>{
+       const layer=i===0?5:6;
+       if(r.status==='fulfilled'&&Array.isArray(r.value)&&r.value.length)groups.push(...r.value);
+       else if(r.status==='rejected')errs.push(`L${layer}: ${r.reason?.message||r.reason}`);
+       else errs.push(`L${layer}: 0 grup`);
+     });
+     if(!groups.length)throw new Error(`Benchmark Polski: brak danych z BDL (${errs.join(' | ')})`);
+
+     const built=await buildNationalBenchmarkFromGroups(groups);
      const status=nationalBenchmarkTopCombosStatus(built);
      if(!status.ok){
-       throw new Error(`Benchmark zbudowany bez TOP kombinacji dla: ${status.missing.join(', ')}`);
+       // Nie blokuj całej funkcji przez brak list TOP — dołóż modelowy fallback.
+       for(const type of status.missing){
+         const p=built.types?.[type];
+         if(!p)continue;
+         p.topCombos=nationalSyntheticTopCombos(type,p);
+         p.topCombosSource='model-fallback';
+       }
      }
 
      nationalBenchmark=built;
@@ -7002,20 +7160,16 @@ async function ensureNationalBenchmark({force=false}={}){
      return built;
    }catch(e){
      nationalBenchmarkLastError=String(e?.message||e);
-
-     // Fallback tylko wtedy, gdy obiekt w pamięci jest naprawdę kompletny.
      if(nationalBenchmark&&nationalBenchmarkCacheValid(nationalBenchmark)){
        nationalBenchmarkState='ready';
        return nationalBenchmark;
      }
-
      nationalBenchmark=null;
      nationalBenchmarkState='error';
      console.warn('National BDL benchmark',e);
      return null;
    }finally{
-     // Po zakończeniu pozwól późniejszemu force=true uruchomić nową próbę.
-     if(nationalBenchmarkState==='error')nationalBenchmarkPromise=null;
+     nationalBenchmarkPromise=null;
    }
  })();
  return nationalBenchmarkPromise;
@@ -7051,7 +7205,7 @@ async function rebuildNationalBenchmark(){
 window.rebuildNationalBenchmark=rebuildNationalBenchmark;
 
 // v61 — KONKRETNE TOP MIEJSCA W POLSCE DLA GATUNKU.
-const NATIONAL_TOP_VERSION='bdl-top-pl-v2';
+const NATIONAL_TOP_VERSION='bdl-top-pl-v3-direct-fallback';
 const NATIONAL_TOP_CACHE_KEY='grzyby:national-top:'+NATIONAL_TOP_VERSION;
 const NATIONAL_TOP_MAX_AGE_MS=365*24*3600*1000;
 const NATIONAL_TOP_LIMIT=10;
@@ -7062,8 +7216,67 @@ function writeNationalTopCache(){try{localStorage.setItem(NATIONAL_TOP_CACHE_KEY
 function ensureNationalTopCache(){if(!nationalTopCache)nationalTopCache=readNationalTopCache();return nationalTopCache;}
 function nationalTopCacheFresh(entry){return !!entry?.builtAt&&Date.now()-Number(entry.builtAt)<NATIONAL_TOP_MAX_AGE_MS&&Array.isArray(entry.items);}
 function sqlQuote(v){return `'${String(v??'').replace(/'/g,"''")}'`;}
-function nationalComboWhere(c){const tree=String(c?.species_cd_d||''),site=String(c?.site_type_cd||''),age=Number(c?.species_age||0);return [tree?`species_cd_d=${sqlQuote(tree)}`:`(species_cd_d IS NULL OR species_cd_d='')`,site?`site_type_cd=${sqlQuote(site)}`:`(site_type_cd IS NULL OR site_type_cd='')`,`species_age=${Number.isFinite(age)?Math.round(age):0}`].join(' AND ');}
-async function fetchNationalTopComboLayer(type,combo,layerId){const q=new URLSearchParams({where:nationalComboWhere(combo),outFields:'subarea_id,adress_forest,species_cd_d,site_type_cd,species_age,sub_area',returnGeometry:'false',orderByFields:'sub_area DESC',resultRecordCount:String(NATIONAL_TOP_PER_LAYER_COMBO),f:'json'});const js=await prodFetchJson(`${BDL_BASE}/${layerId}/query?${q}`,{timeoutMs:18000,tries:2,policy:{ttl:30*86400e3,stale:365*86400e3}});if(js?.error)throw new Error(`BDL TOP ${layerId}: ${js.error.message||'błąd zapytania'}`);const profile=nationalBenchmark?.types?.[type],core=Number(combo.core),percentile=Number.isFinite(combo.percentile)?Number(combo.percentile):nationalPercentileFromHistogram(profile,core);return (js?.features||[]).map(ft=>{const a=ft?.attributes||ft?.properties||{};return {layerId,subarea_id:Number(a.subarea_id),adress_forest:String(a.adress_forest||''),species_cd_d:String(a.species_cd_d||combo.species_cd_d||''),site_type_cd:String(a.site_type_cd||combo.site_type_cd||''),species_age:Number(a.species_age||combo.species_age||0),sub_area:Number(a.sub_area||0),core,percentile};}).filter(x=>Number.isFinite(x.subarea_id));}
+
+function nationalTopTreeWhere(type){
+ const trees=nationalFallbackTrees(type);
+ if(!trees.length)return '1=0';
+ return `species_cd_d IN (${trees.map(sqlQuote).join(',')})`;
+}
+function nationalTopAgeWhere(type){
+ const [lo,hi]=nationalFallbackAgeRange(type);
+ return `species_age BETWEEN ${Math.round(lo)} AND ${Math.round(hi)}`;
+}
+function nationalTopBroadWhere(type){
+ return `${nationalTopTreeWhere(type)} AND ${nationalTopAgeWhere(type)}`;
+}
+function nationalTopItemFromAttrs(type,layerId,a,combo={}){
+ const props={
+   species_cd_d:String(a.species_cd_d||combo.species_cd_d||''),
+   site_type_cd:String(a.site_type_cd||combo.site_type_cd||''),
+   species_age:Number(a.species_age??combo.species_age??0),
+   sub_area:Number(a.sub_area||0)
+ };
+ const core=nationalCorePotentialForProps(type,props);
+ const profile=nationalBenchmark?.types?.[type];
+ const percentile=profile?.total?nationalPercentileFromHistogram(profile,core):NaN;
+ return {
+   layerId,subarea_id:Number(a.subarea_id),adress_forest:String(a.adress_forest||''),
+   ...props,core,percentile
+ };
+}
+async function fetchNationalTopBroadLayer(type,layerId){
+ const q=new URLSearchParams({
+   where:nationalTopBroadWhere(type),
+   outFields:'subarea_id,adress_forest,species_cd_d,site_type_cd,species_age,sub_area',
+   returnGeometry:'false',orderByFields:'sub_area DESC',resultRecordCount:'300',f:'json'
+ });
+ q.set('_topv',NATIONAL_TOP_VERSION);
+ const js=await nationalFetchJsonNoStore(`${BDL_BASE}/${layerId}/query?${q}`,{timeoutMs:22000,tries:2});
+ return (js?.features||[]).map(ft=>nationalTopItemFromAttrs(type,layerId,ft?.attributes||ft?.properties||{})).filter(x=>Number.isFinite(x.subarea_id)&&Number.isFinite(x.core));
+}
+
+function nationalComboWhere(c){
+ const tree=String(c?.species_cd_d||''),site=String(c?.site_type_cd||''),age=Number(c?.species_age||0);
+ const clauses=[
+   tree?`species_cd_d=${sqlQuote(tree)}`:`(species_cd_d IS NULL OR species_cd_d='')`,
+   site?`site_type_cd=${sqlQuote(site)}`:`(site_type_cd IS NULL OR site_type_cd='')`
+ ];
+ const ageMin=Number(c?.ageMin),ageMax=Number(c?.ageMax);
+ if(Number.isFinite(ageMin)&&Number.isFinite(ageMax))clauses.push(`species_age BETWEEN ${Math.round(ageMin)} AND ${Math.round(ageMax)}`);
+ else clauses.push(`species_age=${Number.isFinite(age)?Math.round(age):0}`);
+ return clauses.join(' AND ');
+}
+async function fetchNationalTopComboLayer(type,combo,layerId){
+ const q=new URLSearchParams({
+   where:nationalComboWhere(combo),
+   outFields:'subarea_id,adress_forest,species_cd_d,site_type_cd,species_age,sub_area',
+   returnGeometry:'false',orderByFields:'sub_area DESC',
+   resultRecordCount:String(combo?.synthetic?40:NATIONAL_TOP_PER_LAYER_COMBO),f:'json'
+ });
+ q.set('_topv',NATIONAL_TOP_VERSION);
+ const js=await nationalFetchJsonNoStore(`${BDL_BASE}/${layerId}/query?${q}`,{timeoutMs:20000,tries:2});
+ return (js?.features||[]).map(ft=>nationalTopItemFromAttrs(type,layerId,ft?.attributes||ft?.properties||{},combo)).filter(x=>Number.isFinite(x.subarea_id)&&Number.isFinite(x.core));
+}
 function nationalTopCandidateSort(a,b){return b.core-a.core||b.sub_area-a.sub_area||b.percentile-a.percentile||a.subarea_id-b.subarea_id;}
 async function fetchNationalTopGeometry(items){const byLayer=new Map();for(const it of items){if(!byLayer.has(it.layerId))byLayer.set(it.layerId,[]);byLayer.get(it.layerId).push(it);}for(const [layerId,rows] of byLayer){const ids=rows.map(x=>x.subarea_id).filter(Number.isFinite);if(!ids.length)continue;const q=new URLSearchParams({where:`subarea_id IN (${ids.join(',')})`,outFields:'subarea_id',returnGeometry:'true',outSR:'4326',f:'json'});try{const js=await prodFetchJson(`${BDL_BASE}/${layerId}/query?${q}`,{timeoutMs:20000,tries:2,policy:{ttl:30*86400e3,stale:365*86400e3}});const lookup=new Map(rows.map(x=>[Number(x.subarea_id),x]));for(const ft of js?.features||[]){const id=Number((ft.attributes||{}).subarea_id),target=lookup.get(id),rings=ft?.geometry?.rings;if(!target||!Array.isArray(rings))continue;let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity,sx=0,sy=0,n=0;for(const ring of rings)for(const pt of ring||[]){const x=Number(pt?.[0]),y=Number(pt?.[1]);if(!Number.isFinite(x)||!Number.isFinite(y))continue;minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);sx+=x;sy+=y;n++;}if(n){target.centroid=[sy/n,sx/n];target.bbox=[minY,minX,maxY,maxX];}}}catch(e){console.warn('National TOP geometry enrichment',layerId,e);}}return items;}
 async function ensureNationalTopCombosForType(type){
@@ -7071,35 +7284,37 @@ async function ensureNationalTopCombosForType(type){
  let profile=nationalBenchmark?.types?.[type];
  if(profile?.topCombos?.length)return profile;
 
- console.warn(`National TOP: missing topCombos for ${type}; rebuilding benchmark automatically`);
- nationalTopStatus?.(`Benchmark Polski wymaga jednorazowej aktualizacji dla ${HUMAN_NAMES[type]||type}…`,'busy');
-
- try{localStorage.removeItem(NATIONAL_BENCHMARK_CACHE_KEY);}catch(_){}
- nationalBenchmark=null;
- nationalBenchmarkState='idle';
- nationalBenchmarkPromise=null;
-
- const rebuilt=await ensureNationalBenchmark({force:true});
- profile=rebuilt?.types?.[type];
- if(profile?.topCombos?.length)return profile;
-
- const state=nationalBenchmarkTopCombosStatus(rebuilt);
- throw new Error(`Nie udało się zbudować TOP kombinacji dla ${HUMAN_NAMES[type]||type}. Brak: ${state.missing.join(', ')||type}.`);
+ // TOP Polska nie może już zależeć od powodzenia wielkiej agregacji krajowej.
+ // Jeśli benchmark jest niedostępny, budujemy bezpieczną listę kandydatów
+ // bezpośrednio z biologicznego modelu gatunku i potem pytamy BDL o REALNE wydzielenia.
+ const fallback={
+   ...(profile||{}),
+   topCombos:nationalSyntheticTopCombos(type,profile||null),
+   topCombosSource:'model-direct-fallback',
+   total:Number(profile?.total||0)
+ };
+ if(fallback.topCombos.length)return fallback;
+ throw new Error(`Brak modelowych kandydatów TOP dla ${HUMAN_NAMES[type]||type}.`);
 }
 
 async function buildNationalTopForType(type,{force=false,limit=NATIONAL_TOP_LIMIT}={}){
- if(!nationalBenchmarkSupportsType(type)){
-   return {type,builtAt:Date.now(),unsupported:true,items:[]};
- }
+ if(!nationalBenchmarkSupportsType(type))return {type,builtAt:Date.now(),unsupported:true,items:[]};
 
  const profile=await ensureNationalTopCombosForType(type);
  const cache=ensureNationalTopCache();
  const cached=cache.types?.[type];
  if(!force&&nationalTopCacheFresh(cached))return cached;
 
- const candidates=[];
- const seen=new Set();
- const combos=profile.topCombos.slice(0,24);
+ const candidates=[];const seen=new Set();
+ const addItems=items=>{
+   for(const item of items||[]){
+     const key=`${item.layerId}:${item.subarea_id}`;
+     if(seen.has(key))continue;
+     seen.add(key);candidates.push(item);
+   }
+ };
+ const combos=(profile.topCombos||[]).slice(0,24);
+ let usedBroadFallback=false;
 
  for(let i=0;i<combos.length;i++){
    const combo=combos[i];
@@ -7107,48 +7322,61 @@ async function buildNationalTopForType(type,{force=false,limit=NATIONAL_TOP_LIMI
      fetchNationalTopComboLayer(type,combo,5).catch(e=>{console.warn('TOP combo layer 5',combo,e);return [];}),
      fetchNationalTopComboLayer(type,combo,6).catch(e=>{console.warn('TOP combo layer 6',combo,e);return [];})
    ]);
-
-   for(const item of [...a,...b]){
-     const key=`${item.layerId}:${item.subarea_id}`;
-     if(seen.has(key))continue;
-     seen.add(key);
-     candidates.push(item);
-   }
-
+   addItems(a);addItems(b);
    candidates.sort(nationalTopCandidateSort);
    if(candidates.length>=limit*2){
      const cutoff=candidates[Math.min(limit-1,candidates.length-1)]?.core??-Infinity;
      const next=combos[i+1]?.core??-Infinity;
-     if(next<cutoff-1e-9)break;
-     if(i>=4)break;
+     if(next<cutoff-1e-9&&i>=3)break;
+     if(i>=8)break;
    }
    await new Promise(r=>setTimeout(r,0));
  }
 
- const top=candidates.sort(nationalTopCandidateSort).slice(0,limit);
+ // Drugi tor awaryjny: nawet jeśli konkretna kombinacja drzewo+siedlisko nie zwróci
+ // wystarczającej liczby rekordów, odpytujemy realne polskie wydzielenia po gospodarzu
+ // i wieku, a ich rdzeń przeliczamy już z faktycznych pól BDL.
+ if(candidates.length<limit){
+   usedBroadFallback=true;
+   const [a,b]=await Promise.all([
+     fetchNationalTopBroadLayer(type,5).catch(e=>{console.warn('TOP broad layer 5',type,e);return [];}),
+     fetchNationalTopBroadLayer(type,6).catch(e=>{console.warn('TOP broad layer 6',type,e);return [];})
+   ]);
+   addItems(a);addItems(b);
+ }
+
+ const top=candidates.filter(x=>Number.isFinite(x.core)).sort(nationalTopCandidateSort).slice(0,limit);
+ if(!top.length)throw new Error(`BDL nie zwrócił żadnych konkretnych wydzieleń dla ${HUMAN_NAMES[type]||type}. Sprawdź połączenie z mapserver.bdl.lasy.gov.pl.`);
  await fetchNationalTopGeometry(top);
 
+ const comboSource=profile.topCombosSource||((profile.topCombos||[]).some(x=>x.synthetic)?'model-fallback':'bdl-grouped');
  const entry={
-   type,
-   builtAt:Date.now(),
-   source:'BDL layers 5+6 • concrete subareas from nationwide TOP habitat combinations',
+   type,builtAt:Date.now(),
+   source:'BDL layers 5+6 • concrete subareas ranked by actual BDL fields',
    benchmarkVersion:NATIONAL_BENCHMARK_VERSION,
-   comboCount:combos.length,
-   candidateCount:candidates.length,
+   comboSource,usedBroadFallback,
+   comboCount:combos.length,candidateCount:candidates.length,
    items:top.map((x,i)=>({...x,rank:i+1}))
  };
-
- cache.types[type]=entry;
- cache.builtAt=Date.now();
- writeNationalTopCache();
- return entry;
+ cache.types[type]=entry;cache.builtAt=Date.now();writeNationalTopCache();return entry;
 }
 async function fetchNationalTopFeatureGeometry(item){if(!item)return null;const q=new URLSearchParams({where:`subarea_id=${Number(item.subarea_id)}`,outFields:'subarea_id,adress_forest,species_cd_d,site_type_cd,species_age,sub_area',returnGeometry:'true',outSR:'4326',f:'json'});const js=await prodFetchJson(`${BDL_BASE}/${item.layerId}/query?${q}`,{timeoutMs:18000,tries:2,policy:{ttl:30*86400e3,stale:365*86400e3}});const ft=js?.features?.[0];if(!ft?.geometry?.rings)return null;return {type:'Feature',properties:ft.attributes||{},geometry:{type:'Polygon',coordinates:ft.geometry.rings}};}
 function nationalTopSelectedTypes(){if(atlasSelected.size)return [...atlasSelected];if(currentFilter!=='all'&&currentFilter!=='diversity')return [currentFilter];return [];}
 function openNationalTopPanel(){const p=document.getElementById('nationalTopPanel');if(!p)return;p.classList.add('open');p.setAttribute('aria-hidden','false');renderNationalTopPanel();}
 function closeNationalTopPanel(){const p=document.getElementById('nationalTopPanel');if(!p)return;p.classList.remove('open');p.setAttribute('aria-hidden','true');}
 function nationalTopStatus(msg,cls=''){const el=document.getElementById('nationalTopStatus');if(!el)return;el.textContent=msg;el.className='national-top-status'+(cls?' '+cls:'');}
-function nationalTopSectionHtml(type,entry){const m=SPECIES_META[type]||{};if(entry?.unsupported)return `<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(type)}" alt=""><div><div class="national-species-name">${escapeHtml(m.label||type)}</div><div class="national-species-meta">Poza leśnym benchmarkiem BDL.</div></div></div><div class="national-rank-empty">Dla tego gatunku ranking „najlepszy las w Polsce” nie jest liczony.</div></section>`;const rows=entry?.items||[];const list=rows.length?rows.map(x=>{const coord=Array.isArray(x.centroid)?`${x.centroid[0].toFixed(4)}, ${x.centroid[1].toFixed(4)}`:'lokalizacja po kliknięciu';return `<div class="national-rank-row"><div class="national-rank-no">#${x.rank}</div><div class="national-rank-main"><div class="national-rank-title">${escapeHtml(x.adress_forest||'Wydzielenie BDL')} • ${escapeHtml(x.species_cd_d||'?')} • ${escapeHtml(x.site_type_cd||'?')}</div><div class="national-rank-details">wiek ${Number(x.species_age||0)} lat • ${Number(x.sub_area||0).toFixed(2)} ha • P${Number(x.percentile||0).toFixed(1)} • ${coord}</div></div><div class="national-rank-score"><div><b>${Number(x.core||0).toFixed(2)}</b><small>rdzeń BDL /10</small></div><button class="national-rank-show" type="button" data-national-show="${type}|${x.layerId}|${x.subarea_id}">Pokaż</button></div></div>`;}).join(''):`<div class="national-rank-empty">Brak konkretnych kandydatów.</div>`;return `<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(type)}" alt=""><div><div class="national-species-name">${escapeHtml(m.label||type)}</div><div class="national-species-meta">TOP ${rows.length} konkretnych wydzieleń • ${entry?.candidateCount||0} kandydatów</div></div></div><div class="national-rank-list">${list}</div></section>`;}
+function nationalTopSectionHtml(type,entry){
+ const m=SPECIES_META[type]||{};
+ if(entry?.unsupported)return `<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(type)}" alt=""><div><div class="national-species-name">${escapeHtml(m.label||type)}</div><div class="national-species-meta">Poza leśnym benchmarkiem BDL.</div></div></div><div class="national-rank-empty">Dla tego gatunku ranking „najlepszy las w Polsce” nie jest liczony.</div></section>`;
+ const rows=entry?.items||[];
+ const list=rows.length?rows.map(x=>{
+   const coord=Array.isArray(x.centroid)?`${x.centroid[0].toFixed(4)}, ${x.centroid[1].toFixed(4)}`:'lokalizacja po kliknięciu';
+   const p=Number.isFinite(Number(x.percentile))?`P${Number(x.percentile).toFixed(1)}`:'P—';
+   return `<div class="national-rank-row"><div class="national-rank-no">#${x.rank}</div><div class="national-rank-main"><div class="national-rank-title">${escapeHtml(x.adress_forest||'Wydzielenie BDL')} • ${escapeHtml(x.species_cd_d||'?')} • ${escapeHtml(x.site_type_cd||'?')}</div><div class="national-rank-details">wiek ${Number(x.species_age||0)} lat • ${Number(x.sub_area||0).toFixed(2)} ha • ${p} • ${coord}</div></div><div class="national-rank-score"><div><b>${Number(x.core||0).toFixed(2)}</b><small>rdzeń BDL /10</small></div><button class="national-rank-show" type="button" data-national-show="${type}|${x.layerId}|${x.subarea_id}">Pokaż</button></div></div>`;
+ }).join(''):`<div class="national-rank-empty">Brak konkretnych kandydatów.</div>`;
+ const source=entry?.comboSource==='bdl-grouped'?'benchmark BDL':'bezpośredni fallback modelu → BDL';
+ return `<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(type)}" alt=""><div><div class="national-species-name">${escapeHtml(m.label||type)}</div><div class="national-species-meta">TOP ${rows.length} konkretnych wydzieleń • ${entry?.candidateCount||0} kandydatów • ${source}</div></div></div><div class="national-rank-list">${list}</div></section>`;
+}
 async function renderNationalTopPanel({force=false}={}){const body=document.getElementById('nationalTopBody');if(!body)return;const types=nationalTopSelectedTypes();if(!types.length){nationalTopStatus('Wybierz jeden lub kilka gatunków w atlasie.');body.innerHTML='<div class="national-rank-empty">Zaznacz gatunek w dolnym atlasie, a następnie kliknij „TOP Polska”.</div>';return;}if(nationalTopBusy)return;nationalTopBusy=true;nationalTopLastError='';nationalTopStatus(`Buduję ranking Polski dla ${types.length} gat.…`,'busy');body.innerHTML=types.map(t=>`<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(t)}" alt=""><div><div class="national-species-name">${escapeHtml(HUMAN_NAMES[t]||t)}</div><div class="national-species-meta">pobieranie kandydatów BDL…</div></div></div></section>`).join('');try{const entries=[];for(let i=0;i<types.length;i++){const type=types[i];nationalTopStatus(`Ranking Polski ${i+1}/${types.length}: ${HUMAN_NAMES[type]||type}…`,'busy');const entry=await buildNationalTopForType(type,{force});entries.push([type,entry]);body.innerHTML=entries.map(([t,e])=>nationalTopSectionHtml(t,e)).join('')+types.slice(i+1).map(t=>`<section class="national-species-section"><div class="national-species-head"><img src="${atlasSvg(t)}" alt=""><div><div class="national-species-name">${escapeHtml(HUMAN_NAMES[t]||t)}</div><div class="national-species-meta">oczekuje…</div></div></div></section>`).join('');}nationalTopStatus(`Gotowe • ${types.length} gat. • wyniki zapisane lokalnie`);}catch(e){nationalTopLastError=String(e?.message||e);nationalTopStatus(`Błąd: ${nationalTopLastError}`,'err');console.warn('National TOP Poland',e);}finally{nationalTopBusy=false;}}
 async function showNationalTopPlace(type,layerId,subareaId){const cache=ensureNationalTopCache(),entry=cache.types?.[type],item=entry?.items?.find(x=>Number(x.layerId)===Number(layerId)&&Number(x.subarea_id)===Number(subareaId));if(!item)return;nationalTopStatus(`Otwieram #${item.rank} • ${HUMAN_NAMES[type]||type}…`,'busy');try{const gj=await fetchNationalTopFeatureGeometry(item);nationalTopGroup.clearLayers();if(gj){const layer=L.geoJSON(gj,{style:{color:'#f1d867',weight:4,opacity:1,fillColor:'#36a95a',fillOpacity:.25}}).addTo(nationalTopGroup);const bounds=layer.getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[55,55],maxZoom:15});layer.bindTooltip(`#${item.rank} Polska • ${HUMAN_NAMES[type]||type}`,{permanent:false,direction:'top',className:'national-top-map-label'}).openTooltip();}else if(item.centroid)map.setView(item.centroid,15);closeNationalTopPanel();}catch(e){nationalTopStatus(`Nie udało się otworzyć miejsca: ${e?.message||e}`,'err');}}
 async function rebuildNationalTopForSelected(){const types=nationalTopSelectedTypes(),cache=ensureNationalTopCache();for(const t of types)delete cache.types[t];writeNationalTopCache();await renderNationalTopPanel({force:true});}
@@ -7157,35 +7385,29 @@ function auditNationalTopPoland(){
  const rows=[];
  for(const [type,e] of Object.entries(cache.types||{})){
    for(const x of e.items||[]){
-     rows.push({
-       type,name:HUMAN_NAMES[type]||type,rank:x.rank,core:x.core,percentile:x.percentile,
-       tree:x.species_cd_d,site:x.site_type_cd,age:x.species_age,area:x.sub_area,
-       address:x.adress_forest,layer:x.layerId,id:x.subarea_id
-     });
+     rows.push({type,name:HUMAN_NAMES[type]||type,rank:x.rank,core:x.core,percentile:x.percentile,tree:x.species_cd_d,site:x.site_type_cd,age:x.species_age,area:x.sub_area,address:x.adress_forest,layer:x.layerId,id:x.subarea_id,comboSource:e.comboSource||''});
    }
  }
  const comboStatus=nationalBenchmarkTopCombosStatus(nationalBenchmark);
  const out={
-   benchmarkState:nationalBenchmarkState,
-   benchmarkVersion:NATIONAL_BENCHMARK_VERSION,
-   benchmarkBuiltAt:nationalBenchmark?.builtAt||null,
-   benchmarkGroupedRows:nationalBenchmark?.groupedRows||0,
-   benchmarkUniqueCombos:nationalBenchmark?.uniqueCombos||0,
-   topCombosOk:comboStatus.ok,
-   missingTopCombos:comboStatus.missing,
-   topComboCounts:comboStatus.counts,
-   topVersion:NATIONAL_TOP_VERSION,
-   cachedSpecies:Object.keys(cache.types||{}).length,
-   error:nationalTopLastError||null,
-   rows
+   benchmarkState:nationalBenchmarkState,benchmarkVersion:NATIONAL_BENCHMARK_VERSION,
+   benchmarkBuiltAt:nationalBenchmark?.builtAt||null,benchmarkGroupedRows:nationalBenchmark?.groupedRows||0,
+   benchmarkUniqueCombos:nationalBenchmark?.uniqueCombos||0,benchmarkError:nationalBenchmarkLastError||null,
+   groupedTransport:nationalBenchmark?.transportDiagnostics||nationalGroupedFetchDiagnostics,
+   topCombosOk:comboStatus.ok,missingTopCombos:comboStatus.missing,topComboCounts:comboStatus.counts,
+   topVersion:NATIONAL_TOP_VERSION,cachedSpecies:Object.keys(cache.types||{}).length,error:nationalTopLastError||null,rows
  };
- console.table(rows);
- console.info('NATIONAL TOP POLAND AUDIT',out);
- return out;
+ console.table(rows);console.info('NATIONAL TOP POLAND AUDIT',out);return out;
 }
+window.auditNationalTopPoland=auditNationalTopPoland;
 window.auditNationalTopPoland=auditNationalTopPoland;
 window.repairNationalBenchmark=async()=>{await rebuildNationalBenchmark();return auditNationalTopPoland();};
 window.rebuildNationalTopForSelected=rebuildNationalTopForSelected;
+
+window.auditNationalBenchmarkTransport=function(){
+ const out={state:nationalBenchmarkState,error:nationalBenchmarkLastError||null,diagnostics:nationalBenchmark?.transportDiagnostics||nationalGroupedFetchDiagnostics,version:NATIONAL_BENCHMARK_VERSION};
+ console.info('NATIONAL BENCHMARK TRANSPORT',out);return out;
+};
 
 
 // v59 — rozdzielamy DWA znaczenia punktacji:

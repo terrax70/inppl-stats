@@ -1,6 +1,35 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v110:
+     ANCHORED SPECIES-SPECIFIC WEATHER LAB.
+
+     v109 ujawnił istotne pomieszanie dwóch efektów:
+       A) zmiana całej architektury weather score (produkcyjny model jest addytywny),
+       B) faktyczna różnica między gatunkami (profile opadu/temp/wilgotności).
+
+     Dlatego surowe "pogodaGatunkowa - pogodaGeneric" NIE było czystym testem
+     gatunkowości. Białowieża i Tuchola dostawały niemal wszystkie gatunki w górę,
+     a Prószków prawie wszystkie w dół — część tego mogła pochodzić po prostu
+     z nowej formuły LAB, nie z biologii gatunków.
+
+     v110 rozdziela te warstwy:
+       1) productionGeneric = obecny weatherAt(c) — kotwica skali mapy,
+       2) neutralLabRaw = ten sam nowy silnik, ale neutralny profil,
+       3) speciesLabRaw = ten sam silnik z profilem gatunkowym,
+       4) profileDeltaRaw = speciesLabRaw - neutralLabRaw,
+       5) anchoredWeather = productionGeneric + profileDeltaRaw * evidenceWeight.
+
+     evidenceWeight konserwatywnie zmniejsza wpływ engineering priors:
+       direct 0.75, direct-group 0.65, genus 0.50,
+       family 0.40, ecology 0.30, fallback 0.20.
+     Surowy delta jest dodatkowo ograniczony do ±12 pkt przed ważeniem.
+
+     Dzięki temu v110 testuje WYŁĄCZNIE "co zmienia wiedza o gatunku",
+     bez automatycznej wymiany skali całego modelu pogodowego.
+
+     Produkcyjna mapa nadal bez zmian.
+
 <!-- GitHub production v109:
      SPECIES-SPECIFIC WEATHER LAB.
 
@@ -5392,6 +5421,11 @@ function weatherAt(c){
 }
 
 const SPECIES_WEATHER_LAB_PROFILES={
+  generic_reference:{
+    label:'Neutralny LAB — kotwica porównawcza',
+    rainW:[.34,.29,.22,.15], rainScale:18,
+    temp:'broad', weights:{moisture:.46,temp:.24,persistence:.30}, frost:'normal'
+  },
   porcini_rain:{
     label:'Borowik — opad dominuje',
     rainW:[.12,.28,.35,.25], rainScale:18,
@@ -5554,13 +5588,13 @@ function speciesWeatherLabFrost(kind,nightMin){
  return Math.max(.30,Math.min(1,piecewise(nightMin,[[-7,.30],[-3,.50],[0,.72],[2,1]])));
 }
 
-function speciesWeatherLabScore(type,c){
+function speciesWeatherLabCompute(type,c,profileKey,moistOverride=null){
  const p=speciesWeatherLabPayloadAt(c);
- if(!p)return {score:60,profile:'none',evidence:'none',components:{}};
+ if(!p)return {score:60,profile:'none',components:{},payload:null};
 
- const a=speciesWeatherLabAssignment(type);
- const profile=SPECIES_WEATHER_LAB_PROFILES[a.profile]||SPECIES_WEATHER_LAB_PROFILES.generic_mycorrhiza;
+ const profile=SPECIES_WEATHER_LAB_PROFILES[profileKey]||SPECIES_WEATHER_LAB_PROFILES.generic_reference;
  const m=SPECIES_META[type]||{moist:'mesic'};
+ const moist=moistOverride||m.moist||'mesic';
 
  const w1=Math.max(0,p.rain7||0);
  const w2=Math.max(0,(p.rain14||0)-(p.rain7||0));
@@ -5572,14 +5606,19 @@ function speciesWeatherLabScore(type,c){
  let rain=0;
  for(let i=0;i<4;i++)rain+=profile.rainW[i]*rainResponse(rainWeeks[i],profile.rainScale);
 
- const soil=speciesWeatherLabSoilMoisture(m.moist,p.soilM);
+ const soil=speciesWeatherLabSoilMoisture(moist,p.soilM);
  const moisture=Number.isFinite(soil)?(.62*rain+.38*soil):rain;
-
  const temp=speciesWeatherLabTemp(profile.temp,p.soilT);
 
- const rhScore=Number.isFinite(p.rh)?Math.max(.05,Math.min(1,piecewise(p.rh,[[30,.18],[45,.36],[60,.58],[75,.82],[88,1],[100,1]]))):.70;
- const vpdScore=Number.isFinite(p.vpd)?Math.max(.05,Math.min(1,piecewise(p.vpd,[[0,1],[.35,.97],[.7,.84],[1.1,.64],[1.6,.42],[2.2,.22],[3,.08]]))):.70;
- const dryScore=Number.isFinite(p.dryDays)?Math.max(.05,Math.min(1,piecewise(p.dryDays,[[0,1],[3,1],[5,.90],[8,.68],[12,.43],[20,.18],[28,.08]]))):.70;
+ const rhScore=Number.isFinite(p.rh)
+   ?Math.max(.05,Math.min(1,piecewise(p.rh,[[30,.18],[45,.36],[60,.58],[75,.82],[88,1],[100,1]])))
+   :.70;
+ const vpdScore=Number.isFinite(p.vpd)
+   ?Math.max(.05,Math.min(1,piecewise(p.vpd,[[0,1],[.35,.97],[.7,.84],[1.1,.64],[1.6,.42],[2.2,.22],[3,.08]])))
+   :.70;
+ const dryScore=Number.isFinite(p.dryDays)
+   ?Math.max(.05,Math.min(1,piecewise(p.dryDays,[[0,1],[3,1],[5,.90],[8,.68],[12,.43],[20,.18],[28,.08]])))
+   :.70;
  const persistence=.42*rhScore+.36*vpdScore+.22*dryScore;
 
  const frost=speciesWeatherLabFrost(profile.frost,p.nightMin);
@@ -5592,10 +5631,8 @@ function speciesWeatherLabScore(type,c){
 
  return {
    score:Math.max(0,Math.min(100,100*raw)),
-   profile:a.profile,
+   profile:profileKey,
    profileLabel:profile.label,
-   evidence:a.evidence,
-   basis:a.basis,
    components:{
      moisture:100*moisture,
      rain:100*rain,
@@ -5609,6 +5646,59 @@ function speciesWeatherLabScore(type,c){
  };
 }
 
+function speciesWeatherLabScore(type,c){
+ const a=speciesWeatherLabAssignment(type);
+ const out=speciesWeatherLabCompute(type,c,a.profile,null);
+ return {...out,evidence:a.evidence,basis:a.basis};
+}
+
+function speciesWeatherNeutralLabScore(type,c){
+ // Neutralność dotyczy także wilgotności: używamy mesic dla wszystkich.
+ return speciesWeatherLabCompute(type,c,'generic_reference','mesic');
+}
+
+function speciesWeatherEvidenceWeight(evidence){
+ const map={
+   direct:.75,
+   'direct-group':.65,
+   'genus-proxy':.50,
+   'family-proxy':.40,
+   'ecology-proxy':.30,
+   fallback:.20
+ };
+ return map[evidence]??.20;
+}
+
+function speciesWeatherAnchoredScore(type,c){
+ const generic=weatherAt(c);
+ const neutral=speciesWeatherNeutralLabScore(type,c);
+ const specific=speciesWeatherLabScore(type,c);
+ const evidenceWeight=speciesWeatherEvidenceWeight(specific.evidence);
+
+ const rawProfileDelta=specific.score-neutral.score;
+ const cappedProfileDelta=Math.max(-12,Math.min(12,rawProfileDelta));
+ const appliedDelta=cappedProfileDelta*evidenceWeight;
+ const score=Math.max(0,Math.min(100,generic+appliedDelta));
+
+ return {
+   score,
+   generic,
+   neutralRaw:neutral.score,
+   speciesRaw:specific.score,
+   architectureGap:neutral.score-generic,
+   rawProfileDelta,
+   cappedProfileDelta,
+   evidenceWeight,
+   appliedDelta,
+   evidence:specific.evidence,
+   basis:specific.basis,
+   profile:specific.profile,
+   profileLabel:specific.profileLabel,
+   components:specific.components,
+   neutralComponents:neutral.components
+ };
+}
+
 function speciesFruitingLabFromWeather(type,weatherScore){
  const season=seasonScore(type);
  const base=.60*weatherScore+.40*season;
@@ -5619,8 +5709,12 @@ function speciesWeatherGenericFruitingAt(type,c){
  return speciesFruitingLabFromWeather(type,weatherAt(c));
 }
 
-function speciesWeatherLabFruitingAt(type,c){
+function speciesWeatherRawLabFruitingAt(type,c){
  return speciesFruitingLabFromWeather(type,speciesWeatherLabScore(type,c).score);
+}
+
+function speciesWeatherLabFruitingAt(type,c){
+ return speciesFruitingLabFromWeather(type,speciesWeatherAnchoredScore(type,c).score);
 }
 
 function resetWeatherCard(message='Wybierz miejsce, aby sprawdzić warunki.'){
@@ -8700,11 +8794,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v109: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v110: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v109 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v110 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -8714,7 +8808,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v109 health',health);
+     console.info('National benchmark v110 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -10672,7 +10766,7 @@ function auditExplorationMosaicLab({top=20}={}){
    };
    rows.push(row);
 
-   console.info(`${area.name} — EXPLORATION MOSAIC LAB v109`);
+   console.info(`${area.name} — EXPLORATION MOSAIC LAB v110`);
    console.table(topRows.map(x=>({
      drzewo:x.tree,siedlisko:x.habitat,rodzina:x.habitatFamily,wiek:x.age,
      ha:Number(x.areaHa.toFixed(2)),
@@ -10713,7 +10807,7 @@ function auditExplorationMosaicLab({top=20}={}){
  const impossibleAgeCategory=rows.some(r=>r.maxAgeBandCount>5);
 
  const report={
-   version:'v109',
+   version:'v110',
    ok:rows.length>0&&!fragmentationWarning&&!impossibleAgeCategory,
    scoringChanged:false,
    meaning:'exploration / mosaic effective richness; missing data excluded and tracked via coverage; NOT biological edge bonus',
@@ -10722,7 +10816,7 @@ function auditExplorationMosaicLab({top=20}={}){
    impossibleAgeCategory,
    rows
  };
- console.info('EXPLORATION MOSAIC LAB v109',report);
+ console.info('EXPLORATION MOSAIC LAB v110',report);
  return report;
 }
 window.auditExplorationMosaicLab=auditExplorationMosaicLab;
@@ -10757,8 +10851,8 @@ function auditRegionalTop3Robustness(){
    dzisTop3Mean:Number.isFinite(r.todayTop3Mean)?Number(r.todayTop3Mean.toFixed(2)):null,
    dzisStabilnosc:r.todayLabel
  })));
- const report={version:'v109',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
- console.info('REGIONAL TOP3 ROBUSTNESS v109',report);
+ const report={version:'v110',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
+ console.info('REGIONAL TOP3 ROBUSTNESS v110',report);
  return report;
 }
 window.auditRegionalTop3Robustness=auditRegionalTop3Robustness;
@@ -10771,14 +10865,14 @@ function auditBorrowedIdeas(){
    {element:'Ranking kilku miejsc zamiast 1 outliera',status:'MAMY',source:'shroom-fm',note:'hotspoty + nowy TOP3 robustness'},
    {element:'Mozaika / ecotone jako exploration value',status:'LAB',source:'shroom-fm + literatura o ekotonach',note:'v106 osobno; nie wpływa na biologię'},
    {element:'Odległość od drogi / dostęp',status:'BRAK',source:'shroom-fm',note:'warto dodać jako osobny praktyczny wskaźnik, nie habitat'},
-   {element:'Pogoda specyficzna dla gatunku',status:'LAB',source:'Tattis + shroom-fm + literatura',note:'v109 równoległy model per gatunek; produkcyjne weatherAt nadal bez zmian'},
+   {element:'Pogoda specyficzna dla gatunku',status:'LAB',source:'Tattis + shroom-fm + literatura',note:'v110 anchored LAB: produkcyjny weatherAt jest kotwicą, a nakładamy tylko ostrożny delta gatunkowy'},
    {element:'ML uczony na obserwacjach',status:'BRAK',source:'Tattis + SDM',note:'największy kolejny krok; wymaga korekty biasu obserwacyjnego'},
    {element:'Niezależny backtest/out-of-sample',status:'BRAK',source:'literatura SDM',note:'konieczny przed nazywaniem wyniku prawdopodobieństwem'},
    {element:'Road/satellite accessibility',status:'BRAK',source:'shroom-fm / Boletus',note:'nie mieszamy z biologicznym score bez osobnej warstwy'}
  ];
  console.table(rows);
- const report={version:'v109',ok:true,productionScoringChanged:false,rows,
-   nextPriority:['przetestować v109 w różnych warunkach pogodowych','backtest obserwacji','OSM access as separate practical score']};
+ const report={version:'v110',ok:true,productionScoringChanged:false,rows,
+   nextPriority:['przetestować v110 w różnych warunkach pogodowych','backtest obserwacji','OSM access as separate practical score']};
  console.info('BORROWED IDEAS AUDIT v108',report);
  return report;
 }
@@ -10788,75 +10882,105 @@ function auditSpeciesWeatherLab(){
  const allRows=[];
 
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v109',ok:false,error:'Pogoda nie jest jeszcze załadowana. Wybierz rejon i poczekaj na Open-Meteo.'};
-   console.warn('SPECIES WEATHER LAB v109',report);
+   const report={version:'v110',ok:false,error:'Pogoda nie jest jeszcze załadowana. Wybierz rejon i poczekaj na Open-Meteo.'};
+   console.warn('SPECIES WEATHER LAB v110',report);
    return report;
  }
 
  for(const area of ANALYSIS_CENTERS){
-   const genericWeather=weatherAt(area.point);
    const rows=types.map(type=>{
-     const lab=speciesWeatherLabScore(type,area.point);
+     const a=speciesWeatherAnchoredScore(type,area.point);
      const season=seasonScore(type);
-     const genericFruiting=speciesFruitingLabFromWeather(type,genericWeather);
-     const labFruiting=speciesFruitingLabFromWeather(type,lab.score);
+     const genericFruiting=speciesFruitingLabFromWeather(type,a.generic);
+     const rawFruiting=speciesFruitingLabFromWeather(type,a.speciesRaw);
+     const anchoredFruiting=speciesFruitingLabFromWeather(type,a.score);
+
      return {
        area:area.name,type,label:SPECIES_META[type].label,
-       profile:lab.profile,evidence:lab.evidence,basis:lab.basis,
-       genericWeather,labWeather:lab.score,deltaWeather:lab.score-genericWeather,
-       season,genericFruiting,labFruiting,deltaFruiting:labFruiting-genericFruiting,
-       moisture:lab.components.moisture,temp:lab.components.temp,
-       persistence:lab.components.persistence,frost:lab.components.frost,
-       rainWeeks:lab.components.rainWeeks
+       profile:a.profile,evidence:a.evidence,basis:a.basis,
+       productionGeneric:a.generic,
+       neutralLabRaw:a.neutralRaw,
+       speciesLabRaw:a.speciesRaw,
+       architectureGap:a.architectureGap,
+       profileDeltaRaw:a.rawProfileDelta,
+       evidenceWeight:a.evidenceWeight,
+       appliedWeatherDelta:a.appliedDelta,
+       anchoredWeather:a.score,
+       season,
+       genericFruiting,
+       rawFruiting,
+       anchoredFruiting,
+       anchoredFruitingDelta:anchoredFruiting-genericFruiting,
+       moisture:a.components.moisture,
+       temp:a.components.temp,
+       persistence:a.components.persistence,
+       frost:a.components.frost
      };
    });
    allRows.push(...rows);
 
-   console.info(`${area.name} — SPECIES WEATHER LAB v109`);
-   console.table([...rows].sort((a,b)=>Math.abs(b.deltaFruiting)-Math.abs(a.deltaFruiting)).map(r=>({
+   console.info(`${area.name} — ANCHORED SPECIES WEATHER LAB v110`);
+   console.table([...rows].sort((a,b)=>Math.abs(b.anchoredFruitingDelta)-Math.abs(a.anchoredFruitingDelta)).map(r=>({
      gatunek:r.label,
      profil:r.profile,
      dowod:r.evidence,
-     pogodaGeneric:Number(r.genericWeather.toFixed(1)),
-     pogodaGatunkowa:Number(r.labWeather.toFixed(1)),
-     deltaPogody:Number(r.deltaWeather.toFixed(1)),
+     generic:Number(r.productionGeneric.toFixed(1)),
+     neutralRaw:Number(r.neutralLabRaw.toFixed(1)),
+     speciesRaw:Number(r.speciesLabRaw.toFixed(1)),
+     archGap:Number(r.architectureGap.toFixed(1)),
+     profilDelta:Number(r.profileDeltaRaw.toFixed(1)),
+     evidenceW:Number(r.evidenceWeight.toFixed(2)),
+     zastosowano:Number(r.appliedWeatherDelta.toFixed(1)),
+     pogodaAnchored:Number(r.anchoredWeather.toFixed(1)),
      sezon:Number(r.season.toFixed(1)),
      owocowanieGeneric:Number(r.genericFruiting.toFixed(1)),
-     owocowanieLab:Number(r.labFruiting.toFixed(1)),
-     deltaOwocowania:Number(r.deltaFruiting.toFixed(1)),
+     owocowanieAnchored:Number(r.anchoredFruiting.toFixed(1)),
+     deltaOwocowania:Number(r.anchoredFruitingDelta.toFixed(1)),
      wilgoc:Number(r.moisture.toFixed(0)),
      temp:Number(r.temp.toFixed(0)),
-     persistence:Number(r.persistence.toFixed(0)),
-     mroz:Number(r.frost.toFixed(0))
+     persistence:Number(r.persistence.toFixed(0))
    })));
  }
 
  const direct=allRows.filter(r=>r.evidence==='direct'||r.evidence==='direct-group');
  const proxy=allRows.filter(r=>!['direct','direct-group'].includes(r.evidence));
- const maxAbs=allRows.length?Math.max(...allRows.map(r=>Math.abs(r.deltaFruiting))):NaN;
- const meanAbs=allRows.length?allRows.reduce((s,r)=>s+Math.abs(r.deltaFruiting),0)/allRows.length:NaN;
+ const meanArchitectureGap=allRows.length
+   ?allRows.reduce((s,r)=>s+Math.abs(r.architectureGap),0)/allRows.length
+   :NaN;
+ const meanApplied=allRows.length
+   ?allRows.reduce((s,r)=>s+Math.abs(r.appliedWeatherDelta),0)/allRows.length
+   :NaN;
+ const maxApplied=allRows.length
+   ?Math.max(...allRows.map(r=>Math.abs(r.appliedWeatherDelta)))
+   :NaN;
 
  const report={
-   version:'v109',
+   version:'v110',
    ok:allRows.length>0,
    productionScoringChanged:false,
    genericWeatherStillProduction:true,
+   method:'production generic anchor + within-LAB species-vs-neutral delta × evidence weight',
    directEvidenceRows:direct.length,
    proxyRows:proxy.length,
-   meanAbsFruitingDelta:meanAbs,
-   maxAbsFruitingDelta:maxAbs,
-   warning:'Krzywe/wagi są LAB engineering priors. Najpierw testujemy zachowanie; nie są jeszcze aktywne na mapie.',
+   meanAbsoluteArchitectureGap:meanArchitectureGap,
+   meanAbsoluteAppliedWeatherDelta:meanApplied,
+   maxAbsoluteAppliedWeatherDelta:maxApplied,
+   safety:{
+     rawProfileDeltaCap:12,
+     evidenceWeights:{direct:.75,directGroup:.65,genusProxy:.50,familyProxy:.40,ecologyProxy:.30,fallback:.20}
+   },
+   warning:'ArchGap jest diagnostyką różnicy architektury i NIE jest nakładany na mapę. Anchored delta izoluje gatunkowość.',
    rows:allRows
  };
- console.info('SPECIES WEATHER LAB v109',report);
+ console.info('ANCHORED SPECIES WEATHER LAB v110',report);
  return report;
 }
 window.auditSpeciesWeatherLab=auditSpeciesWeatherLab;
 
 function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v109',ok:false,error:'Pogoda nie jest gotowa.'};
-   console.warn('SPECIES WEATHER SPATIAL IMPACT v109',report);
+   const report={version:'v110',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER SPATIAL IMPACT v110',report);
    return report;
  }
  const rows=[];
@@ -10865,15 +10989,23 @@ function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
    for(const type of Object.keys(SPECIES_META)){
      const relevant=candidates.filter(f=>featureRelevant(type,f));
      if(!relevant.length)continue;
+
      const stride=Math.max(1,Math.ceil(relevant.length/Math.max(1,maxPerSpecies)));
-     const diffs=[],effDiffs=[];
+     const diffs=[],effDiffs=[],weatherDiffs=[],archGaps=[],rawProfileDiffs=[];
      let n=0,pos=0,neg=0;
+
      for(let i=0;i<relevant.length;i+=stride){
        const f=relevant[i];
        const genericFruit=fruitingConditions(type,f);
-       const labFruit=speciesWeatherLabFruitingAt(type,f._center);
+       const anchored=speciesWeatherAnchoredScore(type,f._center);
+       const labFruit=speciesFruitingLabFromWeather(type,anchored.score);
+
        const d=labFruit-genericFruit;
        diffs.push(d);
+       weatherDiffs.push(anchored.appliedDelta);
+       archGaps.push(anchored.architectureGap);
+       rawProfileDiffs.push(anchored.rawProfileDelta);
+
        if(d>1)pos++; else if(d<-1)neg++;
 
        const habitat=staticSuitability(type,f);
@@ -10884,27 +11016,36 @@ function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
        effDiffs.push(labEff-genericEff);
        n++;
      }
-     diffs.sort((a,b)=>a-b);effDiffs.sort((a,b)=>a-b);
+
+     for(const arr of [diffs,effDiffs,weatherDiffs,archGaps,rawProfileDiffs])arr.sort((a,b)=>a-b);
      const q=(arr,p)=>{
        if(!arr.length)return NaN;
        const x=(arr.length-1)*p,lo=Math.floor(x),hi=Math.ceil(x),t=x-lo;
        return arr[lo]*(1-t)+arr[hi]*t;
      };
      const a=speciesWeatherLabAssignment(type);
+
      rows.push({
        area:area.name,type,label:SPECIES_META[type].label,profile:a.profile,evidence:a.evidence,n,
+       weatherDeltaMedian:q(weatherDiffs,.5),
+       architectureGapMedian:q(archGaps,.5),
+       rawProfileDeltaMedian:q(rawProfileDiffs,.5),
        fruitDeltaP10:q(diffs,.1),fruitDeltaMedian:q(diffs,.5),fruitDeltaP90:q(diffs,.9),
        effectiveDeltaMedian:q(effDiffs,.5),effectiveDeltaP90:q(effDiffs,.9),
        positivePct:100*pos/n,negativePct:100*neg/n
      });
    }
  }
+
  console.table([...rows].sort((a,b)=>Math.abs(b.effectiveDeltaMedian)-Math.abs(a.effectiveDeltaMedian)).map(r=>({
    area:r.area,
    gatunek:r.label,
    profil:r.profile,
    dowod:r.evidence,
    n:r.n,
+   archGapMed:Number(r.architectureGapMedian.toFixed(1)),
+   profilRawMed:Number(r.rawProfileDeltaMedian.toFixed(1)),
+   pogodaAppliedMed:Number(r.weatherDeltaMedian.toFixed(1)),
    fruitP10:Number(r.fruitDeltaP10.toFixed(1)),
    fruitMed:Number(r.fruitDeltaMedian.toFixed(1)),
    fruitP90:Number(r.fruitDeltaP90.toFixed(1)),
@@ -10913,13 +11054,56 @@ function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
    labWyzejPct:Number(r.positivePct.toFixed(1)),
    labNizejPct:Number(r.negativePct.toFixed(1))
  })));
+
+ const maxWeather=Math.max(0,...rows.map(r=>Math.abs(r.weatherDeltaMedian)));
  const report={
-   version:'v109',ok:rows.length>0,productionScoringChanged:false,
-   note:'Symulacja wpływu na pojedyncze gatunki. Nie zmienia mapy.',rows
+   version:'v110',
+   ok:rows.length>0&&maxWeather<=9.01,
+   productionScoringChanged:false,
+   method:'anchored species delta only; architecture gap diagnostic only',
+   maxAbsoluteMedianWeatherAdjustment:maxWeather,
+   note:'Nie zmienia mapy. Oczekujemy mniejszych, gatunkowo zróżnicowanych korekt niż v109.',
+   rows
  };
- console.info('SPECIES WEATHER SPATIAL IMPACT v109',report);
+ console.info('SPECIES WEATHER SPATIAL IMPACT v110',report);
  return report;
 }
+
+function auditSpeciesWeatherArchitectureGap(){
+ if(!weatherReady||!weatherSamples.length){
+   const report={version:'v110',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER ARCHITECTURE GAP v110',report);
+   return report;
+ }
+ const rows=[];
+ for(const area of ANALYSIS_CENTERS){
+   const generic=weatherAt(area.point);
+   // Neutral LAB is intentionally type-independent in practice because moist='mesic'.
+   const neutral=speciesWeatherNeutralLabScore(Object.keys(SPECIES_META)[0],area.point).score;
+   rows.push({
+     area:area.name,
+     productionGeneric:generic,
+     neutralLabRaw:neutral,
+     architectureGap:neutral-generic
+   });
+ }
+ console.table(rows.map(r=>({
+   area:r.area,
+   productionGeneric:Number(r.productionGeneric.toFixed(1)),
+   neutralLabRaw:Number(r.neutralLabRaw.toFixed(1)),
+   architectureGap:Number(r.architectureGap.toFixed(1))
+ })));
+ const report={
+   version:'v110',
+   ok:rows.length>0,
+   note:'To NIE jest delta gatunkowa. Pokazuje tylko, jak bardzo nowa architektura skali różni się od obecnego weatherAt().',
+   rows
+ };
+ console.info('SPECIES WEATHER ARCHITECTURE GAP v110',report);
+ return report;
+}
+window.auditSpeciesWeatherArchitectureGap=auditSpeciesWeatherArchitectureGap;
+
 window.auditSpeciesWeatherSpatialImpact=auditSpeciesWeatherSpatialImpact;
 
 window.auditBorrowedIdeas=auditBorrowedIdeas;
@@ -11871,12 +12055,13 @@ function auditAppBootstrap(){
    borrowedIdeasAudit:typeof window.auditBorrowedIdeas==='function',
    speciesWeatherLabAudit:typeof window.auditSpeciesWeatherLab==='function',
    speciesWeatherSpatialAudit:typeof window.auditSpeciesWeatherSpatialImpact==='function',
+   speciesWeatherArchitectureAudit:typeof window.auditSpeciesWeatherArchitectureGap==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v109',ok:failed.length===0,checks,failed};
+ const report={version:'v110',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }
@@ -17679,7 +17864,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v109: automatyczny start w tle');
+      console.info('Benchmark krajowy v110: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

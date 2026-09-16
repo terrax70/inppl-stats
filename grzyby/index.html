@@ -1,6 +1,28 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v104:
+     AREA-WEIGHTED REGIONAL PRIOR.
+     v103 liczył regionalny percentyl jako medianę WYDZIELEŃ, więc każdy polygon
+     miał jeden głos niezależnie od powierzchni. To oznaczało, że sztuczny podział
+     tego samego lasu na wiele małych wydzieleń mógł zmienić prior regionu.
+
+     v104 liczy regionalne p10 / medianę / p90 WAŻONE POWIERZCHNIĄ:
+       - primary: BDL sub_area [ha],
+       - fallback: geometryczna powierzchnia polygonu [ha],
+       - ostateczny fallback: 1 tylko gdy brak obu danych.
+     Dzięki temu 50 ha lasu waży ~50x więcej niż 1 ha niezależnie od liczby polygonów.
+
+     Niche-relative 70/15/9/6 pozostaje aktywnym benchmarkiem.
+     Lokalny scoring, Dziś/Ogólnie, progi kolorów i hotspoty bez zmian.
+
+     Dodane audyty:
+       auditNationalAreaWeighting()
+       auditNationalSubdivisionInvariance()
+     Pierwszy pokazuje różnicę weighted vs stare unweighted.
+     Drugi syntetycznie dzieli każde wydzielenie na kilka równych części i sprawdza,
+     czy weighted prior pozostaje identyczny.
+
 <!-- GitHub production v103:
      PRODUKCYJNY BENCHMARK KRAJOWY WZGLĘDEM NISZY.
      Walidacja 7 regionów:
@@ -7515,18 +7537,87 @@ function nationalAreaPriorAdjustment(medianPercentile){
  ]);
 }
 
+function nationalGeometryAreaHa(geometry){
+ if(!geometry)return NaN;
+
+ const ringAreaM2=ring=>{
+   if(!Array.isArray(ring)||ring.length<3)return 0;
+   // Spherical polygon area approximation, adequate for weighting.
+   const R=6378137;
+   let sum=0;
+   for(let i=0;i<ring.length;i++){
+     const p1=ring[i],p2=ring[(i+1)%ring.length];
+     if(!Array.isArray(p1)||!Array.isArray(p2))continue;
+     const lon1=Number(p1[0])*Math.PI/180, lon2=Number(p2[0])*Math.PI/180;
+     const lat1=Number(p1[1])*Math.PI/180, lat2=Number(p2[1])*Math.PI/180;
+     if(![lon1,lon2,lat1,lat2].every(Number.isFinite))continue;
+     sum+=(lon2-lon1)*(2+Math.sin(lat1)+Math.sin(lat2));
+   }
+   return Math.abs(sum)*R*R/2;
+ };
+
+ const polygonAreaM2=coords=>{
+   if(!Array.isArray(coords)||!coords.length)return 0;
+   let area=ringAreaM2(coords[0]);
+   for(let i=1;i<coords.length;i++)area-=ringAreaM2(coords[i]);
+   return Math.max(0,area);
+ };
+
+ let m2=0;
+ if(geometry.type==='Polygon')m2=polygonAreaM2(geometry.coordinates);
+ else if(geometry.type==='MultiPolygon'){
+   for(const poly of geometry.coordinates||[])m2+=polygonAreaM2(poly);
+ }else return NaN;
+
+ return m2>0?m2/10000:NaN;
+}
+
+function nationalFeatureAreaWeight(f){
+ const p=f?.properties||{};
+ const candidates=[
+   Number(p.sub_area),
+   Number(p.sub_area_ha),
+   Number(p.area_ha),
+   Number(p.pow_ha)
+ ];
+ for(const x of candidates){
+   if(Number.isFinite(x)&&x>0)return {weight:x,source:'bdl-area'};
+ }
+ const geo=nationalGeometryAreaHa(f?.geometry);
+ if(Number.isFinite(geo)&&geo>0)return {weight:geo,source:'geometry-area'};
+ return {weight:1,source:'fallback-1'};
+}
+
+function weightedQuantile(rows,q){
+ const arr=(rows||[])
+   .filter(x=>Number.isFinite(x?.value)&&Number.isFinite(x?.weight)&&x.weight>0)
+   .sort((a,b)=>a.value-b.value);
+ if(!arr.length)return NaN;
+ const total=arr.reduce((s,x)=>s+x.weight,0);
+ if(!(total>0))return NaN;
+ const target=Math.max(0,Math.min(1,q))*total;
+ let cum=0;
+ for(const x of arr){
+   cum+=x.weight;
+   if(cum>=target)return x.value;
+ }
+ return arr[arr.length-1].value;
+}
+
+
 function nationalAreaPrior(types,areaName){
  const supported=nationalForestBenchmarkTypes(types);
  const allForest=nationalForestBenchmarkTypes(PICK_TYPES);
  const requestedKey=[...supported].sort().join(',');
  const allKey=[...allForest].sort().join(',');
- const cacheKey=`v103-nicheRel70|${nationalBenchmark?.builtAt||0}|${areaName}|${requestedKey}|${allFeatures.length}`;
+ const cacheKey=`v104-areaWeighted|${nationalBenchmark?.builtAt||0}|${areaName}|${requestedKey}|${allFeatures.length}`;
 
  if(nationalAreaPriorCache.has(cacheKey))return nationalAreaPriorCache.get(cacheKey);
 
  const fallback={
    active:false,medianPercentile:NaN,p10:NaN,p90:NaN,adjustment:0,n:0,
-   state:'inactive',method:'niche-relative-70/15/9/6'
+   totalAreaHa:0,areaFallbackPct:0,
+   state:'inactive',method:'niche-relative-70/15/9/6-area-weighted'
  };
 
  if(!nationalBenchmark||nationalBenchmarkState!=='ready'){
@@ -7553,30 +7644,38 @@ function nationalAreaPrior(types,areaName){
  }
 
  const vals=[];
+ let totalAreaHa=0,fallbackWeight=0;
  for(const f of allFeatures){
    if(f._blocked||f._kind==='open'||featureAreaName(f)!==areaName)continue;
+
    const rel=nationalNicheRelativeScoreForFeature(allForest,f,nicheProfiles,weights);
    if(!Number.isFinite(rel?.score))continue;
+
    const p=nationalRelativePercentile(relProfile,rel.score);
-   if(Number.isFinite(p))vals.push(p);
+   if(!Number.isFinite(p))continue;
+
+   const aw=nationalFeatureAreaWeight(f);
+   vals.push({value:p,weight:aw.weight,source:aw.source});
+   totalAreaHa+=aw.weight;
+   if(aw.source==='fallback-1')fallbackWeight+=aw.weight;
  }
+
  if(!vals.length){
    const out={...fallback,state:'no-area-features'};
    nationalAreaPriorCache.set(cacheKey,out);return out;
  }
 
- vals.sort((a,b)=>a-b);
- const q=p=>{
-   const pos=(vals.length-1)*p,lo=Math.floor(pos),hi=Math.ceil(pos),t=pos-lo;
-   return vals[lo]*(1-t)+vals[hi]*t;
- };
- const median=q(.5),p10=q(.1),p90=q(.9);
+ const median=weightedQuantile(vals,.5);
+ const p10=weightedQuantile(vals,.1);
+ const p90=weightedQuantile(vals,.9);
  const adjustment=nationalAreaPriorAdjustment(median);
 
  const out={
    active:true,medianPercentile:median,p10,p90,adjustment,n:vals.length,
-   state:'regional-prior-niche-relative',
-   method:'niche-relative-70/15/9/6',
+   totalAreaHa,
+   areaFallbackPct:totalAreaHa>0?100*fallbackWeight/totalAreaHa:0,
+   state:'regional-prior-niche-relative-area-weighted',
+   method:'niche-relative-70/15/9/6-area-weighted',
    health
  };
  nationalAreaPriorCache.set(cacheKey,out);
@@ -8251,11 +8350,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v103: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v104: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v103 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v104 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -8265,7 +8364,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v103 health',health);
+     console.info('National benchmark v104 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -9612,7 +9711,7 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v103',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v104',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
    rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków normalizuje gotową ocenę miejsca; DZIŚ = OGÓLNIE × retencja warunków']
@@ -9672,7 +9771,7 @@ function auditOpportunityBalance(){
  }
 
  const report={
-   version:'v103',
+   version:'v104',
    model:'v90 local composite + guarded national BDL area-weighted correction; Today = country-calibrated Overall × current-condition retention',
    classCuts:{
      overall:[3.40,5.80,8.00,9.20],
@@ -9720,7 +9819,7 @@ function auditVisualClassCalibration(){
  }
 
  const report={
-   version:'v103',
+   version:'v104',
    thresholds:{
      overall:[3.40,5.80,8.00,9.20],
      today:[2.95,5.15,7.05,8.48]
@@ -9794,7 +9893,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  }
 
  const report={
-   version:'v103',
+   version:'v104',
    state:nationalBenchmarkState,
    lastError:nationalBenchmarkLastError,
    benchmark:{
@@ -9830,7 +9929,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
 
 function auditNationalBenchmarkStatus(){
  const out={
-   version:'v103',
+   version:'v104',
    state:nationalBenchmarkState,
    error:nationalBenchmarkLastError||null,
    busy:!!nationalBenchmarkPromise,
@@ -9870,7 +9969,7 @@ function auditNationalPriorSafety(){
  }
  const maxAbs=Math.max(0,...rows.map(r=>Math.abs(r.areaPrior)));
  const report={
-   version:'v103',
+   version:'v104',
    ok:maxAbs<=.45,
    rule:'niche-relative benchmark nie zmienia rankingu wydzieleń wewnątrz regionu; daje tylko wspólny prior max -0.45..+0.35',
    maxAbsPrior:maxAbs,
@@ -9890,6 +9989,8 @@ function auditProductionNationalCalibration(){
      area:area.name,
      n:p.n,
      method:p.method,
+     totalAreaHa:Number((p.totalAreaHa||0).toFixed(1)),
+     areaFallbackPct:Number((p.areaFallbackPct||0).toFixed(2)),
      p10:Number(p.p10.toFixed(1)),
      median:Number(p.medianPercentile.toFixed(1)),
      p90:Number(p.p90.toFixed(1)),
@@ -9897,12 +9998,177 @@ function auditProductionNationalCalibration(){
      state:p.state
    });
  }
- const ok=rows.length>0&&rows.every(r=>r.method==='niche-relative-70/15/9/6'&&Math.abs(r.prior)<=.45);
- const report={version:'v103',ok,activeMethod:'niche-relative-70/15/9/6',rows};
+ const ok=rows.length>0&&rows.every(r=>r.method==='niche-relative-70/15/9/6-area-weighted'&&Math.abs(r.prior)<=.45);
+ const report={version:'v104',ok,activeMethod:'niche-relative-70/15/9/6-area-weighted',rows};
  console.table(rows);
- console.info('PRODUCTION NATIONAL CALIBRATION v103',report);
+ console.info('PRODUCTION NATIONAL CALIBRATION v104',report);
  return report;
 }
+
+function auditNationalAreaWeighting(){
+ const rows=[];
+ const types=nationalForestBenchmarkTypes(PICK_TYPES);
+ const nicheProfiles=nationalBenchmark?.composites?.nicheProfiles;
+ const relProfile=nationalBenchmark?.composites?.nicheRelative?.nicheRel_70_15_9_6;
+ const scheme=[.70,.15,.09,.06];
+
+ if(!nicheProfiles||!relProfile?.total){
+   const report={version:'v104',ok:false,error:'Benchmark niche-relative nie jest gotowy.'};
+   console.warn('NATIONAL AREA WEIGHTING v104',report);
+   return report;
+ }
+
+ for(const area of ANALYSIS_CENTERS){
+   const weighted=[],plain=[];
+   let totalArea=0,bdlArea=0,geometryArea=0,fallback=0;
+
+   for(const f of allFeatures){
+     if(f._blocked||f._kind==='open'||featureAreaName(f)!==area.name)continue;
+     const rel=nationalNicheRelativeScoreForFeature(types,f,nicheProfiles,scheme);
+     const pct=nationalRelativePercentile(relProfile,rel?.score);
+     if(!Number.isFinite(pct))continue;
+
+     const aw=nationalFeatureAreaWeight(f);
+     weighted.push({value:pct,weight:aw.weight});
+     plain.push(pct);
+     totalArea+=aw.weight;
+     if(aw.source==='bdl-area')bdlArea+=aw.weight;
+     else if(aw.source==='geometry-area')geometryArea+=aw.weight;
+     else fallback+=aw.weight;
+   }
+   if(!plain.length)continue;
+
+   plain.sort((a,b)=>a-b);
+   const uq=q=>{
+     const pos=(plain.length-1)*q,lo=Math.floor(pos),hi=Math.ceil(pos),t=pos-lo;
+     return plain[lo]*(1-t)+plain[hi]*t;
+   };
+
+   const weightedMedian=weightedQuantile(weighted,.5);
+   const unweightedMedian=uq(.5);
+   rows.push({
+     area:area.name,
+     n:plain.length,
+     totalAreaHa:totalArea,
+     bdlAreaPct:totalArea?100*bdlArea/totalArea:0,
+     geometryAreaPct:totalArea?100*geometryArea/totalArea:0,
+     fallbackPct:totalArea?100*fallback/totalArea:0,
+     unweightedMedian,
+     weightedMedian,
+     delta:weightedMedian-unweightedMedian,
+     weightedPrior:nationalAreaPriorAdjustment(weightedMedian),
+     unweightedPrior:nationalAreaPriorAdjustment(unweightedMedian)
+   });
+ }
+
+ console.table(rows.map(r=>({
+   area:r.area,
+   n:r.n,
+   areaHa:Number(r.totalAreaHa.toFixed(1)),
+   bdlAreaPct:Number(r.bdlAreaPct.toFixed(1)),
+   geometryAreaPct:Number(r.geometryAreaPct.toFixed(1)),
+   fallbackPct:Number(r.fallbackPct.toFixed(2)),
+   medianaStara:Number(r.unweightedMedian.toFixed(1)),
+   medianaWazona:Number(r.weightedMedian.toFixed(1)),
+   roznicaPc:Number(r.delta.toFixed(1)),
+   priorStary:Number(r.unweightedPrior.toFixed(2)),
+   priorWazony:Number(r.weightedPrior.toFixed(2))
+ })));
+
+ const report={
+   version:'v104',
+   ok:rows.length>0&&rows.every(r=>r.fallbackPct<5),
+   rule:'percentyle regionu są ważone powierzchnią; primary sub_area [ha], fallback geometry [ha]',
+   rows
+ };
+ console.info('NATIONAL AREA WEIGHTING v104',report);
+ return report;
+}
+window.auditNationalAreaWeighting=auditNationalAreaWeighting;
+
+function auditNationalSubdivisionInvariance({parts=7}={}){
+ parts=Math.max(2,Math.min(50,Math.round(Number(parts)||7)));
+ const rows=[];
+ const types=nationalForestBenchmarkTypes(PICK_TYPES);
+ const nicheProfiles=nationalBenchmark?.composites?.nicheProfiles;
+ const relProfile=nationalBenchmark?.composites?.nicheRelative?.nicheRel_70_15_9_6;
+ const scheme=[.70,.15,.09,.06];
+
+ if(!nicheProfiles||!relProfile?.total){
+   const report={version:'v104',ok:false,error:'Benchmark niche-relative nie jest gotowy.'};
+   console.warn('NATIONAL SUBDIVISION INVARIANCE v104',report);
+   return report;
+ }
+
+ for(const area of ANALYSIS_CENTERS){
+   const original=[],split=[];
+   for(const f of allFeatures){
+     if(f._blocked||f._kind==='open'||featureAreaName(f)!==area.name)continue;
+     const rel=nationalNicheRelativeScoreForFeature(types,f,nicheProfiles,scheme);
+     const pct=nationalRelativePercentile(relProfile,rel?.score);
+     if(!Number.isFinite(pct))continue;
+     const aw=nationalFeatureAreaWeight(f);
+     original.push({value:pct,weight:aw.weight});
+     for(let i=0;i<parts;i++)split.push({value:pct,weight:aw.weight/parts});
+   }
+   if(!original.length)continue;
+
+   const before={
+     p10:weightedQuantile(original,.1),
+     median:weightedQuantile(original,.5),
+     p90:weightedQuantile(original,.9)
+   };
+   const after={
+     p10:weightedQuantile(split,.1),
+     median:weightedQuantile(split,.5),
+     p90:weightedQuantile(split,.9)
+   };
+   const maxDiff=Math.max(
+     Math.abs(before.p10-after.p10),
+     Math.abs(before.median-after.median),
+     Math.abs(before.p90-after.p90)
+   );
+   rows.push({
+     area:area.name,
+     n:original.length,
+     syntheticParts:parts,
+     before,
+     after,
+     maxDiff,
+     priorBefore:nationalAreaPriorAdjustment(before.median),
+     priorAfter:nationalAreaPriorAdjustment(after.median)
+   });
+ }
+
+ console.table(rows.map(r=>({
+   area:r.area,
+   n:r.n,
+   podzialNa:r.syntheticParts,
+   p10Przed:Number(r.before.p10.toFixed(3)),
+   p10Po:Number(r.after.p10.toFixed(3)),
+   medianaPrzed:Number(r.before.median.toFixed(3)),
+   medianaPo:Number(r.after.median.toFixed(3)),
+   p90Przed:Number(r.before.p90.toFixed(3)),
+   p90Po:Number(r.after.p90.toFixed(3)),
+   maxRoznica:Number(r.maxDiff.toFixed(6)),
+   priorPrzed:Number(r.priorBefore.toFixed(3)),
+   priorPo:Number(r.priorAfter.toFixed(3))
+ })));
+
+ const maxDiff=rows.length?Math.max(...rows.map(r=>r.maxDiff)):NaN;
+ const report={
+   version:'v104',
+   ok:rows.length>0&&Number.isFinite(maxDiff)&&maxDiff<1e-9,
+   syntheticSplitParts:parts,
+   maxPercentileDifference:maxDiff,
+   rule:'podział jednego polygonu na N równych części nie może zmienić area-weighted p10/median/p90 ani prioru',
+   rows
+ };
+ console.info('NATIONAL SUBDIVISION INVARIANCE v104',report);
+ return report;
+}
+window.auditNationalSubdivisionInvariance=auditNationalSubdivisionInvariance;
+
 window.auditProductionNationalCalibration=auditProductionNationalCalibration;
 
 
@@ -9913,7 +10179,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
 
  if(!health.ok||!country){
    const report={
-     version:'v103',ok:false,
+     version:'v104',ok:false,
      error:'Benchmark krajowy nie jest gotowy albo nie ma profilu explainability.',
      health
    };
@@ -10126,7 +10392,7 @@ function auditTreeCodeCanonicalization(){
  }
 
  const report={
-   version:'v103',
+   version:'v104',
    ok:true,
    rule:'wariant BDL po kropce jest redukowany do bazowego hosta tylko jeśli baza jest znanym kodem drzewa',
    examples:{'DB.S':'DB','DB.B':'DB','BRZ.O':'BRZ','OL.S':'OL'},
@@ -10142,7 +10408,7 @@ function auditNationalNicheBreakdown(){
  const types=nationalForestBenchmarkTypes(PICK_TYPES);
 
  if(!health.ok||!Array.isArray(countryRows)){
-   const report={version:'v103',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
+   const report={version:'v104',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
    console.warn('NATIONAL NICHE BREAKDOWN',report);
    return report;
  }
@@ -10305,7 +10571,7 @@ function auditNationalBenchmarkWeightLab(){
  const candidates=nationalBenchmark?.composites?.candidates;
 
  if(!health.ok||!candidates){
-   const report={version:'v103',ok:false,error:'Brak gotowych histogramów kandydackich.',health};
+   const report={version:'v104',ok:false,error:'Brak gotowych histogramów kandydackich.',health};
    console.warn('NATIONAL BENCHMARK WEIGHT LAB',report);
    return report;
  }
@@ -10385,7 +10651,7 @@ function auditNationalSpeciesBreakdown(){
  const types=nationalForestBenchmarkTypes(PICK_TYPES);
 
  if(!health.ok||!nationalBenchmark?.types){
-   const report={version:'v103',ok:false,error:'Benchmark krajowy nie jest gotowy.',health};
+   const report={version:'v104',ok:false,error:'Benchmark krajowy nie jest gotowy.',health};
    console.warn('NATIONAL SPECIES BREAKDOWN',report);
    return report;
  }
@@ -10517,7 +10783,7 @@ function auditNationalNicheRelativeLab(){
  const oldProfile=nationalBenchmark?.composites?.allForest;
 
  if(!health.ok||!nicheProfiles||!relProfiles||!oldProfile){
-   const report={version:'v103',ok:false,error:'Brak gotowego benchmarku niche-relative.',health};
+   const report={version:'v104',ok:false,error:'Brak gotowego benchmarku niche-relative.',health};
    console.warn('NATIONAL NICHE-RELATIVE LAB',report);
    return report;
  }
@@ -10675,12 +10941,14 @@ function auditAppBootstrap(){
    speciesAudit:typeof window.auditNationalSpeciesBreakdown==='function',
    nicheRelativeAudit:typeof window.auditNationalNicheRelativeLab==='function',
    productionCalibrationAudit:typeof window.auditProductionNationalCalibration==='function',
+   areaWeightAudit:typeof window.auditNationalAreaWeighting==='function',
+   subdivisionAudit:typeof window.auditNationalSubdivisionInvariance==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v103',ok:failed.length===0,checks,failed};
+ const report={version:'v104',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }
@@ -16478,7 +16746,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v103: automatyczny start w tle');
+      console.info('Benchmark krajowy v104: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

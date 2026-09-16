@@ -1,6 +1,30 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v109:
+     SPECIES-SPECIFIC WEATHER LAB.
+
+     Produkcyjny weatherAt() i fruitingConditions() pozostają BEZ ZMIAN.
+     v109 dodaje równoległy kandydat pogodowy per gatunek, żebyśmy mogli porównać
+     "jedną pogodę dla wszystkich" z profilem zależnym od biologii gatunku.
+
+     Założenia LAB:
+       - Tattis potwierdza sens per-species rain/temperature thresholds,
+       - shroom-fm rozdziela moisture / temperature / persistence / season,
+       - literatura dla B. edulis: silny sygnał opadowy, słabszy/niespójny temperaturowy,
+       - C. cibarius: dłuższy lag wilgotności/opadu niż tylko ostatni tydzień,
+       - S. bovinus: opad i temperatura oba mają znaczenie,
+       - Lactarius deliciosus group: opad + temperatura są istotnymi predyktorami,
+       - dla pozostałych gatunków używamy jawnie oznaczonych proxy rodzaju/ekologii.
+
+     WAŻNE:
+       Wszystkie konkretne krzywe i wagi v109 są engineering priors do testu,
+       a NIE "naukowymi stałymi". Nic z tego nie wpływa jeszcze na mapę DZIŚ.
+
+     Nowe audyty:
+       auditSpeciesWeatherLab()
+       auditSpeciesWeatherSpatialImpact()
+
 <!-- GitHub production v108:
      EXPLORATION MOSAIC v3 — MISSING DATA NIE JEST KATEGORIĄ.
 
@@ -5366,6 +5390,239 @@ function weatherAt(c){
  if(cacheKey)perfWeatherPointCache.set(cacheKey,out);
  return out;
 }
+
+const SPECIES_WEATHER_LAB_PROFILES={
+  porcini_rain:{
+    label:'Borowik — opad dominuje',
+    rainW:[.12,.28,.35,.25], rainScale:18,
+    temp:'broad', weights:{moisture:.55,temp:.15,persistence:.30}, frost:'normal'
+  },
+  chanterelle_lag:{
+    label:'Kurka — dłuższa pamięć wilgoci',
+    rainW:[.08,.17,.30,.45], rainScale:20,
+    temp:'cool_broad', weights:{moisture:.55,temp:.20,persistence:.25}, frost:'normal'
+  },
+  suillus_joint:{
+    label:'Maślak — opad + temperatura',
+    rainW:[.18,.30,.32,.20], rainScale:17,
+    temp:'suillus', weights:{moisture:.42,temp:.33,persistence:.25}, frost:'normal'
+  },
+  lactarius_autumn:{
+    label:'Mleczaj/rydz — opad + temperatura',
+    rainW:[.12,.28,.34,.26], rainScale:18,
+    temp:'cool_broad', weights:{moisture:.47,temp:.25,persistence:.28}, frost:'normal'
+  },
+  moist_bolete:{
+    label:'Koźlarz — wilgoć + umiarkowana temperatura',
+    rainW:[.15,.30,.34,.21], rainScale:18,
+    temp:'broad', weights:{moisture:.48,temp:.22,persistence:.30}, frost:'normal'
+  },
+  warm_bolete:{
+    label:'Ciepłolubny borowik — cieplejsze okno',
+    rainW:[.20,.32,.30,.18], rainScale:16,
+    temp:'warm', weights:{moisture:.38,temp:.37,persistence:.25}, frost:'sensitive'
+  },
+  bolete_general:{
+    label:'Borowikowate — profil ogólny',
+    rainW:[.15,.30,.34,.21], rainScale:18,
+    temp:'broad', weights:{moisture:.48,temp:.22,persistence:.30}, frost:'normal'
+  },
+  armillaria_autumn:{
+    label:'Opieńka — chłodne, wilgotne okno',
+    rainW:[.18,.34,.32,.16], rainScale:15,
+    temp:'cool', weights:{moisture:.38,temp:.30,persistence:.32}, frost:'tolerant'
+  },
+  wood_autumn:{
+    label:'Grzyb nadrzewny — wilgoć/persistence',
+    rainW:[.18,.32,.31,.19], rainScale:16,
+    temp:'cool_broad', weights:{moisture:.38,temp:.22,persistence:.40}, frost:'tolerant'
+  },
+  edge_recent:{
+    label:'Skraj — świeży opad + persistence',
+    rainW:[.30,.34,.24,.12], rainScale:14,
+    temp:'broad', weights:{moisture:.42,temp:.23,persistence:.35}, frost:'normal'
+  },
+  grass_recent:{
+    label:'Łąka — świeży opad + ciepło',
+    rainW:[.34,.34,.22,.10], rainScale:14,
+    temp:'warm_broad', weights:{moisture:.40,temp:.28,persistence:.32}, frost:'sensitive'
+  },
+  generic_mycorrhiza:{
+    label:'Mykoryza — profil ostrożny',
+    rainW:[.18,.30,.32,.20], rainScale:18,
+    temp:'broad', weights:{moisture:.46,temp:.24,persistence:.30}, frost:'normal'
+  }
+};
+
+const SPECIES_WEATHER_LAB_ASSIGNMENTS={
+  borowik:{profile:'porcini_rain',evidence:'direct',basis:'B. edulis: opad jesienny; temperatura w części badań bez istotnego efektu'},
+  kurka:{profile:'chanterelle_lag',evidence:'direct',basis:'C. cibarius: wilgoć/opad i temperatura gleby z wielotygodniowym lagiem'},
+  maslak_sitarz:{profile:'suillus_joint',evidence:'direct',basis:'S. bovinus: produkcja skorelowana z temperaturą i opadem'},
+  rydz:{profile:'lactarius_autumn',evidence:'direct-group',basis:'Lactarius deliciosus group: opad i temperatura istotne w modelach plonu'},
+
+  maslak_zolty:{profile:'suillus_joint',evidence:'genus-proxy',basis:'proxy rodzaju Suillus'},
+  maslak_pstry:{profile:'suillus_joint',evidence:'genus-proxy',basis:'proxy rodzaju Suillus'},
+  maslak_zwyczajny:{profile:'suillus_joint',evidence:'genus-proxy',basis:'proxy rodzaju Suillus'},
+
+  mleczaj_swierkowy:{profile:'lactarius_autumn',evidence:'genus-proxy',basis:'proxy rodzaju Lactarius'},
+
+  kozlarz_babka:{profile:'moist_bolete',evidence:'ecology-proxy',basis:'mykoryzowy borowikowaty + preferencja wilgotniejsza'},
+  kozlarz_czerwony:{profile:'moist_bolete',evidence:'ecology-proxy',basis:'mykoryzowy borowikowaty + preferencja wilgotniejsza'},
+  kozlarz_pomaranczowozolty:{profile:'moist_bolete',evidence:'ecology-proxy',basis:'mykoryzowy borowikowaty + preferencja wilgotniejsza'},
+
+  ponury:{profile:'warm_bolete',evidence:'ecology-proxy',basis:'ciepłolubny profil + mesic_dry'},
+  szatanski:{profile:'warm_bolete',evidence:'ecology-proxy',basis:'ciepłolubny profil + mesic_dry'},
+  borowik_usiatkowany:{profile:'warm_bolete',evidence:'ecology-proxy',basis:'ciepłolubny profil + mesic_dry'},
+
+  borowik_sosnowy:{profile:'bolete_general',evidence:'family-proxy',basis:'proxy borowikowatych'},
+  ceglastopory:{profile:'bolete_general',evidence:'family-proxy',basis:'proxy borowikowatych'},
+  gorzkoborowik:{profile:'bolete_general',evidence:'family-proxy',basis:'proxy borowikowatych'},
+  goryczak:{profile:'bolete_general',evidence:'family-proxy',basis:'proxy borowikowatych'},
+  podgrzybek:{profile:'bolete_general',evidence:'family-proxy',basis:'proxy borowikowatych'},
+
+  opienka_ciemna:{profile:'armillaria_autumn',evidence:'genus-proxy',basis:'Armillaria: opad i temperatura poprzedzające owocnikowanie'},
+  opienka_miodowa:{profile:'armillaria_autumn',evidence:'genus-proxy',basis:'Armillaria: opad i temperatura poprzedzające owocnikowanie'},
+  siedzun_sosnowy:{profile:'wood_autumn',evidence:'ecology-proxy',basis:'grzyb nadrzewny; persistence jako ostrożny priorytet'},
+
+  kania:{profile:'edge_recent',evidence:'ecology-proxy',basis:'gatunek skrajów/łąk; świeży opad jako priorytet testowy'},
+  kania_gwiazdzista:{profile:'edge_recent',evidence:'ecology-proxy',basis:'gatunek skrajów/łąk; świeży opad jako priorytet testowy'},
+  czernidlak:{profile:'grass_recent',evidence:'ecology-proxy',basis:'teren otwarty; świeży opad i umiarkowane ciepło'},
+  pieczarka_polna:{profile:'grass_recent',evidence:'ecology-proxy',basis:'teren otwarty; świeży opad i umiarkowane ciepło'},
+  purchawka_oczkowana:{profile:'grass_recent',evidence:'ecology-proxy',basis:'teren otwarty; świeży opad i umiarkowane ciepło'}
+};
+
+function speciesWeatherLabAssignment(type){
+ const explicit=SPECIES_WEATHER_LAB_ASSIGNMENTS[type];
+ if(explicit)return explicit;
+ const m=SPECIES_META[type];
+ if(!m)return {profile:'generic_mycorrhiza',evidence:'fallback',basis:'brak metadanych gatunku'};
+ if(m.ecology==='wood')return {profile:'wood_autumn',evidence:'ecology-proxy',basis:'fallback ekologii wood'};
+ if(m.ecology==='edge')return {profile:'edge_recent',evidence:'ecology-proxy',basis:'fallback ekologii edge'};
+ if(m.ecology==='grassland')return {profile:'grass_recent',evidence:'ecology-proxy',basis:'fallback ekologii grassland'};
+ if(m.moist==='mesic_dry')return {profile:'warm_bolete',evidence:'ecology-proxy',basis:'fallback mesic_dry'};
+ return {profile:'generic_mycorrhiza',evidence:'ecology-proxy',basis:'fallback mycorrhiza'};
+}
+
+function speciesWeatherLabPayloadAt(c){
+ if(!weatherSamples.length)return null;
+ const fields=['rain7','rain14','rain21','rain28','soilM','soilT','rh','vpd','et7','dryDays','nightMin'];
+ const sums=Object.fromEntries(fields.map(k=>[k,0]));
+ const weights=Object.fromEntries(fields.map(k=>[k,0]));
+ let generic=0,genericW=0;
+
+ for(const s of weatherSamples){
+   const d=Math.max(.5,hav(c,[s.lat,s.lon]));
+   const q=1/(d*d);
+   if(Number.isFinite(s.index)){generic+=s.index*q;genericW+=q;}
+   for(const k of fields){
+     const v=Number(s[k]);
+     if(Number.isFinite(v)){sums[k]+=v*q;weights[k]+=q;}
+   }
+ }
+ const out={index:genericW?generic/genericW:60};
+ for(const k of fields)out[k]=weights[k]?sums[k]/weights[k]:NaN;
+ return out;
+}
+
+function speciesWeatherLabTemp(kind,t){
+ if(!Number.isFinite(t))return .72;
+ const curves={
+   broad:[[0,.30],[4,.50],[8,.82],[11,1],[18,1],[23,.76],[28,.35],[32,.20]],
+   cool_broad:[[0,.32],[4,.58],[7,.86],[10,1],[16,1],[20,.78],[25,.38],[30,.18]],
+   cool:[[-2,.25],[2,.50],[6,.84],[9,1],[14,1],[18,.72],[23,.30],[28,.15]],
+   suillus:[[0,.28],[5,.55],[9,.85],[13,1],[19,1],[23,.72],[28,.30],[32,.15]],
+   warm:[[2,.20],[7,.45],[11,.76],[15,1],[21,1],[25,.78],[30,.38],[34,.18]],
+   warm_broad:[[0,.25],[5,.48],[9,.76],[13,1],[21,1],[26,.72],[31,.30],[35,.15]]
+ };
+ return Math.max(.05,Math.min(1,piecewise(t,curves[kind]||curves.broad)));
+}
+
+function speciesWeatherLabSoilMoisture(moist,x){
+ if(!Number.isFinite(x))return NaN;
+ const curves={
+   mesic_dry:[[.06,.25],[.10,.50],[.14,.82],[.18,1],[.23,1],[.30,.74],[.40,.42],[.50,.25]],
+   mesic:[[.06,.18],[.10,.38],[.14,.64],[.18,.86],[.22,1],[.29,1],[.36,.82],[.46,.52]],
+   mesic_moist:[[.06,.10],[.10,.28],[.14,.52],[.18,.76],[.23,.94],[.30,1],[.38,.94],[.48,.68]]
+ };
+ return Math.max(.05,Math.min(1,piecewise(x,curves[moist]||curves.mesic)));
+}
+
+function speciesWeatherLabFrost(kind,nightMin){
+ if(!Number.isFinite(nightMin))return 1;
+ if(kind==='sensitive')return Math.max(.15,Math.min(1,piecewise(nightMin,[[-5,.15],[-2,.25],[0,.42],[2,.70],[5,1]])));
+ if(kind==='tolerant')return Math.max(.45,Math.min(1,piecewise(nightMin,[[-8,.45],[-4,.65],[-1,.82],[2,1]])));
+ return Math.max(.30,Math.min(1,piecewise(nightMin,[[-7,.30],[-3,.50],[0,.72],[2,1]])));
+}
+
+function speciesWeatherLabScore(type,c){
+ const p=speciesWeatherLabPayloadAt(c);
+ if(!p)return {score:60,profile:'none',evidence:'none',components:{}};
+
+ const a=speciesWeatherLabAssignment(type);
+ const profile=SPECIES_WEATHER_LAB_PROFILES[a.profile]||SPECIES_WEATHER_LAB_PROFILES.generic_mycorrhiza;
+ const m=SPECIES_META[type]||{moist:'mesic'};
+
+ const w1=Math.max(0,p.rain7||0);
+ const w2=Math.max(0,(p.rain14||0)-(p.rain7||0));
+ const w3=Math.max(0,(p.rain21||0)-(p.rain14||0));
+ const w4=Math.max(0,(p.rain28||0)-(p.rain21||0));
+ const rainWeeks=[w1,w2,w3,w4];
+
+ const rainResponse=(mm,scale)=>1-Math.exp(-Math.max(0,mm)/Math.max(1,scale));
+ let rain=0;
+ for(let i=0;i<4;i++)rain+=profile.rainW[i]*rainResponse(rainWeeks[i],profile.rainScale);
+
+ const soil=speciesWeatherLabSoilMoisture(m.moist,p.soilM);
+ const moisture=Number.isFinite(soil)?(.62*rain+.38*soil):rain;
+
+ const temp=speciesWeatherLabTemp(profile.temp,p.soilT);
+
+ const rhScore=Number.isFinite(p.rh)?Math.max(.05,Math.min(1,piecewise(p.rh,[[30,.18],[45,.36],[60,.58],[75,.82],[88,1],[100,1]]))):.70;
+ const vpdScore=Number.isFinite(p.vpd)?Math.max(.05,Math.min(1,piecewise(p.vpd,[[0,1],[.35,.97],[.7,.84],[1.1,.64],[1.6,.42],[2.2,.22],[3,.08]]))):.70;
+ const dryScore=Number.isFinite(p.dryDays)?Math.max(.05,Math.min(1,piecewise(p.dryDays,[[0,1],[3,1],[5,.90],[8,.68],[12,.43],[20,.18],[28,.08]]))):.70;
+ const persistence=.42*rhScore+.36*vpdScore+.22*dryScore;
+
+ const frost=speciesWeatherLabFrost(profile.frost,p.nightMin);
+ const ww=profile.weights;
+ const raw=
+   Math.pow(Math.max(.03,moisture),ww.moisture)*
+   Math.pow(Math.max(.03,temp),ww.temp)*
+   Math.pow(Math.max(.03,persistence),ww.persistence)*
+   frost;
+
+ return {
+   score:Math.max(0,Math.min(100,100*raw)),
+   profile:a.profile,
+   profileLabel:profile.label,
+   evidence:a.evidence,
+   basis:a.basis,
+   components:{
+     moisture:100*moisture,
+     rain:100*rain,
+     soil:100*(Number.isFinite(soil)?soil:rain),
+     temp:100*temp,
+     persistence:100*persistence,
+     frost:100*frost,
+     rainWeeks
+   },
+   payload:p
+ };
+}
+
+function speciesFruitingLabFromWeather(type,weatherScore){
+ const season=seasonScore(type);
+ const base=.60*weatherScore+.40*season;
+ return Math.max(0,Math.min(100,base*seasonGate(season)));
+}
+
+function speciesWeatherGenericFruitingAt(type,c){
+ return speciesFruitingLabFromWeather(type,weatherAt(c));
+}
+
+function speciesWeatherLabFruitingAt(type,c){
+ return speciesFruitingLabFromWeather(type,speciesWeatherLabScore(type,c).score);
+}
+
 function resetWeatherCard(message='Wybierz miejsce, aby sprawdzić warunki.'){
  const ids=['rain7','rain14','rain21','rain28','soilM','soilT','airRH','dryDays','nightMin','rainNext'];
  for(const id of ids){
@@ -8443,11 +8700,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v108: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v109: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v108 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v109 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -8457,7 +8714,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v108 health',health);
+     console.info('National benchmark v109 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -10415,7 +10672,7 @@ function auditExplorationMosaicLab({top=20}={}){
    };
    rows.push(row);
 
-   console.info(`${area.name} — EXPLORATION MOSAIC LAB v108`);
+   console.info(`${area.name} — EXPLORATION MOSAIC LAB v109`);
    console.table(topRows.map(x=>({
      drzewo:x.tree,siedlisko:x.habitat,rodzina:x.habitatFamily,wiek:x.age,
      ha:Number(x.areaHa.toFixed(2)),
@@ -10456,7 +10713,7 @@ function auditExplorationMosaicLab({top=20}={}){
  const impossibleAgeCategory=rows.some(r=>r.maxAgeBandCount>5);
 
  const report={
-   version:'v108',
+   version:'v109',
    ok:rows.length>0&&!fragmentationWarning&&!impossibleAgeCategory,
    scoringChanged:false,
    meaning:'exploration / mosaic effective richness; missing data excluded and tracked via coverage; NOT biological edge bonus',
@@ -10465,7 +10722,7 @@ function auditExplorationMosaicLab({top=20}={}){
    impossibleAgeCategory,
    rows
  };
- console.info('EXPLORATION MOSAIC LAB v108',report);
+ console.info('EXPLORATION MOSAIC LAB v109',report);
  return report;
 }
 window.auditExplorationMosaicLab=auditExplorationMosaicLab;
@@ -10500,8 +10757,8 @@ function auditRegionalTop3Robustness(){
    dzisTop3Mean:Number.isFinite(r.todayTop3Mean)?Number(r.todayTop3Mean.toFixed(2)):null,
    dzisStabilnosc:r.todayLabel
  })));
- const report={version:'v108',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
- console.info('REGIONAL TOP3 ROBUSTNESS v108',report);
+ const report={version:'v109',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
+ console.info('REGIONAL TOP3 ROBUSTNESS v109',report);
  return report;
 }
 window.auditRegionalTop3Robustness=auditRegionalTop3Robustness;
@@ -10514,17 +10771,157 @@ function auditBorrowedIdeas(){
    {element:'Ranking kilku miejsc zamiast 1 outliera',status:'MAMY',source:'shroom-fm',note:'hotspoty + nowy TOP3 robustness'},
    {element:'Mozaika / ecotone jako exploration value',status:'LAB',source:'shroom-fm + literatura o ekotonach',note:'v106 osobno; nie wpływa na biologię'},
    {element:'Odległość od drogi / dostęp',status:'BRAK',source:'shroom-fm',note:'warto dodać jako osobny praktyczny wskaźnik, nie habitat'},
-   {element:'Pogoda specyficzna dla gatunku',status:'CZĘŚCIOWO',source:'Tattis',note:'sezon jest per gatunek, ale weatherAt ma wspólną krzywą pogodową'},
+   {element:'Pogoda specyficzna dla gatunku',status:'LAB',source:'Tattis + shroom-fm + literatura',note:'v109 równoległy model per gatunek; produkcyjne weatherAt nadal bez zmian'},
    {element:'ML uczony na obserwacjach',status:'BRAK',source:'Tattis + SDM',note:'największy kolejny krok; wymaga korekty biasu obserwacyjnego'},
    {element:'Niezależny backtest/out-of-sample',status:'BRAK',source:'literatura SDM',note:'konieczny przed nazywaniem wyniku prawdopodobieństwem'},
    {element:'Road/satellite accessibility',status:'BRAK',source:'shroom-fm / Boletus',note:'nie mieszamy z biologicznym score bez osobnej warstwy'}
  ];
  console.table(rows);
- const report={version:'v108',ok:true,productionScoringChanged:false,rows,
-   nextPriority:['backtest obserwacji','species-specific weather lab','OSM access as separate practical score']};
+ const report={version:'v109',ok:true,productionScoringChanged:false,rows,
+   nextPriority:['przetestować v109 w różnych warunkach pogodowych','backtest obserwacji','OSM access as separate practical score']};
  console.info('BORROWED IDEAS AUDIT v108',report);
  return report;
 }
+
+function auditSpeciesWeatherLab(){
+ const types=Object.keys(SPECIES_META);
+ const allRows=[];
+
+ if(!weatherReady||!weatherSamples.length){
+   const report={version:'v109',ok:false,error:'Pogoda nie jest jeszcze załadowana. Wybierz rejon i poczekaj na Open-Meteo.'};
+   console.warn('SPECIES WEATHER LAB v109',report);
+   return report;
+ }
+
+ for(const area of ANALYSIS_CENTERS){
+   const genericWeather=weatherAt(area.point);
+   const rows=types.map(type=>{
+     const lab=speciesWeatherLabScore(type,area.point);
+     const season=seasonScore(type);
+     const genericFruiting=speciesFruitingLabFromWeather(type,genericWeather);
+     const labFruiting=speciesFruitingLabFromWeather(type,lab.score);
+     return {
+       area:area.name,type,label:SPECIES_META[type].label,
+       profile:lab.profile,evidence:lab.evidence,basis:lab.basis,
+       genericWeather,labWeather:lab.score,deltaWeather:lab.score-genericWeather,
+       season,genericFruiting,labFruiting,deltaFruiting:labFruiting-genericFruiting,
+       moisture:lab.components.moisture,temp:lab.components.temp,
+       persistence:lab.components.persistence,frost:lab.components.frost,
+       rainWeeks:lab.components.rainWeeks
+     };
+   });
+   allRows.push(...rows);
+
+   console.info(`${area.name} — SPECIES WEATHER LAB v109`);
+   console.table([...rows].sort((a,b)=>Math.abs(b.deltaFruiting)-Math.abs(a.deltaFruiting)).map(r=>({
+     gatunek:r.label,
+     profil:r.profile,
+     dowod:r.evidence,
+     pogodaGeneric:Number(r.genericWeather.toFixed(1)),
+     pogodaGatunkowa:Number(r.labWeather.toFixed(1)),
+     deltaPogody:Number(r.deltaWeather.toFixed(1)),
+     sezon:Number(r.season.toFixed(1)),
+     owocowanieGeneric:Number(r.genericFruiting.toFixed(1)),
+     owocowanieLab:Number(r.labFruiting.toFixed(1)),
+     deltaOwocowania:Number(r.deltaFruiting.toFixed(1)),
+     wilgoc:Number(r.moisture.toFixed(0)),
+     temp:Number(r.temp.toFixed(0)),
+     persistence:Number(r.persistence.toFixed(0)),
+     mroz:Number(r.frost.toFixed(0))
+   })));
+ }
+
+ const direct=allRows.filter(r=>r.evidence==='direct'||r.evidence==='direct-group');
+ const proxy=allRows.filter(r=>!['direct','direct-group'].includes(r.evidence));
+ const maxAbs=allRows.length?Math.max(...allRows.map(r=>Math.abs(r.deltaFruiting))):NaN;
+ const meanAbs=allRows.length?allRows.reduce((s,r)=>s+Math.abs(r.deltaFruiting),0)/allRows.length:NaN;
+
+ const report={
+   version:'v109',
+   ok:allRows.length>0,
+   productionScoringChanged:false,
+   genericWeatherStillProduction:true,
+   directEvidenceRows:direct.length,
+   proxyRows:proxy.length,
+   meanAbsFruitingDelta:meanAbs,
+   maxAbsFruitingDelta:maxAbs,
+   warning:'Krzywe/wagi są LAB engineering priors. Najpierw testujemy zachowanie; nie są jeszcze aktywne na mapie.',
+   rows:allRows
+ };
+ console.info('SPECIES WEATHER LAB v109',report);
+ return report;
+}
+window.auditSpeciesWeatherLab=auditSpeciesWeatherLab;
+
+function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
+ if(!weatherReady||!weatherSamples.length){
+   const report={version:'v109',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER SPATIAL IMPACT v109',report);
+   return report;
+ }
+ const rows=[];
+ for(const area of ANALYSIS_CENTERS){
+   const candidates=stableCandidateFeatures(area.name);
+   for(const type of Object.keys(SPECIES_META)){
+     const relevant=candidates.filter(f=>featureRelevant(type,f));
+     if(!relevant.length)continue;
+     const stride=Math.max(1,Math.ceil(relevant.length/Math.max(1,maxPerSpecies)));
+     const diffs=[],effDiffs=[];
+     let n=0,pos=0,neg=0;
+     for(let i=0;i<relevant.length;i+=stride){
+       const f=relevant[i];
+       const genericFruit=fruitingConditions(type,f);
+       const labFruit=speciesWeatherLabFruitingAt(type,f._center);
+       const d=labFruit-genericFruit;
+       diffs.push(d);
+       if(d>1)pos++; else if(d<-1)neg++;
+
+       const habitat=staticSuitability(type,f);
+       const gf=Math.max(0,Math.min(1,genericFruit/100));
+       const lf=Math.max(0,Math.min(1,labFruit/100));
+       const genericEff=clamp(habitat*(.12+.88*Math.pow(gf,.52)));
+       const labEff=clamp(habitat*(.12+.88*Math.pow(lf,.52)));
+       effDiffs.push(labEff-genericEff);
+       n++;
+     }
+     diffs.sort((a,b)=>a-b);effDiffs.sort((a,b)=>a-b);
+     const q=(arr,p)=>{
+       if(!arr.length)return NaN;
+       const x=(arr.length-1)*p,lo=Math.floor(x),hi=Math.ceil(x),t=x-lo;
+       return arr[lo]*(1-t)+arr[hi]*t;
+     };
+     const a=speciesWeatherLabAssignment(type);
+     rows.push({
+       area:area.name,type,label:SPECIES_META[type].label,profile:a.profile,evidence:a.evidence,n,
+       fruitDeltaP10:q(diffs,.1),fruitDeltaMedian:q(diffs,.5),fruitDeltaP90:q(diffs,.9),
+       effectiveDeltaMedian:q(effDiffs,.5),effectiveDeltaP90:q(effDiffs,.9),
+       positivePct:100*pos/n,negativePct:100*neg/n
+     });
+   }
+ }
+ console.table([...rows].sort((a,b)=>Math.abs(b.effectiveDeltaMedian)-Math.abs(a.effectiveDeltaMedian)).map(r=>({
+   area:r.area,
+   gatunek:r.label,
+   profil:r.profile,
+   dowod:r.evidence,
+   n:r.n,
+   fruitP10:Number(r.fruitDeltaP10.toFixed(1)),
+   fruitMed:Number(r.fruitDeltaMedian.toFixed(1)),
+   fruitP90:Number(r.fruitDeltaP90.toFixed(1)),
+   effectiveMed:Number(r.effectiveDeltaMedian.toFixed(2)),
+   effectiveP90:Number(r.effectiveDeltaP90.toFixed(2)),
+   labWyzejPct:Number(r.positivePct.toFixed(1)),
+   labNizejPct:Number(r.negativePct.toFixed(1))
+ })));
+ const report={
+   version:'v109',ok:rows.length>0,productionScoringChanged:false,
+   note:'Symulacja wpływu na pojedyncze gatunki. Nie zmienia mapy.',rows
+ };
+ console.info('SPECIES WEATHER SPATIAL IMPACT v109',report);
+ return report;
+}
+window.auditSpeciesWeatherSpatialImpact=auditSpeciesWeatherSpatialImpact;
+
 window.auditBorrowedIdeas=auditBorrowedIdeas;
 
 window.auditCenterIsolation=auditCenterIsolation;
@@ -11472,12 +11869,14 @@ function auditAppBootstrap(){
    explorationMosaicAudit:typeof window.auditExplorationMosaicLab==='function',
    regionalTop3Audit:typeof window.auditRegionalTop3Robustness==='function',
    borrowedIdeasAudit:typeof window.auditBorrowedIdeas==='function',
+   speciesWeatherLabAudit:typeof window.auditSpeciesWeatherLab==='function',
+   speciesWeatherSpatialAudit:typeof window.auditSpeciesWeatherSpatialImpact==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v108',ok:failed.length===0,checks,failed};
+ const report={version:'v109',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }
@@ -17280,7 +17679,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v108: automatyczny start w tle');
+      console.info('Benchmark krajowy v109: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

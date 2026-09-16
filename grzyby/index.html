@@ -1,6 +1,37 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v117:
+     OBSERVATION FETCH v2 — TAXON ID + PUBLIC COORDS + CIRCLE QUERY.
+
+     Wynik v116:
+       iNaturalist raw=0,
+       GBIF raw=3, ale wszystkie 3 rekordy leżały poza promieniem 35 km.
+     To ujawniło dwa problemy jakości zapytania:
+
+       1) iNaturalist:
+          geoprivacy=open + taxon_geoprivacy=open to zapytanie AND.
+          Jest zbyt restrykcyjne jako etap pobierania i może zwracać 0 mimo
+          publicznych współrzędnych. v117 pobiera geo=true, a prywatność
+          rozstrzyga dopiero parser: obscured/private są odrzucane.
+
+       2) GBIF:
+          poprzednie geometry WKT było prostokątem opisanym na kole 35 km.
+          Rekordy z narożników prostokąta mogły być raw, a potem wszystkie
+          odpaść jako outsideRadius. v117 wysyła prawdziwy wielokąt koła.
+
+     Dodatkowo:
+       - iNaturalist najpierw rozwiązuje dokładny taxon_id po nazwie naukowej,
+       - GBIF rozwiązuje accepted usageKey przez species/match,
+       - oba resolvery mają cache i diagnostykę,
+       - source health pokazuje resolved taxon ID/key,
+       - backtest przy braku obserwacji w samym kole analizy pokazuje
+         nearestObsKm zamiast niejasnego "brak",
+       - Soil WCS timeout nie używa AbortController, żeby nie generować
+         mylących "Uncaught AbortError" przy fallbacku endpointów.
+
+     Produkcyjny scoring bez zmian.
+
 <!-- GitHub production v116:
      OBSERVATION FETCH FIX + DIAGNOSTYKA ŹRÓDEŁ.
 
@@ -4817,11 +4848,18 @@ function soilWcsUrls(def,bb,size=SOIL_WCS_GRID){
  ];
 }
 
-async function fetchArrayBufferWithTimeout(url,timeoutMs=14000){
- const ctrl=new AbortController();
- const timer=setTimeout(()=>ctrl.abort(),timeoutMs);
+async function fetchArrayBufferWithTimeout(url,timeoutMs=18000){
+ let timer=null;
+ const fetchPromise=fetch(url,{mode:'cors'});
+ // Jeśli timeout wygra race, późniejsze odrzucenie fetch nie może stać się unhandled.
+ fetchPromise.catch(()=>{});
+
+ const timeoutPromise=new Promise((_,reject)=>{
+   timer=setTimeout(()=>reject(new Error(`WCS timeout ${timeoutMs} ms`)),timeoutMs);
+ });
+
  try{
-   const r=await fetch(url,{signal:ctrl.signal,mode:'cors'});
+   const r=await Promise.race([fetchPromise,timeoutPromise]);
    if(!r.ok){
      const err=new Error(`HTTP ${r.status}`);
      err.status=r.status;
@@ -4834,7 +4872,7 @@ async function fetchArrayBufferWithTimeout(url,timeoutMs=14000){
    }
    return await r.arrayBuffer();
  }finally{
-   clearTimeout(timer);
+   if(timer!==null)clearTimeout(timer);
  }
 }
 
@@ -5207,7 +5245,7 @@ async function fetchSoilWcsRaster(def,bb){
 
  for(let i=0;i<urls.length;i++){
    try{
-     const ab=await fetchArrayBufferWithTimeout(urls[i],14000);
+     const ab=await fetchArrayBufferWithTimeout(urls[i],18000);
      const raster=await parseSoilGeoTiff(ab);
      console.debug(
        `Soil WCS ${def.key}: ${raster.width}x${raster.height}, layout=${raster.layout}, compression=${raster.compression}, predictor=${raster.predictor}, sampleFormat=${raster.sampleFormat}`+
@@ -6170,25 +6208,86 @@ function featureRelevant(type,f){
 // v65: usunieto computeLocalRanks - nigdy nie bylo wywolywane.
 
 const observationFetchDiagnostics={};
+const observationTaxonResolverCache={
+ inat:new Map(),
+ gbif:new Map()
+};
+
+async function resolveINatTaxonId(type){
+ if(observationTaxonResolverCache.inat.has(type))return observationTaxonResolverCache.inat.get(type);
+ const scientific=SCI_NAMES[type];
+ let out=null;
+ try{
+   const q=new URLSearchParams({q:scientific,rank:'species',per_page:'30'});
+   const j=await fetchJsonWithTimeout('https://api.inaturalist.org/v1/taxa?'+q,15000,2);
+   const exact=(j.results||[]).find(x=>String(x.name||'').toLowerCase()===String(scientific).toLowerCase());
+   if(exact?.id)out={id:exact.id,name:exact.name,matched:'exact'};
+   else if(j.results?.[0]?.id)out={id:j.results[0].id,name:j.results[0].name,matched:'fallback'};
+ }catch(e){
+   console.warn('iNat taxon resolver',scientific,e);
+ }
+ observationTaxonResolverCache.inat.set(type,out);
+ return out;
+}
+
+async function resolveGbifTaxonKey(type){
+ if(observationTaxonResolverCache.gbif.has(type))return observationTaxonResolverCache.gbif.get(type);
+ const scientific=SCI_NAMES[type];
+ let out=null;
+ try{
+   const q=new URLSearchParams({name:scientific,rank:'SPECIES'});
+   const j=await fetchJsonWithTimeout('https://api.gbif.org/v1/species/match?'+q,15000,2);
+   const key=Number(j.acceptedUsageKey||j.usageKey);
+   if(Number.isFinite(key))out={
+     key,
+     scientificName:j.scientificName||scientific,
+     canonicalName:j.canonicalName||scientific,
+     matchType:j.matchType||null,
+     confidence:j.confidence??null
+   };
+ }catch(e){
+   console.warn('GBIF taxon resolver',scientific,e);
+ }
+ observationTaxonResolverCache.gbif.set(type,out);
+ return out;
+}
+
+function circleWkt(center,rKm,steps=48){
+ const [lat,lon]=center;
+ const cosLat=Math.max(.18,Math.cos(lat*Math.PI/180));
+ const pts=[];
+ for(let i=0;i<=steps;i++){
+   const a=2*Math.PI*i/steps;
+   const dLat=(Math.sin(a)*rKm)/111.32;
+   const dLon=(Math.cos(a)*rKm)/(111.32*cosLat);
+   pts.push(`${(lon+dLon).toFixed(6)} ${(lat+dLat).toFixed(6)}`);
+ }
+ return `POLYGON((${pts.join(',')}))`;
+}
+
 async function fetchINat(type){
  const out=[];
+ const taxon=await resolveINatTaxonId(type);
  const diag={
    source:'iNaturalist',areas:0,pages:0,raw:0,accepted:0,
-   privacyRejected:0,accuracyRejected:0,noCoords:0,dateRejected:0,errors:[]
+   privacyRejected:0,accuracyRejected:0,noCoords:0,dateRejected:0,
+   errors:[],resolvedTaxon:taxon
  };
+
  for(const a of ANALYSIS_CENTERS){
    diag.areas++;
-   for(let page=1;page<=2;page++){
-     const q=new URLSearchParams({
-       taxon_name:SCI_NAMES[type],
+   for(let page=1;page<=3;page++){
+     const params={
        lat:String(a.point[0]),lng:String(a.point[1]),radius:'35',
        quality_grade:'research',
        geo:'true',
-       geoprivacy:'open',
-       taxon_geoprivacy:'open',
        per_page:'200',page:String(page),
        order:'desc',order_by:'observed_on'
-     });
+     };
+     if(taxon?.id)params.taxon_id=String(taxon.id);
+     else params.taxon_name=SCI_NAMES[type];
+
+     const q=new URLSearchParams(params);
      let j;
      try{
        j=await fetchJsonWithTimeout('https://api.inaturalist.org/v1/observations?'+q,18000,2);
@@ -6197,13 +6296,14 @@ async function fetchINat(type){
        console.warn('iNat '+a.name,e);
        break;
      }
+
      diag.pages++;
      const results=j.results||[];
      diag.raw+=results.length;
 
      for(const o of results){
-       // API używa m.in. "open", "obscured", "private".
-       // Odrzucamy tylko faktycznie niepubliczne lokalizacje.
+       // Brak wartości traktujemy jako brak aktywnego ukrycia.
+       // Odrzucamy tylko jawne obscured/private.
        const gp=String(o.geoprivacy||'open').toLowerCase();
        const tgp=String(o.taxon_geoprivacy||'open').toLowerCase();
        if(['obscured','private'].includes(gp)||['obscured','private'].includes(tgp)){
@@ -6243,67 +6343,87 @@ async function fetchINat(type){
      if(results.length<200)break;
    }
  }
+
  observationFetchDiagnostics[type]??={};
  observationFetchDiagnostics[type].inat=diag;
  return dedupObs(out);
 }
 async function fetchGBIF(type){
  const out=[];
+ const taxon=await resolveGbifTaxonKey(type);
  const diag={
-   source:'GBIF',areas:0,raw:0,accepted:0,
-   accuracyRejected:0,noCoords:0,dateRejected:0,outsideRadius:0,errors:[]
+   source:'GBIF',areas:0,pages:0,raw:0,accepted:0,
+   accuracyRejected:0,noCoords:0,dateRejected:0,outsideRadius:0,
+   errors:[],resolvedTaxon:taxon
  };
+
  for(const a of ANALYSIS_CENTERS){
    diag.areas++;
-   const bb=bboxFor(a.point,35);
-   const wkt=`POLYGON((${bb[0]} ${bb[1]},${bb[2]} ${bb[1]},${bb[2]} ${bb[3]},${bb[0]} ${bb[3]},${bb[0]} ${bb[1]}))`;
-   const q=new URLSearchParams({
-     scientificName:SCI_NAMES[type],geometry:wkt,
-     hasCoordinate:'true',hasGeospatialIssue:'false',limit:'300'
-   });
-   try{
-     const j=await fetchJsonWithTimeout('https://api.gbif.org/v1/occurrence/search?'+q,18000,2);
-     const results=j.results||[];
-     diag.raw+=results.length;
+   const wkt=circleWkt(a.point,35,48);
 
-     for(const o of results){
-       const lat=Number(o.decimalLatitude),lon=Number(o.decimalLongitude);
-       if(!Number.isFinite(lat)||!Number.isFinite(lon)){
-         diag.noCoords++;
-         continue;
-       }
-       if(hav(a.point,[lat,lon])>35){
-         diag.outsideRadius++;
-         continue;
+   for(let offset=0;offset<900;offset+=300){
+     const params={
+       geometry:wkt,
+       hasCoordinate:'true',
+       hasGeospatialIssue:'false',
+       limit:'300',
+       offset:String(offset)
+     };
+     if(taxon?.key)params.taxon_key=String(taxon.key);
+     else params.scientificName=SCI_NAMES[type];
+
+     const q=new URLSearchParams(params);
+     try{
+       const j=await fetchJsonWithTimeout('https://api.gbif.org/v1/occurrence/search?'+q,18000,2);
+       const results=j.results||[];
+       diag.pages++;
+       diag.raw+=results.length;
+
+       for(const o of results){
+         const lat=Number(o.decimalLatitude),lon=Number(o.decimalLongitude);
+         if(!Number.isFinite(lat)||!Number.isFinite(lon)){
+           diag.noCoords++;
+           continue;
+         }
+
+         // WKT jest już kołem, ale zachowujemy guard na błędy geometrii/API.
+         if(hav(a.point,[lat,lon])>35.4){
+           diag.outsideRadius++;
+           continue;
+         }
+
+         const date=new Date(o.eventDate||o.occurrenceDate||o.year||0);
+         if(!Number.isFinite(date.getTime())){
+           diag.dateRejected++;
+           continue;
+         }
+
+         const accRaw=o.coordinateUncertaintyInMeters;
+         const acc=accRaw===null||accRaw===undefined||accRaw===''?null:Number(accRaw);
+         if(Number.isFinite(acc)&&acc>1500){
+           diag.accuracyRejected++;
+           continue;
+         }
+
+         out.push({
+           lat,lon,date:date.toISOString(),
+           acc:Number.isFinite(acc)?acc:null,
+           accKnown:Number.isFinite(acc),
+           id:'gbif-'+(o.key||Math.random()),
+           source:'GBIF',taxon:o.scientificName||SCI_NAMES[type]
+         });
+         diag.accepted++;
        }
 
-       const date=new Date(o.eventDate||o.occurrenceDate||o.year||0);
-       if(!Number.isFinite(date.getTime())){
-         diag.dateRejected++;
-         continue;
-       }
-
-       const accRaw=o.coordinateUncertaintyInMeters;
-       const acc=accRaw===null||accRaw===undefined||accRaw===''?null:Number(accRaw);
-       if(Number.isFinite(acc)&&acc>1500){
-         diag.accuracyRejected++;
-         continue;
-       }
-
-       out.push({
-         lat,lon,date:date.toISOString(),
-         acc:Number.isFinite(acc)?acc:null,
-         accKnown:Number.isFinite(acc),
-         id:'gbif-'+(o.key||Math.random()),
-         source:'GBIF',taxon:o.scientificName||SCI_NAMES[type]
-       });
-       diag.accepted++;
+       if(results.length<300||j.endOfRecords===true)break;
+     }catch(e){
+       diag.errors.push(`${a.name}: ${String(e?.message||e)}`);
+       console.warn('GBIF '+a.name,e);
+       break;
      }
-   }catch(e){
-     diag.errors.push(`${a.name}: ${String(e?.message||e)}`);
-     console.warn('GBIF '+a.name,e);
    }
  }
+
  observationFetchDiagnostics[type]??={};
  observationFetchDiagnostics[type].gbif=diag;
  return dedupObs(out);
@@ -9210,11 +9330,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v116: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v117: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v116 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v117 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -9224,7 +9344,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v116 health',health);
+     console.info('National benchmark v117 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -11182,7 +11302,7 @@ function auditExplorationMosaicLab({top=20}={}){
    };
    rows.push(row);
 
-   console.info(`${area.name} — EXPLORATION MOSAIC LAB v116`);
+   console.info(`${area.name} — EXPLORATION MOSAIC LAB v117`);
    console.table(topRows.map(x=>({
      drzewo:x.tree,siedlisko:x.habitat,rodzina:x.habitatFamily,wiek:x.age,
      ha:Number(x.areaHa.toFixed(2)),
@@ -11223,7 +11343,7 @@ function auditExplorationMosaicLab({top=20}={}){
  const impossibleAgeCategory=rows.some(r=>r.maxAgeBandCount>5);
 
  const report={
-   version:'v116',
+   version:'v117',
    ok:rows.length>0&&!fragmentationWarning&&!impossibleAgeCategory,
    scoringChanged:false,
    meaning:'exploration / mosaic effective richness; missing data excluded and tracked via coverage; NOT biological edge bonus',
@@ -11232,7 +11352,7 @@ function auditExplorationMosaicLab({top=20}={}){
    impossibleAgeCategory,
    rows
  };
- console.info('EXPLORATION MOSAIC LAB v116',report);
+ console.info('EXPLORATION MOSAIC LAB v117',report);
  return report;
 }
 window.auditExplorationMosaicLab=auditExplorationMosaicLab;
@@ -11267,8 +11387,8 @@ function auditRegionalTop3Robustness(){
    dzisTop3Mean:Number.isFinite(r.todayTop3Mean)?Number(r.todayTop3Mean.toFixed(2)):null,
    dzisStabilnosc:r.todayLabel
  })));
- const report={version:'v116',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
- console.info('REGIONAL TOP3 ROBUSTNESS v116',report);
+ const report={version:'v117',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
+ console.info('REGIONAL TOP3 ROBUSTNESS v117',report);
  return report;
 }
 window.auditRegionalTop3Robustness=auditRegionalTop3Robustness;
@@ -11287,7 +11407,7 @@ function auditBorrowedIdeas(){
    {element:'Road/satellite accessibility',status:'BRAK',source:'shroom-fm / Boletus',note:'nie mieszamy z biologicznym score bez osobnej warstwy'}
  ];
  console.table(rows);
- const report={version:'v116',ok:true,productionScoringChanged:false,rows,
+ const report={version:'v117',ok:true,productionScoringChanged:false,rows,
    nextPriority:['przetestować v112 w różnych warunkach pogodowych','backtest obserwacji','OSM access as separate practical score']};
  console.info('BORROWED IDEAS AUDIT v108',report);
  return report;
@@ -11298,8 +11418,8 @@ function auditSpeciesWeatherLab(){
  const allRows=[];
 
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v116',ok:false,error:'Pogoda nie jest jeszcze załadowana. Wybierz rejon i poczekaj na Open-Meteo.'};
-   console.warn('SPECIES WEATHER LAB v116',report);
+   const report={version:'v117',ok:false,error:'Pogoda nie jest jeszcze załadowana. Wybierz rejon i poczekaj na Open-Meteo.'};
+   console.warn('SPECIES WEATHER LAB v117',report);
    return report;
  }
 
@@ -11335,7 +11455,7 @@ function auditSpeciesWeatherLab(){
    });
    allRows.push(...rows);
 
-   console.info(`${area.name} — ANCHORED SPECIES WEATHER LAB v116`);
+   console.info(`${area.name} — ANCHORED SPECIES WEATHER LAB v117`);
    console.table([...rows].sort((a,b)=>Math.abs(b.anchoredFruitingDelta)-Math.abs(a.anchoredFruitingDelta)).map(r=>({
      gatunek:r.label,
      profil:r.profile,
@@ -11388,15 +11508,15 @@ function auditSpeciesWeatherLab(){
    warning:'ArchGap jest diagnostyką różnicy architektury i NIE jest nakładany na mapę. Anchored delta izoluje gatunkowość.',
    rows:allRows
  };
- console.info('ANCHORED SPECIES WEATHER LAB v116',report);
+ console.info('ANCHORED SPECIES WEATHER LAB v117',report);
  return report;
 }
 window.auditSpeciesWeatherLab=auditSpeciesWeatherLab;
 
 function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v116',ok:false,error:'Pogoda nie jest gotowa.'};
-   console.warn('SPECIES WEATHER SPATIAL IMPACT v116',report);
+   const report={version:'v117',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER SPATIAL IMPACT v117',report);
    return report;
  }
  const rows=[];
@@ -11481,14 +11601,14 @@ function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
    note:'Nie zmienia mapy. Oczekujemy mniejszych, gatunkowo zróżnicowanych korekt niż v109.',
    rows
  };
- console.info('SPECIES WEATHER SPATIAL IMPACT v116',report);
+ console.info('SPECIES WEATHER SPATIAL IMPACT v117',report);
  return report;
 }
 
 function auditSpeciesWeatherArchitectureGap(){
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v116',ok:false,error:'Pogoda nie jest gotowa.'};
-   console.warn('SPECIES WEATHER ARCHITECTURE GAP v116',report);
+   const report={version:'v117',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER ARCHITECTURE GAP v117',report);
    return report;
  }
  const rows=[];
@@ -11515,7 +11635,7 @@ function auditSpeciesWeatherArchitectureGap(){
    note:'To NIE jest delta gatunkowa. Pokazuje tylko, jak bardzo nowa architektura skali różni się od obecnego weatherAt().',
    rows
  };
- console.info('SPECIES WEATHER ARCHITECTURE GAP v116',report);
+ console.info('SPECIES WEATHER ARCHITECTURE GAP v117',report);
  return report;
 }
 
@@ -11531,7 +11651,7 @@ function auditSpeciesWeatherStressMatrix(){
 
  for(const scenarioKey of Object.keys(SPECIES_WEATHER_STRESS_SCENARIOS)){
    const scenario=SPECIES_WEATHER_STRESS_SCENARIOS[scenarioKey];
-   console.info(`${scenario.label} — SPECIES WEATHER STRESS v116`);
+   console.info(`${scenario.label} — SPECIES WEATHER STRESS v117`);
    console.table(rows.filter(r=>r.scenario===scenarioKey).map(r=>({
      gatunek:r.label,profil:r.profile,dowod:r.evidence,
      neutral:Number(r.neutral.toFixed(1)),
@@ -11546,11 +11666,11 @@ function auditSpeciesWeatherStressMatrix(){
  }
 
  const report={
-   version:'v116',ok:rows.length>0,productionScoringChanged:false,
+   version:'v117',ok:rows.length>0,productionScoringChanged:false,
    scenarios:Object.fromEntries(Object.entries(SPECIES_WEATHER_STRESS_SCENARIOS).map(([k,v])=>[k,v.label])),
    rows
  };
- console.info('SPECIES WEATHER STRESS MATRIX v116',report);
+ console.info('SPECIES WEATHER STRESS MATRIX v117',report);
  return report;
 }
 window.auditSpeciesWeatherStressMatrix=auditSpeciesWeatherStressMatrix;
@@ -11607,10 +11727,10 @@ function auditSpeciesWeatherStressAssertions(){
  const failures=checks.filter(x=>!x.ok);
  console.table(checks.map(c=>({test:c.name,ok:c.ok,details:JSON.stringify(c.details)})));
  const report={
-   version:'v116',ok:failures.length===0,productionScoringChanged:false,
+   version:'v117',ok:failures.length===0,productionScoringChanged:false,
    passed:checks.length-failures.length,total:checks.length,failures,checks,maxAppliedDelta:maxApplied
  };
- console.info('SPECIES WEATHER STRESS ASSERTIONS v116',report);
+ console.info('SPECIES WEATHER STRESS ASSERTIONS v117',report);
  return report;
 }
 
@@ -11730,8 +11850,8 @@ function speciesWeatherAuditBestType(f,useProduction=true){
 
 function auditSpeciesWeatherActivation({topN=50}={}){
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v116',ok:false,error:'Pogoda nie jest gotowa.'};
-   console.warn('SPECIES WEATHER ACTIVATION v116',report);
+   const report={version:'v117',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER ACTIVATION v117',report);
    return report;
  }
  const rows=[];
@@ -11800,7 +11920,7 @@ function auditSpeciesWeatherActivation({topN=50}={}){
    rule:'porównanie szerokiej mapy DZIŚ przed (generic weather) i po (species weather); OGÓLNIE bez zmian',
    rows
  };
- console.info('SPECIES WEATHER ACTIVATION v116',report);
+ console.info('SPECIES WEATHER ACTIVATION v117',report);
  return report;
 }
 window.auditSpeciesWeatherActivation=auditSpeciesWeatherActivation;
@@ -11833,11 +11953,11 @@ function auditSpeciesWeatherProductionSafety(){
  })));
  const ok=violations===0&&nan===0&&maxApplied<=SPECIES_WEATHER_PRODUCTION_MAX_DELTA+1e-9;
  const report={
-   version:'v116',ok,productionEnabled:speciesWeatherProductionEnabled,
+   version:'v117',ok,productionEnabled:speciesWeatherProductionEnabled,
    todayOverOverall:violations,nan,maxAppliedWeatherDelta:maxApplied,
    cap:SPECIES_WEATHER_PRODUCTION_MAX_DELTA,rows
  };
- console.info('SPECIES WEATHER PRODUCTION SAFETY v116',report);
+ console.info('SPECIES WEATHER PRODUCTION SAFETY v117',report);
  return report;
 }
 
@@ -11931,8 +12051,8 @@ function backtestQuantile(arr,p){
 function auditObservationSourceHealth(typeOverride=null){
  const type=typeOverride||activeSingleSpeciesType();
  if(!type||!SPECIES_META[type]){
-   const report={version:'v116',ok:false,error:'Wybierz dokładnie jeden gatunek w Atlasie albo podaj np. auditObservationSourceHealth("borowik").'};
-   console.warn('OBSERVATION SOURCE HEALTH v116',report);
+   const report={version:'v117',ok:false,error:'Wybierz dokładnie jeden gatunek w Atlasie albo podaj np. auditObservationSourceHealth("borowik").'};
+   console.warn('OBSERVATION SOURCE HEALTH v117',report);
    return report;
  }
  const d=observationFetchDiagnostics[type]||{};
@@ -11942,6 +12062,7 @@ function auditObservationSourceHealth(typeOverride=null){
  ];
  console.table(rows.map(r=>({
    source:r.source,
+   pages:r.pages??0,
    raw:r.raw??0,
    accepted:r.accepted??0,
    privacyRejected:r.privacyRejected??0,
@@ -11949,6 +12070,8 @@ function auditObservationSourceHealth(typeOverride=null){
    noCoords:r.noCoords??0,
    dateRejected:r.dateRejected??0,
    outsideRadius:r.outsideRadius??0,
+   taxon:r.resolvedTaxon?.id??r.resolvedTaxon?.key??null,
+   match:r.resolvedTaxon?.matched??r.resolvedTaxon?.matchType??null,
    errors:Array.isArray(r.errors)?r.errors.length:0
  })));
  const report={
@@ -11962,7 +12085,7 @@ function auditObservationSourceHealth(typeOverride=null){
    unknownAccuracy:d.unknownAccuracy??0,
    diagnostics:d
  };
- console.info('OBSERVATION SOURCE HEALTH v116',report);
+ console.info('OBSERVATION SOURCE HEALTH v117',report);
  return report;
 }
 window.auditObservationSourceHealth=auditObservationSourceHealth;
@@ -11973,34 +12096,34 @@ async function auditObservationSpatialBacktest({backgroundPerPositive=10,maxPosi
    const error=atlasSelected?.size>1
      ?`Zaznacz dokładnie 1 gatunek do backtestu (teraz wybrane: ${atlasSelected.size}).`
      :'Wybierz dokładnie jeden konkretny gatunek w Atlasie.';
-   const report={version:'v116',ok:false,error,atlasSelected:[...(atlasSelected||[])],currentFilter};
-   console.warn('OBSERVATION SPATIAL BACKTEST v116',report);
+   const report={version:'v117',ok:false,error,atlasSelected:[...(atlasSelected||[])],currentFilter};
+   console.warn('OBSERVATION SPATIAL BACKTEST v117',report);
    return report;
  }
  if(!obsLoaded[type]){
-   console.info(`OBSERVATION SPATIAL BACKTEST v116: pobieram historię ${HUMAN_NAMES[type]}…`);
+   console.info(`OBSERVATION SPATIAL BACKTEST v117: pobieram historię ${HUMAN_NAMES[type]}…`);
    try{await ensureObservations(type);}
    catch(e){
-     const report={version:'v116',ok:false,error:`Nie udało się pobrać historii ${HUMAN_NAMES[type]}: ${String(e?.message||e)}`};
-     console.warn('OBSERVATION SPATIAL BACKTEST v116',report);
+     const report={version:'v117',ok:false,error:`Nie udało się pobrać historii ${HUMAN_NAMES[type]}: ${String(e?.message||e)}`};
+     console.warn('OBSERVATION SPATIAL BACKTEST v117',report);
      return report;
    }
  }
  if(!obsLoaded[type]){
-   const report={version:'v116',ok:false,error:`Historia ${HUMAN_NAMES[type]} nadal nie jest dostępna.`};
-   console.warn('OBSERVATION SPATIAL BACKTEST v116',report);
+   const report={version:'v117',ok:false,error:`Historia ${HUMAN_NAMES[type]} nadal nie jest dostępna.`};
+   console.warn('OBSERVATION SPATIAL BACKTEST v117',report);
    return report;
  }
  const observations=(observationData[type]||[]).filter(o=>Number.isFinite(o.lat)&&Number.isFinite(o.lon));
  if(!observations.length){
    const d=observationFetchDiagnostics[type]||{};
    const report={
-     version:'v116',ok:false,
+     version:'v117',ok:false,
      error:`Brak zaakceptowanych publicznych obserwacji dla ${HUMAN_NAMES[type]} w pobranym zakresie.`,
      hint:'Uruchom auditObservationSourceHealth() — zobaczysz, czy problem leży w API, prywatności, dokładności czy po prostu braku rekordów.',
      diagnostics:d
    };
-   console.warn('OBSERVATION SPATIAL BACKTEST v116',report);
+   console.warn('OBSERVATION SPATIAL BACKTEST v117',report);
    return report;
  }
 
@@ -12012,7 +12135,13 @@ async function auditObservationSpatialBacktest({backgroundPerPositive=10,maxPosi
 
    const obsArea=observations.filter(o=>hav(area.point,[o.lat,o.lon])<=RADIUS_KM+.5);
    if(!obsArea.length){
-     areaRows.push({area:area.name,nCandidates:candidates.length,nObsRaw:0,nPositive:0,error:'brak obserwacji w kole analizy'});
+     const distances=observations.map(o=>hav(area.point,[o.lat,o.lon])).filter(Number.isFinite).sort((a,b)=>a-b);
+     areaRows.push({
+       area:area.name,nCandidates:candidates.length,nObsRaw:0,nPositive:0,
+       nearestObsKm:distances.length?distances[0]:null,
+       sourceObsTotal:observations.length,
+       error:`brak obserwacji w kole analizy ${RADIUS_KM} km`
+     });
      continue;
    }
 
@@ -12147,12 +12276,13 @@ async function auditObservationSpatialBacktest({backgroundPerPositive=10,maxPosi
    top10Pct:Number.isFinite(r.top10HitRate)?Number(r.top10HitRate.toFixed(1)):null,
    enrich10:Number.isFinite(r.top10Enrichment)?Number(r.top10Enrichment.toFixed(2)):null,
    top25Pct:Number.isFinite(r.top25HitRate)?Number(r.top25HitRate.toFixed(1)):null,
-   aucLike:Number.isFinite(r.pairedAucLikePotential)?Number(r.pairedAucLikePotential.toFixed(3)):null
+   aucLike:Number.isFinite(r.pairedAucLikePotential)?Number(r.pairedAucLikePotential.toFixed(3)):null,
+   nearestObsKm:Number.isFinite(r.nearestObsKm)?Number(r.nearestObsKm.toFixed(1)):null
  })));
 
  const usable=areaRows.filter(r=>r.nPositive>=5&&Number.isFinite(r.pairedAucLikePotential));
  const report={
-   version:'v116',
+   version:'v117',
    ok:usable.length>0,
    species:type,
    speciesLabel:HUMAN_NAMES[type],
@@ -12162,7 +12292,7 @@ async function auditObservationSpatialBacktest({backgroundPerPositive=10,maxPosi
    settings:{backgroundPerPositive,maxPositive,excludeObsKm,ringToleranceKm},
    rows:areaRows
  };
- console.info('OBSERVATION SPATIAL BACKTEST v116',report);
+ console.info('OBSERVATION SPATIAL BACKTEST v117',report);
  return report;
 }
 window.auditObservationSpatialBacktest=auditObservationSpatialBacktest;
@@ -13138,7 +13268,7 @@ function auditAppBootstrap(){
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v116',ok:failed.length===0,checks,failed};
+ const report={version:'v117',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }
@@ -18945,7 +19075,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v116: automatyczny start w tle');
+      console.info('Benchmark krajowy v117: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

@@ -1,18 +1,16 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v90: normalizacja GOTOWEGO miejsca, nie maksimum 24 percentyli.
-     Audyt v89 pokazał dwa przeciwne błędy:
-       OGÓLNIE: class4=68.6%, scoreMedian=9.41 -> nadal efekt "najlepszego z 24";
-       DZIŚ: class0=79.5%, scoreMedian=2.85 -> dzisiejsze raw porównywane do skali OGÓLNEJ.
-     v90 rozwiązuje oba naraz:
-       1) najpierw buduje SUROWĄ ocenę miejsca z najmocniejszej niszy + jakości 1–3 innych nisz,
-       2) dopiero GOTOWĄ ocenę miejsca porównuje z innymi wydzieleniami dla tego samego zestawu,
-       3) OGÓLNIE dostaje indeks lokalnej opłacalności 0–10,
-       4) DZIŚ = ten sam indeks OGÓLNY × retencja dzisiejszych warunków.
-     Nie ma już "max z 24 percentyli", więc cały las nie powinien być TOP.
-     DZIŚ nie jest też wciskane w rozkład OGÓLNY, więc nie powinno znikać.
-     Jeden wybrany gatunek pozostaje 1:1 na dotychczasowym modelu. -->
+<!-- GitHub production v91: kalibracja kolorów po ustabilizowaniu modelu v90.
+     Model opłacalności v90 pozostaje BEZ ZMIAN.
+     Audyt v90 pokazał zdrowy rozkład wyniku, ale progi wizualne były źle ustawione:
+       OGÓLNIE: TOP 15.1% (za dużo),
+       DZIŚ: TOP 1.2% i class0 38.5% (za mało mocnych miejsc).
+     v91 stroi wyłącznie klasy kolorów osobno dla obu trybów:
+       OGÓLNIE ~25/25/25/15/10%,
+       DZIŚ    ~25/25/25/20/5%.
+     DZIŚ nadal ma twardy cap: klasa DZIŚ <= klasa OGÓLNIE dla tego samego miejsca.
+     Scoring, agregacja wielu gatunków, model pojedynczego gatunku, hotspoty i radar bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -8646,7 +8644,7 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v90',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v91',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
    rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków normalizuje gotową ocenę miejsca; DZIŚ = OGÓLNIE × retencja warunków']
@@ -8706,13 +8704,16 @@ function auditOpportunityBalance(){
  }
 
  const report={
-   version:'v90',
+   version:'v91',
    model:'raw site composite -> percentile among same target-set sites; Today = Overall index × current-condition retention',
-   classCuts:[4.15,5.70,7.20,8.80],
+   classCuts:{
+     overall:[3.40,5.80,8.00,9.20],
+     today:[2.95,5.15,7.05,8.48]
+   },
    perArea,
    targets:{
-     overall:'powinna być pełna rozpiętość, z czerwienią i ograniczoną liczbą TOP',
-     today:'powinno być słabsze od Ogólnie, ale nie znikać przy dobrych warunkach'
+     overall:'orientacyjnie 25/25/25/15/10% klas 0..4',
+     today:'orientacyjnie 25/25/25/20/5% klas 0..4, zawsze z capem DZIŚ <= OGÓLNIE'
    }
  };
  for(const [name,x] of Object.entries(perArea)){
@@ -8722,6 +8723,55 @@ function auditOpportunityBalance(){
  console.info('OPPORTUNITY BALANCE AUDIT',report);
  return report;
 }
+
+function auditVisualClassCalibration(){
+ const perArea={};
+
+ const one=(features,today)=>{
+   const counts=[0,0,0,0,0];
+   for(const f of features){
+     const s=today?todayScoreForStyle(f):stableAnchorScore(f);
+     const c=today?todayBalancedClass(f,s):balancedClass(f);
+     counts[c]++;
+   }
+   const n=features.length||1;
+   return {
+     n:features.length,
+     odpusc:Number((100*counts[0]/n).toFixed(1)),
+     rezerwowo:Number((100*counts[1]/n).toFixed(1)),
+     srednio:Number((100*counts[2]/n).toFixed(1)),
+     warto:Number((100*counts[3]/n).toFixed(1)),
+     TOP:Number((100*counts[4]/n).toFixed(1))
+   };
+ };
+
+ for(const area of ANALYSIS_CENTERS){
+   const features=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   if(!features.length)continue;
+   perArea[area.name]={overall:one(features,false),today:one(features,true)};
+ }
+
+ const report={
+   version:'v91',
+   thresholds:{
+     overall:[3.40,5.80,8.00,9.20],
+     today:[2.95,5.15,7.05,8.48]
+   },
+   target:{
+     overall:'~25 / 25 / 25 / 15 / 10',
+     today:'~25 / 25 / 25 / 20 / 5'
+   },
+   perArea
+ };
+ for(const [name,x] of Object.entries(perArea)){
+   console.info(name,'OGÓLNIE — KOLORY');console.table([x.overall]);
+   console.info(name,'DZIŚ — KOLORY');console.table([x.today]);
+ }
+ console.info('VISUAL CLASS CALIBRATION',report);
+ return report;
+}
+window.auditVisualClassCalibration=auditVisualClassCalibration;
+
 window.auditOpportunityBalance=auditOpportunityBalance;
 window.auditOpportunityBalance=auditOpportunityBalance;
 window.auditOpportunityBalance=auditOpportunityBalance;
@@ -8795,7 +8845,11 @@ function bestOpenHotspotEligible(f){
 function bestOpenPotentialClass(f){
  const s=stableAnchorScore(f);
  let c=0;
- if(s>=8.80)c=4; else if(s>=7.20)c=3; else if(s>=5.70)c=2; else if(s>=4.15)c=1;
+ if(s>=9.20)c=4;
+ else if(s>=8.00)c=3;
+ else if(s>=5.80)c=2;
+ else if(s>=3.40)c=1;
+
  const agg=opportunityAggregateInfo(f,false,atlasSelected.size?[...atlasSelected]:PICK_TYPES);
  const type=activeSingleSpeciesType()||agg.bestType||stableAllType(f);
  const cap=openHabitatVerdictCap(type,f),visualCap=[1,2,3,4][cap]??4;
@@ -8805,10 +8859,15 @@ function bestOpenPotentialClass(f){
 function bestOpenTodayClass(f){
  const s=todayScoreForStyle(f);
  let c=0;
- if(s>=8.80)c=4; else if(s>=7.20)c=3; else if(s>=5.70)c=2; else if(s>=4.15)c=1;
+ if(s>=8.48)c=4;
+ else if(s>=7.05)c=3;
+ else if(s>=5.15)c=2;
+ else if(s>=2.95)c=1;
+
  const agg=opportunityAggregateInfo(f,true,atlasSelected.size?[...atlasSelected]:PICK_TYPES);
  const type=activeSingleSpeciesType()||agg.bestType||stableAllType(f);
  const cap=openHabitatVerdictCap(type,f),visualCap=[1,2,3,4][cap]??4;
+
  return Math.min(c,visualCap,bestOpenPotentialClass(f));
 }
 
@@ -9339,11 +9398,13 @@ function balancedClass(f){
  const s=stableAnchorScore(f);
  if(f._kind==='open')return bestOpenPotentialClass(f);
 
- if(s>=8.80)return 4;
- if(s>=7.20)return 3;
- if(s>=5.70)return 2;
- if(s>=4.15)return 1;
- return 0;
+ // v91 — kalibracja wizualna OGÓLNIE na ustabilizowanym indeksie v90.
+ // Z audytu Prószkowa: Q25≈3.39, Q50≈5.82, Q75≈7.99, Q90≈9.21.
+ if(s>=9.20)return 4; // TOP ~10%
+ if(s>=8.00)return 3; // warto ~15%
+ if(s>=5.80)return 2; // średnio ~25%
+ if(s>=3.40)return 1; // rezerwowo ~25%
+ return 0;            // odpuść ~25%
 }
 
 // v56 — audyt i kalibracja skali kolorów.
@@ -9431,7 +9492,11 @@ function unifiedWithinClassProgress(f,c,today=false,score=NaN){
    }
  }
 
- const cuts=[0,4.15,5.70,7.20,8.80,10];
+ // v91: gradient wewnątrz klasy używa tych samych progów, co klasy.
+ const cuts=today
+   ? [0,2.95,5.15,7.05,8.48,10]
+   : [0,3.40,5.80,8.00,9.20,10];
+
  const lo=cuts[c],hi=cuts[c+1];
  let p=hi>lo?Math.max(0,Math.min(1,(score-lo)/(hi-lo))):.5;
  if(c===4)p=Math.pow(p,.72);
@@ -10056,12 +10121,16 @@ function todayBalancedClass(f,sOverride=NaN){
  if(single)return singleSpeciesTodayClass(single,f);
  if(f._kind==='open')return bestOpenTodayClass(f);
 
+ // v91 — DZIŚ ma własne progi, bo jego indeks jest celowo obniżany warunkami.
+ // Z audytu Prószkowa: Q25≈2.97, Q50≈5.16, Q75≈7.06, Q95≈8.49.
  let c=0;
- if(s>=8.80)c=4;
- else if(s>=7.20)c=3;
- else if(s>=5.70)c=2;
- else if(s>=4.15)c=1;
+ if(s>=8.48)c=4;      // TOP ~5%
+ else if(s>=7.05)c=3; // warto ~20%
+ else if(s>=5.15)c=2; // średnio ~25%
+ else if(s>=2.95)c=1; // rezerwowo ~25%
 
+ // Najważniejsza zasada semantyczna pozostaje twarda:
+ // DZIŚ nigdy nie może mieć wyższej klasy niż OGÓLNIE.
  return Math.min(c,balancedClass(f));
 }
 

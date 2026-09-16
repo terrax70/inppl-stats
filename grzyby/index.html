@@ -1,6 +1,15 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v95:
+     Benchmark krajowy uruchamia się automatycznie po starcie aplikacji.
+     v94 naprawił bootstrap, ale benchmark pozostawał state='idle' dopóki użytkownik
+     nie uruchomił analizy konkretnego miejsca. To było mylące i blokowało wcześniejszą
+     diagnostykę krajową. v95 startuje go nieblokująco ~1.5 s po inicjalizacji UI
+     (requestIdleCallback, a gdy niedostępny — setTimeout).
+     Wywołanie jest idempotentne: ensureNationalBenchmark() nie uruchomi drugiej kopii.
+     Scoring, klasy kolorów i algorytm benchmarku pozostają bez zmian.
+
 <!-- GitHub production v94 HOTFIX:
      Naprawa krytycznego błędu startu z v93. Na końcu skryptu pozostał stary eksport
      funkcji audytu V92, który powodował ReferenceError i zatrzymywał dalsze wykonanie JS.
@@ -9171,7 +9180,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  }
 
  const report={
-   version:'v93',
+   version:'v95',
    state:nationalBenchmarkState,
    lastError:nationalBenchmarkLastError,
    benchmark:{
@@ -9212,7 +9221,7 @@ function auditNationalBenchmarkStatus(){
    progress:nationalBenchmarkProgress,
    diagnostics:nationalGroupedFetchDiagnostics
  };
- console.info('NATIONAL BENCHMARK v93 STATUS',out);
+ console.info('NATIONAL BENCHMARK v95 STATUS',out);
  console.table(Object.entries(nationalGroupedFetchDiagnostics).map(([layer,d])=>({
    layer,
    stage:d.stage,
@@ -9240,6 +9249,7 @@ window.auditUnifiedOpportunityModel=auditUnifiedOpportunityModel;
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
+   benchmarkAutoStartHook:typeof startNationalBenchmarkDeferred==='function',
    nationalStatus:typeof window.auditNationalBenchmarkStatus==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
@@ -15035,7 +15045,28 @@ if(uiSelectedLocations){
 syncUiComparisonVisibility();
 
 
+
 setTimeout(()=>{scheduleNationalRadarRefresh();},900);
+
+// v95: benchmark krajowy jest niezależny od wybranego miejsca, więc nie czekamy
+// na pierwszą analizę lokalną. Startujemy go dopiero po inicjalizacji UI, aby nie
+// opóźniać Atlasu, wyszukiwarki ani pierwszego renderu mapy.
+const startNationalBenchmarkDeferred=()=>{
+  try{
+    if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
+      console.info('Benchmark krajowy v95: automatyczny start w tle');
+      startNationalBenchmarkInBackground();
+    }
+  }catch(e){
+    console.warn('Benchmark krajowy v95: nie udało się wystartować automatycznie',e);
+  }
+};
+if('requestIdleCallback' in window){
+  requestIdleCallback(startNationalBenchmarkDeferred,{timeout:1800});
+}else{
+  setTimeout(startNationalBenchmarkDeferred,1500);
+}
+
 </script>
 
 </body>

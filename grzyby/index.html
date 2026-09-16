@@ -1,6 +1,25 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v107:
+     EXPLORATION MOSAIC v2 — RICHNESS, NIE TYLKO EVENNESS.
+
+     Test v106 wykazał, że sam pomysł jest użyteczny (mozaika jest ortogonalna
+     do biologicznego score), ale v1 łatwo się nasycał:
+       - 2 kategorie 50/50 mogły dostać 100% "różnorodności", tak samo jak 6 kategorii,
+       - kontrast wieku często dobijał do twardego 100%.
+
+     v107:
+       - używa effective richness = exp(Shannon entropy),
+       - skaluje drzewa względem efektywnej liczby 5 kategorii,
+       - siedliska grupuje do 4 szerokich rodzin ekologicznych i skaluje richness do 4,
+       - wiek liczy jako różnorodność 5 klas wieku zamiast twardego SD/35,
+       - audyt pokazuje korelację z liczbą sąsiadów / powierzchnią polygonu / OGÓLNIE,
+         aby wykryć bias rozdrobnienia BDL.
+
+     Nadal jest to wyłącznie wskaźnik eksploracyjny. Produkcyjny scoring biologiczny,
+     kolory, hotspoty i benchmark krajowy pozostają bez zmian.
+
 <!-- GitHub production v106:
      RESEARCH-INFORMED EXPLORATION LAB.
      Po porównaniu projektu z Tattis, Boletus, FungiRadar, Oma Tienoo oraz
@@ -8404,11 +8423,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v106: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v107: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v106 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v107 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -8418,7 +8437,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v106 health',health);
+     console.info('National benchmark v107 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -9294,23 +9313,48 @@ function forestContextInfo(f){
 
 const explorationMosaicCache=new WeakMap();
 
-function explorationEntropyScore(weightMap){
+function explorationEffectiveRichness(weightMap){
  const entries=[...weightMap.values()].filter(x=>Number.isFinite(x)&&x>0);
- if(entries.length<=1)return 0;
+ if(!entries.length)return {entropy:0,effective:0,count:0};
  const total=entries.reduce((a,b)=>a+b,0);
- if(!(total>0))return 0;
+ if(!(total>0))return {entropy:0,effective:0,count:entries.length};
  let h=0;
  for(const w of entries){
    const p=w/total;
    h-=p*Math.log(p);
  }
- const maxH=Math.log(entries.length);
- return maxH>0?Math.max(0,Math.min(1,h/maxH)):0;
+ return {entropy:h,effective:Math.exp(h),count:entries.length};
+}
+
+function explorationRichnessScore(weightMap,targetEffective){
+ const r=explorationEffectiveRichness(weightMap);
+ if(r.effective<=1||targetEffective<=1)return {...r,score:0};
+ return {...r,score:Math.max(0,Math.min(1,(r.effective-1)/(targetEffective-1)))};
+}
+
+function explorationHabitatFamily(code){
+ const c=String(code||'').toUpperCase();
+ if(['BSW','BMSW'].includes(c))return 'bory_suche_swieze';
+ if(['LMSW','LSW'].includes(c))return 'lasy_swieze';
+ if(['BW','BMW','LMW','LW'].includes(c))return 'wilgotne';
+ if(['BB','BMB','LMB','OL','OLJ'].includes(c))return 'bagienne_olsowe';
+ return c||'?';
+}
+
+function explorationAgeBand(age){
+ const a=Number(age);
+ if(!Number.isFinite(a)||a<=0)return '?';
+ if(a<=20)return '0-20';
+ if(a<=40)return '21-40';
+ if(a<=60)return '41-60';
+ if(a<=90)return '61-90';
+ return '91+';
 }
 
 function explorationMosaicInfo(f){
  if(!f||f._kind==='open'){
    return {score:0,treeDiversity:0,habitatDiversity:0,ageContrast:0,density:0,count:0,areaHa:0,
+     treeEffective:0,habitatEffective:0,ageEffective:0,treeCount:0,habitatCount:0,ageBandCount:0,
      label:'niska',note:'teren otwarty — wskaźnik mozaiki lasu nie jest używany'};
  }
  if(explorationMosaicCache.has(f))return explorationMosaicCache.get(f);
@@ -9318,9 +9362,22 @@ function explorationMosaicInfo(f){
  const {cell,grid}=prepareForestGrid();
  const ci=Math.floor(f._center[0]/cell),cj=Math.floor(f._center[1]/cell);
  const seen=new Set();
- const treeWeights=new Map(),habWeights=new Map();
- const ages=[];
+ const treeWeights=new Map(),habWeights=new Map(),ageWeights=new Map();
  let areaHa=0,count=0;
+
+ const addFeature=(g,d)=>{
+   const a=Math.max(.05,featureAreaHa(g));
+   const proximity=Math.max(.15,1-d/.65);
+   const w=Math.sqrt(a)*proximity;
+   areaHa+=a;count++;
+
+   const tree=speciesCode(g.properties||{})||'?';
+   const hab=explorationHabitatFamily(habitatCode(g.properties||{}));
+   const ageBand=explorationAgeBand(g.properties?.species_age);
+   treeWeights.set(tree,(treeWeights.get(tree)||0)+w);
+   habWeights.set(hab,(habWeights.get(hab)||0)+w);
+   ageWeights.set(ageBand,(ageWeights.get(ageBand)||0)+w);
+ };
 
  for(let di=-2;di<=2;di++)for(let dj=-2;dj<=2;dj++){
    for(const g of (grid.get((ci+di)+'|'+(cj+dj))||[])){
@@ -9328,56 +9385,40 @@ function explorationMosaicInfo(f){
      const key=stableFeatureKey(g);if(seen.has(key))continue;seen.add(key);
      const d=hav(f._center,g._center);
      if(d>.55)continue;
-
-     // Bliższe wydzielenia są ważniejsze, ale duży las nie może całkowicie zdominować.
-     const a=Math.max(.05,featureAreaHa(g));
-     const proximity=Math.max(.15,1-d/.65);
-     const w=Math.sqrt(a)*proximity;
-     areaHa+=a;count++;
-
-     const tree=speciesCode(g.properties||{})||'?';
-     const hab=habitatCode(g.properties||{})||'?';
-     treeWeights.set(tree,(treeWeights.get(tree)||0)+w);
-     habWeights.set(hab,(habWeights.get(hab)||0)+w);
-
-     const age=Number(g.properties?.species_age);
-     if(Number.isFinite(age)&&age>0)ages.push({age,w});
+     addFeature(g,d);
    }
  }
 
+ // Własne wydzielenie też jest częścią mozaiki, ale bez podwójnego areaHa/count.
+ const ownA=Math.max(.05,featureAreaHa(f));
+ const ownW=Math.max(.35,Math.sqrt(ownA));
  const ownTree=speciesCode(f.properties||{})||'?';
- const ownHab=habitatCode(f.properties||{})||'?';
- const ownW=Math.max(.35,Math.sqrt(Math.max(.05,featureAreaHa(f))));
+ const ownHab=explorationHabitatFamily(habitatCode(f.properties||{}));
+ const ownAge=explorationAgeBand(f.properties?.species_age);
  treeWeights.set(ownTree,(treeWeights.get(ownTree)||0)+ownW);
  habWeights.set(ownHab,(habWeights.get(ownHab)||0)+ownW);
+ ageWeights.set(ownAge,(ageWeights.get(ownAge)||0)+ownW);
 
- const ownAge=Number(f.properties?.species_age);
- if(Number.isFinite(ownAge)&&ownAge>0)ages.push({age:ownAge,w:ownW});
+ const treeR=explorationRichnessScore(treeWeights,5);
+ const habR=explorationRichnessScore(habWeights,4);
+ const ageR=explorationRichnessScore(ageWeights,4);
 
- const treeDiversity=explorationEntropyScore(treeWeights);
- const habitatDiversity=explorationEntropyScore(habWeights);
-
- let ageContrast=0;
- if(ages.length>=2){
-   let sw=0,mean=0;
-   for(const x of ages){sw+=x.w;mean+=x.age*x.w;}
-   mean/=Math.max(.001,sw);
-   let variance=0;
-   for(const x of ages)variance+=x.w*(x.age-mean)*(x.age-mean);
-   variance/=Math.max(.001,sw);
-   ageContrast=Math.max(0,Math.min(1,Math.sqrt(variance)/35));
- }
-
+ const treeDiversity=treeR.score;
+ const habitatDiversity=habR.score;
+ const ageContrast=ageR.score;
  const density=Math.max(0,Math.min(1,piecewise(areaHa,[[0,0],[5,.25],[15,.5],[35,.72],[70,.9],[130,1]])));
- // Celowo "exploration", nie grzybowy habitat bonus. Waga jest nasza:
- // kompozycja drzew i typ siedliska dominują, wiek jest dodatkiem.
- const structural=.45*treeDiversity+.38*habitatDiversity+.17*ageContrast;
+
+ // Nadal exploration-only. Wagi są engineering priorem, nie wagą biologiczną.
+ const structural=.45*treeDiversity+.35*habitatDiversity+.20*ageContrast;
  const score=10*structural*(.72+.28*density);
+
  const out={
    score:Math.max(0,Math.min(10,score)),
    treeDiversity,habitatDiversity,ageContrast,density,count,areaHa,
-   label:score>=7.2?'wysoka':score>=4.5?'średnia':'niska',
-   note:'wartość eksploracyjna; nie zmienia biologicznej oceny grzybów'
+   treeEffective:treeR.effective,habitatEffective:habR.effective,ageEffective:ageR.effective,
+   treeCount:treeR.count,habitatCount:habR.count,ageBandCount:ageR.count,
+   label:score>=6.8?'wysoka':score>=4.0?'średnia':'niska',
+   note:'wartość eksploracyjna v2; effective richness; nie zmienia biologicznej oceny grzybów'
  };
  explorationMosaicCache.set(f,out);
  return out;
@@ -10263,6 +10304,15 @@ function auditCenterIsolation(){
 }
 
 function auditExplorationMosaicLab({top=20}={}){
+ const pearson=(a,b)=>{
+   const pairs=a.map((x,i)=>[x,b[i]]).filter(([x,y])=>Number.isFinite(x)&&Number.isFinite(y));
+   if(pairs.length<3)return NaN;
+   const mx=pairs.reduce((s,p)=>s+p[0],0)/pairs.length;
+   const my=pairs.reduce((s,p)=>s+p[1],0)/pairs.length;
+   let num=0,dx=0,dy=0;
+   for(const [x,y] of pairs){const ax=x-mx,ay=y-my;num+=ax*ay;dx+=ax*ax;dy+=ay*ay;}
+   return dx>0&&dy>0?num/Math.sqrt(dx*dy):NaN;
+ };
  const rows=[];
  for(const area of ANALYSIS_CENTERS){
    const fs=stableCandidateFeatures(area.name).filter(f=>f._kind!=='open');
@@ -10274,6 +10324,7 @@ function auditExplorationMosaicLab({top=20}={}){
        overall:stableAnchorScore(f),
        tree:speciesCode(f.properties||{}),
        habitat:habitatCode(f.properties||{}),
+       habitatFamily:explorationHabitatFamily(habitatCode(f.properties||{})),
        age:Number(f.properties?.species_age||0),
        areaHa:featureAreaHa(f)
      };
@@ -10285,32 +10336,56 @@ function auditExplorationMosaicLab({top=20}={}){
      return scores[lo]*(1-t)+scores[hi]*t;
    };
    const topRows=[...vals].sort((a,b)=>b.e.score-a.e.score||b.overall-a.overall).slice(0,Math.max(1,top));
+   const corrNeighbors=pearson(vals.map(x=>x.e.score),vals.map(x=>x.e.count));
+   const corrArea=pearson(vals.map(x=>x.e.score),vals.map(x=>x.areaHa));
+   const corrOverall=pearson(vals.map(x=>x.e.score),vals.map(x=>x.overall));
+
    rows.push({
      area:area.name,n:vals.length,
      p10:q(.1),median:q(.5),p90:q(.9),
-     highPct:100*vals.filter(x=>x.e.score>=7.2).length/vals.length,
+     highPct:100*vals.filter(x=>x.e.score>=6.8).length/vals.length,
+     corrNeighbors,corrArea,corrOverall,
      top:topRows.map(x=>({
-       tree:x.tree,habitat:x.habitat,age:x.age,areaHa:x.areaHa,
+       tree:x.tree,habitat:x.habitat,habitatFamily:x.habitatFamily,age:x.age,areaHa:x.areaHa,
        exploration:x.e.score,overall:x.overall,
-       treeDiversity:x.e.treeDiversity,habitatDiversity:x.e.habitatDiversity,
-       ageContrast:x.e.ageContrast,neighborCount:x.e.count
+       treeEffective:x.e.treeEffective,habitatEffective:x.e.habitatEffective,ageEffective:x.e.ageEffective,
+       treeCount:x.e.treeCount,habitatCount:x.e.habitatCount,ageBandCount:x.e.ageBandCount,
+       neighborCount:x.e.count
      }))
    });
-   console.info(`${area.name} — EXPLORATION MOSAIC LAB v106`);
+
+   console.info(`${area.name} — EXPLORATION MOSAIC LAB v107`);
    console.table(topRows.map(x=>({
-     drzewo:x.tree,siedlisko:x.habitat,wiek:x.age,
+     drzewo:x.tree,siedlisko:x.habitat,rodzina:x.habitatFamily,wiek:x.age,
      ha:Number(x.areaHa.toFixed(2)),
      eksploracja:Number(x.e.score.toFixed(2)),
      ogolnie:Number(x.overall.toFixed(2)),
-     roznDrzew:Number((100*x.e.treeDiversity).toFixed(0)),
-     roznSiedlisk:Number((100*x.e.habitatDiversity).toFixed(0)),
-     kontrastWieku:Number((100*x.e.ageContrast).toFixed(0)),
+     effDrzew:Number(x.e.treeEffective.toFixed(2)),
+     effSiedlisk:Number(x.e.habitatEffective.toFixed(2)),
+     effKlasWieku:Number(x.e.ageEffective.toFixed(2)),
+     katDrzew:x.e.treeCount,
+     katSiedlisk:x.e.habitatCount,
+     klasWieku:x.e.ageBandCount,
      sasiedzi:x.e.count
    })));
+   console.table([{
+     area:area.name,n:vals.length,
+     p10:Number(q(.1).toFixed(2)),
+     mediana:Number(q(.5).toFixed(2)),
+     p90:Number(q(.9).toFixed(2)),
+     highPct:Number((100*vals.filter(x=>x.e.score>=6.8).length/vals.length).toFixed(1)),
+     corrSasiedzi:Number.isFinite(corrNeighbors)?Number(corrNeighbors.toFixed(3)):null,
+     corrPowierzchnia:Number.isFinite(corrArea)?Number(corrArea.toFixed(3)):null,
+     corrOgolnie:Number.isFinite(corrOverall)?Number(corrOverall.toFixed(3)):null
+   }]);
  }
- const report={version:'v106',ok:rows.length>0,scoringChanged:false,
-   meaning:'exploration / mosaic value only; deliberately NOT a biological edge bonus',rows};
- console.info('EXPLORATION MOSAIC LAB v106',report);
+ const suspicious=rows.some(r=>Math.abs(r.corrNeighbors)>0.65||Math.abs(r.corrArea)>0.65);
+ const report={
+   version:'v107',ok:rows.length>0&&!suspicious,scoringChanged:false,
+   meaning:'exploration / mosaic effective richness only; NOT biological edge bonus',
+   fragmentationBiasWarning:suspicious,rows
+ };
+ console.info('EXPLORATION MOSAIC LAB v107',report);
  return report;
 }
 window.auditExplorationMosaicLab=auditExplorationMosaicLab;
@@ -10345,8 +10420,8 @@ function auditRegionalTop3Robustness(){
    dzisTop3Mean:Number.isFinite(r.todayTop3Mean)?Number(r.todayTop3Mean.toFixed(2)):null,
    dzisStabilnosc:r.todayLabel
  })));
- const report={version:'v106',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
- console.info('REGIONAL TOP3 ROBUSTNESS v106',report);
+ const report={version:'v107',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
+ console.info('REGIONAL TOP3 ROBUSTNESS v107',report);
  return report;
 }
 window.auditRegionalTop3Robustness=auditRegionalTop3Robustness;
@@ -10365,9 +10440,9 @@ function auditBorrowedIdeas(){
    {element:'Road/satellite accessibility',status:'BRAK',source:'shroom-fm / Boletus',note:'nie mieszamy z biologicznym score bez osobnej warstwy'}
  ];
  console.table(rows);
- const report={version:'v106',ok:true,productionScoringChanged:false,rows,
+ const report={version:'v107',ok:true,productionScoringChanged:false,rows,
    nextPriority:['backtest obserwacji','species-specific weather lab','OSM access as separate practical score']};
- console.info('BORROWED IDEAS AUDIT v106',report);
+ console.info('BORROWED IDEAS AUDIT v107',report);
  return report;
 }
 window.auditBorrowedIdeas=auditBorrowedIdeas;
@@ -11322,7 +11397,7 @@ function auditAppBootstrap(){
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v106',ok:failed.length===0,checks,failed};
+ const report={version:'v107',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }
@@ -13096,7 +13171,7 @@ function unifiedPopupHtml(f,h=null){
      `<div class="factor"><span>Mikroteren</span><b>${moistureTerrainScore(type,f).toFixed(1)}</b></div></div>`+
      (soilRaw?`<div class="popup-mini" style="margin-top:6px">SoilGrids: pH ${soilRaw.ph.toFixed(1)} • SOC ${soilRaw.soc.toFixed(1)} • piasek ${soilRaw.sand.toFixed(1)}</div>`:'')+
      (Number.isFinite(hist.nearest)?`<div class="popup-mini">Najbliższa publiczna obserwacja: ${hist.nearest.toFixed(1)} km</div>`:'')+
-     `<div class="popup-mini">🧭 Mozaika eksploracyjna: ${exploration.score.toFixed(1)}/10 • drzewa ${Math.round(exploration.treeDiversity*100)}% • siedliska ${Math.round(exploration.habitatDiversity*100)}% • wiek ${Math.round(exploration.ageContrast*100)}%. <b>Nie wpływa na ocenę biologiczną.</b></div>`+
+     `<div class="popup-mini">🧭 Mozaika eksploracyjna: ${exploration.score.toFixed(1)}/10 • efektywne kategorie: drzewa ${exploration.treeEffective.toFixed(1)}, siedliska ${exploration.habitatEffective.toFixed(1)}, klasy wieku ${exploration.ageEffective.toFixed(1)}. <b>Nie wpływa na ocenę biologiczną.</b></div>`+
      (confidenceNotes.length?`<div class="popup-mini">🔎 Pewność oparta na: ${confidenceNotes.map(escapeHtml).join(' • ')}.</div>`:'')+
      `</details>`;
  }
@@ -17125,7 +17200,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v106: automatyczny start w tle');
+      console.info('Benchmark krajowy v107: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

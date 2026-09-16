@@ -1,6 +1,21 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v101:
+     AUDYT GATUNKOWY BENCHMARKU KRAJOWEGO.
+     Lab wag v100 pokazał, że zmiana 70/15/9/6 -> bardziej płaskie wagi praktycznie
+     NIE zmienia mediany Białowieży (~21 pc.). Problem nie leży więc w samych wagach
+     TOP4, tylko głębiej: w profilach poszczególnych gatunków / nisz.
+     v101 NIE zmienia mapy, prioru ani benchmarku v10. Dodaje:
+       auditNationalSpeciesBreakdown()
+     który dla każdego gatunku pokazuje:
+       - średni BDL-core regionu vs Polski,
+       - medianę / p10 / p90 krajowego percentyla,
+       - udział powierzchni powyżej krajowej mediany gatunku,
+       - udział w krajowym TOP10,
+       - niszę atlasu.
+     To pozwoli wskazać dokładnie, które gatunki sztucznie ciągną Białowieżę w dół.
+
 <!-- GitHub production v100:
      LABORATORIUM WAG BENCHMARKU KRAJOWEGO.
      Audyt v99 pokazał, że obecny krajowy composite 70/15/9/6 jest bardzo czuły
@@ -7234,6 +7249,19 @@ function nationalPercentileFromHistogram(profile,score){
  return Math.max(0,Math.min(100,100*(below+.5*same)/profile.total));
 }
 
+function nationalHistogramMean(profile){
+ if(!profile||!Array.isArray(profile.hist)||!profile.total)return NaN;
+ let s=0,w=0;
+ for(let i=0;i<profile.hist.length;i++){
+   const n=Number(profile.hist[i]||0);
+   if(!n)continue;
+   s+=(i*NATIONAL_BENCHMARK_BIN_STEP)*n;
+   w+=n;
+ }
+ return w?s/w:NaN;
+}
+
+
 function nationalQualityFactor(percentile){
  if(!Number.isFinite(percentile))return 1;
  // Celowo umiarkowany zakres. Benchmark ma kalibrować, a nie ponownie liczyć
@@ -9375,7 +9403,7 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v100',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v101',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
    rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków normalizuje gotową ocenę miejsca; DZIŚ = OGÓLNIE × retencja warunków']
@@ -9435,7 +9463,7 @@ function auditOpportunityBalance(){
  }
 
  const report={
-   version:'v100',
+   version:'v101',
    model:'v90 local composite + guarded national BDL area-weighted correction; Today = country-calibrated Overall × current-condition retention',
    classCuts:{
      overall:[3.40,5.80,8.00,9.20],
@@ -9483,7 +9511,7 @@ function auditVisualClassCalibration(){
  }
 
  const report={
-   version:'v100',
+   version:'v101',
    thresholds:{
      overall:[3.40,5.80,8.00,9.20],
      today:[2.95,5.15,7.05,8.48]
@@ -9555,7 +9583,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  }
 
  const report={
-   version:'v100',
+   version:'v101',
    state:nationalBenchmarkState,
    lastError:nationalBenchmarkLastError,
    benchmark:{
@@ -9589,7 +9617,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
 
 function auditNationalBenchmarkStatus(){
  const out={
-   version:'v100',
+   version:'v101',
    state:nationalBenchmarkState,
    error:nationalBenchmarkLastError||null,
    busy:!!nationalBenchmarkPromise,
@@ -9629,7 +9657,7 @@ function auditNationalPriorSafety(){
  }
  const maxAbs=Math.max(0,...rows.map(r=>Math.abs(r.areaPrior)));
  const report={
-   version:'v100',
+   version:'v101',
    ok:maxAbs<=.45,
    rule:'benchmark krajowy nie zmienia rankingu wydzieleń wewnątrz regionu; daje tylko wspólny prior max -0.45..+0.35',
    maxAbsPrior:maxAbs,
@@ -9647,7 +9675,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
 
  if(!health.ok||!country){
    const report={
-     version:'v100',ok:false,
+     version:'v101',ok:false,
      error:'Benchmark krajowy nie jest gotowy albo nie ma profilu explainability.',
      health
    };
@@ -9790,7 +9818,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
  }
 
  const report={
-   version:'v99',
+   version:'v101',
    ok:Object.keys(areas).length>0,
    benchmarkHealth:health,
    country:{
@@ -9860,7 +9888,7 @@ function auditTreeCodeCanonicalization(){
  }
 
  const report={
-   version:'v100',
+   version:'v101',
    ok:true,
    rule:'wariant BDL po kropce jest redukowany do bazowego hosta tylko jeśli baza jest znanym kodem drzewa',
    examples:{'DB.S':'DB','DB.B':'DB','BRZ.O':'BRZ','OL.S':'OL'},
@@ -9876,7 +9904,7 @@ function auditNationalNicheBreakdown(){
  const types=nationalForestBenchmarkTypes(PICK_TYPES);
 
  if(!health.ok||!Array.isArray(countryRows)){
-   const report={version:'v100',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
+   const report={version:'v101',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
    console.warn('NATIONAL NICHE BREAKDOWN',report);
    return report;
  }
@@ -10023,7 +10051,7 @@ function auditNationalNicheBreakdown(){
  }
 
  const report={
-   version:'v99',
+   version:'v101',
    ok:Object.keys(areas).length>0,
    exactContributionRule:'rank1=(1-breadthWeight); rank2..4=breadthWeight*[0.50,0.30,0.20]. Dla pełnego atlasu: 70% / 15% / 9% / 6%.',
    scoringChanged:false,
@@ -10039,7 +10067,7 @@ function auditNationalBenchmarkWeightLab(){
  const candidates=nationalBenchmark?.composites?.candidates;
 
  if(!health.ok||!candidates){
-   const report={version:'v100',ok:false,error:'Brak gotowych histogramów kandydackich.',health};
+   const report={version:'v101',ok:false,error:'Brak gotowych histogramów kandydackich.',health};
    console.warn('NATIONAL BENCHMARK WEIGHT LAB',report);
    return report;
  }
@@ -10113,6 +10141,137 @@ function auditNationalBenchmarkWeightLab(){
  console.info('NATIONAL BENCHMARK WEIGHT LAB v100',report);
  return report;
 }
+
+function auditNationalSpeciesBreakdown(){
+ const health=nationalBenchmarkHealth(nationalBenchmark);
+ const types=nationalForestBenchmarkTypes(PICK_TYPES);
+
+ if(!health.ok||!nationalBenchmark?.types){
+   const report={version:'v101',ok:false,error:'Benchmark krajowy nie jest gotowy.',health};
+   console.warn('NATIONAL SPECIES BREAKDOWN',report);
+   return report;
+ }
+
+ const q=(arr,p)=>{
+   const a=arr.filter(Number.isFinite).sort((x,y)=>x-y);
+   if(!a.length)return NaN;
+   const pos=(a.length-1)*p,lo=Math.floor(pos),hi=Math.ceil(pos),t=pos-lo;
+   return a[lo]*(1-t)+a[hi]*t;
+ };
+
+ const areas={};
+
+ for(const area of ANALYSIS_CENTERS){
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   if(!feats.length)continue;
+
+   const rows=[];
+
+   for(const type of types){
+     const profile=nationalBenchmark.types[type];
+     if(!profile?.total)continue;
+
+     const scores=[],pct=[],weights=[];
+     let weightedScore=0,totalWeight=0,aboveMedianWeight=0,top10Weight=0;
+
+     for(const f of feats){
+       const score=nationalCorePotentialForFeature(type,f);
+       if(!Number.isFinite(score))continue;
+       const p=nationalPercentileFromHistogram(profile,score);
+       const areaHa=Number(f.properties?.sub_area);
+       const w=Number.isFinite(areaHa)&&areaHa>0?areaHa:1;
+
+       scores.push(score);
+       pct.push(p);
+       weights.push(w);
+       weightedScore+=w*score;
+       totalWeight+=w;
+       if(score>=profile.q50)aboveMedianWeight+=w;
+       if(p>=90)top10Weight+=w;
+     }
+
+     const countryMean=nationalHistogramMean(profile);
+     const regionMean=totalWeight?weightedScore/totalWeight:NaN;
+     const medianPct=q(pct,.5);
+
+     rows.push({
+       type,
+       name:HUMAN_NAMES[type]||type,
+       niche:ATLAS_GROUP_SHORT[opportunityNicheKey(type)]||opportunityNicheKey(type),
+       n:scores.length,
+       regionMean,
+       countryMean,
+       meanDiff:regionMean-countryMean,
+       p10:q(pct,.1),
+       medianPct,
+       p90:q(pct,.9),
+       aboveCountryMedianPct:totalWeight?100*aboveMedianWeight/totalWeight:NaN,
+       top10Pct:totalWeight?100*top10Weight/totalWeight:NaN,
+       countryQ50:profile.q50,
+       countryQ90:profile.q90
+     });
+   }
+
+   rows.sort((a,b)=>a.medianPct-b.medianPct || a.meanDiff-b.meanDiff);
+
+   const low=rows.filter(x=>x.medianPct<35).slice(0,10);
+   const high=[...rows].sort((a,b)=>b.medianPct-a.medianPct).filter(x=>x.medianPct>65).slice(0,10);
+
+   areas[area.name]={rows,low,high};
+
+   console.info(`${area.name} — GATUNKI BENCHMARKU v101`);
+   console.table(rows.map(x=>({
+     gatunek:x.name,
+     nisza:x.niche,
+     coreRegion:Number(x.regionMean.toFixed(2)),
+     corePolska:Number(x.countryMean.toFixed(2)),
+     diffCore:Number(x.meanDiff.toFixed(2)),
+     p10:Number(x.p10.toFixed(1)),
+     medianaPc:Number(x.medianPct.toFixed(1)),
+     p90:Number(x.p90.toFixed(1)),
+     powyzejMedianPolskiPct:Number(x.aboveCountryMedianPct.toFixed(1)),
+     top10PolskiPct:Number(x.top10Pct.toFixed(1))
+   })));
+
+   console.info('⬇️ Gatunki najmocniej zaniżone względem kraju');
+   console.table(low.map(x=>({
+     gatunek:x.name,
+     nisza:x.niche,
+     medianaPc:Number(x.medianPct.toFixed(1)),
+     diffCore:Number(x.meanDiff.toFixed(2)),
+     powyzejMedianPolskiPct:Number(x.aboveCountryMedianPct.toFixed(1)),
+     top10PolskiPct:Number(x.top10Pct.toFixed(1))
+   })));
+
+   console.info('⬆️ Gatunki najmocniej ponad krajem');
+   console.table(high.map(x=>({
+     gatunek:x.name,
+     nisza:x.niche,
+     medianaPc:Number(x.medianPct.toFixed(1)),
+     diffCore:Number(x.meanDiff.toFixed(2)),
+     powyzejMedianPolskiPct:Number(x.aboveCountryMedianPct.toFixed(1)),
+     top10PolskiPct:Number(x.top10Pct.toFixed(1))
+   })));
+ }
+
+ const report={
+   version:'v101',
+   ok:Object.keys(areas).length>0,
+   benchmarkVersion:NATIONAL_BENCHMARK_VERSION,
+   scoringChanged:false,
+   priorChanged:false,
+   interpretation:{
+     medianaPc:'mediana krajowego percentyla BDL-core danego gatunku dla wydzieleń regionu',
+     powyzejMedianPolskiPct:'udział powierzchni regionu z core >= krajowe q50 danego gatunku',
+     top10PolskiPct:'udział powierzchni regionu w >=90 percentylu Polski dla danego gatunku'
+   },
+   areas
+ };
+ console.info('NATIONAL SPECIES BREAKDOWN v101',report);
+ return report;
+}
+window.auditNationalSpeciesBreakdown=auditNationalSpeciesBreakdown;
+
 window.auditNationalBenchmarkWeightLab=auditNationalBenchmarkWeightLab;
 
 window.auditNationalNicheBreakdown=auditNationalNicheBreakdown;
@@ -10144,12 +10303,13 @@ function auditAppBootstrap(){
    treeCodeAudit:typeof window.auditTreeCodeCanonicalization==='function',
    nicheAudit:typeof window.auditNationalNicheBreakdown==='function',
    weightLabAudit:typeof window.auditNationalBenchmarkWeightLab==='function',
+   speciesAudit:typeof window.auditNationalSpeciesBreakdown==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v100',ok:failed.length===0,checks,failed};
+ const report={version:'v101',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }

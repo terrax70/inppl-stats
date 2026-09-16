@@ -1,6 +1,22 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v100:
+     LABORATORIUM WAG BENCHMARKU KRAJOWEGO.
+     Audyt v99 pokazał, że obecny krajowy composite 70/15/9/6 jest bardzo czuły
+     na to, która nisza zajmuje #1. W Polsce #1 to najczęściej Bory sosnowe,
+     więc regiony sosnowe dostają strukturalną przewagę, a regiony bardziej mieszane
+     mogą być zaniżane mimo mocnych innych nisz.
+     v100 NIE zmienia mapy ani aktywnego prioru. Buduje obok obecnego benchmarku
+     trzy kandydackie histogramy kraju:
+       current_70_15_9_6   = 70/15/9/6
+       balanced_55_22_14_9 = 55/22/14/9
+       balanced_45_25_18_12= 45/25/18/12
+       smooth_40_30_20_10  = 40/30/20/10
+     Nowy auditNationalBenchmarkWeightLab() pokazuje dla aktualnego regionu,
+     jaki percentile dałby każdy wariant. Dopiero po testach Białowieża/Tuchola/
+     Prószków wybieramy ewentualną zmianę. Aktywny scoring v99 pozostaje bez zmian.
+
 <!-- GitHub production v99:
      AUDYT NISZ BENCHMARKU KRAJOWEGO.
      v98 naprawił DB.S/DB.B i podniósł medianę Białowieży z 14.7 do 21.3 pc.
@@ -6985,7 +7001,7 @@ function verdictRankCapFromMapClass(c){
 // pogody ani lokalnego rankingu. W praktycznej punktacji działa jako
 // umiarkowany mnożnik ok. 0.84–1.10.
 
-const NATIONAL_BENCHMARK_VERSION='bdl-pl-v9-niche-decomposition';
+const NATIONAL_BENCHMARK_VERSION='bdl-pl-v10-weight-lab';
 const NATIONAL_BENCHMARK_CACHE_KEY='grzyby:national-benchmark:'+NATIONAL_BENCHMARK_VERSION;
 const NATIONAL_BENCHMARK_MAX_AGE_MS=365*24*3600*1000;
 const NATIONAL_BENCHMARK_BIN_STEP=.05;
@@ -7122,6 +7138,39 @@ function nationalCoreCompositeForProps(types,props){
  return {score,best:best.score,support,niches:nicheRows.length,bestType:best.type,nicheRows,breadthWeight};
 }
 
+const NATIONAL_BENCHMARK_WEIGHT_SCHEMES={
+ current_70_15_9_6:{label:'Obecny 70/15/9/6',weights:[.70,.15,.09,.06]},
+ balanced_55_22_14_9:{label:'Łagodniejszy 55/22/14/9',weights:[.55,.22,.14,.09]},
+ balanced_45_25_18_12:{label:'Zbalansowany 45/25/18/12',weights:[.45,.25,.18,.12]},
+ smooth_40_30_20_10:{label:'Płynny 40/30/20/10',weights:[.40,.30,.20,.10]}
+};
+
+function nationalCompositeScoreForScheme(types,props,schemeKey){
+ const comp=nationalCoreCompositeForProps(types,props);
+ if(!comp||!Array.isArray(comp.nicheRows)||!comp.nicheRows.length)return NaN;
+
+ const scheme=NATIONAL_BENCHMARK_WEIGHT_SCHEMES[schemeKey];
+ if(!scheme)return comp.score;
+
+ if(comp.nicheRows.length===1)return comp.nicheRows[0].score;
+
+ const vals=[];
+ for(let i=0;i<4;i++)vals.push(comp.nicheRows[i]?.score ?? 4.80);
+
+ let sum=0,ws=0;
+ for(let i=0;i<4;i++){
+   const w=scheme.weights[i]||0;
+   sum+=w*vals[i];ws+=w;
+ }
+ return ws?clamp(sum/ws):NaN;
+}
+
+function nationalCompositeScoreForFeatureScheme(types,f,schemeKey){
+ if(!f||f._kind==='open')return NaN;
+ return nationalCompositeScoreForScheme(types,f.properties||{},schemeKey);
+}
+
+
 function nationalCoreCompositeForFeature(types,f){
  if(!f||f._kind==='open')return {score:NaN,best:NaN,support:NaN,niches:0,bestType:null};
  return nationalCoreCompositeForProps(types,f.properties||{});
@@ -7243,7 +7292,8 @@ function nationalBenchmarkHealth(obj=nationalBenchmark){
      &&Array.isArray(obj.diagnostics.composition.tree)&&obj.diagnostics.composition.tree.length>0
      &&Array.isArray(obj.diagnostics.composition.site)&&obj.diagnostics.composition.site.length>0
      &&Array.isArray(obj.diagnostics.composition.age)&&obj.diagnostics.composition.age.length>0,
-   nicheDecomposition:Array.isArray(obj?.diagnostics?.niches)&&obj.diagnostics.niches.length>=4
+   nicheDecomposition:Array.isArray(obj?.diagnostics?.niches)&&obj.diagnostics.niches.length>=4,
+   weightLab:Object.keys(obj?.composites?.candidates||{}).length===Object.keys(NATIONAL_BENCHMARK_WEIGHT_SCHEMES).length
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
  return {
@@ -7402,6 +7452,7 @@ function nationalBenchmarkCacheValid(obj){
  if(!(Number(obj?.composites?.allForest?.total||0)>0))return false;
  if(!obj?.diagnostics?.composition)return false;
  if(!Array.isArray(obj?.diagnostics?.niches)||obj.diagnostics.niches.length<4)return false;
+ if(Object.keys(obj?.composites?.candidates||{}).length!==Object.keys(NATIONAL_BENCHMARK_WEIGHT_SCHEMES).length)return false;
  const top=nationalBenchmarkTopCombosStatus(obj);
  return top.ok;
 }
@@ -7763,6 +7814,32 @@ async function buildNationalBenchmarkFromGroups(groups){
    q97:nationalHistogramQuantile(compositeHist,compositeTotal,.97)
  };
 
+ // v100: kandydackie histogramy benchmarku. Tylko diagnostyka — nie są używane przez mapę.
+ const candidateComposites={};
+ for(const [schemeKey,scheme] of Object.entries(NATIONAL_BENCHMARK_WEIGHT_SCHEMES)){
+   const hist=new Array(NATIONAL_BENCHMARK_BIN_COUNT).fill(0);
+   for(let i=0;i<combos.length;i++){
+     const c=combos[i];
+     const score=nationalCompositeScoreForScheme(forestTypes,c,schemeKey);
+     if(!Number.isFinite(score))continue;
+     const bin=Math.max(0,Math.min(NATIONAL_BENCHMARK_BIN_COUNT-1,Math.round(score/NATIONAL_BENCHMARK_BIN_STEP)));
+     hist[bin]+=weightOf(c);
+     if(i%900===0)await new Promise(r=>setTimeout(r,0));
+   }
+   const total=hist.reduce((a,b)=>a+Number(b||0),0);
+   candidateComposites[schemeKey]={
+     label:scheme.label,
+     weights:scheme.weights.slice(),
+     hist,total,
+     q10:nationalHistogramQuantile(hist,total,.10),
+     q25:nationalHistogramQuantile(hist,total,.25),
+     q50:nationalHistogramQuantile(hist,total,.50),
+     q75:nationalHistogramQuantile(hist,total,.75),
+     q90:nationalHistogramQuantile(hist,total,.90),
+     q97:nationalHistogramQuantile(hist,total,.97)
+   };
+ }
+
  // Diagnostyczne marginesy kraju. NIE uczestniczą w scoringu.
  // Pozwalają wyjaśnić, które drzewa / siedliska / klasy wieku odróżniają region od Polski.
  const diagnosticMaps={tree:new Map(),site:new Map(),age:new Map()};
@@ -7862,7 +7939,7 @@ async function buildNationalBenchmarkFromGroups(groups){
    source:'BDL layers 5+6 • nationwide grouped statistics • SUM(sub_area) primary weighting',
    groupedRows:groups.length,uniqueCombos:combos.length,totalRecords,totalAreaHa,weightMode,
    transportDiagnostics:nationalGroupedFetchDiagnostics,
-   composites:{allForest},
+   composites:{allForest,candidates:candidateComposites},
    diagnostics,
    types:profiles
  };
@@ -9298,7 +9375,7 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v99',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v100',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
    rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków normalizuje gotową ocenę miejsca; DZIŚ = OGÓLNIE × retencja warunków']
@@ -9358,7 +9435,7 @@ function auditOpportunityBalance(){
  }
 
  const report={
-   version:'v99',
+   version:'v100',
    model:'v90 local composite + guarded national BDL area-weighted correction; Today = country-calibrated Overall × current-condition retention',
    classCuts:{
      overall:[3.40,5.80,8.00,9.20],
@@ -9406,7 +9483,7 @@ function auditVisualClassCalibration(){
  }
 
  const report={
-   version:'v99',
+   version:'v100',
    thresholds:{
      overall:[3.40,5.80,8.00,9.20],
      today:[2.95,5.15,7.05,8.48]
@@ -9478,7 +9555,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  }
 
  const report={
-   version:'v99',
+   version:'v100',
    state:nationalBenchmarkState,
    lastError:nationalBenchmarkLastError,
    benchmark:{
@@ -9512,7 +9589,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
 
 function auditNationalBenchmarkStatus(){
  const out={
-   version:'v99',
+   version:'v100',
    state:nationalBenchmarkState,
    error:nationalBenchmarkLastError||null,
    busy:!!nationalBenchmarkPromise,
@@ -9552,7 +9629,7 @@ function auditNationalPriorSafety(){
  }
  const maxAbs=Math.max(0,...rows.map(r=>Math.abs(r.areaPrior)));
  const report={
-   version:'v99',
+   version:'v100',
    ok:maxAbs<=.45,
    rule:'benchmark krajowy nie zmienia rankingu wydzieleń wewnątrz regionu; daje tylko wspólny prior max -0.45..+0.35',
    maxAbsPrior:maxAbs,
@@ -9570,7 +9647,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
 
  if(!health.ok||!country){
    const report={
-     version:'v99',ok:false,
+     version:'v100',ok:false,
      error:'Benchmark krajowy nie jest gotowy albo nie ma profilu explainability.',
      health
    };
@@ -9783,7 +9860,7 @@ function auditTreeCodeCanonicalization(){
  }
 
  const report={
-   version:'v99',
+   version:'v100',
    ok:true,
    rule:'wariant BDL po kropce jest redukowany do bazowego hosta tylko jeśli baza jest znanym kodem drzewa',
    examples:{'DB.S':'DB','DB.B':'DB','BRZ.O':'BRZ','OL.S':'OL'},
@@ -9799,7 +9876,7 @@ function auditNationalNicheBreakdown(){
  const types=nationalForestBenchmarkTypes(PICK_TYPES);
 
  if(!health.ok||!Array.isArray(countryRows)){
-   const report={version:'v99',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
+   const report={version:'v100',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
    console.warn('NATIONAL NICHE BREAKDOWN',report);
    return report;
  }
@@ -9955,6 +10032,89 @@ function auditNationalNicheBreakdown(){
  console.info('NATIONAL NICHE BREAKDOWN v99',report);
  return report;
 }
+
+function auditNationalBenchmarkWeightLab(){
+ const health=nationalBenchmarkHealth(nationalBenchmark);
+ const types=nationalForestBenchmarkTypes(PICK_TYPES);
+ const candidates=nationalBenchmark?.composites?.candidates;
+
+ if(!health.ok||!candidates){
+   const report={version:'v100',ok:false,error:'Brak gotowych histogramów kandydackich.',health};
+   console.warn('NATIONAL BENCHMARK WEIGHT LAB',report);
+   return report;
+ }
+
+ const q=(arr,p)=>{
+   const a=arr.filter(Number.isFinite).sort((x,y)=>x-y);
+   if(!a.length)return NaN;
+   const pos=(a.length-1)*p,lo=Math.floor(pos),hi=Math.ceil(pos),t=pos-lo;
+   return a[lo]*(1-t)+a[hi]*t;
+ };
+
+ const areas={};
+
+ for(const area of ANALYSIS_CENTERS){
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   if(!feats.length)continue;
+
+   const rows=[];
+   for(const [schemeKey,scheme] of Object.entries(NATIONAL_BENCHMARK_WEIGHT_SCHEMES)){
+     const profile=candidates[schemeKey];
+     const percentiles=[],scores=[];
+
+     for(const f of feats){
+       const score=nationalCompositeScoreForFeatureScheme(types,f,schemeKey);
+       if(!Number.isFinite(score))continue;
+       const pct=nationalPercentileFromHistogram(profile,score);
+       if(Number.isFinite(pct))percentiles.push(pct);
+       scores.push(score);
+     }
+
+     const median=q(percentiles,.5);
+     rows.push({
+       schemeKey,
+       label:scheme.label,
+       weights:scheme.weights.slice(),
+       n:percentiles.length,
+       p10:q(percentiles,.1),
+       median,
+       p90:q(percentiles,.9),
+       scoreMedian:q(scores,.5),
+       scoreMean:scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:NaN,
+       suggestedPrior:nationalAreaPriorAdjustment(median)
+     });
+   }
+
+   areas[area.name]=rows;
+
+   console.info(`${area.name} — LAB WAG BENCHMARKU v100`);
+   console.table(rows.map(r=>({
+     wariant:r.label,
+     wagi:r.weights.map(x=>Math.round(x*100)).join('/'),
+     n:r.n,
+     p10:Number(r.p10.toFixed(1)),
+     medianaPc:Number(r.median.toFixed(1)),
+     p90:Number(r.p90.toFixed(1)),
+     scoreMediana:Number(r.scoreMedian.toFixed(2)),
+     scoreSredni:Number(r.scoreMean.toFixed(2)),
+     priorGdybyAktywny:Number(r.suggestedPrior.toFixed(2))
+   })));
+ }
+
+ const report={
+   version:'v100',
+   ok:Object.keys(areas).length>0,
+   activeMapScheme:'current_70_15_9_6',
+   scoringChanged:false,
+   priorChanged:false,
+   purpose:'porównać wrażliwość regionalnego percentyla na dominację niszy #1 przed zmianą produkcyjnego benchmarku',
+   areas
+ };
+ console.info('NATIONAL BENCHMARK WEIGHT LAB v100',report);
+ return report;
+}
+window.auditNationalBenchmarkWeightLab=auditNationalBenchmarkWeightLab;
+
 window.auditNationalNicheBreakdown=auditNationalNicheBreakdown;
 
 window.auditTreeCodeCanonicalization=auditTreeCodeCanonicalization;
@@ -9983,12 +10143,13 @@ function auditAppBootstrap(){
    compositionAudit:typeof window.auditNationalBenchmarkComposition==='function',
    treeCodeAudit:typeof window.auditTreeCodeCanonicalization==='function',
    nicheAudit:typeof window.auditNationalNicheBreakdown==='function',
+   weightLabAudit:typeof window.auditNationalBenchmarkWeightLab==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v99',ok:failed.length===0,checks,failed};
+ const report={version:'v100',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }

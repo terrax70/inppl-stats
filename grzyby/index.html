@@ -1,6 +1,21 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v99:
+     AUDYT NISZ BENCHMARKU KRAJOWEGO.
+     v98 naprawił DB.S/DB.B i podniósł medianę Białowieży z 14.7 do 21.3 pc.
+     Pozostała różnica nie wygląda już jak prosty błąd kodu: Białowieża ma dużo
+     olszy, lasów wilgotnych i olsów jesionowych oraz znacznie mniej sosny.
+     v99 NIE zmienia scoringu. Rozkłada krajowy composite dokładnie na nisze:
+       - która nisza jest #1 / w TOP4,
+       - średni score niszy,
+       - średni wkład niszy do composite,
+       - najczęściej wygrywający gatunek w niszy.
+     Wagi wkładu są dokładnie zgodne z istniejącym composite:
+       najlepsza nisza 70%, druga 15%, trzecia 9%, czwarta 6%.
+     Dzięki temu można sprawdzić, czy niski wynik regionu wynika z realnego
+     profilu atlasu, czy z błędnej wagi konkretnej niszy.
+
 <!-- GitHub production v98:
      NAPRAWA KODÓW GATUNKÓW DRZEW BDL.
      Audyt v97 ujawnił konkretny błąd: Białowieża ma m.in. DB.S=10.7% i DB.B,
@@ -6970,7 +6985,7 @@ function verdictRankCapFromMapClass(c){
 // pogody ani lokalnego rankingu. W praktycznej punktacji działa jako
 // umiarkowany mnożnik ok. 0.84–1.10.
 
-const NATIONAL_BENCHMARK_VERSION='bdl-pl-v8-canonical-treecodes-explainable';
+const NATIONAL_BENCHMARK_VERSION='bdl-pl-v9-niche-decomposition';
 const NATIONAL_BENCHMARK_CACHE_KEY='grzyby:national-benchmark:'+NATIONAL_BENCHMARK_VERSION;
 const NATIONAL_BENCHMARK_MAX_AGE_MS=365*24*3600*1000;
 const NATIONAL_BENCHMARK_BIN_STEP=.05;
@@ -7227,7 +7242,8 @@ function nationalBenchmarkHealth(obj=nationalBenchmark){
    explainability:!!obj?.diagnostics?.composition
      &&Array.isArray(obj.diagnostics.composition.tree)&&obj.diagnostics.composition.tree.length>0
      &&Array.isArray(obj.diagnostics.composition.site)&&obj.diagnostics.composition.site.length>0
-     &&Array.isArray(obj.diagnostics.composition.age)&&obj.diagnostics.composition.age.length>0
+     &&Array.isArray(obj.diagnostics.composition.age)&&obj.diagnostics.composition.age.length>0,
+   nicheDecomposition:Array.isArray(obj?.diagnostics?.niches)&&obj.diagnostics.niches.length>=4
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
  return {
@@ -7385,6 +7401,7 @@ function nationalBenchmarkCacheValid(obj){
  if(!hasDistribution)return false;
  if(!(Number(obj?.composites?.allForest?.total||0)>0))return false;
  if(!obj?.diagnostics?.composition)return false;
+ if(!Array.isArray(obj?.diagnostics?.niches)||obj.diagnostics.niches.length<4)return false;
  const top=nationalBenchmarkTopCombosStatus(obj);
  return top.ok;
 }
@@ -7746,10 +7763,30 @@ async function buildNationalBenchmarkFromGroups(groups){
    q97:nationalHistogramQuantile(compositeHist,compositeTotal,.97)
  };
 
- // v97 — diagnostyczne marginesy kraju. NIE uczestniczą w scoringu.
+ // Diagnostyczne marginesy kraju. NIE uczestniczą w scoringu.
  // Pozwalają wyjaśnić, które drzewa / siedliska / klasy wieku odróżniają region od Polski.
  const diagnosticMaps={tree:new Map(),site:new Map(),age:new Map()};
  let diagnosticWeight=0,diagnosticCoreSum=0;
+
+ // v99: dokładna dekompozycja composite na nisze.
+ // Dla pełnego zestawu forestTypes composite używa:
+ //   rank #1: 1-breadthWeight = 70%
+ //   rank #2..#4: breadthWeight * [50%,30%,20%] = [15%,9%,6%].
+ const nicheDiag=new Map();
+ const addNiche=(niche,type,score,w,rank,effectiveWeight)=>{
+   const key=String(niche||'?');
+   const p=nicheDiag.get(key)||{
+     niche:key,weight:0,scoreSum:0,contributionSum:0,bestWeight:0,top4Weight:0,
+     typeWeights:new Map()
+   };
+   p.weight+=w;
+   p.scoreSum+=w*score;
+   if(rank===0)p.bestWeight+=w;
+   if(rank<4)p.top4Weight+=w;
+   if(effectiveWeight>0)p.contributionSum+=w*score*effectiveWeight;
+   p.typeWeights.set(type,(p.typeWeights.get(type)||0)+w);
+   nicheDiag.set(key,p);
+ };
 
  const addDiagnostic=(dim,code,w,core,n)=>{
    const key=String(code||'?');
@@ -7763,7 +7800,8 @@ async function buildNationalBenchmarkFromGroups(groups){
 
  for(let i=0;i<combos.length;i++){
    const c=combos[i];
-   const core=nationalCoreCompositeForProps(forestTypes,c).score;
+   const comp=nationalCoreCompositeForProps(forestTypes,c);
+   const core=comp.score;
    if(!Number.isFinite(core))continue;
    const w=weightOf(c);
    diagnosticWeight+=w;
@@ -7771,6 +7809,13 @@ async function buildNationalBenchmarkFromGroups(groups){
    addDiagnostic('tree',nationalDiagnosticTreeCode(c),w,core,c.n);
    addDiagnostic('site',nationalDiagnosticSiteCode(c),w,core,c.n);
    addDiagnostic('age',nationalDiagnosticAgeBand(c.species_age),w,core,c.n);
+
+   const bw=Number(comp.breadthWeight||0);
+   const rankWeights=[1-bw,bw*.50,bw*.30,bw*.20];
+   for(let r=0;r<comp.nicheRows.length;r++){
+     const row=comp.nicheRows[r];
+     addNiche(row.niche,row.type,row.score,w,r,rankWeights[r]||0);
+   }
    if(i%700===0)await new Promise(r=>setTimeout(r,0));
  }
 
@@ -7784,6 +7829,22 @@ async function buildNationalBenchmarkFromGroups(groups){
    }))
    .sort((a,b)=>b.weight-a.weight);
 
+ const packNiches=()=>[...nicheDiag.values()].map(x=>{
+   const types=[...x.typeWeights.entries()]
+     .map(([type,weight])=>({type,weight,share:x.weight>0?weight/x.weight:0}))
+     .sort((a,b)=>b.weight-a.weight);
+   return {
+     niche:x.niche,
+     label:ATLAS_GROUP_SHORT[x.niche]||ATLAS_GROUPS.find(g=>g.id===x.niche)?.label||x.niche,
+     weight:x.weight,
+     meanScore:x.weight>0?x.scoreSum/x.weight:NaN,
+     meanContribution:diagnosticWeight>0?x.contributionSum/diagnosticWeight:0,
+     bestShare:diagnosticWeight>0?x.bestWeight/diagnosticWeight:0,
+     top4Share:diagnosticWeight>0?x.top4Weight/diagnosticWeight:0,
+     bestTypes:types.slice(0,5)
+   };
+ }).sort((a,b)=>b.meanContribution-a.meanContribution);
+
  const diagnostics={
    composition:{
      weightMode,
@@ -7792,7 +7853,8 @@ async function buildNationalBenchmarkFromGroups(groups){
      tree:packDiagnostic(diagnosticMaps.tree),
      site:packDiagnostic(diagnosticMaps.site),
      age:packDiagnostic(diagnosticMaps.age)
-   }
+   },
+   niches:packNiches()
  };
 
  return {
@@ -9236,7 +9298,7 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v98',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v99',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
    rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków normalizuje gotową ocenę miejsca; DZIŚ = OGÓLNIE × retencja warunków']
@@ -9296,7 +9358,7 @@ function auditOpportunityBalance(){
  }
 
  const report={
-   version:'v98',
+   version:'v99',
    model:'v90 local composite + guarded national BDL area-weighted correction; Today = country-calibrated Overall × current-condition retention',
    classCuts:{
      overall:[3.40,5.80,8.00,9.20],
@@ -9344,7 +9406,7 @@ function auditVisualClassCalibration(){
  }
 
  const report={
-   version:'v98',
+   version:'v99',
    thresholds:{
      overall:[3.40,5.80,8.00,9.20],
      today:[2.95,5.15,7.05,8.48]
@@ -9416,7 +9478,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  }
 
  const report={
-   version:'v98',
+   version:'v99',
    state:nationalBenchmarkState,
    lastError:nationalBenchmarkLastError,
    benchmark:{
@@ -9450,7 +9512,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
 
 function auditNationalBenchmarkStatus(){
  const out={
-   version:'v98',
+   version:'v99',
    state:nationalBenchmarkState,
    error:nationalBenchmarkLastError||null,
    busy:!!nationalBenchmarkPromise,
@@ -9490,7 +9552,7 @@ function auditNationalPriorSafety(){
  }
  const maxAbs=Math.max(0,...rows.map(r=>Math.abs(r.areaPrior)));
  const report={
-   version:'v98',
+   version:'v99',
    ok:maxAbs<=.45,
    rule:'benchmark krajowy nie zmienia rankingu wydzieleń wewnątrz regionu; daje tylko wspólny prior max -0.45..+0.35',
    maxAbsPrior:maxAbs,
@@ -9508,7 +9570,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
 
  if(!health.ok||!country){
    const report={
-     version:'v98',ok:false,
+     version:'v99',ok:false,
      error:'Benchmark krajowy nie jest gotowy albo nie ma profilu explainability.',
      health
    };
@@ -9651,7 +9713,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
  }
 
  const report={
-   version:'v97',
+   version:'v99',
    ok:Object.keys(areas).length>0,
    benchmarkHealth:health,
    country:{
@@ -9721,7 +9783,7 @@ function auditTreeCodeCanonicalization(){
  }
 
  const report={
-   version:'v98',
+   version:'v99',
    ok:true,
    rule:'wariant BDL po kropce jest redukowany do bazowego hosta tylko jeśli baza jest znanym kodem drzewa',
    examples:{'DB.S':'DB','DB.B':'DB','BRZ.O':'BRZ','OL.S':'OL'},
@@ -9730,6 +9792,171 @@ function auditTreeCodeCanonicalization(){
  console.info('TREE CODE CANONICALIZATION v98',report);
  return report;
 }
+
+function auditNationalNicheBreakdown(){
+ const countryRows=nationalBenchmark?.diagnostics?.niches;
+ const health=nationalBenchmarkHealth(nationalBenchmark);
+ const types=nationalForestBenchmarkTypes(PICK_TYPES);
+
+ if(!health.ok||!Array.isArray(countryRows)){
+   const report={version:'v99',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
+   console.warn('NATIONAL NICHE BREAKDOWN',report);
+   return report;
+ }
+
+ const country=new Map(countryRows.map(x=>[x.niche,x]));
+ const areas={};
+
+ for(const area of ANALYSIS_CENTERS){
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   if(!feats.length)continue;
+
+   const local=new Map();
+   let totalWeight=0,coreSum=0;
+
+   const add=(niche,type,score,w,rank,eff)=>{
+     const p=local.get(niche)||{
+       niche,weight:0,scoreSum:0,contributionSum:0,bestWeight:0,top4Weight:0,typeWeights:new Map()
+     };
+     p.weight+=w;
+     p.scoreSum+=w*score;
+     if(rank===0)p.bestWeight+=w;
+     if(rank<4)p.top4Weight+=w;
+     if(eff>0)p.contributionSum+=w*score*eff;
+     p.typeWeights.set(type,(p.typeWeights.get(type)||0)+w);
+     local.set(niche,p);
+   };
+
+   for(const f of feats){
+     const areaHa=Number(f.properties?.sub_area);
+     const w=Number.isFinite(areaHa)&&areaHa>0?areaHa:1;
+     const comp=nationalCoreCompositeForFeature(types,f);
+     if(!Number.isFinite(comp.score))continue;
+     totalWeight+=w;
+     coreSum+=w*comp.score;
+
+     const bw=Number(comp.breadthWeight||0);
+     const rankWeights=[1-bw,bw*.50,bw*.30,bw*.20];
+     for(let r=0;r<comp.nicheRows.length;r++){
+       const row=comp.nicheRows[r];
+       add(row.niche,row.type,row.score,w,r,rankWeights[r]||0);
+     }
+   }
+
+   const rows=[];
+   const niches=new Set([...country.keys(),...local.keys()]);
+   for(const niche of niches){
+     const l=local.get(niche);
+     const c=country.get(niche);
+     const localTypes=l?[...l.typeWeights.entries()]
+       .map(([type,weight])=>({type,weight}))
+       .sort((a,b)=>b.weight-a.weight):[];
+     const countryType=c?.bestTypes?.[0]?.type||null;
+     const localType=localTypes[0]?.type||null;
+
+     const localMean=l?.weight>0?l.scoreSum/l.weight:NaN;
+     const countryMean=Number(c?.meanScore);
+     const localContribution=totalWeight>0?(l?.contributionSum||0)/totalWeight:0;
+     const countryContribution=Number(c?.meanContribution||0);
+
+     rows.push({
+       niche,
+       label:c?.label||ATLAS_GROUP_SHORT[niche]||niche,
+       localMean,
+       countryMean,
+       scoreDiff:localMean-countryMean,
+       localContribution,
+       countryContribution,
+       contributionDiff:localContribution-countryContribution,
+       localBestPct:totalWeight>0?100*(l?.bestWeight||0)/totalWeight:0,
+       countryBestPct:100*Number(c?.bestShare||0),
+       localTop4Pct:totalWeight>0?100*(l?.top4Weight||0)/totalWeight:0,
+       countryTop4Pct:100*Number(c?.top4Share||0),
+       localBestType:localType,
+       countryBestType:countryType
+     });
+   }
+
+   rows.sort((a,b)=>Math.abs(b.contributionDiff)-Math.abs(a.contributionDiff));
+
+   const localCoreMean=totalWeight>0?coreSum/totalWeight:NaN;
+   const contributionSum=rows.reduce((s,x)=>s+x.localContribution,0);
+   const countryContributionSum=rows.reduce((s,x)=>s+x.countryContribution,0);
+   const prior=nationalAreaPrior(PICK_TYPES,area.name);
+
+   const summary={
+     n:feats.length,
+     localCoreMean,
+     localContributionSum:contributionSum,
+     countryCoreMean:nationalBenchmark?.diagnostics?.composition?.countryCoreMean,
+     countryContributionSum,
+     nationalMedian:prior.medianPercentile,
+     areaPrior:prior.adjustment
+   };
+
+   areas[area.name]={summary,rows};
+
+   console.info(`${area.name} — NISZE BENCHMARKU v99`);
+   console.table([{
+     n:summary.n,
+     localCore:Number(summary.localCoreMean.toFixed(3)),
+     sumaWkladowRegion:Number(summary.localContributionSum.toFixed(3)),
+     polskaCore:Number(summary.countryCoreMean.toFixed(3)),
+     sumaWkladowPolska:Number(summary.countryContributionSum.toFixed(3)),
+     nationalMedian:Number(summary.nationalMedian.toFixed(1)),
+     areaPrior:Number(summary.areaPrior.toFixed(2))
+   }]);
+
+   console.table(rows.map(x=>({
+     nisza:x.label,
+     scoreRegion:Number.isFinite(x.localMean)?Number(x.localMean.toFixed(2)):null,
+     scorePolska:Number.isFinite(x.countryMean)?Number(x.countryMean.toFixed(2)):null,
+     diffScore:Number.isFinite(x.scoreDiff)?Number(x.scoreDiff.toFixed(2)):null,
+     wkladRegion:Number(x.localContribution.toFixed(3)),
+     wkladPolska:Number(x.countryContribution.toFixed(3)),
+     diffWkladu:Number(x.contributionDiff.toFixed(3)),
+     nr1RegionPct:Number(x.localBestPct.toFixed(1)),
+     nr1PolskaPct:Number(x.countryBestPct.toFixed(1)),
+     top4RegionPct:Number(x.localTop4Pct.toFixed(1)),
+     top4PolskaPct:Number(x.countryTop4Pct.toFixed(1)),
+     gatunekRegion:x.localBestType?(HUMAN_NAMES[x.localBestType]||x.localBestType):'-',
+     gatunekPolska:x.countryBestType?(HUMAN_NAMES[x.countryBestType]||x.countryBestType):'-'
+   })));
+
+   const down=rows.filter(x=>x.contributionDiff<-.005).slice(0,5);
+   const up=rows.filter(x=>x.contributionDiff>.005).sort((a,b)=>b.contributionDiff-a.contributionDiff).slice(0,5);
+   console.info('⬇️ Nisze najbardziej obniżające region względem Polski');
+   console.table(down.map(x=>({
+     nisza:x.label,
+     diffWkladu:Number(x.contributionDiff.toFixed(3)),
+     scoreRegion:Number(x.localMean.toFixed(2)),
+     scorePolska:Number(x.countryMean.toFixed(2)),
+     top4RegionPct:Number(x.localTop4Pct.toFixed(1)),
+     top4PolskaPct:Number(x.countryTop4Pct.toFixed(1))
+   })));
+   console.info('⬆️ Nisze najbardziej podnoszące region względem Polski');
+   console.table(up.map(x=>({
+     nisza:x.label,
+     diffWkladu:Number(x.contributionDiff.toFixed(3)),
+     scoreRegion:Number(x.localMean.toFixed(2)),
+     scorePolska:Number(x.countryMean.toFixed(2)),
+     top4RegionPct:Number(x.localTop4Pct.toFixed(1)),
+     top4PolskaPct:Number(x.countryTop4Pct.toFixed(1))
+   })));
+ }
+
+ const report={
+   version:'v99',
+   ok:Object.keys(areas).length>0,
+   exactContributionRule:'rank1=(1-breadthWeight); rank2..4=breadthWeight*[0.50,0.30,0.20]. Dla pełnego atlasu: 70% / 15% / 9% / 6%.',
+   scoringChanged:false,
+   areas
+ };
+ console.info('NATIONAL NICHE BREAKDOWN v99',report);
+ return report;
+}
+window.auditNationalNicheBreakdown=auditNationalNicheBreakdown;
+
 window.auditTreeCodeCanonicalization=auditTreeCodeCanonicalization;
 
 window.auditNationalBenchmarkComposition=auditNationalBenchmarkComposition;
@@ -9755,12 +9982,13 @@ function auditAppBootstrap(){
    nationalStatus:typeof window.auditNationalBenchmarkStatus==='function',
    compositionAudit:typeof window.auditNationalBenchmarkComposition==='function',
    treeCodeAudit:typeof window.auditTreeCodeCanonicalization==='function',
+   nicheAudit:typeof window.auditNationalNicheBreakdown==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v98',ok:failed.length===0,checks,failed};
+ const report={version:'v99',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }

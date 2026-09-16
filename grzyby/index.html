@@ -1,6 +1,32 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v105:
+     CENTER-ISOLATED ANALYSIS.
+     Test v104 ujawnił prawdziwy błąd architektury: po dodaniu drugiego, nakładającego
+     się centrum Prószków zmienił się z 3052 wydzieleń / 12966.5 ha / 79.6 pc.
+     na 2623 / 10667.5 ha / 87.6 pc. Powód: featureAreaName() tworzył w praktyce
+     podział Voronoia — wspólne wydzielenia były "zabierane" przez bliższe centrum.
+
+     v105 rozdziela dwie rzeczy:
+       - featureAreaName() = tylko PRIMARY AREA do etykiety/wyświetlania jednego polygonu,
+       - featureInAnalysisAreaName() = prawdziwa przynależność do pełnego koła analizy.
+
+     Wszystkie statystyki/referencje obszarowe używane do kalibracji, benchmarku,
+     skal gatunków, hotspotów i porównania rejonów dostają pełne własne koło 10 km
+     (+ ten sam pad 0.15 km, którego używa loader BDL). Dodanie Punktu 2 nie może
+     już "odcinać" Prószkowowi lasów wspólnych.
+
+     Dodatkowo fizyczny forestContextInfo nie jest już dzielony granicą PRIMARY AREA:
+     sąsiedni las pozostaje sąsiadem niezależnie od tego, któremu centrum został
+     przypisany do etykiety.
+
+     stableFeatureKey nie zawiera już nazwy centrum, więc tie-breakery/hotspoty nie
+     zmieniają identyfikatora wydzielenia po dodaniu porównywanego miejsca.
+
+     Lokalny scoring biologiczny i niche-relative benchmark bez zmiany wag.
+     Dodano auditCenterIsolation().
+
 <!-- GitHub production v104:
      AREA-WEIGHTED REGIONAL PRIOR.
      v103 liczył regionalny percentyl jako medianę WYDZIELEŃ, więc każdy polygon
@@ -7610,7 +7636,7 @@ function nationalAreaPrior(types,areaName){
  const allForest=nationalForestBenchmarkTypes(PICK_TYPES);
  const requestedKey=[...supported].sort().join(',');
  const allKey=[...allForest].sort().join(',');
- const cacheKey=`v104-areaWeighted|${nationalBenchmark?.builtAt||0}|${areaName}|${requestedKey}|${allFeatures.length}`;
+ const cacheKey=`v105-centerIsolated|${nationalBenchmark?.builtAt||0}|${areaName}|${RADIUS_KM}|${requestedKey}|${allFeatures.length}`;
 
  if(nationalAreaPriorCache.has(cacheKey))return nationalAreaPriorCache.get(cacheKey);
 
@@ -7646,7 +7672,7 @@ function nationalAreaPrior(types,areaName){
  const vals=[];
  let totalAreaHa=0,fallbackWeight=0;
  for(const f of allFeatures){
-   if(f._blocked||f._kind==='open'||featureAreaName(f)!==areaName)continue;
+   if(f._blocked||f._kind==='open'||!featureInAnalysisAreaName(f,areaName))continue;
 
    const rel=nationalNicheRelativeScoreForFeature(allForest,f,nicheProfiles,weights);
    if(!Number.isFinite(rel?.score))continue;
@@ -8350,11 +8376,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v104: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v105: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v104 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v105 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -8364,7 +8390,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v104 health',health);
+     console.info('National benchmark v105 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -8767,6 +8793,16 @@ let balancedScaleKey='';
 let balancedScales={};
 
 function featureAreaName(f){return f._centerName||nearestAreaInfo(f._center).name;}
+
+function analysisCenterByName(areaName){
+ return ANALYSIS_CENTERS.find(a=>a.name===areaName)||null;
+}
+
+function featureInAnalysisAreaName(f,areaName,padKm=.15){
+ const a=analysisCenterByName(areaName);
+ if(!a||!f?._center)return false;
+ return hav(a.point,f._center)<=RADIUS_KM+padKm;
+}
 function hotspotLabel(h){return `${h.areaCode}${h.localIndex}`;}
 function atlasSelectionKey(){return [...atlasSelected].sort().join(',');}
 function atlasBestTypeForFeature(f){
@@ -8891,12 +8927,12 @@ function opportunityRawComposite(f,dynamic=false,typesOverride=null){
 }
 
 function opportunityCompositeDistribution(types,areaName,kind='forest'){
- const key=`v90|${scoringRevision}|${opportunityTypeSetKey(types)}|${areaName}|${kind}|${allFeatures.length}|${openFeatures.length}`;
+ const key=`v105|${scoringRevision}|${opportunityTypeSetKey(types)}|${areaName}|${RADIUS_KM}|${kind}|${allFeatures.length}|${openFeatures.length}`;
  if(opportunityCompositeDistributionCache.has(key))return opportunityCompositeDistributionCache.get(key);
 
  const rows=allFeatures
    .filter(f=>{
-     if(f._blocked||featureAreaName(f)!==areaName)return false;
+     if(f._blocked||!featureInAnalysisAreaName(f,areaName))return false;
      if(kind==='open')return f._kind==='open';
      return f._kind!=='open';
    })
@@ -9052,8 +9088,10 @@ function atlasVerdictFor(f){
 }
 
 function stableFeatureKey(f){
- const p=f.properties||{},addr=String(p.adress_forest||p.address_forest||p.subarea_id||p.objectid||p.OBJECTID||'').trim();
- const c=f._center||[0,0];return `${featureAreaName(f)}|${f._src||''}|${addr}|${c[0].toFixed(5)}|${c[1].toFixed(5)}`;
+ const p=f.properties||{};
+ const addr=String(p.adress_forest||p.address_forest||p.subarea_id||p.objectid||p.OBJECTID||'').trim();
+ const c=f._center||[0,0];
+ return `${f._src||''}|${addr}|${c[0].toFixed(5)}|${c[1].toFixed(5)}`;
 }
 
 function resetStaticCachesIfNeeded(){
@@ -9198,7 +9236,7 @@ function prepareForestGrid(){
  const cell=.0060,grid=new Map();
  for(const f of allFeatures){
    if(f._kind==='open'||!f._center)continue;
-   const area=featureAreaName(f),i=Math.floor(f._center[0]/cell),j=Math.floor(f._center[1]/cell),k=area+'|'+i+'|'+j;
+   const i=Math.floor(f._center[0]/cell),j=Math.floor(f._center[1]/cell),k=i+'|'+j;
    if(!grid.has(k))grid.set(k,[]);grid.get(k).push(f);
  }
  forestGrid={cell,grid};forestGridKey=key;forestContextCache=new WeakMap();return forestGrid;
@@ -9207,10 +9245,10 @@ function prepareForestGrid(){
 function forestContextInfo(f){
  if(f._kind==='open')return {score:5,near45:0,near90:0,count45:0,count90:0,own:featureAreaHa(f)};
  if(forestContextCache.has(f))return forestContextCache.get(f);
- const {cell,grid}=prepareForestGrid(),areaName=featureAreaName(f),ci=Math.floor(f._center[0]/cell),cj=Math.floor(f._center[1]/cell);
+ const {cell,grid}=prepareForestGrid(),ci=Math.floor(f._center[0]/cell),cj=Math.floor(f._center[1]/cell);
  let near45=0,near90=0,count45=0,count90=0;const seen=new Set();
  for(let di=-2;di<=2;di++)for(let dj=-2;dj<=2;dj++){
-   for(const g of (grid.get(areaName+'|'+(ci+di)+'|'+(cj+dj))||[])){
+   for(const g of (grid.get((ci+di)+'|'+(cj+dj))||[])){
      const key=stableFeatureKey(g);if(seen.has(key))continue;seen.add(key);
      const d=hav(f._center,g._center),a=Math.max(.05,featureAreaHa(g));
      if(d<=.45){near45+=a;count45++;}if(d<=.90){near90+=a;count90++;}
@@ -9711,7 +9749,7 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v104',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v105',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
    rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków normalizuje gotową ocenę miejsca; DZIŚ = OGÓLNIE × retencja warunków']
@@ -9765,13 +9803,13 @@ function auditOpportunityBalance(){
  };
 
  for(const area of ANALYSIS_CENTERS){
-   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,area.name));
    if(!feats.length)continue;
    perArea[area.name]={overall:summarize(feats,false),today:summarize(feats,true)};
  }
 
  const report={
-   version:'v104',
+   version:'v105',
    model:'v90 local composite + guarded national BDL area-weighted correction; Today = country-calibrated Overall × current-condition retention',
    classCuts:{
      overall:[3.40,5.80,8.00,9.20],
@@ -9813,13 +9851,13 @@ function auditVisualClassCalibration(){
  };
 
  for(const area of ANALYSIS_CENTERS){
-   const features=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   const features=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,area.name));
    if(!features.length)continue;
    perArea[area.name]={overall:one(features,false),today:one(features,true)};
  }
 
  const report={
-   version:'v104',
+   version:'v105',
    thresholds:{
      overall:[3.40,5.80,8.00,9.20],
      today:[2.95,5.15,7.05,8.48]
@@ -9859,7 +9897,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  };
 
  for(const area of ANALYSIS_CENTERS){
-   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,area.name));
    if(!feats.length)continue;
 
    const prior=nationalAreaPrior(types,area.name);
@@ -9893,7 +9931,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  }
 
  const report={
-   version:'v104',
+   version:'v105',
    state:nationalBenchmarkState,
    lastError:nationalBenchmarkLastError,
    benchmark:{
@@ -9929,7 +9967,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
 
 function auditNationalBenchmarkStatus(){
  const out={
-   version:'v104',
+   version:'v105',
    state:nationalBenchmarkState,
    error:nationalBenchmarkLastError||null,
    busy:!!nationalBenchmarkPromise,
@@ -9969,7 +10007,7 @@ function auditNationalPriorSafety(){
  }
  const maxAbs=Math.max(0,...rows.map(r=>Math.abs(r.areaPrior)));
  const report={
-   version:'v104',
+   version:'v105',
    ok:maxAbs<=.45,
    rule:'niche-relative benchmark nie zmienia rankingu wydzieleń wewnątrz regionu; daje tylko wspólny prior max -0.45..+0.35',
    maxAbsPrior:maxAbs,
@@ -9999,11 +10037,97 @@ function auditProductionNationalCalibration(){
    });
  }
  const ok=rows.length>0&&rows.every(r=>r.method==='niche-relative-70/15/9/6-area-weighted'&&Math.abs(r.prior)<=.45);
- const report={version:'v104',ok,activeMethod:'niche-relative-70/15/9/6-area-weighted',rows};
+ const report={version:'v105',ok,activeMethod:'niche-relative-70/15/9/6-area-weighted',rows};
  console.table(rows);
- console.info('PRODUCTION NATIONAL CALIBRATION v104',report);
+ console.info('PRODUCTION NATIONAL CALIBRATION v105',report);
  return report;
 }
+
+function auditCenterIsolation(){
+ const rows=[];
+ const types=nationalForestBenchmarkTypes(PICK_TYPES);
+ const nicheProfiles=nationalBenchmark?.composites?.nicheProfiles;
+ const relProfile=nationalBenchmark?.composites?.nicheRelative?.nicheRel_70_15_9_6;
+ const scheme=[.70,.15,.09,.06];
+
+ if(!nicheProfiles||!relProfile?.total){
+   const report={version:'v105',ok:false,error:'Benchmark niche-relative nie jest gotowy.'};
+   console.warn('CENTER ISOLATION v105',report);
+   return report;
+ }
+
+ for(const area of ANALYSIS_CENTERS){
+   let fullN=0,primaryN=0,overlapN=0,fullArea=0,primaryArea=0;
+   const fullVals=[],primaryVals=[];
+
+   for(const f of allFeatures){
+     if(f._blocked||f._kind==='open')continue;
+     const inFull=featureInAnalysisAreaName(f,area.name);
+     if(!inFull)continue;
+
+     const rel=nationalNicheRelativeScoreForFeature(types,f,nicheProfiles,scheme);
+     const pct=nationalRelativePercentile(relProfile,rel?.score);
+     if(!Number.isFinite(pct))continue;
+
+     const aw=nationalFeatureAreaWeight(f).weight;
+     fullN++;
+     fullArea+=aw;
+     fullVals.push({value:pct,weight:aw});
+
+     const matches=ANALYSIS_CENTERS.filter(a=>featureInAnalysisAreaName(f,a.name)).length;
+     if(matches>1)overlapN++;
+
+     if(featureAreaName(f)===area.name){
+       primaryN++;
+       primaryArea+=aw;
+       primaryVals.push({value:pct,weight:aw});
+     }
+   }
+
+   const fullMedian=weightedQuantile(fullVals,.5);
+   const primaryMedian=weightedQuantile(primaryVals,.5);
+   const prod=nationalAreaPrior(PICK_TYPES,area.name);
+
+   rows.push({
+     area:area.name,
+     fullN,primaryN,overlapN,
+     fullAreaHa:fullArea,
+     primaryAreaHa:primaryArea,
+     fullMedian,
+     primaryMedian,
+     productionMedian:prod.medianPercentile,
+     productionPrior:prod.adjustment,
+     productionUsesFullCircle:
+       Number.isFinite(fullMedian)&&Number.isFinite(prod.medianPercentile)
+       &&Math.abs(fullMedian-prod.medianPercentile)<1e-9
+   });
+ }
+
+ console.table(rows.map(r=>({
+   area:r.area,
+   fullN:r.fullN,
+   primaryN:r.primaryN,
+   overlapN:r.overlapN,
+   fullAreaHa:Number(r.fullAreaHa.toFixed(1)),
+   primaryAreaHa:Number(r.primaryAreaHa.toFixed(1)),
+   fullMedian:Number(r.fullMedian.toFixed(1)),
+   primaryMedian:Number.isFinite(r.primaryMedian)?Number(r.primaryMedian.toFixed(1)):null,
+   productionMedian:Number(r.productionMedian.toFixed(1)),
+   prior:Number(r.productionPrior.toFixed(2)),
+   fullCircle:r.productionUsesFullCircle
+ })));
+
+ const report={
+   version:'v105',
+   ok:rows.length>0&&rows.every(r=>r.productionUsesFullCircle),
+   rule:'każde centrum analizuje własne pełne koło; PRIMARY AREA służy tylko do pojedynczej etykiety polygonu',
+   rows
+ };
+ console.info('CENTER ISOLATION v105',report);
+ return report;
+}
+window.auditCenterIsolation=auditCenterIsolation;
+
 
 function auditNationalAreaWeighting(){
  const rows=[];
@@ -10013,8 +10137,8 @@ function auditNationalAreaWeighting(){
  const scheme=[.70,.15,.09,.06];
 
  if(!nicheProfiles||!relProfile?.total){
-   const report={version:'v104',ok:false,error:'Benchmark niche-relative nie jest gotowy.'};
-   console.warn('NATIONAL AREA WEIGHTING v104',report);
+   const report={version:'v105',ok:false,error:'Benchmark niche-relative nie jest gotowy.'};
+   console.warn('NATIONAL AREA WEIGHTING v105',report);
    return report;
  }
 
@@ -10023,7 +10147,7 @@ function auditNationalAreaWeighting(){
    let totalArea=0,bdlArea=0,geometryArea=0,fallback=0;
 
    for(const f of allFeatures){
-     if(f._blocked||f._kind==='open'||featureAreaName(f)!==area.name)continue;
+     if(f._blocked||f._kind==='open'||!featureInAnalysisAreaName(f,area.name))continue;
      const rel=nationalNicheRelativeScoreForFeature(types,f,nicheProfiles,scheme);
      const pct=nationalRelativePercentile(relProfile,rel?.score);
      if(!Number.isFinite(pct))continue;
@@ -10076,12 +10200,12 @@ function auditNationalAreaWeighting(){
  })));
 
  const report={
-   version:'v104',
+   version:'v105',
    ok:rows.length>0&&rows.every(r=>r.fallbackPct<5),
    rule:'percentyle regionu są ważone powierzchnią; primary sub_area [ha], fallback geometry [ha]',
    rows
  };
- console.info('NATIONAL AREA WEIGHTING v104',report);
+ console.info('NATIONAL AREA WEIGHTING v105',report);
  return report;
 }
 window.auditNationalAreaWeighting=auditNationalAreaWeighting;
@@ -10095,15 +10219,15 @@ function auditNationalSubdivisionInvariance({parts=7}={}){
  const scheme=[.70,.15,.09,.06];
 
  if(!nicheProfiles||!relProfile?.total){
-   const report={version:'v104',ok:false,error:'Benchmark niche-relative nie jest gotowy.'};
-   console.warn('NATIONAL SUBDIVISION INVARIANCE v104',report);
+   const report={version:'v105',ok:false,error:'Benchmark niche-relative nie jest gotowy.'};
+   console.warn('NATIONAL SUBDIVISION INVARIANCE v105',report);
    return report;
  }
 
  for(const area of ANALYSIS_CENTERS){
    const original=[],split=[];
    for(const f of allFeatures){
-     if(f._blocked||f._kind==='open'||featureAreaName(f)!==area.name)continue;
+     if(f._blocked||f._kind==='open'||!featureInAnalysisAreaName(f,area.name))continue;
      const rel=nationalNicheRelativeScoreForFeature(types,f,nicheProfiles,scheme);
      const pct=nationalRelativePercentile(relProfile,rel?.score);
      if(!Number.isFinite(pct))continue;
@@ -10157,14 +10281,14 @@ function auditNationalSubdivisionInvariance({parts=7}={}){
 
  const maxDiff=rows.length?Math.max(...rows.map(r=>r.maxDiff)):NaN;
  const report={
-   version:'v104',
+   version:'v105',
    ok:rows.length>0&&Number.isFinite(maxDiff)&&maxDiff<1e-9,
    syntheticSplitParts:parts,
    maxPercentileDifference:maxDiff,
    rule:'podział jednego polygonu na N równych części nie może zmienić area-weighted p10/median/p90 ani prioru',
    rows
  };
- console.info('NATIONAL SUBDIVISION INVARIANCE v104',report);
+ console.info('NATIONAL SUBDIVISION INVARIANCE v105',report);
  return report;
 }
 window.auditNationalSubdivisionInvariance=auditNationalSubdivisionInvariance;
@@ -10179,7 +10303,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
 
  if(!health.ok||!country){
    const report={
-     version:'v104',ok:false,
+     version:'v105',ok:false,
      error:'Benchmark krajowy nie jest gotowy albo nie ma profilu explainability.',
      health
    };
@@ -10233,7 +10357,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
 
  const areas={};
  for(const area of ANALYSIS_CENTERS){
-   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,area.name));
    if(!feats.length)continue;
 
    const local={tree:new Map(),site:new Map(),age:new Map()};
@@ -10345,7 +10469,7 @@ function auditTreeCodeCanonicalization(){
  const areas={};
 
  for(const area of ANALYSIS_CENTERS){
-   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,area.name));
    if(!feats.length)continue;
 
    const byRaw=new Map();
@@ -10392,7 +10516,7 @@ function auditTreeCodeCanonicalization(){
  }
 
  const report={
-   version:'v104',
+   version:'v105',
    ok:true,
    rule:'wariant BDL po kropce jest redukowany do bazowego hosta tylko jeśli baza jest znanym kodem drzewa',
    examples:{'DB.S':'DB','DB.B':'DB','BRZ.O':'BRZ','OL.S':'OL'},
@@ -10408,7 +10532,7 @@ function auditNationalNicheBreakdown(){
  const types=nationalForestBenchmarkTypes(PICK_TYPES);
 
  if(!health.ok||!Array.isArray(countryRows)){
-   const report={version:'v104',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
+   const report={version:'v105',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
    console.warn('NATIONAL NICHE BREAKDOWN',report);
    return report;
  }
@@ -10417,7 +10541,7 @@ function auditNationalNicheBreakdown(){
  const areas={};
 
  for(const area of ANALYSIS_CENTERS){
-   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,area.name));
    if(!feats.length)continue;
 
    const local=new Map();
@@ -10571,7 +10695,7 @@ function auditNationalBenchmarkWeightLab(){
  const candidates=nationalBenchmark?.composites?.candidates;
 
  if(!health.ok||!candidates){
-   const report={version:'v104',ok:false,error:'Brak gotowych histogramów kandydackich.',health};
+   const report={version:'v105',ok:false,error:'Brak gotowych histogramów kandydackich.',health};
    console.warn('NATIONAL BENCHMARK WEIGHT LAB',report);
    return report;
  }
@@ -10586,7 +10710,7 @@ function auditNationalBenchmarkWeightLab(){
  const areas={};
 
  for(const area of ANALYSIS_CENTERS){
-   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,area.name));
    if(!feats.length)continue;
 
    const rows=[];
@@ -10651,7 +10775,7 @@ function auditNationalSpeciesBreakdown(){
  const types=nationalForestBenchmarkTypes(PICK_TYPES);
 
  if(!health.ok||!nationalBenchmark?.types){
-   const report={version:'v104',ok:false,error:'Benchmark krajowy nie jest gotowy.',health};
+   const report={version:'v105',ok:false,error:'Benchmark krajowy nie jest gotowy.',health};
    console.warn('NATIONAL SPECIES BREAKDOWN',report);
    return report;
  }
@@ -10666,7 +10790,7 @@ function auditNationalSpeciesBreakdown(){
  const areas={};
 
  for(const area of ANALYSIS_CENTERS){
-   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,area.name));
    if(!feats.length)continue;
 
    const rows=[];
@@ -10783,7 +10907,7 @@ function auditNationalNicheRelativeLab(){
  const oldProfile=nationalBenchmark?.composites?.allForest;
 
  if(!health.ok||!nicheProfiles||!relProfiles||!oldProfile){
-   const report={version:'v104',ok:false,error:'Brak gotowego benchmarku niche-relative.',health};
+   const report={version:'v105',ok:false,error:'Brak gotowego benchmarku niche-relative.',health};
    console.warn('NATIONAL NICHE-RELATIVE LAB',report);
    return report;
  }
@@ -10804,7 +10928,7 @@ function auditNationalNicheRelativeLab(){
  const areas={};
 
  for(const area of ANALYSIS_CENTERS){
-   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,area.name));
    if(!feats.length)continue;
 
    const rows=[];
@@ -10943,12 +11067,13 @@ function auditAppBootstrap(){
    productionCalibrationAudit:typeof window.auditProductionNationalCalibration==='function',
    areaWeightAudit:typeof window.auditNationalAreaWeighting==='function',
    subdivisionAudit:typeof window.auditNationalSubdivisionInvariance==='function',
+   centerIsolationAudit:typeof window.auditCenterIsolation==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v104',ok:failed.length===0,checks,failed};
+ const report={version:'v105',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }
@@ -10987,7 +11112,7 @@ window.auditDiversitySingleSource=auditDiversitySingleSource;
 function stableCandidateFeatures(areaName){
  resetStaticCachesIfNeeded();
  return allFeatures.filter(f=>{
-   if(f._blocked||featureAreaName(f)!==areaName)return false;
+   if(f._blocked||!featureInAnalysisAreaName(f,areaName))return false;
    if(atlasSelected.size)return [...atlasSelected].some(t=>featureRelevant(t,f));
    if(currentFilter==='all')return true;
    if(currentFilter==='diversity')return true;
@@ -11451,7 +11576,7 @@ function atlasSpeciesScale(type,areaName){
  if(atlasSpeciesScaleCache.has(key))return atlasSpeciesScaleCache.get(key);
 
  const rows=allFeatures
-   .filter(f=>!f._blocked&&featureAreaName(f)===areaName&&featureRelevant(type,f))
+   .filter(f=>!f._blocked&&featureInAnalysisAreaName(f,areaName)&&featureRelevant(type,f))
    .map(f=>stableScoreForType(type,f))
    .filter(Number.isFinite)
    .sort((a,b)=>a-b);
@@ -11553,7 +11678,7 @@ function buildBalancedScales(){
  const out={},single=activeSingleSpeciesType();
  for(const area of ANALYSIS_CENTERS){
    const rows=allFeatures.filter(f=>{
-     if(f._blocked||featureAreaName(f)!==area.name)return false;
+     if(f._blocked||!featureInAnalysisAreaName(f,area.name))return false;
      if(single)return featureRelevant(single,f);
      return f._kind!=='open';
    }).map(stableAnchorScore).filter(Number.isFinite).sort((a,b)=>a-b);
@@ -12182,7 +12307,7 @@ function buildTodayScales(){
  const out={},single=activeSingleSpeciesType();
  for(const area of ANALYSIS_CENTERS){
    const rows=allFeatures.filter(f=>{
-     if(f._blocked||featureAreaName(f)!==area.name)return false;
+     if(f._blocked||!featureInAnalysisAreaName(f,area.name))return false;
      if(single)return featureRelevant(single,f);
      return f._kind!=='open';
    }).map(todayScoreForStyle).filter(Number.isFinite).sort((a,b)=>a-b);
@@ -12225,7 +12350,7 @@ function bestTodayConditionScale(areaName,potentialClass){
  if(bestTodayConditionScaleCache.has(key))return bestTodayConditionScaleCache.get(key);
 
  const rows=allFeatures
-   .filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===areaName&&balancedClass(f)===potentialClass)
+   .filter(f=>!f._blocked&&f._kind!=='open'&&featureInAnalysisAreaName(f,areaName)&&balancedClass(f)===potentialClass)
    .map(f=>bestTodayConditionInfo(f).condition)
    .filter(Number.isFinite)
    .sort((a,b)=>a-b);
@@ -15894,7 +16019,7 @@ function buildTop(){
 
 // --- 5. Porównanie rejonów ------------------------------------------------------------------
 function areaSummary(areaName){
- const feats=allFeatures.filter(f=>!f._blocked&&featureAreaName(f)===areaName&&(atlasSelected.size?[...atlasSelected].some(t=>featureRelevant(t,f)):(currentFilter==='all'?f._kind!=='open':currentFilter==='diversity'||featureRelevant(currentFilter,f))));
+ const feats=allFeatures.filter(f=>!f._blocked&&featureInAnalysisAreaName(f,areaName)&&(atlasSelected.size?[...atlasSelected].some(t=>featureRelevant(t,f)):(currentFilter==='all'?f._kind!=='open':currentFilter==='diversity'||featureRelevant(currentFilter,f))));
  let total=0,stableWeighted=0,stableGood=0,stableStrong=0,todayWeighted=0,todayWorth=0,todayFire=0;
  for(const f of feats){
    const a=Math.max(.05,featureAreaHa(f)),s=stableAnchorScore(f),v=atlasSelected.size?atlasVerdictFor(f):verdictFor(f);total+=a;stableWeighted+=s*a;todayWeighted+=v.score*a;
@@ -16746,7 +16871,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v104: automatyczny start w tle');
+      console.info('Benchmark krajowy v105: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

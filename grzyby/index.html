@@ -1,6 +1,25 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v102:
+     LAB BENCHMARKU WZGLĘDEM NISZY.
+     Audyt gatunkowy v101 pokazał, że Białowieża nie jest "słaba dla wszystkiego":
+     nisko wypadają głównie gatunki sosnowe, natomiast część gatunków liściastych /
+     mieszanych jest powyżej średniej kraju. To znaczy, że jeden surowy composite
+     porównuje różne typy lasu na skali zdominowanej przez najczęstsze siedliska Polski.
+
+     v102 NIE zmienia mapy ani aktywnego prioru. Dodaje kandydacki benchmark:
+       1) dla każdej niszy osobno buduje krajowy histogram najlepszego gatunku z tej niszy,
+       2) score każdej niszy zamienia na percentile W OBRĘBIE TEJ SAMEJ NISZY,
+       3) agreguje TOP4 percentyle,
+       4) ten wynik ponownie kalibruje względem całej Polski.
+     Dzięki temu las dębowy/wilgotny nie przegrywa tylko dlatego, że nie jest borem sosnowym.
+
+     Dwa warianty laboratoryjne:
+       nicheRel_70_15_9_6  — obecne proporcje TOP4
+       nicheRel_40_30_20_10 — łagodniejsza agregacja
+     Nowy auditNationalNicheRelativeLab() porównuje stary i oba nowe benchmarki.
+
 <!-- GitHub production v101:
      AUDYT GATUNKOWY BENCHMARKU KRAJOWEGO.
      Lab wag v100 pokazał, że zmiana 70/15/9/6 -> bardziej płaskie wagi praktycznie
@@ -7016,7 +7035,7 @@ function verdictRankCapFromMapClass(c){
 // pogody ani lokalnego rankingu. W praktycznej punktacji działa jako
 // umiarkowany mnożnik ok. 0.84–1.10.
 
-const NATIONAL_BENCHMARK_VERSION='bdl-pl-v10-weight-lab';
+const NATIONAL_BENCHMARK_VERSION='bdl-pl-v11-niche-relative-lab';
 const NATIONAL_BENCHMARK_CACHE_KEY='grzyby:national-benchmark:'+NATIONAL_BENCHMARK_VERSION;
 const NATIONAL_BENCHMARK_MAX_AGE_MS=365*24*3600*1000;
 const NATIONAL_BENCHMARK_BIN_STEP=.05;
@@ -7185,6 +7204,71 @@ function nationalCompositeScoreForFeatureScheme(types,f,schemeKey){
  return nationalCompositeScoreForScheme(types,f.properties||{},schemeKey);
 }
 
+const NATIONAL_RELATIVE_BIN_STEP=.5;
+const NATIONAL_RELATIVE_BIN_COUNT=201;
+
+function nationalRelativeHistogramQuantile(hist,total,q){
+ if(!Array.isArray(hist)||!hist.length||!(total>0))return NaN;
+ const target=Math.max(0,Math.min(1,q))*total;
+ let cum=0;
+ for(let i=0;i<hist.length;i++){
+   cum+=Number(hist[i]||0);
+   if(cum>=target)return i*NATIONAL_RELATIVE_BIN_STEP;
+ }
+ return (hist.length-1)*NATIONAL_RELATIVE_BIN_STEP;
+}
+
+function nationalRelativePercentile(profile,value){
+ if(!profile||!Array.isArray(profile.hist)||!profile.total||!Number.isFinite(value))return NaN;
+ const idx=Math.max(0,Math.min(profile.hist.length-1,Math.round(value/NATIONAL_RELATIVE_BIN_STEP)));
+ let below=0;
+ for(let i=0;i<idx;i++)below+=Number(profile.hist[i]||0);
+ const own=Number(profile.hist[idx]||0);
+ return 100*Math.max(0,Math.min(1,(below+.5*own)/profile.total));
+}
+
+function nationalBestNicheRowsForProps(types,props){
+ const supported=nationalForestBenchmarkTypes(types);
+ const byNiche=new Map();
+ for(const type of supported){
+   const score=nationalCorePotentialForProps(type,props);
+   if(!Number.isFinite(score))continue;
+   const niche=opportunityNicheKey(type);
+   const prev=byNiche.get(niche);
+   if(!prev||score>prev.score)byNiche.set(niche,{niche,type,score});
+ }
+ return [...byNiche.values()].sort((a,b)=>b.score-a.score);
+}
+
+function nationalNicheRelativeScoreForProps(types,props,nicheProfiles,weights){
+ const rows=nationalBestNicheRowsForProps(types,props);
+ if(!rows.length)return {score:NaN,rows:[]};
+
+ const rel=rows.map(r=>{
+   const profile=nicheProfiles?.[r.niche];
+   const percentile=nationalPercentileFromHistogram(profile,r.score);
+   return {...r,percentile};
+ }).filter(r=>Number.isFinite(r.percentile))
+   .sort((a,b)=>b.percentile-a.percentile);
+
+ if(!rel.length)return {score:NaN,rows:[]};
+
+ const vals=[];
+ for(let i=0;i<4;i++)vals.push(rel[i]?.percentile ?? 50);
+ let sum=0,ws=0;
+ for(let i=0;i<4;i++){
+   const w=Number(weights?.[i]||0);
+   sum+=w*vals[i];ws+=w;
+ }
+ return {score:ws?sum/ws:NaN,rows:rel.slice(0,4)};
+}
+
+function nationalNicheRelativeScoreForFeature(types,f,nicheProfiles,weights){
+ if(!f||f._kind==='open')return {score:NaN,rows:[]};
+ return nationalNicheRelativeScoreForProps(types,f.properties||{},nicheProfiles,weights);
+}
+
+
 
 function nationalCoreCompositeForFeature(types,f){
  if(!f||f._kind==='open')return {score:NaN,best:NaN,support:NaN,niches:0,bestType:null};
@@ -7321,7 +7405,9 @@ function nationalBenchmarkHealth(obj=nationalBenchmark){
      &&Array.isArray(obj.diagnostics.composition.site)&&obj.diagnostics.composition.site.length>0
      &&Array.isArray(obj.diagnostics.composition.age)&&obj.diagnostics.composition.age.length>0,
    nicheDecomposition:Array.isArray(obj?.diagnostics?.niches)&&obj.diagnostics.niches.length>=4,
-   weightLab:Object.keys(obj?.composites?.candidates||{}).length===Object.keys(NATIONAL_BENCHMARK_WEIGHT_SCHEMES).length
+   weightLab:Object.keys(obj?.composites?.candidates||{}).length===Object.keys(NATIONAL_BENCHMARK_WEIGHT_SCHEMES).length,
+   nicheRelativeLab:Object.keys(obj?.composites?.nicheProfiles||{}).length>=6
+     &&Object.keys(obj?.composites?.nicheRelative||{}).length===2
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
  return {
@@ -7481,6 +7567,8 @@ function nationalBenchmarkCacheValid(obj){
  if(!obj?.diagnostics?.composition)return false;
  if(!Array.isArray(obj?.diagnostics?.niches)||obj.diagnostics.niches.length<4)return false;
  if(Object.keys(obj?.composites?.candidates||{}).length!==Object.keys(NATIONAL_BENCHMARK_WEIGHT_SCHEMES).length)return false;
+ if(Object.keys(obj?.composites?.nicheProfiles||{}).length<6)return false;
+ if(Object.keys(obj?.composites?.nicheRelative||{}).length!==2)return false;
  const top=nationalBenchmarkTopCombosStatus(obj);
  return top.ok;
 }
@@ -7822,6 +7910,82 @@ async function buildNationalBenchmarkFromGroups(groups){
  }
 
  const forestTypes=nationalForestBenchmarkTypes(PICK_TYPES);
+
+ // v102: histogram najlepszego wyniku osobno dla każdej niszy.
+ const nicheTypes={};
+ for(const type of forestTypes){
+   const niche=opportunityNicheKey(type);
+   (nicheTypes[niche]||(nicheTypes[niche]=[])).push(type);
+ }
+ const nicheHistRaw={};
+ for(const niche of Object.keys(nicheTypes)){
+   nicheHistRaw[niche]=new Array(NATIONAL_BENCHMARK_BIN_COUNT).fill(0);
+ }
+
+ for(let i=0;i<combos.length;i++){
+   const c=combos[i],w=weightOf(c);
+   for(const [niche,nTypes] of Object.entries(nicheTypes)){
+     let best=-Infinity;
+     for(const type of nTypes){
+       const s=nationalCorePotentialForProps(type,c);
+       if(Number.isFinite(s)&&s>best)best=s;
+     }
+     if(!Number.isFinite(best))continue;
+     const bin=Math.max(0,Math.min(NATIONAL_BENCHMARK_BIN_COUNT-1,Math.round(best/NATIONAL_BENCHMARK_BIN_STEP)));
+     nicheHistRaw[niche][bin]+=w;
+   }
+   if(i%700===0)await new Promise(r=>setTimeout(r,0));
+ }
+
+ const nicheProfiles={};
+ for(const [niche,hist] of Object.entries(nicheHistRaw)){
+   const total=hist.reduce((a,b)=>a+Number(b||0),0);
+   nicheProfiles[niche]={
+     niche,
+     label:ATLAS_GROUP_SHORT[niche]||ATLAS_GROUPS.find(g=>g.id===niche)?.label||niche,
+     types:nicheTypes[niche].slice(),
+     hist,total,
+     q10:nationalHistogramQuantile(hist,total,.10),
+     q25:nationalHistogramQuantile(hist,total,.25),
+     q50:nationalHistogramQuantile(hist,total,.50),
+     q75:nationalHistogramQuantile(hist,total,.75),
+     q90:nationalHistogramQuantile(hist,total,.90),
+     q97:nationalHistogramQuantile(hist,total,.97)
+   };
+ }
+
+ const relativeSchemes={
+   nicheRel_70_15_9_6:{label:'Nisze względne 70/15/9/6',weights:[.70,.15,.09,.06]},
+   nicheRel_40_30_20_10:{label:'Nisze względne 40/30/20/10',weights:[.40,.30,.20,.10]}
+ };
+ const nicheRelativeProfiles={};
+
+ for(const [schemeKey,scheme] of Object.entries(relativeSchemes)){
+   const hist=new Array(NATIONAL_RELATIVE_BIN_COUNT).fill(0);
+
+   for(let i=0;i<combos.length;i++){
+     const c=combos[i];
+     const rel=nationalNicheRelativeScoreForProps(forestTypes,c,nicheProfiles,scheme.weights);
+     if(!Number.isFinite(rel.score))continue;
+     const bin=Math.max(0,Math.min(NATIONAL_RELATIVE_BIN_COUNT-1,Math.round(rel.score/NATIONAL_RELATIVE_BIN_STEP)));
+     hist[bin]+=weightOf(c);
+     if(i%700===0)await new Promise(r=>setTimeout(r,0));
+   }
+
+   const total=hist.reduce((a,b)=>a+Number(b||0),0);
+   nicheRelativeProfiles[schemeKey]={
+     label:scheme.label,
+     weights:scheme.weights.slice(),
+     hist,total,binStep:NATIONAL_RELATIVE_BIN_STEP,
+     q10:nationalRelativeHistogramQuantile(hist,total,.10),
+     q25:nationalRelativeHistogramQuantile(hist,total,.25),
+     q50:nationalRelativeHistogramQuantile(hist,total,.50),
+     q75:nationalRelativeHistogramQuantile(hist,total,.75),
+     q90:nationalRelativeHistogramQuantile(hist,total,.90),
+     q97:nationalRelativeHistogramQuantile(hist,total,.97)
+   };
+ }
+
  const compositeHist=new Array(NATIONAL_BENCHMARK_BIN_COUNT).fill(0);
  for(let i=0;i<combos.length;i++){
    const c=combos[i];
@@ -7967,7 +8131,7 @@ async function buildNationalBenchmarkFromGroups(groups){
    source:'BDL layers 5+6 • nationwide grouped statistics • SUM(sub_area) primary weighting',
    groupedRows:groups.length,uniqueCombos:combos.length,totalRecords,totalAreaHa,weightMode,
    transportDiagnostics:nationalGroupedFetchDiagnostics,
-   composites:{allForest,candidates:candidateComposites},
+   composites:{allForest,candidates:candidateComposites,nicheProfiles,nicheRelative:nicheRelativeProfiles},
    diagnostics,
    types:profiles
  };
@@ -9403,7 +9567,7 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v101',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v102',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
    rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków normalizuje gotową ocenę miejsca; DZIŚ = OGÓLNIE × retencja warunków']
@@ -9463,7 +9627,7 @@ function auditOpportunityBalance(){
  }
 
  const report={
-   version:'v101',
+   version:'v102',
    model:'v90 local composite + guarded national BDL area-weighted correction; Today = country-calibrated Overall × current-condition retention',
    classCuts:{
      overall:[3.40,5.80,8.00,9.20],
@@ -9511,7 +9675,7 @@ function auditVisualClassCalibration(){
  }
 
  const report={
-   version:'v101',
+   version:'v102',
    thresholds:{
      overall:[3.40,5.80,8.00,9.20],
      today:[2.95,5.15,7.05,8.48]
@@ -9583,7 +9747,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  }
 
  const report={
-   version:'v101',
+   version:'v102',
    state:nationalBenchmarkState,
    lastError:nationalBenchmarkLastError,
    benchmark:{
@@ -9617,7 +9781,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
 
 function auditNationalBenchmarkStatus(){
  const out={
-   version:'v101',
+   version:'v102',
    state:nationalBenchmarkState,
    error:nationalBenchmarkLastError||null,
    busy:!!nationalBenchmarkPromise,
@@ -9657,7 +9821,7 @@ function auditNationalPriorSafety(){
  }
  const maxAbs=Math.max(0,...rows.map(r=>Math.abs(r.areaPrior)));
  const report={
-   version:'v101',
+   version:'v102',
    ok:maxAbs<=.45,
    rule:'benchmark krajowy nie zmienia rankingu wydzieleń wewnątrz regionu; daje tylko wspólny prior max -0.45..+0.35',
    maxAbsPrior:maxAbs,
@@ -9675,7 +9839,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
 
  if(!health.ok||!country){
    const report={
-     version:'v101',ok:false,
+     version:'v102',ok:false,
      error:'Benchmark krajowy nie jest gotowy albo nie ma profilu explainability.',
      health
    };
@@ -9888,7 +10052,7 @@ function auditTreeCodeCanonicalization(){
  }
 
  const report={
-   version:'v101',
+   version:'v102',
    ok:true,
    rule:'wariant BDL po kropce jest redukowany do bazowego hosta tylko jeśli baza jest znanym kodem drzewa',
    examples:{'DB.S':'DB','DB.B':'DB','BRZ.O':'BRZ','OL.S':'OL'},
@@ -9904,7 +10068,7 @@ function auditNationalNicheBreakdown(){
  const types=nationalForestBenchmarkTypes(PICK_TYPES);
 
  if(!health.ok||!Array.isArray(countryRows)){
-   const report={version:'v101',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
+   const report={version:'v102',ok:false,error:'Brak gotowej dekompozycji nisz w benchmarku.',health};
    console.warn('NATIONAL NICHE BREAKDOWN',report);
    return report;
  }
@@ -10067,7 +10231,7 @@ function auditNationalBenchmarkWeightLab(){
  const candidates=nationalBenchmark?.composites?.candidates;
 
  if(!health.ok||!candidates){
-   const report={version:'v101',ok:false,error:'Brak gotowych histogramów kandydackich.',health};
+   const report={version:'v102',ok:false,error:'Brak gotowych histogramów kandydackich.',health};
    console.warn('NATIONAL BENCHMARK WEIGHT LAB',report);
    return report;
  }
@@ -10130,7 +10294,7 @@ function auditNationalBenchmarkWeightLab(){
  }
 
  const report={
-   version:'v100',
+   version:'v102',
    ok:Object.keys(areas).length>0,
    activeMapScheme:'current_70_15_9_6',
    scoringChanged:false,
@@ -10147,7 +10311,7 @@ function auditNationalSpeciesBreakdown(){
  const types=nationalForestBenchmarkTypes(PICK_TYPES);
 
  if(!health.ok||!nationalBenchmark?.types){
-   const report={version:'v101',ok:false,error:'Benchmark krajowy nie jest gotowy.',health};
+   const report={version:'v102',ok:false,error:'Benchmark krajowy nie jest gotowy.',health};
    console.warn('NATIONAL SPECIES BREAKDOWN',report);
    return report;
  }
@@ -10270,6 +10434,137 @@ function auditNationalSpeciesBreakdown(){
  console.info('NATIONAL SPECIES BREAKDOWN v101',report);
  return report;
 }
+
+function auditNationalNicheRelativeLab(){
+ const health=nationalBenchmarkHealth(nationalBenchmark);
+ const types=nationalForestBenchmarkTypes(PICK_TYPES);
+ const nicheProfiles=nationalBenchmark?.composites?.nicheProfiles;
+ const relProfiles=nationalBenchmark?.composites?.nicheRelative;
+ const oldProfile=nationalBenchmark?.composites?.allForest;
+
+ if(!health.ok||!nicheProfiles||!relProfiles||!oldProfile){
+   const report={version:'v102',ok:false,error:'Brak gotowego benchmarku niche-relative.',health};
+   console.warn('NATIONAL NICHE-RELATIVE LAB',report);
+   return report;
+ }
+
+ const q=(arr,p)=>{
+   const a=arr.filter(Number.isFinite).sort((x,y)=>x-y);
+   if(!a.length)return NaN;
+   const pos=(a.length-1)*p,lo=Math.floor(pos),hi=Math.ceil(pos),t=pos-lo;
+   return a[lo]*(1-t)+a[hi]*t;
+ };
+
+ const schemes={
+   old_raw:{label:'Obecny surowy composite',weights:null},
+   nicheRel_70_15_9_6:{label:'Nisze względne 70/15/9/6',weights:[.70,.15,.09,.06]},
+   nicheRel_40_30_20_10:{label:'Nisze względne 40/30/20/10',weights:[.40,.30,.20,.10]}
+ };
+
+ const areas={};
+
+ for(const area of ANALYSIS_CENTERS){
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   if(!feats.length)continue;
+
+   const rows=[];
+
+   for(const [schemeKey,scheme] of Object.entries(schemes)){
+     const percentiles=[],rawScores=[];
+
+     for(const f of feats){
+       let score,pct;
+       if(schemeKey==='old_raw'){
+         score=nationalCoreCompositeForFeature(types,f).score;
+         pct=nationalPercentileFromHistogram(oldProfile,score);
+       }else{
+         const rel=nationalNicheRelativeScoreForFeature(types,f,nicheProfiles,scheme.weights);
+         score=rel.score;
+         pct=nationalRelativePercentile(relProfiles[schemeKey],score);
+       }
+       if(Number.isFinite(score))rawScores.push(score);
+       if(Number.isFinite(pct))percentiles.push(pct);
+     }
+
+     const median=q(percentiles,.5);
+     rows.push({
+       schemeKey,
+       label:scheme.label,
+       n:percentiles.length,
+       p10:q(percentiles,.1),
+       median,
+       p90:q(percentiles,.9),
+       scoreMedian:q(rawScores,.5),
+       scoreMean:rawScores.length?rawScores.reduce((a,b)=>a+b,0)/rawScores.length:NaN,
+       suggestedPrior:nationalAreaPriorAdjustment(median)
+     });
+   }
+
+   // Które nisze są najmocniejsze po normalizacji względem własnej niszy?
+   const nicheWin=new Map();
+   let winTotal=0;
+   for(const f of feats){
+     const rel=nationalNicheRelativeScoreForFeature(types,f,nicheProfiles,[.70,.15,.09,.06]);
+     const top=rel.rows?.[0];
+     if(!top)continue;
+     const areaHa=Number(f.properties?.sub_area);
+     const w=Number.isFinite(areaHa)&&areaHa>0?areaHa:1;
+     winTotal+=w;
+     const p=nicheWin.get(top.niche)||{niche:top.niche,weight:0,percentileSum:0,typeWeights:new Map()};
+     p.weight+=w;
+     p.percentileSum+=w*top.percentile;
+     p.typeWeights.set(top.type,(p.typeWeights.get(top.type)||0)+w);
+     nicheWin.set(top.niche,p);
+   }
+   const nicheWinners=[...nicheWin.values()].map(x=>{
+     const bestType=[...x.typeWeights.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+     return {
+       niche:x.niche,
+       label:ATLAS_GROUP_SHORT[x.niche]||ATLAS_GROUPS.find(g=>g.id===x.niche)?.label||x.niche,
+       areaPct:winTotal?100*x.weight/winTotal:0,
+       meanWinningPercentile:x.weight?x.percentileSum/x.weight:NaN,
+       bestType,
+       bestTypeName:bestType?(HUMAN_NAMES[bestType]||bestType):'-'
+     };
+   }).sort((a,b)=>b.areaPct-a.areaPct);
+
+   areas[area.name]={rows,nicheWinners};
+
+   console.info(`${area.name} — LAB BENCHMARKU WZGLĘDEM NISZY v102`);
+   console.table(rows.map(r=>({
+     wariant:r.label,
+     n:r.n,
+     p10:Number(r.p10.toFixed(1)),
+     medianaPc:Number(r.median.toFixed(1)),
+     p90:Number(r.p90.toFixed(1)),
+     scoreMediana:Number(r.scoreMedian.toFixed(2)),
+     scoreSredni:Number(r.scoreMean.toFixed(2)),
+     priorGdybyAktywny:Number(r.suggestedPrior.toFixed(2))
+   })));
+
+   console.info('🏆 Najczęstsza najlepsza nisza po normalizacji względem własnej niszy');
+   console.table(nicheWinners.map(x=>({
+     nisza:x.label,
+     udzialPowierzchniPct:Number(x.areaPct.toFixed(1)),
+     sredniPercentylWygrywajacejNiszy:Number(x.meanWinningPercentile.toFixed(1)),
+     najczestszyGatunek:x.bestTypeName
+   })));
+ }
+
+ const report={
+   version:'v102',
+   ok:Object.keys(areas).length>0,
+   activeMapBenchmark:'old_raw',
+   mapScoringChanged:false,
+   priorChanged:false,
+   concept:'score niszy -> percentyl tej samej niszy w Polsce -> TOP4 -> ponowna kalibracja względem Polski',
+   areas
+ };
+ console.info('NATIONAL NICHE-RELATIVE LAB v102',report);
+ return report;
+}
+window.auditNationalNicheRelativeLab=auditNationalNicheRelativeLab;
+
 window.auditNationalSpeciesBreakdown=auditNationalSpeciesBreakdown;
 
 window.auditNationalBenchmarkWeightLab=auditNationalBenchmarkWeightLab;
@@ -10304,12 +10599,13 @@ function auditAppBootstrap(){
    nicheAudit:typeof window.auditNationalNicheBreakdown==='function',
    weightLabAudit:typeof window.auditNationalBenchmarkWeightLab==='function',
    speciesAudit:typeof window.auditNationalSpeciesBreakdown==='function',
+   nicheRelativeAudit:typeof window.auditNationalNicheRelativeLab==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v101',ok:failed.length===0,checks,failed};
+ const report={version:'v102',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }

@@ -1,6 +1,29 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v143:
+     OBSERVATION-EVIDENCE ATLAS FIX + AUTOMATIC REGRESSION AUDIT.
+
+     v142 jednoznacznie potwierdził bug:
+       - borowik: atlasEvidence=false, 806/1000 lasów z historią,
+       - podgrzybek: atlasEvidence=false, 791/1000,
+       - kurka: atlasEvidence=false, 761/1000,
+       - obserwacje były pobrane, ale pojedynczy wybór Atlasu ich nie używał.
+
+     v143 naprawia jedną rzecz produkcyjną:
+       observationEvidenceActive(type)
+       korzysta teraz z activeSingleSpeciesType() jako wspólnego źródła prawdy.
+
+     Efekt:
+       - jawny filtr jednego gatunku: bez zmiany,
+       - dokładnie 1 gatunek w Atlasie: observation evidence WŁĄCZONE,
+       - BEST / Różnorodność / 2+ gatunki Atlasu: evidence nadal WYŁĄCZONE.
+
+     Auto-audyt porównuje filtr vs Atlas 1:1 oraz mierzy rzeczywisty wpływ
+     historii względem trybu OFF.
+
+     Overlap-cluster i wszystkie poprawki wydajności pozostają bez zmian.
+
 <!-- GitHub production v142:
      AUTOMATIC OBSERVATION-EVIDENCE / ATLAS ACTIVATION AUDIT.
 
@@ -7198,10 +7221,17 @@ function showObsLayer(type){
 }
 
 function observationEvidenceActive(type){
- // Obserwacje są dodatkową korektą tylko w jawnym trybie jednego gatunku.
- // Dzięki temu BEST / Różnorodność / atlas nie zależą od kolejności wcześniejszych kliknięć.
- return atlasSelected.size===0 &&
-        currentFilter===type &&
+ // v143 FIX:
+ // Publiczne obserwacje mogą wpływać na scoring tylko wtedy,
+ // gdy interfejs naprawdę jest w trybie JEDNEGO konkretnego gatunku.
+ //
+ // activeSingleSpeciesType() obejmuje obie równoważne ścieżki:
+ //   1) jawny filtr gatunku,
+ //   2) dokładnie 1 gatunek zaznaczony w Atlasie.
+ //
+ // Dla BEST / Różnorodności / 2+ gatunków Atlasu funkcja zwraca null,
+ // więc historia nie przecieka do scoringu wielogatunkowego.
+ return activeSingleSpeciesType()===type &&
         !!obsLoaded[type];
 }
 
@@ -10286,11 +10316,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v142: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v143: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v142 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v143 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10300,7 +10330,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v142 health',health);
+     console.info('National benchmark v143 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -19490,22 +19520,38 @@ function v142DeltaSummary(rows,key){
 function v142CompareEvidenceModes(type,features){
  const legacy=v142ObservationScoreRows(type,features,'legacy');
  const atlas=v142ObservationScoreRows(type,features,'atlas');
+ const off=v142ObservationScoreRows(type,features,'off');
+ const multi=v142ObservationScoreRows(type,features,'multi');
 
  const atlasBy=new Map(atlas.rows.map(r=>[r.key,r]));
+ const offBy=new Map(off.rows.map(r=>[r.key,r]));
+
  const rows=legacy.rows.map(a=>{
    const b=atlasBy.get(a.key);
+   const z=offBy.get(a.key);
+
    return {
      key:a.key,
      legacyPotential:a.potential,
      atlasPotential:b?.potential??NaN,
-     potentialDelta:a.potential-(b?.potential??a.potential),
+     offPotential:z?.potential??NaN,
+     atlasPotentialDelta:(b?.potential??a.potential)-a.potential,
+     evidencePotentialDelta:a.potential-(z?.potential??a.potential),
+
      legacyToday:a.today,
      atlasToday:b?.today??NaN,
-     todayDelta:a.today-(b?.today??a.today),
+     offToday:z?.today??NaN,
+     atlasTodayDelta:(b?.today??a.today)-a.today,
+     evidenceTodayDelta:a.today-(z?.today??a.today),
+
      legacyPotentialClass:a.potentialClass,
      atlasPotentialClass:b?.potentialClass??a.potentialClass,
+     offPotentialClass:z?.potentialClass??a.potentialClass,
+
      legacyTodayClass:a.todayClass,
      atlasTodayClass:b?.todayClass??a.todayClass,
+     offTodayClass:z?.todayClass??a.todayClass,
+
      historyBonus:a.historyBonus,
      nearest:a.nearest,
      count2:a.count2
@@ -19513,45 +19559,88 @@ function v142CompareEvidenceModes(type,features){
  });
 
  const affected=rows.filter(r=>r.historyBonus>1e-9);
- const potentialClassChanges=rows.filter(r=>r.legacyPotentialClass!==r.atlasPotentialClass).length;
- const todayClassChanges=rows.filter(r=>r.legacyTodayClass!==r.atlasTodayClass).length;
 
- const rankRows=rows.map(r=>({
-   legacyPotential:r.legacyPotential,atlasPotential:r.atlasPotential,
-   legacyToday:r.legacyToday,atlasToday:r.atlasToday
+ const atlasPotentialClassChanges=rows.filter(
+   r=>r.legacyPotentialClass!==r.atlasPotentialClass
+ ).length;
+ const atlasTodayClassChanges=rows.filter(
+   r=>r.legacyTodayClass!==r.atlasTodayClass
+ ).length;
+
+ const evidencePotentialClassChanges=rows.filter(
+   r=>r.legacyPotentialClass!==r.offPotentialClass
+ ).length;
+ const evidenceTodayClassChanges=rows.filter(
+   r=>r.legacyTodayClass!==r.offTodayClass
+ ).length;
+
+ const atlasRankRows=rows.map(r=>({
+   legacyPotential:r.legacyPotential,
+   atlasPotential:r.atlasPotential,
+   legacyToday:r.legacyToday,
+   atlasToday:r.atlasToday
  }));
 
- const potTop10=contextAuditTopOverlap(rankRows,'legacyPotential','atlasPotential',.10);
- const potTop25=contextAuditTopOverlap(rankRows,'legacyPotential','atlasPotential',.25);
- const todayTop10=contextAuditTopOverlap(rankRows,'legacyToday','atlasToday',.10);
- const todayTop25=contextAuditTopOverlap(rankRows,'legacyToday','atlasToday',.25);
+ const offRankRows=rows.map(r=>({
+   legacyPotential:r.legacyPotential,
+   offPotential:r.offPotential,
+   legacyToday:r.legacyToday,
+   offToday:r.offToday
+ }));
+
+ const potTop10=contextAuditTopOverlap(atlasRankRows,'legacyPotential','atlasPotential',.10);
+ const potTop25=contextAuditTopOverlap(atlasRankRows,'legacyPotential','atlasPotential',.25);
+ const todayTop10=contextAuditTopOverlap(atlasRankRows,'legacyToday','atlasToday',.10);
+ const todayTop25=contextAuditTopOverlap(atlasRankRows,'legacyToday','atlasToday',.25);
+
+ const evidencePotTop10=contextAuditTopOverlap(offRankRows,'legacyPotential','offPotential',.10);
+ const evidenceTodayTop10=contextAuditTopOverlap(offRankRows,'legacyToday','offToday',.10);
+
+ const atlasPotentialMaxAbs=Math.max(
+   0,...rows.map(r=>Math.abs(Number(r.atlasPotentialDelta)||0))
+ );
+ const atlasTodayMaxAbs=Math.max(
+   0,...rows.map(r=>Math.abs(Number(r.atlasTodayDelta)||0))
+ );
 
  return {
    type,
    label:HUMAN_NAMES[type]||type,
    observations:(observationData[type]||[]).length,
    n:rows.length,
+
    legacyActiveSingle:legacy.activeSingle,
    legacyEvidenceActive:legacy.evidenceActive,
    atlasActiveSingle:atlas.activeSingle,
    atlasEvidenceActive:atlas.evidenceActive,
+   offEvidenceActive:off.evidenceActive,
+   multiEvidenceActive:multi.evidenceActive,
    atlasLoaded:!!obsLoaded[type],
+
    affectedN:affected.length,
    affectedPct:rows.length?100*affected.length/rows.length:0,
-   potentialPositiveN:rows.filter(r=>r.potentialDelta>1e-6).length,
-   potentialNegativeN:rows.filter(r=>r.potentialDelta<-1e-6).length,
-   todayPositiveN:rows.filter(r=>r.todayDelta>1e-6).length,
-   todayNegativeN:rows.filter(r=>r.todayDelta<-1e-6).length,
-   potentialDelta:v142DeltaSummary(rows,'potentialDelta'),
-   todayDelta:v142DeltaSummary(rows,'todayDelta'),
-   potentialClassChanges,
-   todayClassChanges,
-   potentialSpearman:auditSpearman(rankRows,'legacyPotential','atlasPotential'),
-   todaySpearman:auditSpearman(rankRows,'legacyToday','atlasToday'),
+
+   atlasPotentialMaxAbs,
+   atlasTodayMaxAbs,
+   atlasPotentialClassChanges,
+   atlasTodayClassChanges,
+
+   evidencePotentialDelta:v142DeltaSummary(rows,'evidencePotentialDelta'),
+   evidenceTodayDelta:v142DeltaSummary(rows,'evidenceTodayDelta'),
+   evidencePotentialClassChanges,
+   evidenceTodayClassChanges,
+
+   potentialSpearman:auditSpearman(atlasRankRows,'legacyPotential','atlasPotential'),
+   todaySpearman:auditSpearman(atlasRankRows,'legacyToday','atlasToday'),
+
    potentialTop10:potTop10.overlapRate,
    potentialTop25:potTop25.overlapRate,
    todayTop10:todayTop10.overlapRate,
    todayTop25:todayTop25.overlapRate,
+
+   evidencePotentialTop10:evidencePotTop10.overlapRate,
+   evidenceTodayTop10:evidenceTodayTop10.overlapRate,
+
    rows
  };
 }
@@ -19603,7 +19692,7 @@ async function auditObservationEvidenceAtlasActivation(options={}){
 
    if(!ready){
      return {
-       version:'v142',ok:false,infrastructureFailure:true,
+       version:'v143',ok:false,infrastructureFailure:true,
        error:'Brak gotowych danych leśnych do audytu observation evidence.',
        attempts
      };
@@ -19638,58 +19727,89 @@ async function auditObservationEvidenceAtlasActivation(options={}){
      species:r.label,
      obs:r.observations,
      n:r.n,
-     legacyActive:r.legacyEvidenceActive,
+
+     legacyEvidence:r.legacyEvidenceActive,
      atlasSingle:r.atlasActiveSingle===r.type,
      atlasEvidence:r.atlasEvidenceActive,
+     multiEvidence:r.multiEvidenceActive,
+     offEvidence:r.offEvidenceActive,
+
      affectedN:r.affectedN,
      affectedPct:Number(r.affectedPct.toFixed(1)),
-     potMeanDelta:Number(r.potentialDelta.mean.toFixed(4)),
-     potMaxDelta:Number(r.potentialDelta.max.toFixed(4)),
-     potClassChanges:r.potentialClassChanges,
-     todayMeanDelta:Number(r.todayDelta.mean.toFixed(4)),
-     todayMaxDelta:Number(r.todayDelta.max.toFixed(4)),
-     todayMinDelta:Number(r.todayDelta.min.toFixed(4)),
-     todayClassChanges:r.todayClassChanges,
-     potRho:Number(r.potentialSpearman.toFixed(4)),
-     todayRho:Number(r.todaySpearman.toFixed(4)),
+
+     atlasPotMaxAbs:Number(r.atlasPotentialMaxAbs.toFixed(9)),
+     atlasTodayMaxAbs:Number(r.atlasTodayMaxAbs.toFixed(9)),
+     atlasPotClassChanges:r.atlasPotentialClassChanges,
+     atlasTodayClassChanges:r.atlasTodayClassChanges,
+
+     evidencePotMean:Number(r.evidencePotentialDelta.mean.toFixed(4)),
+     evidencePotMax:Number(r.evidencePotentialDelta.max.toFixed(4)),
+     evidencePotClassChanges:r.evidencePotentialClassChanges,
+
+     evidenceTodayMean:Number(r.evidenceTodayDelta.mean.toFixed(4)),
+     evidenceTodayMax:Number(r.evidenceTodayDelta.max.toFixed(4)),
+     evidenceTodayMin:Number(r.evidenceTodayDelta.min.toFixed(4)),
+     evidenceTodayClassChanges:r.evidenceTodayClassChanges,
+
      potTop10:Number((100*r.potentialTop10).toFixed(1)),
-     todayTop10:Number((100*r.todayTop10).toFixed(1))
+     todayTop10:Number((100*r.todayTop10).toFixed(1)),
+     evidencePotTop10:Number((100*r.evidencePotentialTop10).toFixed(1)),
+     evidenceTodayTop10:Number((100*r.evidenceTodayTop10).toFixed(1))
    })));
 
-   const fetchedButIgnored=reports.filter(r=>
-     r.atlasLoaded &&
-     r.atlasActiveSingle===r.type &&
-     r.atlasEvidenceActive===false
+   const activationFailures=reports.filter(r=>
+     !r.legacyEvidenceActive ||
+     r.atlasActiveSingle!==r.type ||
+     !r.atlasEvidenceActive ||
+     r.multiEvidenceActive ||
+     r.offEvidenceActive
    );
 
-   const anyEffect=reports.some(r=>
-     r.affectedN>0 ||
-     Math.abs(r.potentialDelta.max)>1e-9 ||
-     Math.abs(r.todayDelta.max)>1e-9 ||
-     Math.abs(r.todayDelta.min)>1e-9
+   const parityFailures=reports.filter(r=>
+     r.atlasPotentialMaxAbs>1e-9 ||
+     r.atlasTodayMaxAbs>1e-9 ||
+     r.atlasPotentialClassChanges!==0 ||
+     r.atlasTodayClassChanges!==0
    );
 
-   const diagnosis=fetchedButIgnored.length
-     ?'CONFIRMED: Atlas single-species pobiera obserwacje, ale observationEvidenceActive() ich nie włącza. Dane historyczne są więc ładowane i pokazywane, lecz nie uczestniczą w scoringu Atlasu.'
-     :'Nie potwierdzono rozjazdu aktywacji Atlasu w tym przebiegu.';
+   const evidenceActuallyMatters=reports.some(r=>
+     r.affectedN>0 &&
+     (
+       Math.abs(r.evidencePotentialDelta.max)>1e-9 ||
+       Math.abs(r.evidencePotentialDelta.min)>1e-9 ||
+       Math.abs(r.evidenceTodayDelta.max)>1e-9 ||
+       Math.abs(r.evidenceTodayDelta.min)>1e-9
+     )
+   );
+
+   const exact=
+     activationFailures.length===0 &&
+     parityFailures.length===0 &&
+     evidenceActuallyMatters;
+
+   const diagnosis=exact
+     ?'FIX CONFIRMED: pojedynczy gatunek w Atlasie używa dokładnie tego samego observation evidence co jawny filtr. BEST / multi-Atlas pozostają odcięte od historii.'
+     :'Regression audit wykrył rozjazd; nie traktować poprawki jako gotowej.';
 
    const report={
-     version:'v142',
+     version:'v143',
      ok:true,
-     productionScoringChanged:false,
+     productionScoringChanged:true,
+     intentionalChange:'observationEvidenceActive() now follows activeSingleSpeciesType()',
      speciesTested:reports.length,
-     fetchedButIgnoredSpecies:fetchedButIgnored.map(r=>r.type),
-     fetchedButIgnoredN:fetchedButIgnored.length,
-     anyMeasuredScoreEffect:anyEffect,
+     activationFailures:activationFailures.map(r=>r.type),
+     parityFailures:parityFailures.map(r=>r.type),
+     evidenceActuallyMatters,
+     exact,
      diagnosis,
      reports,
      attempts,
-     recommendation:fetchedButIgnored.length
-       ?'Następny krok: naprawić observationEvidenceActive() tak, aby pojedynczy gatunek wybrany w Atlasie był traktowany tak samo jak jawny filtr jednego gatunku, a potem zrobić before/after regression audit.'
-       :'Nie zmieniać aktywacji bez dalszej diagnozy.'
+     recommendation:exact
+       ?'Można przygotować clean production build bez auto-audytu.'
+       :'Nie robić clean release; sprawdzić species wskazane w activationFailures/parityFailures.'
    };
 
-   console.info('OBSERVATION EVIDENCE / ATLAS ACTIVATION v142',report);
+   console.info('OBSERVATION EVIDENCE / ATLAS ACTIVATION v143',report);
    return report;
  }finally{
    currentFilter=previous.filter;
@@ -19716,7 +19836,7 @@ async function autoRunObservationEvidenceAtlasAudit(){
  v142ObservationAuditState.status='running';
  v142ObservationAuditState.startedAt=Date.now();
 
- console.info('AUTO OBSERVATION AUDIT v142: start — nic nie musisz wpisywać');
+ console.info('AUTO OBSERVATION AUDIT v143: start — nic nie musisz wpisywać');
 
  try{
    const result=await auditObservationEvidenceAtlasActivation();
@@ -19725,24 +19845,25 @@ async function autoRunObservationEvidenceAtlasAudit(){
    v142ObservationAuditState.finishedAt=Date.now();
 
    const summary={
-     version:'v142',
+     version:'v143',
      ok:!!result?.ok,
      speciesTested:result?.speciesTested||0,
-     fetchedButIgnoredN:result?.fetchedButIgnoredN||0,
-     fetchedButIgnoredSpecies:(result?.fetchedButIgnoredSpecies||[]).join(', '),
-     anyMeasuredScoreEffect:!!result?.anyMeasuredScoreEffect,
+     exact:result?.exact===true,
+     activationFailures:(result?.activationFailures||[]).join(', '),
+     parityFailures:(result?.parityFailures||[]).join(', '),
+     evidenceActuallyMatters:!!result?.evidenceActuallyMatters,
      infrastructureFailure:!!result?.infrastructureFailure,
      sec:Number(((v142ObservationAuditState.finishedAt-v142ObservationAuditState.startedAt)/1000).toFixed(2))
    };
 
    console.table([summary]);
 
-   if(result?.fetchedButIgnoredN>0){
-     console.warn('AUTO OBSERVATION AUDIT v142 RESULT: ⚠️ POTWIERDZONY BUG AKTYWACJI ATLASU',result);
+   if(result?.exact===true){
+     console.info('AUTO OBSERVATION AUDIT v143 RESULT: ✅ PASS — Atlas single-species = jawny filtr 1:1; historia działa i nie przecieka do multi/BEST.',result);
    }else if(result?.ok){
-     console.info('AUTO OBSERVATION AUDIT v142 RESULT: ✅ brak rozjazdu aktywacji',result);
+     console.error('AUTO OBSERVATION AUDIT v143 RESULT: ❌ REGRESSION / ACTIVATION MISMATCH',result);
    }else{
-     console.warn('AUTO OBSERVATION AUDIT v142 RESULT: ⚠️ audit niedokończony przez API/infrastrukturę',result);
+     console.warn('AUTO OBSERVATION AUDIT v143 RESULT: ⚠️ audit niedokończony przez API/infrastrukturę',result);
    }
 
    return v142ObservationAuditState;
@@ -19750,9 +19871,9 @@ async function autoRunObservationEvidenceAtlasAudit(){
    v142ObservationAuditState.status='done';
    v142ObservationAuditState.finishedAt=Date.now();
    v142ObservationAuditState.result={
-     version:'v142',ok:false,error:e?.message||String(e)
+     version:'v143',ok:false,error:e?.message||String(e)
    };
-   console.error('AUTO OBSERVATION AUDIT v142: fatal',e);
+   console.error('AUTO OBSERVATION AUDIT v143: fatal',e);
    return v142ObservationAuditState;
  }
 }
@@ -25904,7 +26025,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v142: automatyczny start w tle');
+      console.info('Benchmark krajowy v143: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){
@@ -25923,7 +26044,7 @@ const startObservationAuditAutomatically=()=>{
   try{
     autoRunObservationEvidenceAtlasAudit();
   }catch(e){
-    console.error('AUTO OBSERVATION AUDIT v142: start failed',e);
+    console.error('AUTO OBSERVATION AUDIT v143: start failed',e);
   }
 };
 if('requestIdleCallback' in window){

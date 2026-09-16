@@ -1,6 +1,12 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v94 HOTFIX:
+     Naprawa krytycznego błędu startu z v93. Na końcu skryptu pozostał stary eksport
+     funkcji audytu V92, który powodował ReferenceError i zatrzymywał dalsze wykonanie JS.
+     Efekt: brak wyszukiwania, pusty Atlas, brak Rankingu Polski.
+     v94 zmienia wyłącznie bootstrap/eksport audytu. Scoring i benchmark v93 bez zmian.
+
 <!-- GitHub production v93: szybki i obserwowalny benchmark krajowy.
      v92 potrafił wisieć na pierwszym ciężkim zapytaniu ArcGIS:
        GROUP BY species + site + dokładny wiek dla całej Polski.
@@ -9190,7 +9196,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  };
 
  for(const [name,row] of Object.entries(areaRows)){
-   console.info(name,'— BENCHMARK KRAJOWY v92');console.table([row]);
+   console.info(name,'— BENCHMARK KRAJOWY v93');console.table([row]);
  }
  console.info('NATIONAL BENCHMARK v93 AUDIT',report);
  return report;
@@ -9221,7 +9227,7 @@ function auditNationalBenchmarkStatus(){
 }
 window.auditNationalBenchmarkStatus=auditNationalBenchmarkStatus;
 
-window.auditNationalBenchmarkV92=auditNationalBenchmarkV92;
+window.auditNationalBenchmarkV93=auditNationalBenchmarkV93;
 
 window.auditVisualClassCalibration=auditVisualClassCalibration;
 
@@ -9230,6 +9236,22 @@ window.auditOpportunityBalance=auditOpportunityBalance;
 window.auditOpportunityBalance=auditOpportunityBalance;
 
 window.auditUnifiedOpportunityModel=auditUnifiedOpportunityModel;
+
+function auditAppBootstrap(){
+ const checks={
+   nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
+   nationalStatus:typeof window.auditNationalBenchmarkStatus==='function',
+   visualAudit:typeof window.auditVisualClassCalibration==='function',
+   opportunityAudit:typeof window.auditOpportunityBalance==='function',
+   unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
+ };
+ const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
+ const report={version:'v94',ok:failed.length===0,checks,failed};
+ console.info('APP BOOTSTRAP AUDIT',report);
+ return report;
+}
+window.auditAppBootstrap=auditAppBootstrap;
+
 
 
 function auditModeSemanticsUI(){

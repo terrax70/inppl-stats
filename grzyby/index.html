@@ -1,6 +1,29 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v144:
+     CLEAN PRODUCTION RELEASE AFTER OBSERVATION-EVIDENCE FIX.
+
+     v143 regression audit zakończył się PASS:
+       - 3/3 gatunki,
+       - legacyEvidence = true,
+       - atlasEvidence = true,
+       - multiEvidence = false,
+       - offEvidence = false,
+       - Atlas single-species == jawny filtr 1:1,
+       - atlasPotMaxAbs = 0,
+       - atlasTodayMaxAbs = 0,
+       - 0 zmian klas,
+       - evidenceActuallyMatters = true.
+
+     v144 usuwa automatyczny observation audit z normalnego startu strony.
+     Sama poprawka observationEvidenceActive() zostaje w produkcji.
+
+     Overlap-cluster, poprawki wydajności i wszystkie pozostałe elementy
+     scoringu pozostają bez zmian względem v143.
+
+     Narzędzia audytowe nadal są dostępne diagnostycznie, ale nie startują same.
+
 <!-- GitHub production v143:
      OBSERVATION-EVIDENCE ATLAS FIX + AUTOMATIC REGRESSION AUDIT.
 
@@ -10316,11 +10339,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v143: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v144: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v143 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v144 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10330,7 +10353,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v143 health',health);
+     console.info('National benchmark v144 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -19692,7 +19715,7 @@ async function auditObservationEvidenceAtlasActivation(options={}){
 
    if(!ready){
      return {
-       version:'v143',ok:false,infrastructureFailure:true,
+       version:'v144',ok:false,infrastructureFailure:true,
        error:'Brak gotowych danych leśnych do audytu observation evidence.',
        attempts
      };
@@ -19792,7 +19815,7 @@ async function auditObservationEvidenceAtlasActivation(options={}){
      :'Regression audit wykrył rozjazd; nie traktować poprawki jako gotowej.';
 
    const report={
-     version:'v143',
+     version:'v144',
      ok:true,
      productionScoringChanged:true,
      intentionalChange:'observationEvidenceActive() now follows activeSingleSpeciesType()',
@@ -19809,7 +19832,7 @@ async function auditObservationEvidenceAtlasActivation(options={}){
        :'Nie robić clean release; sprawdzić species wskazane w activationFailures/parityFailures.'
    };
 
-   console.info('OBSERVATION EVIDENCE / ATLAS ACTIVATION v143',report);
+   console.info('OBSERVATION EVIDENCE / ATLAS ACTIVATION v144',report);
    return report;
  }finally{
    currentFilter=previous.filter;
@@ -19836,7 +19859,7 @@ async function autoRunObservationEvidenceAtlasAudit(){
  v142ObservationAuditState.status='running';
  v142ObservationAuditState.startedAt=Date.now();
 
- console.info('AUTO OBSERVATION AUDIT v143: start — nic nie musisz wpisywać');
+ console.info('AUTO OBSERVATION AUDIT v144: start — nic nie musisz wpisywać');
 
  try{
    const result=await auditObservationEvidenceAtlasActivation();
@@ -19845,7 +19868,7 @@ async function autoRunObservationEvidenceAtlasAudit(){
    v142ObservationAuditState.finishedAt=Date.now();
 
    const summary={
-     version:'v143',
+     version:'v144',
      ok:!!result?.ok,
      speciesTested:result?.speciesTested||0,
      exact:result?.exact===true,
@@ -19859,11 +19882,11 @@ async function autoRunObservationEvidenceAtlasAudit(){
    console.table([summary]);
 
    if(result?.exact===true){
-     console.info('AUTO OBSERVATION AUDIT v143 RESULT: ✅ PASS — Atlas single-species = jawny filtr 1:1; historia działa i nie przecieka do multi/BEST.',result);
+     console.info('AUTO OBSERVATION AUDIT v144 RESULT: ✅ PASS — Atlas single-species = jawny filtr 1:1; historia działa i nie przecieka do multi/BEST.',result);
    }else if(result?.ok){
-     console.error('AUTO OBSERVATION AUDIT v143 RESULT: ❌ REGRESSION / ACTIVATION MISMATCH',result);
+     console.error('AUTO OBSERVATION AUDIT v144 RESULT: ❌ REGRESSION / ACTIVATION MISMATCH',result);
    }else{
-     console.warn('AUTO OBSERVATION AUDIT v143 RESULT: ⚠️ audit niedokończony przez API/infrastrukturę',result);
+     console.warn('AUTO OBSERVATION AUDIT v144 RESULT: ⚠️ audit niedokończony przez API/infrastrukturę',result);
    }
 
    return v142ObservationAuditState;
@@ -19871,9 +19894,9 @@ async function autoRunObservationEvidenceAtlasAudit(){
    v142ObservationAuditState.status='done';
    v142ObservationAuditState.finishedAt=Date.now();
    v142ObservationAuditState.result={
-     version:'v143',ok:false,error:e?.message||String(e)
+     version:'v144',ok:false,error:e?.message||String(e)
    };
-   console.error('AUTO OBSERVATION AUDIT v143: fatal',e);
+   console.error('AUTO OBSERVATION AUDIT v144: fatal',e);
    return v142ObservationAuditState;
  }
 }
@@ -19930,7 +19953,7 @@ function auditAppBootstrap(){
    autoDeploymentAudit:typeof window.autoRunOverlapClusterDeploymentAudit==='function',
    deploymentAuditAutoStart:false,
    observationAtlasActivation:typeof window.auditObservationEvidenceAtlasActivation==='function',
-   observationAtlasAuditAutoStart:true,
+   observationAtlasAuditAutoStart:false,
    multiAreaPerformance:typeof window.auditMultiAreaPerformance==='function',
    activeSpeciesResolver:typeof activeSingleSpeciesType==='function',
    observationPreloadHelper:typeof ensureActiveSingleSpeciesObservations==='function',
@@ -26025,7 +26048,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v143: automatyczny start w tle');
+      console.info('Benchmark krajowy v144: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){
@@ -26038,20 +26061,7 @@ if('requestIdleCallback' in window){
   setTimeout(startNationalBenchmarkDeferred,1500);
 }
 
-// v142 LAB: audyt observation evidence uruchamia się sam.
-// To build diagnostyczny; po wyniku kolejna wersja nie będzie odpalała tego przy każdym wejściu.
-const startObservationAuditAutomatically=()=>{
-  try{
-    autoRunObservationEvidenceAtlasAudit();
-  }catch(e){
-    console.error('AUTO OBSERVATION AUDIT v143: start failed',e);
-  }
-};
-if('requestIdleCallback' in window){
-  requestIdleCallback(startObservationAuditAutomatically,{timeout:3500});
-}else{
-  setTimeout(startObservationAuditAutomatically,2800);
-}
+// v144: observation audit przeszedł PASS; produkcja nie uruchamia go automatycznie.
 
 // v142: deployment audit zakończony; produkcja nie uruchamia go automatycznie.
 

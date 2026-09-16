@@ -1,6 +1,26 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v108:
+     EXPLORATION MOSAIC v3 — MISSING DATA NIE JEST KATEGORIĄ.
+
+     Test v107 wykazał zdrowe rozkłady i niski bias rozdrobnienia BDL, ale ujawnił
+     jeszcze jeden logiczny błąd w samym LAB-ie:
+       - brak wieku był kodowany jako "?" i trafiał do Shannon richness jak prawdziwa
+         szósta klasa wieku. W Białowieży audyt pokazywał klasWieku=6 mimo definicji
+         tylko pięciu klas.
+       - analogicznie brak drzewa/siedliska mógł udawać kolejną kategorię.
+
+     v108:
+       - unknown/missing NIE wchodzi do richness,
+       - dla drzewa/siedliska/wieku liczona jest osobna coverage 0..1,
+       - każdy składnik mozaiki jest konserwatywnie ważony własnym coverage,
+       - UI pokazuje także "pokrycie danych mozaiki",
+       - audit raportuje coverage i ostrzega przy medianie < 80%.
+
+     Produkcyjny scoring grzybów, DZIŚ/OGÓLNIE, hotspoty, progi i benchmark krajowy
+     pozostają bez zmian.
+
 <!-- GitHub production v107:
      EXPLORATION MOSAIC v2 — RICHNESS, NIE TYLKO EVENNESS.
 
@@ -8423,11 +8443,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v107: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v108: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v107 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v108 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -8437,7 +8457,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v107 health',health);
+     console.info('National benchmark v108 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -9353,9 +9373,13 @@ function explorationAgeBand(age){
 
 function explorationMosaicInfo(f){
  if(!f||f._kind==='open'){
-   return {score:0,treeDiversity:0,habitatDiversity:0,ageContrast:0,density:0,count:0,areaHa:0,
-     treeEffective:0,habitatEffective:0,ageEffective:0,treeCount:0,habitatCount:0,ageBandCount:0,
-     label:'niska',note:'teren otwarty — wskaźnik mozaiki lasu nie jest używany'};
+   return {
+     score:0,treeDiversity:0,habitatDiversity:0,ageContrast:0,density:0,count:0,areaHa:0,
+     treeEffective:0,habitatEffective:0,ageEffective:0,
+     treeCount:0,habitatCount:0,ageBandCount:0,
+     treeCoverage:0,habitatCoverage:0,ageCoverage:0,dataCoverage:0,
+     label:'niska',note:'teren otwarty — wskaźnik mozaiki lasu nie jest używany'
+   };
  }
  if(explorationMosaicCache.has(f))return explorationMosaicCache.get(f);
 
@@ -9364,61 +9388,76 @@ function explorationMosaicInfo(f){
  const seen=new Set();
  const treeWeights=new Map(),habWeights=new Map(),ageWeights=new Map();
  let areaHa=0,count=0;
+ let totalTreeW=0,knownTreeW=0,totalHabW=0,knownHabW=0,totalAgeW=0,knownAgeW=0;
 
- const addFeature=(g,d)=>{
+ const addKnown=(map,key,w)=>{
+   if(!key||key==='?')return false;
+   map.set(key,(map.get(key)||0)+w);
+   return true;
+ };
+
+ const addFeature=(g,d,countArea=true)=>{
    const a=Math.max(.05,featureAreaHa(g));
    const proximity=Math.max(.15,1-d/.65);
    const w=Math.sqrt(a)*proximity;
-   areaHa+=a;count++;
+   if(countArea){areaHa+=a;count++;}
 
    const tree=speciesCode(g.properties||{})||'?';
-   const hab=explorationHabitatFamily(habitatCode(g.properties||{}));
+   const rawHab=habitatCode(g.properties||{});
+   const hab=rawHab?explorationHabitatFamily(rawHab):'?';
    const ageBand=explorationAgeBand(g.properties?.species_age);
-   treeWeights.set(tree,(treeWeights.get(tree)||0)+w);
-   habWeights.set(hab,(habWeights.get(hab)||0)+w);
-   ageWeights.set(ageBand,(ageWeights.get(ageBand)||0)+w);
+
+   totalTreeW+=w;
+   if(addKnown(treeWeights,tree,w))knownTreeW+=w;
+
+   totalHabW+=w;
+   if(addKnown(habWeights,hab,w))knownHabW+=w;
+
+   totalAgeW+=w;
+   if(addKnown(ageWeights,ageBand,w))knownAgeW+=w;
  };
 
  for(let di=-2;di<=2;di++)for(let dj=-2;dj<=2;dj++){
    for(const g of (grid.get((ci+di)+'|'+(cj+dj))||[])){
      if(g===f||g._blocked||g._kind==='open')continue;
-     const key=stableFeatureKey(g);if(seen.has(key))continue;seen.add(key);
+     const key=stableFeatureKey(g);
+     if(seen.has(key))continue;
+     seen.add(key);
      const d=hav(f._center,g._center);
      if(d>.55)continue;
-     addFeature(g,d);
+     addFeature(g,d,true);
    }
  }
 
- // Własne wydzielenie też jest częścią mozaiki, ale bez podwójnego areaHa/count.
- const ownA=Math.max(.05,featureAreaHa(f));
- const ownW=Math.max(.35,Math.sqrt(ownA));
- const ownTree=speciesCode(f.properties||{})||'?';
- const ownHab=explorationHabitatFamily(habitatCode(f.properties||{}));
- const ownAge=explorationAgeBand(f.properties?.species_age);
- treeWeights.set(ownTree,(treeWeights.get(ownTree)||0)+ownW);
- habWeights.set(ownHab,(habWeights.get(ownHab)||0)+ownW);
- ageWeights.set(ownAge,(ageWeights.get(ownAge)||0)+ownW);
+ // Własne wydzielenie wliczamy do składu, ale nie do count/areaHa sąsiadów.
+ addFeature(f,0,false);
+
+ const treeCoverage=totalTreeW>0?knownTreeW/totalTreeW:0;
+ const habitatCoverage=totalHabW>0?knownHabW/totalHabW:0;
+ const ageCoverage=totalAgeW>0?knownAgeW/totalAgeW:0;
 
  const treeR=explorationRichnessScore(treeWeights,5);
  const habR=explorationRichnessScore(habWeights,4);
  const ageR=explorationRichnessScore(ageWeights,4);
 
- const treeDiversity=treeR.score;
- const habitatDiversity=habR.score;
- const ageContrast=ageR.score;
- const density=Math.max(0,Math.min(1,piecewise(areaHa,[[0,0],[5,.25],[15,.5],[35,.72],[70,.9],[130,1]])));
+ // Missing data nie jest neutralne ani bonusowe: zmniejsza wkład danego wymiaru.
+ const treeDiversity=treeR.score*treeCoverage;
+ const habitatDiversity=habR.score*habitatCoverage;
+ const ageContrast=ageR.score*ageCoverage;
 
- // Nadal exploration-only. Wagi są engineering priorem, nie wagą biologiczną.
+ const density=Math.max(0,Math.min(1,piecewise(areaHa,[[0,0],[5,.25],[15,.5],[35,.72],[70,.9],[130,1]])));
  const structural=.45*treeDiversity+.35*habitatDiversity+.20*ageContrast;
  const score=10*structural*(.72+.28*density);
+ const dataCoverage=.45*treeCoverage+.35*habitatCoverage+.20*ageCoverage;
 
  const out={
    score:Math.max(0,Math.min(10,score)),
    treeDiversity,habitatDiversity,ageContrast,density,count,areaHa,
    treeEffective:treeR.effective,habitatEffective:habR.effective,ageEffective:ageR.effective,
    treeCount:treeR.count,habitatCount:habR.count,ageBandCount:ageR.count,
+   treeCoverage,habitatCoverage,ageCoverage,dataCoverage,
    label:score>=6.8?'wysoka':score>=4.0?'średnia':'niska',
-   note:'wartość eksploracyjna v2; effective richness; nie zmienia biologicznej oceny grzybów'
+   note:'wartość eksploracyjna v3; unknown wykluczony z richness; coverage obniża wkład; nie zmienia biologicznej oceny grzybów'
  };
  explorationMosaicCache.set(f,out);
  return out;
@@ -10310,13 +10349,24 @@ function auditExplorationMosaicLab({top=20}={}){
    const mx=pairs.reduce((s,p)=>s+p[0],0)/pairs.length;
    const my=pairs.reduce((s,p)=>s+p[1],0)/pairs.length;
    let num=0,dx=0,dy=0;
-   for(const [x,y] of pairs){const ax=x-mx,ay=y-my;num+=ax*ay;dx+=ax*ax;dy+=ay*ay;}
+   for(const [x,y] of pairs){
+     const ax=x-mx,ay=y-my;
+     num+=ax*ay;dx+=ax*ax;dy+=ay*ay;
+   }
    return dx>0&&dy>0?num/Math.sqrt(dx*dy):NaN;
  };
+ const quant=(arr,p)=>{
+   const s=arr.filter(Number.isFinite).sort((a,b)=>a-b);
+   if(!s.length)return NaN;
+   const pos=(s.length-1)*p,lo=Math.floor(pos),hi=Math.ceil(pos),t=pos-lo;
+   return s[lo]*(1-t)+s[hi]*t;
+ };
+
  const rows=[];
  for(const area of ANALYSIS_CENTERS){
    const fs=stableCandidateFeatures(area.name).filter(f=>f._kind!=='open');
    if(!fs.length)continue;
+
    const vals=fs.map(f=>{
      const e=explorationMosaicInfo(f);
      return {
@@ -10329,32 +10379,43 @@ function auditExplorationMosaicLab({top=20}={}){
        areaHa:featureAreaHa(f)
      };
    });
-   const scores=vals.map(x=>x.e.score).sort((a,b)=>a-b);
-   const q=p=>{
-     if(!scores.length)return NaN;
-     const pos=(scores.length-1)*p,lo=Math.floor(pos),hi=Math.ceil(pos),t=pos-lo;
-     return scores[lo]*(1-t)+scores[hi]*t;
-   };
-   const topRows=[...vals].sort((a,b)=>b.e.score-a.e.score||b.overall-a.overall).slice(0,Math.max(1,top));
-   const corrNeighbors=pearson(vals.map(x=>x.e.score),vals.map(x=>x.e.count));
-   const corrArea=pearson(vals.map(x=>x.e.score),vals.map(x=>x.areaHa));
-   const corrOverall=pearson(vals.map(x=>x.e.score),vals.map(x=>x.overall));
 
-   rows.push({
+   const scores=vals.map(x=>x.e.score);
+   const coverages=vals.map(x=>x.e.dataCoverage);
+   const corrNeighbors=pearson(scores,vals.map(x=>x.e.count));
+   const corrArea=pearson(scores,vals.map(x=>x.areaHa));
+   const corrOverall=pearson(scores,vals.map(x=>x.overall));
+   const corrCoverage=pearson(scores,coverages);
+
+   // Ranking topów: najpierw score, przy remisie wyższa coverage.
+   const topRows=[...vals].sort((a,b)=>
+     b.e.score-a.e.score ||
+     b.e.dataCoverage-a.e.dataCoverage ||
+     b.overall-a.overall
+   ).slice(0,Math.max(1,top));
+
+   const row={
      area:area.name,n:vals.length,
-     p10:q(.1),median:q(.5),p90:q(.9),
+     p10:quant(scores,.1),median:quant(scores,.5),p90:quant(scores,.9),
      highPct:100*vals.filter(x=>x.e.score>=6.8).length/vals.length,
-     corrNeighbors,corrArea,corrOverall,
+     coverageP10:100*quant(coverages,.1),
+     coverageMedian:100*quant(coverages,.5),
+     coverageP90:100*quant(coverages,.9),
+     lowCoveragePct:100*vals.filter(x=>x.e.dataCoverage<.8).length/vals.length,
+     corrNeighbors,corrArea,corrOverall,corrCoverage,
+     maxAgeBandCount:Math.max(...vals.map(x=>x.e.ageBandCount)),
      top:topRows.map(x=>({
        tree:x.tree,habitat:x.habitat,habitatFamily:x.habitatFamily,age:x.age,areaHa:x.areaHa,
        exploration:x.e.score,overall:x.overall,
        treeEffective:x.e.treeEffective,habitatEffective:x.e.habitatEffective,ageEffective:x.e.ageEffective,
        treeCount:x.e.treeCount,habitatCount:x.e.habitatCount,ageBandCount:x.e.ageBandCount,
-       neighborCount:x.e.count
+       treeCoverage:x.e.treeCoverage,habitatCoverage:x.e.habitatCoverage,ageCoverage:x.e.ageCoverage,
+       dataCoverage:x.e.dataCoverage,neighborCount:x.e.count
      }))
-   });
+   };
+   rows.push(row);
 
-   console.info(`${area.name} — EXPLORATION MOSAIC LAB v107`);
+   console.info(`${area.name} — EXPLORATION MOSAIC LAB v108`);
    console.table(topRows.map(x=>({
      drzewo:x.tree,siedlisko:x.habitat,rodzina:x.habitatFamily,wiek:x.age,
      ha:Number(x.areaHa.toFixed(2)),
@@ -10366,26 +10427,45 @@ function auditExplorationMosaicLab({top=20}={}){
      katDrzew:x.e.treeCount,
      katSiedlisk:x.e.habitatCount,
      klasWieku:x.e.ageBandCount,
+     covDrzew:Number((100*x.e.treeCoverage).toFixed(0)),
+     covSiedlisk:Number((100*x.e.habitatCoverage).toFixed(0)),
+     covWiek:Number((100*x.e.ageCoverage).toFixed(0)),
+     covAll:Number((100*x.e.dataCoverage).toFixed(0)),
      sasiedzi:x.e.count
    })));
+
    console.table([{
      area:area.name,n:vals.length,
-     p10:Number(q(.1).toFixed(2)),
-     mediana:Number(q(.5).toFixed(2)),
-     p90:Number(q(.9).toFixed(2)),
-     highPct:Number((100*vals.filter(x=>x.e.score>=6.8).length/vals.length).toFixed(1)),
+     p10:Number(row.p10.toFixed(2)),
+     mediana:Number(row.median.toFixed(2)),
+     p90:Number(row.p90.toFixed(2)),
+     highPct:Number(row.highPct.toFixed(1)),
+     covP10:Number(row.coverageP10.toFixed(1)),
+     covMediana:Number(row.coverageMedian.toFixed(1)),
+     lowCoveragePct:Number(row.lowCoveragePct.toFixed(1)),
+     maxKlasWieku:row.maxAgeBandCount,
      corrSasiedzi:Number.isFinite(corrNeighbors)?Number(corrNeighbors.toFixed(3)):null,
      corrPowierzchnia:Number.isFinite(corrArea)?Number(corrArea.toFixed(3)):null,
-     corrOgolnie:Number.isFinite(corrOverall)?Number(corrOverall.toFixed(3)):null
+     corrOgolnie:Number.isFinite(corrOverall)?Number(corrOverall.toFixed(3)):null,
+     corrCoverage:Number.isFinite(corrCoverage)?Number(corrCoverage.toFixed(3)):null
    }]);
  }
- const suspicious=rows.some(r=>Math.abs(r.corrNeighbors)>0.65||Math.abs(r.corrArea)>0.65);
+
+ const fragmentationWarning=rows.some(r=>Math.abs(r.corrNeighbors)>0.65||Math.abs(r.corrArea)>0.65);
+ const coverageWarning=rows.some(r=>r.coverageMedian<80);
+ const impossibleAgeCategory=rows.some(r=>r.maxAgeBandCount>5);
+
  const report={
-   version:'v107',ok:rows.length>0&&!suspicious,scoringChanged:false,
-   meaning:'exploration / mosaic effective richness only; NOT biological edge bonus',
-   fragmentationBiasWarning:suspicious,rows
+   version:'v108',
+   ok:rows.length>0&&!fragmentationWarning&&!impossibleAgeCategory,
+   scoringChanged:false,
+   meaning:'exploration / mosaic effective richness; missing data excluded and tracked via coverage; NOT biological edge bonus',
+   fragmentationBiasWarning:fragmentationWarning,
+   coverageWarning,
+   impossibleAgeCategory,
+   rows
  };
- console.info('EXPLORATION MOSAIC LAB v107',report);
+ console.info('EXPLORATION MOSAIC LAB v108',report);
  return report;
 }
 window.auditExplorationMosaicLab=auditExplorationMosaicLab;
@@ -10420,8 +10500,8 @@ function auditRegionalTop3Robustness(){
    dzisTop3Mean:Number.isFinite(r.todayTop3Mean)?Number(r.todayTop3Mean.toFixed(2)):null,
    dzisStabilnosc:r.todayLabel
  })));
- const report={version:'v107',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
- console.info('REGIONAL TOP3 ROBUSTNESS v107',report);
+ const report={version:'v108',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
+ console.info('REGIONAL TOP3 ROBUSTNESS v108',report);
  return report;
 }
 window.auditRegionalTop3Robustness=auditRegionalTop3Robustness;
@@ -10440,9 +10520,9 @@ function auditBorrowedIdeas(){
    {element:'Road/satellite accessibility',status:'BRAK',source:'shroom-fm / Boletus',note:'nie mieszamy z biologicznym score bez osobnej warstwy'}
  ];
  console.table(rows);
- const report={version:'v107',ok:true,productionScoringChanged:false,rows,
+ const report={version:'v108',ok:true,productionScoringChanged:false,rows,
    nextPriority:['backtest obserwacji','species-specific weather lab','OSM access as separate practical score']};
- console.info('BORROWED IDEAS AUDIT v107',report);
+ console.info('BORROWED IDEAS AUDIT v108',report);
  return report;
 }
 window.auditBorrowedIdeas=auditBorrowedIdeas;
@@ -11397,7 +11477,7 @@ function auditAppBootstrap(){
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v107',ok:failed.length===0,checks,failed};
+ const report={version:'v108',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }
@@ -13171,7 +13251,7 @@ function unifiedPopupHtml(f,h=null){
      `<div class="factor"><span>Mikroteren</span><b>${moistureTerrainScore(type,f).toFixed(1)}</b></div></div>`+
      (soilRaw?`<div class="popup-mini" style="margin-top:6px">SoilGrids: pH ${soilRaw.ph.toFixed(1)} • SOC ${soilRaw.soc.toFixed(1)} • piasek ${soilRaw.sand.toFixed(1)}</div>`:'')+
      (Number.isFinite(hist.nearest)?`<div class="popup-mini">Najbliższa publiczna obserwacja: ${hist.nearest.toFixed(1)} km</div>`:'')+
-     `<div class="popup-mini">🧭 Mozaika eksploracyjna: ${exploration.score.toFixed(1)}/10 • efektywne kategorie: drzewa ${exploration.treeEffective.toFixed(1)}, siedliska ${exploration.habitatEffective.toFixed(1)}, klasy wieku ${exploration.ageEffective.toFixed(1)}. <b>Nie wpływa na ocenę biologiczną.</b></div>`+
+     `<div class="popup-mini">🧭 Mozaika eksploracyjna: ${exploration.score.toFixed(1)}/10 • efektywne kategorie: drzewa ${exploration.treeEffective.toFixed(1)}, siedliska ${exploration.habitatEffective.toFixed(1)}, klasy wieku ${exploration.ageEffective.toFixed(1)} • pokrycie danych ${Math.round(exploration.dataCoverage*100)}%. <b>Nie wpływa na ocenę biologiczną.</b></div>`+
      (confidenceNotes.length?`<div class="popup-mini">🔎 Pewność oparta na: ${confidenceNotes.map(escapeHtml).join(' • ')}.</div>`:'')+
      `</details>`;
  }
@@ -17200,7 +17280,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v107: automatyczny start w tle');
+      console.info('Benchmark krajowy v108: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

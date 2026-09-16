@@ -1,6 +1,19 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v98:
+     NAPRAWA KODÓW GATUNKÓW DRZEW BDL.
+     Audyt v97 ujawnił konkretny błąd: Białowieża ma m.in. DB.S=10.7% i DB.B,
+     ale treePreference() rozpoznawał tylko kod DB. Funkcja norm() usuwała polskie znaki,
+     lecz NIE usuwała sufiksu po kropce, więc DB.S/DB.B wpadały jako "nieznany host"
+     i dostawały bazowe 2.5 zamiast preferencji dębu. To sztucznie zaniżało krajowy core
+     dębowych regionów i także mogło zaniżać lokalny scoring wydzieleń z takimi kodami.
+     v98 dodaje canonicalTreeCode():
+       DB.S/DB.B -> DB, BRZ.O -> BRZ, OL.S -> OL itd.
+     Sufiks jest usuwany tylko wtedy, gdy część bazowa jest znanym kodem drzewa.
+     Benchmark cache ma nową wersję i przebuduje się raz.
+     Siła regionalnego prioru, agregacja v90/v96, progi kolorów i reszta biologii bez zmian.
+
 <!-- GitHub production v97:
      AUDYT WYJAŚNIALNOŚCI benchmarku krajowego.
      v96 pozostaje modelem mapy bez zmian. v97 nie zwiększa siły benchmarku i nie
@@ -3686,8 +3699,27 @@ function clamp(x,a=0,b=10){return Math.max(a,Math.min(b,x));}
 function norm(s){
  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,'');
 }
+
+const CANONICAL_TREE_CODES=new Set([
+ 'SO','DB','BK','BRZ','SW','OL','JD','MD','GB','JS','OS',
+ 'LP','KL','JW','WZ','TP','WB','AK','DG'
+]);
+
+function canonicalTreeCode(raw){
+ const code=norm(raw);
+ if(!code)return '';
+ if(CANONICAL_TREE_CODES.has(code))return code;
+
+ // BDL używa wariantów typu DB.S, DB.B, BRZ.O, OL.S.
+ // Dla relacji mikoryzowych liczy się rodzaj gospodarza, więc bezpiecznie
+ // redukujemy wariant do bazowego kodu tylko wtedy, gdy baza jest znana.
+ const base=code.split('.')[0];
+ if(base&&CANONICAL_TREE_CODES.has(base))return base;
+ return code;
+}
+
 function speciesCode(p){
- return norm(p.species_cd || p.gat_grp || p.species_cd_d || '');
+ return canonicalTreeCode(p.species_cd || p.gat_grp || p.species_cd_d || '');
 }
 function habitatCode(p){
  return norm(p.site_type_cd||'');
@@ -6938,7 +6970,7 @@ function verdictRankCapFromMapClass(c){
 // pogody ani lokalnego rankingu. W praktycznej punktacji działa jako
 // umiarkowany mnożnik ok. 0.84–1.10.
 
-const NATIONAL_BENCHMARK_VERSION='bdl-pl-v7-area-agebands-explainable';
+const NATIONAL_BENCHMARK_VERSION='bdl-pl-v8-canonical-treecodes-explainable';
 const NATIONAL_BENCHMARK_CACHE_KEY='grzyby:national-benchmark:'+NATIONAL_BENCHMARK_VERSION;
 const NATIONAL_BENCHMARK_MAX_AGE_MS=365*24*3600*1000;
 const NATIONAL_BENCHMARK_BIN_STEP=.05;
@@ -7084,7 +7116,9 @@ const NATIONAL_TREE_LABELS={
  SO:'sosna',DB:'dąb',BK:'buk',BRZ:'brzoza',SW:'świerk','ŚW':'świerk',
  OL:'olsza',JD:'jodła',MD:'modrzew',GB:'grab',JS:'jesion',OS:'osika',
  LP:'lipa',KL:'klon',JW:'jawor',WZ:'wiąz',TP:'topola',WB:'wierzba',
- AK:'robinia akacjowa',DG:'daglezja'
+ AK:'robinia akacjowa',DG:'daglezja',
+ 'DB.S':'dąb szypułkowy','DB.B':'dąb bezszypułkowy',
+ 'BRZ.O':'brzoza omszona','OL.S':'olsza szara'
 };
 const NATIONAL_SITE_LABELS={
  BSW:'bór świeży',BMSW:'bór mieszany świeży',LMSW:'las mieszany świeży',
@@ -9202,7 +9236,7 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v97',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v98',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
    rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków normalizuje gotową ocenę miejsca; DZIŚ = OGÓLNIE × retencja warunków']
@@ -9262,7 +9296,7 @@ function auditOpportunityBalance(){
  }
 
  const report={
-   version:'v97',
+   version:'v98',
    model:'v90 local composite + guarded national BDL area-weighted correction; Today = country-calibrated Overall × current-condition retention',
    classCuts:{
      overall:[3.40,5.80,8.00,9.20],
@@ -9310,7 +9344,7 @@ function auditVisualClassCalibration(){
  }
 
  const report={
-   version:'v97',
+   version:'v98',
    thresholds:{
      overall:[3.40,5.80,8.00,9.20],
      today:[2.95,5.15,7.05,8.48]
@@ -9382,7 +9416,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
  }
 
  const report={
-   version:'v97',
+   version:'v98',
    state:nationalBenchmarkState,
    lastError:nationalBenchmarkLastError,
    benchmark:{
@@ -9416,7 +9450,7 @@ async function auditNationalBenchmarkV93({force=false}={}){
 
 function auditNationalBenchmarkStatus(){
  const out={
-   version:'v97',
+   version:'v98',
    state:nationalBenchmarkState,
    error:nationalBenchmarkLastError||null,
    busy:!!nationalBenchmarkPromise,
@@ -9456,7 +9490,7 @@ function auditNationalPriorSafety(){
  }
  const maxAbs=Math.max(0,...rows.map(r=>Math.abs(r.areaPrior)));
  const report={
-   version:'v97',
+   version:'v98',
    ok:maxAbs<=.45,
    rule:'benchmark krajowy nie zmienia rankingu wydzieleń wewnątrz regionu; daje tylko wspólny prior max -0.45..+0.35',
    maxAbsPrior:maxAbs,
@@ -9474,7 +9508,7 @@ function auditNationalBenchmarkComposition({top=12}={}){
 
  if(!health.ok||!country){
    const report={
-     version:'v97',ok:false,
+     version:'v98',ok:false,
      error:'Benchmark krajowy nie jest gotowy albo nie ma profilu explainability.',
      health
    };
@@ -9635,6 +9669,69 @@ function auditNationalBenchmarkComposition({top=12}={}){
  console.info('NATIONAL BENCHMARK COMPOSITION v97',report);
  return report;
 }
+
+function auditTreeCodeCanonicalization(){
+ const areas={};
+
+ for(const area of ANALYSIS_CENTERS){
+   const feats=allFeatures.filter(f=>!f._blocked&&f._kind!=='open'&&featureAreaName(f)===area.name);
+   if(!feats.length)continue;
+
+   const byRaw=new Map();
+   let totalWeight=0,variantWeight=0;
+
+   for(const f of feats){
+     const p=f.properties||{};
+     const raw=norm(p.species_cd||p.gat_grp||p.species_cd_d||'');
+     const canonical=canonicalTreeCode(raw);
+     const areaHa=Number(p.sub_area);
+     const w=Number.isFinite(areaHa)&&areaHa>0?areaHa:1;
+     totalWeight+=w;
+     if(raw!==canonical)variantWeight+=w;
+
+     const prev=byRaw.get(raw)||{raw,canonical,weight:0,n:0};
+     prev.weight+=w;prev.n++;
+     byRaw.set(raw,prev);
+   }
+
+   const rows=[...byRaw.values()]
+     .map(x=>({
+       raw:x.raw||'?',
+       canonical:x.canonical||'?',
+       changed:x.raw!==x.canonical,
+       areaPct:totalWeight>0?100*x.weight/totalWeight:0,
+       n:x.n
+     }))
+     .filter(x=>x.changed)
+     .sort((a,b)=>b.areaPct-a.areaPct);
+
+   areas[area.name]={
+     n:feats.length,
+     changedAreaPct:totalWeight>0?100*variantWeight/totalWeight:0,
+     variants:rows
+   };
+
+   console.info(`${area.name} — KANONIZACJA KODÓW DRZEW v98`);
+   console.table(rows.map(x=>({
+     kodBDL:x.raw,
+     hostModelu:x.canonical,
+     udzialPowierzchniPct:Number(x.areaPct.toFixed(1)),
+     wydzielenia:x.n
+   })));
+ }
+
+ const report={
+   version:'v98',
+   ok:true,
+   rule:'wariant BDL po kropce jest redukowany do bazowego hosta tylko jeśli baza jest znanym kodem drzewa',
+   examples:{'DB.S':'DB','DB.B':'DB','BRZ.O':'BRZ','OL.S':'OL'},
+   areas
+ };
+ console.info('TREE CODE CANONICALIZATION v98',report);
+ return report;
+}
+window.auditTreeCodeCanonicalization=auditTreeCodeCanonicalization;
+
 window.auditNationalBenchmarkComposition=auditNationalBenchmarkComposition;
 
 window.auditNationalPriorSafety=auditNationalPriorSafety;
@@ -9657,12 +9754,13 @@ function auditAppBootstrap(){
    benchmarkAutoStartHook:typeof startNationalBenchmarkDeferred==='function',
    nationalStatus:typeof window.auditNationalBenchmarkStatus==='function',
    compositionAudit:typeof window.auditNationalBenchmarkComposition==='function',
+   treeCodeAudit:typeof window.auditTreeCodeCanonicalization==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v97',ok:failed.length===0,checks,failed};
+ const report={version:'v98',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }

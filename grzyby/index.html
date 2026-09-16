@@ -1,22 +1,19 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v92: OSTROŻNA kalibracja krajowa + audyt jakości benchmarku.
-     Test Białowieża/Tuchola/Drezdenko/Augustów pokazał, że v91 wymusza niemal identyczny
-     rozkład kolorów w każdym rejonie, bo główny indeks jest lokalnym percentylem 10 km.
-     v92 NIE ufa ślepo staremu benchmarkowi. Najpierw go wzmacnia:
-       - krajowe grupy BDL są ważone SUMĄ POWIERZCHNI sub_area, a nie liczbą wydzieleń,
-       - budowany jest osobny histogram KRAJOWEJ oceny wielogatunkowej dla wszystkich
-         leśnych gatunków atlasu,
-       - benchmark musi przejść kontrolę zdrowia (obie warstwy BDL, sensowna liczba grup,
-         pełne profile gatunkowe, rozpiętość histogramu, powierzchnia > minimum).
-     Dopiero wtedy wynik v90/v91 dostaje konserwatywną korektę krajową około -1.5..+1.35 pkt.
-     Dzięki temu lokalny kontrast zostaje, ale Białowieża/Tuchola/Prószków nie muszą już
-     sztucznie mieć dokładnie 10% TOP.
-     Jeśli benchmark nie przejdzie audytu albo BDL jest niedostępne, korekta = 0 i mapa
-     bezpiecznie wraca do zachowania v91.
-     Statyczny Radar Polski (modelSource v63) NIE jest używany jako autorytatywna skala v92.
-     Jeden wybrany gatunek pozostaje 1:1 bez zmian. -->
+<!-- GitHub production v93: szybki i obserwowalny benchmark krajowy.
+     v92 potrafił wisieć na pierwszym ciężkim zapytaniu ArcGIS:
+       GROUP BY species + site + dokładny wiek dla całej Polski.
+     Wtedy state='loading', diagnostics={} i audyt wyglądał jak martwy.
+     v93 dzieli benchmark na 5 szerokich pasm wieku:
+       0–20, 21–40, 41–60, 61–90, 91+.
+     Każde zapytanie grupuje już tylko species_cd_d + site_type_cd i sumuje sub_area.
+     Dostajemy więc zachowaną strukturę wieku, ale bez bardzo ciężkiego GROUP BY exact age.
+     Warstwy 5 i 6 mogą pracować równolegle, pasma wieku w każdej warstwie idą kolejno.
+     Postęp jest zapisywany NATYCHMIAST w nationalBenchmarkProgress i diagnostyce warstw.
+     Każde zapytanie ma ograniczony timeout; awaria pasma kończy się błędem zamiast
+     nieskończonego 'loading'. Benchmark nadal wpływa na mapę tylko po pełnym health gate.
+     Scoring v90/v91, pojedyncze gatunki, hotspoty i radar pozostają bez zmian. -->
 <!-- GitHub production v64: offline nationwide radar loader + robust TOP Poland -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2226%22>🍄</text></svg>">
 <meta charset="utf-8">
@@ -6896,7 +6893,7 @@ function verdictRankCapFromMapClass(c){
 // pogody ani lokalnego rankingu. W praktycznej punktacji działa jako
 // umiarkowany mnożnik ok. 0.84–1.10.
 
-const NATIONAL_BENCHMARK_VERSION='bdl-pl-v5-area-composite-guarded';
+const NATIONAL_BENCHMARK_VERSION='bdl-pl-v6-area-agebands-guarded';
 const NATIONAL_BENCHMARK_CACHE_KEY='grzyby:national-benchmark:'+NATIONAL_BENCHMARK_VERSION;
 const NATIONAL_BENCHMARK_MAX_AGE_MS=365*24*3600*1000;
 const NATIONAL_BENCHMARK_BIN_STEP=.05;
@@ -6907,6 +6904,32 @@ let nationalBenchmarkState='idle'; // idle | loading | ready | error
 let nationalBenchmarkPromise=null;
 let nationalBenchmarkLastError='';
 let nationalGroupedFetchDiagnostics={};
+let nationalBenchmarkProgress={
+ stage:'idle',
+ startedAt:0,
+ updatedAt:0,
+ message:'',
+ layers:{},
+ error:''
+};
+const NATIONAL_BENCHMARK_AGE_BANDS=[
+ {id:'0-20',where:'species_age <= 20',age:10},
+ {id:'21-40',where:'species_age >= 21 AND species_age <= 40',age:30},
+ {id:'41-60',where:'species_age >= 41 AND species_age <= 60',age:50},
+ {id:'61-90',where:'species_age >= 61 AND species_age <= 90',age:75},
+ {id:'91+',where:'species_age >= 91',age:110}
+];
+
+function nationalSetProgress(stage,message='',extra={}){
+ nationalBenchmarkProgress={
+   ...nationalBenchmarkProgress,
+   ...extra,
+   stage,
+   message,
+   updatedAt:Date.now()
+ };
+}
+
 
 function nationalBenchmarkSupportsType(type){
  const m=SPECIES_META[type];
@@ -7080,8 +7103,9 @@ function nationalBenchmarkHealth(obj=nationalBenchmark){
  const checks={
    version:!!obj&&obj.version===NATIONAL_BENCHMARK_VERSION,
    bothLayers:!!d5&&!d5.error&&!!d6&&!d6.error&&Number(d5.rows)>0&&Number(d6.rows)>0,
-   enoughGroups:Number(obj?.groupedRows||0)>=500,
-   enoughCombos:Number(obj?.uniqueCombos||0)>=300,
+   allAgeBands:!!d5&&Number(d5.ageBandsDone)===NATIONAL_BENCHMARK_AGE_BANDS.length&&!!d6&&Number(d6.ageBandsDone)===NATIONAL_BENCHMARK_AGE_BANDS.length,
+   enoughGroups:Number(obj?.groupedRows||0)>=250,
+   enoughCombos:Number(obj?.uniqueCombos||0)>=150,
    areaWeighted:obj?.weightMode==='area-ha-primary'&&Number(obj?.totalAreaHa||0)>100000,
    profilesComplete:missingProfiles.length===0,
    compositePresent:Number(composite?.total||0)>0,
@@ -7301,72 +7325,136 @@ function nationalSyntheticTopCombos(type,profile=null){
 
 async function fetchNationalGroupedBdlLayer(layerId){
  const rows=[];
- let offset=0,page=0,countMode='unknown',areaMode='unknown',firstKeys=[];
- while(true){
-   const stats=[
-     {statisticType:'count',onStatisticField:'subarea_id',outStatisticFieldName:'record_count'},
-     {statisticType:'sum',onStatisticField:'sub_area',outStatisticFieldName:'area_sum'}
-   ];
-   const q=new URLSearchParams({
-     where:'1=1',
-     outStatistics:JSON.stringify(stats),
-     groupByFieldsForStatistics:'species_cd_d,site_type_cd,species_age',
-     orderByFields:'species_cd_d ASC,site_type_cd ASC,species_age ASC',
-     returnGeometry:'false',
-     resultOffset:String(offset),
-     resultRecordCount:'2000',
-     cacheHint:'false',
-     f:'json'
-   });
-   q.set('_nbv',NATIONAL_BENCHMARK_VERSION);
-   q.set('_page',String(page));
-   const url=`${BDL_BASE}/${layerId}/query?${q}`;
-   const js=await nationalFetchJsonNoStore(url,{timeoutMs:28000,tries:3});
-   const feats=Array.isArray(js?.features)?js.features:[];
-   if(page===0&&feats[0]?.attributes)firstKeys=Object.keys(feats[0].attributes);
-
-   let accepted=0;
-   for(const ft of feats){
-     const a=ft?.attributes||ft?.properties||{};
-     const count=nationalGroupedCount(a);
-     const area=nationalGroupedArea(a);
-     countMode=count.mode||countMode;
-     areaMode=area.mode||areaMode;
-     const n=Number(count.value||0);
-     const areaHa=Number(area.value||0);
-     if(!(n>0)&&!(areaHa>0))continue;
-
-     rows.push({
-       species_cd_d:String(nationalAttrCI(a,'species_cd_d')??''),
-       site_type_cd:String(nationalAttrCI(a,'site_type_cd')??''),
-       species_age:Number(nationalAttrCI(a,'species_age')??0),
-       n:Math.max(0,n),
-       areaHa:Math.max(0,areaHa)
-     });
-     accepted++;
-   }
-
-   if(page===0&&feats.length===0){
-     nationalGroupedFetchDiagnostics[layerId]={rows:0,pages:1,firstKeys,error:'empty-first-page'};
-     throw new Error(`BDL benchmark layer ${layerId}: serwer zwrócił 0 grup`);
-   }
-   if(page===0&&feats.length>0&&accepted===0){
-     nationalGroupedFetchDiagnostics[layerId]={rows:0,pages:1,firstKeys,error:'unparsed-first-page'};
-     throw new Error(`BDL benchmark layer ${layerId}: nie udało się odczytać grup; pola: ${firstKeys.join(', ')}`);
-   }
-
-   page++;
-   if(feats.length<2000 && !js?.exceededTransferLimit)break;
-   if(!feats.length)break;
-   offset+=feats.length;
-   if(page>80)throw new Error(`BDL benchmark layer ${layerId}: zbyt dużo stron agregacji`);
-   await new Promise(r=>setTimeout(r,0));
- }
- nationalGroupedFetchDiagnostics[layerId]={
-   rows:rows.length,pages:page,countMode,areaMode,
-   areaCoverage:rows.length?rows.filter(r=>r.areaHa>0).length/rows.length:0,
-   firstKeys,error:null
+ const layerDiag={
+   stage:'starting',
+   layerId,
+   ageBandsTotal:NATIONAL_BENCHMARK_AGE_BANDS.length,
+   ageBandsDone:0,
+   currentBand:null,
+   requests:0,
+   rows:0,
+   countMode:'unknown',
+   areaMode:'unknown',
+   firstKeys:[],
+   errors:[],
+   startedAt:Date.now(),
+   updatedAt:Date.now()
  };
+ nationalGroupedFetchDiagnostics[layerId]=layerDiag;
+ nationalBenchmarkProgress.layers[layerId]=layerDiag;
+ nationalSetProgress('fetching',`BDL warstwa ${layerId}: start`);
+
+ for(let bandIndex=0;bandIndex<NATIONAL_BENCHMARK_AGE_BANDS.length;bandIndex++){
+   const band=NATIONAL_BENCHMARK_AGE_BANDS[bandIndex];
+   layerDiag.stage='fetching';
+   layerDiag.currentBand=band.id;
+   layerDiag.updatedAt=Date.now();
+   nationalSetProgress('fetching',`BDL ${layerId}: wiek ${band.id} (${bandIndex+1}/${NATIONAL_BENCHMARK_AGE_BANDS.length})`);
+
+   let offset=0,page=0;
+   while(true){
+     const stats=[
+       {statisticType:'count',onStatisticField:'subarea_id',outStatisticFieldName:'record_count'},
+       {statisticType:'sum',onStatisticField:'sub_area',outStatisticFieldName:'area_sum'}
+     ];
+     const q=new URLSearchParams({
+       where:band.where,
+       outStatistics:JSON.stringify(stats),
+       groupByFieldsForStatistics:'species_cd_d,site_type_cd',
+       orderByFields:'species_cd_d ASC,site_type_cd ASC',
+       returnGeometry:'false',
+       resultOffset:String(offset),
+       resultRecordCount:'2000',
+       cacheHint:'false',
+       f:'json'
+     });
+     q.set('_nbv',NATIONAL_BENCHMARK_VERSION);
+     q.set('_band',band.id);
+     q.set('_page',String(page));
+
+     const url=`${BDL_BASE}/${layerId}/query?${q}`;
+     layerDiag.requests++;
+     layerDiag.updatedAt=Date.now();
+
+     let js;
+     try{
+       js=await nationalFetchJsonNoStore(url,{timeoutMs:18000,tries:2});
+     }catch(e){
+       const msg=`wiek ${band.id}: ${e?.name||'Error'} ${e?.message||e}`;
+       layerDiag.errors.push(msg);
+       layerDiag.stage='error';
+       layerDiag.error=msg;
+       layerDiag.updatedAt=Date.now();
+       nationalSetProgress('error',`BDL ${layerId}: ${msg}`,{error:msg});
+       throw new Error(`BDL benchmark layer ${layerId}, ${msg}`);
+     }
+
+     const feats=Array.isArray(js?.features)?js.features:[];
+     if(!layerDiag.firstKeys.length&&feats[0]?.attributes){
+       layerDiag.firstKeys=Object.keys(feats[0].attributes);
+     }
+
+     let accepted=0;
+     for(const ft of feats){
+       const a=ft?.attributes||ft?.properties||{};
+       const count=nationalGroupedCount(a);
+       const area=nationalGroupedArea(a);
+       layerDiag.countMode=count.mode||layerDiag.countMode;
+       layerDiag.areaMode=area.mode||layerDiag.areaMode;
+
+       const n=Number(count.value||0);
+       const areaHa=Number(area.value||0);
+       if(!(n>0)&&!(areaHa>0))continue;
+
+       rows.push({
+         species_cd_d:String(nationalAttrCI(a,'species_cd_d')??''),
+         site_type_cd:String(nationalAttrCI(a,'site_type_cd')??''),
+         species_age:band.age,
+         age_band:band.id,
+         n:Math.max(0,n),
+         areaHa:Math.max(0,areaHa)
+       });
+       accepted++;
+     }
+
+     layerDiag.rows=rows.length;
+     layerDiag.updatedAt=Date.now();
+
+     if(page===0&&feats.length===0){
+       const msg=`wiek ${band.id}: serwer zwrócił 0 grup`;
+       layerDiag.errors.push(msg);
+       layerDiag.stage='error';
+       layerDiag.error=msg;
+       nationalSetProgress('error',`BDL ${layerId}: ${msg}`,{error:msg});
+       throw new Error(`BDL benchmark layer ${layerId}: ${msg}`);
+     }
+     if(page===0&&feats.length>0&&accepted===0){
+       const msg=`wiek ${band.id}: nie udało się odczytać grup; pola: ${layerDiag.firstKeys.join(', ')}`;
+       layerDiag.errors.push(msg);
+       layerDiag.stage='error';
+       layerDiag.error=msg;
+       nationalSetProgress('error',`BDL ${layerId}: ${msg}`,{error:msg});
+       throw new Error(`BDL benchmark layer ${layerId}: ${msg}`);
+     }
+
+     page++;
+     if(feats.length<2000 && !js?.exceededTransferLimit)break;
+     if(!feats.length)break;
+     offset+=feats.length;
+     if(page>20)throw new Error(`BDL benchmark layer ${layerId}, wiek ${band.id}: zbyt dużo stron`);
+     await new Promise(r=>setTimeout(r,0));
+   }
+
+   layerDiag.ageBandsDone=bandIndex+1;
+   layerDiag.updatedAt=Date.now();
+ }
+
+ layerDiag.stage='done';
+ layerDiag.currentBand=null;
+ layerDiag.areaCoverage=rows.length?rows.filter(r=>r.areaHa>0).length/rows.length:0;
+ layerDiag.finishedAt=Date.now();
+ layerDiag.updatedAt=Date.now();
+ nationalSetProgress('fetching',`BDL warstwa ${layerId}: gotowa (${rows.length} grup)`);
  return rows;
 }
 
@@ -7485,6 +7573,10 @@ async function ensureNationalBenchmark({force=false}={}){
      nationalBenchmarkState='loading';
      nationalBenchmarkLastError='';
      nationalGroupedFetchDiagnostics={};
+     nationalBenchmarkProgress={
+       stage:'starting',startedAt:Date.now(),updatedAt:Date.now(),
+       message:'Uruchamianie benchmarku krajowego',layers:{},error:''
+     };
 
      const cached=readNationalBenchmarkCache();
      if(cached&&!force){
@@ -7494,6 +7586,7 @@ async function ensureNationalBenchmark({force=false}={}){
        if(age<=NATIONAL_BENCHMARK_MAX_AGE_MS)return cached;
      }
 
+     nationalSetProgress('fetching','Pobieranie 5 pasm wieku z warstw BDL 5 i 6');
      const settled=await Promise.allSettled([
        fetchNationalGroupedBdlLayer(5),
        fetchNationalGroupedBdlLayer(6)
@@ -7507,6 +7600,7 @@ async function ensureNationalBenchmark({force=false}={}){
      });
      if(!groups.length)throw new Error(`Benchmark Polski: brak danych z BDL (${errs.join(' | ')})`);
 
+     nationalSetProgress('building',`Budowanie histogramów z ${groups.length} grup BDL`);
      const built=await buildNationalBenchmarkFromGroups(groups);
      const status=nationalBenchmarkTopCombosStatus(built);
      if(!status.ok){
@@ -7521,10 +7615,12 @@ async function ensureNationalBenchmark({force=false}={}){
 
      nationalBenchmark=built;
      nationalBenchmarkState='ready';
+     nationalSetProgress('ready','Benchmark krajowy gotowy',{finishedAt:Date.now(),error:''});
      writeNationalBenchmarkCache(built);
      return built;
    }catch(e){
      nationalBenchmarkLastError=String(e?.message||e);
+     nationalSetProgress('error',nationalBenchmarkLastError,{error:nationalBenchmarkLastError,finishedAt:Date.now()});
      if(nationalBenchmark&&nationalBenchmarkCacheValid(nationalBenchmark)){
        nationalBenchmarkState='ready';
        return nationalBenchmark;
@@ -7541,11 +7637,20 @@ async function ensureNationalBenchmark({force=false}={}){
 }
 
 function startNationalBenchmarkInBackground(){
+ console.info('Benchmark krajowy v93: start. Postęp: nationalBenchmarkProgress');
  ensureNationalBenchmark().then(b=>{
-   if(!b)return;
+   if(!b){
+     console.warn('Benchmark krajowy v93 nie został aktywowany.',{
+       state:nationalBenchmarkState,
+       error:nationalBenchmarkLastError,
+       progress:nationalBenchmarkProgress,
+       diagnostics:nationalGroupedFetchDiagnostics
+     });
+     return;
+   }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v92 health',health);
+     console.info('National benchmark v93 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -8881,7 +8986,7 @@ function auditUnifiedOpportunityModel(){
  }
  const report={
    ok:todayOverOverall===0&&allSelectedDiff===0&&singleIdentityDiff===0,
-   version:'v92',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
+   version:'v93',checked,todayOverOverall,maxTodayExcess:Number(maxTodayExcess.toFixed(9)),
    allSelectedDiff,maxAllSelectedDiff:Number(maxAllSelectedDiff.toFixed(9)),
    singleIdentityDiff,maxSingleDiff:Number(maxSingleDiff.toFixed(9)),
    rules:['DZIŚ <= OGÓLNIE','wszystkie zaznaczone == brak wyboru','jeden gatunek == jego score','agregacja wielu gatunków normalizuje gotową ocenę miejsca; DZIŚ = OGÓLNIE × retencja warunków']
@@ -8941,7 +9046,7 @@ function auditOpportunityBalance(){
  }
 
  const report={
-   version:'v92',
+   version:'v93',
    model:'v90 local composite + guarded national BDL area-weighted correction; Today = country-calibrated Overall × current-condition retention',
    classCuts:{
      overall:[3.40,5.80,8.00,9.20],
@@ -8989,7 +9094,7 @@ function auditVisualClassCalibration(){
  }
 
  const report={
-   version:'v92',
+   version:'v93',
    thresholds:{
      overall:[3.40,5.80,8.00,9.20],
      today:[2.95,5.15,7.05,8.48]
@@ -9008,7 +9113,12 @@ function auditVisualClassCalibration(){
  return report;
 }
 
-async function auditNationalBenchmarkV92({force=false}={}){
+async function auditNationalBenchmarkV93({force=false}={}){
+ console.info('NATIONAL BENCHMARK v93 — start/status',{
+   state:nationalBenchmarkState,
+   progress:nationalBenchmarkProgress,
+   diagnostics:nationalGroupedFetchDiagnostics
+ });
  if(force)await rebuildNationalBenchmark();
  else await ensureNationalBenchmark();
 
@@ -9055,7 +9165,7 @@ async function auditNationalBenchmarkV92({force=false}={}){
  }
 
  const report={
-   version:'v92',
+   version:'v93',
    state:nationalBenchmarkState,
    lastError:nationalBenchmarkLastError,
    benchmark:{
@@ -9074,16 +9184,43 @@ async function auditNationalBenchmarkV92({force=false}={}){
      authoritativeOnlyWhenHealthy:true,
      adjustmentRange:'-1.50 .. +1.35',
      partialSpeciesSelection:'local fallback',
-     staticRadarPoland:'NOT used as authoritative benchmark because packaged radar was generated from modelSource v63'
+     staticRadarPoland:'NOT used as authoritative benchmark because packaged radar was generated from modelSource v63',
+     transport:'5 age bands × 2 BDL layers, grouped only by tree species + site type'
    }
  };
 
  for(const [name,row] of Object.entries(areaRows)){
    console.info(name,'— BENCHMARK KRAJOWY v92');console.table([row]);
  }
- console.info('NATIONAL BENCHMARK v92 AUDIT',report);
+ console.info('NATIONAL BENCHMARK v93 AUDIT',report);
  return report;
 }
+
+function auditNationalBenchmarkStatus(){
+ const out={
+   version:'v93',
+   state:nationalBenchmarkState,
+   error:nationalBenchmarkLastError||null,
+   busy:!!nationalBenchmarkPromise,
+   hasBenchmark:!!nationalBenchmark,
+   progress:nationalBenchmarkProgress,
+   diagnostics:nationalGroupedFetchDiagnostics
+ };
+ console.info('NATIONAL BENCHMARK v93 STATUS',out);
+ console.table(Object.entries(nationalGroupedFetchDiagnostics).map(([layer,d])=>({
+   layer,
+   stage:d.stage,
+   currentBand:d.currentBand,
+   ageBandsDone:d.ageBandsDone,
+   ageBandsTotal:d.ageBandsTotal,
+   requests:d.requests,
+   rows:d.rows,
+   error:d.error||''
+ })));
+ return out;
+}
+window.auditNationalBenchmarkStatus=auditNationalBenchmarkStatus;
+
 window.auditNationalBenchmarkV92=auditNationalBenchmarkV92;
 
 window.auditVisualClassCalibration=auditVisualClassCalibration;

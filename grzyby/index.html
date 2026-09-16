@@ -1,6 +1,30 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v112:
+     SPECIES-SPECIFIC WEATHER — KONSERWATYWNA AKTYWACJA W DZIŚ.
+
+     v111 przeszedł 9/9 testów stresowych. v112 aktywuje więc gatunkową korektę
+     pogody w produkcyjnym fruitingConditions(), ale z dodatkowym bezpiecznikiem:
+       - produkcyjny weatherAt() nadal jest absolutną kotwicą,
+       - przepuszczamy tylko species-vs-neutral delta z tego samego silnika,
+       - zachowujemy evidence weighting,
+       - dodatkowy produkcyjny cap = ±6 punktów pogody,
+       - OGÓLNIE pozostaje nietknięte,
+       - DZIŚ nadal ma twardą zasadę DZIŚ <= OGÓLNIE.
+
+     Dodano audyty przed/po:
+       auditSpeciesWeatherActivation()
+       auditSpeciesWeatherProductionSafety()
+
+     Oraz awaryjny runtime rollback:
+       setSpeciesWeatherProduction(false)
+     ponowne włączenie:
+       setSpeciesWeatherProduction(true)
+
+     Uwaga: rollback jest tylko do testów w bieżącej sesji przeglądarki.
+     Domyślne ustawienie po przeładowaniu v112 = ON.
+
 <!-- GitHub production v111:
      SPECIES WEATHER STRESS TEST LAB.
 
@@ -5838,6 +5862,44 @@ function speciesWeatherAnchoredScore(type,c){
  };
 }
 
+let speciesWeatherProductionEnabled=true;
+const SPECIES_WEATHER_PRODUCTION_MAX_DELTA=6;
+
+function speciesWeatherProductionInfo(type,c){
+ const a=speciesWeatherAnchoredScore(type,c);
+ const applied=speciesWeatherProductionEnabled
+   ? Math.max(-SPECIES_WEATHER_PRODUCTION_MAX_DELTA,Math.min(SPECIES_WEATHER_PRODUCTION_MAX_DELTA,a.appliedDelta))
+   : 0;
+ return {
+   ...a,
+   productionEnabled:speciesWeatherProductionEnabled,
+   productionAppliedDelta:applied,
+   productionScore:Math.max(0,Math.min(100,a.generic+applied))
+ };
+}
+
+function setSpeciesWeatherProduction(enabled){
+ speciesWeatherProductionEnabled=!!enabled;
+ // Resetujemy wszystkie dynamiczne cache zależne od DZIŚ.
+ todayHotspotCacheKey='';todayHotspotCache=[];
+ todayScaleCacheKey='';todayScales={};
+ bestTodayConditionScaleCache.clear();
+ perfTodaySpeciesEffectiveCache=new Map();
+ perfBestTodayInfoCache=new WeakMap();
+ perfBestTodayInvariantCache=new WeakMap();
+ perfScoreCache=new WeakMap();
+ perfBestCache=new WeakMap();
+ perfDiversityCache=new WeakMap();
+ perfHotspotTodayInfoCache=new WeakMap();
+ perfHotspotTodayInfoCacheKey='';
+ hotspotMembershipKey='';
+ if(typeof refresh==='function')refresh();
+ console.info(`SPECIES WEATHER PRODUCTION ${speciesWeatherProductionEnabled?'ON':'OFF'} (runtime)`);
+ return speciesWeatherProductionEnabled;
+}
+window.setSpeciesWeatherProduction=setSpeciesWeatherProduction;
+
+
 function speciesFruitingLabFromWeather(type,weatherScore){
  const season=seasonScore(type);
  const base=.60*weatherScore+.40*season;
@@ -5963,11 +6025,10 @@ function seasonGate(season){
 function fruitingConditions(type,f){
  const season=seasonScore(type);
 
- // Sezon jest bramką biologiczną.
- // Nawet idealny deszcz nie powinien robić ciemnozielonej mapy
- // dla gatunku, który normalnie w tym miesiącu nie owocnikuje.
+ // v112: DZIŚ używa teraz konserwatywnie zakotwiczonej pogody per gatunek.
+ // OGÓLNIE nie korzysta z tej funkcji, więc potencjał siedliska pozostaje bez zmian.
  if(weatherReady){
-   const weather=weatherAt(f._center);
+   const weather=speciesWeatherProductionInfo(type,f._center).productionScore;
    const base=.60*weather+.40*season;
    return Math.max(0,Math.min(100,base*seasonGate(season)));
  }
@@ -8933,11 +8994,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v111: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v112: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v111 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v112 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -8947,7 +9008,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v111 health',health);
+     console.info('National benchmark v112 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -10905,7 +10966,7 @@ function auditExplorationMosaicLab({top=20}={}){
    };
    rows.push(row);
 
-   console.info(`${area.name} — EXPLORATION MOSAIC LAB v111`);
+   console.info(`${area.name} — EXPLORATION MOSAIC LAB v112`);
    console.table(topRows.map(x=>({
      drzewo:x.tree,siedlisko:x.habitat,rodzina:x.habitatFamily,wiek:x.age,
      ha:Number(x.areaHa.toFixed(2)),
@@ -10946,7 +11007,7 @@ function auditExplorationMosaicLab({top=20}={}){
  const impossibleAgeCategory=rows.some(r=>r.maxAgeBandCount>5);
 
  const report={
-   version:'v111',
+   version:'v112',
    ok:rows.length>0&&!fragmentationWarning&&!impossibleAgeCategory,
    scoringChanged:false,
    meaning:'exploration / mosaic effective richness; missing data excluded and tracked via coverage; NOT biological edge bonus',
@@ -10955,7 +11016,7 @@ function auditExplorationMosaicLab({top=20}={}){
    impossibleAgeCategory,
    rows
  };
- console.info('EXPLORATION MOSAIC LAB v111',report);
+ console.info('EXPLORATION MOSAIC LAB v112',report);
  return report;
 }
 window.auditExplorationMosaicLab=auditExplorationMosaicLab;
@@ -10990,8 +11051,8 @@ function auditRegionalTop3Robustness(){
    dzisTop3Mean:Number.isFinite(r.todayTop3Mean)?Number(r.todayTop3Mean.toFixed(2)):null,
    dzisStabilnosc:r.todayLabel
  })));
- const report={version:'v111',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
- console.info('REGIONAL TOP3 ROBUSTNESS v111',report);
+ const report={version:'v112',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
+ console.info('REGIONAL TOP3 ROBUSTNESS v112',report);
  return report;
 }
 window.auditRegionalTop3Robustness=auditRegionalTop3Robustness;
@@ -11004,14 +11065,14 @@ function auditBorrowedIdeas(){
    {element:'Ranking kilku miejsc zamiast 1 outliera',status:'MAMY',source:'shroom-fm',note:'hotspoty + nowy TOP3 robustness'},
    {element:'Mozaika / ecotone jako exploration value',status:'LAB',source:'shroom-fm + literatura o ekotonach',note:'v106 osobno; nie wpływa na biologię'},
    {element:'Odległość od drogi / dostęp',status:'BRAK',source:'shroom-fm',note:'warto dodać jako osobny praktyczny wskaźnik, nie habitat'},
-   {element:'Pogoda specyficzna dla gatunku',status:'LAB',source:'Tattis + shroom-fm + literatura',note:'v110 anchored LAB: produkcyjny weatherAt jest kotwicą, a nakładamy tylko ostrożny delta gatunkowy'},
+   {element:'Pogoda specyficzna dla gatunku',status:'MAMY',source:'Tattis + shroom-fm + literatura',note:'v112 aktywne w DZIŚ: weatherAt jako kotwica + evidence-weighted species delta, cap ±6'},
    {element:'ML uczony na obserwacjach',status:'BRAK',source:'Tattis + SDM',note:'największy kolejny krok; wymaga korekty biasu obserwacyjnego'},
    {element:'Niezależny backtest/out-of-sample',status:'BRAK',source:'literatura SDM',note:'konieczny przed nazywaniem wyniku prawdopodobieństwem'},
    {element:'Road/satellite accessibility',status:'BRAK',source:'shroom-fm / Boletus',note:'nie mieszamy z biologicznym score bez osobnej warstwy'}
  ];
  console.table(rows);
- const report={version:'v111',ok:true,productionScoringChanged:false,rows,
-   nextPriority:['przetestować v111 w różnych warunkach pogodowych','backtest obserwacji','OSM access as separate practical score']};
+ const report={version:'v112',ok:true,productionScoringChanged:false,rows,
+   nextPriority:['przetestować v112 w różnych warunkach pogodowych','backtest obserwacji','OSM access as separate practical score']};
  console.info('BORROWED IDEAS AUDIT v108',report);
  return report;
 }
@@ -11021,8 +11082,8 @@ function auditSpeciesWeatherLab(){
  const allRows=[];
 
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v111',ok:false,error:'Pogoda nie jest jeszcze załadowana. Wybierz rejon i poczekaj na Open-Meteo.'};
-   console.warn('SPECIES WEATHER LAB v111',report);
+   const report={version:'v112',ok:false,error:'Pogoda nie jest jeszcze załadowana. Wybierz rejon i poczekaj na Open-Meteo.'};
+   console.warn('SPECIES WEATHER LAB v112',report);
    return report;
  }
 
@@ -11058,7 +11119,7 @@ function auditSpeciesWeatherLab(){
    });
    allRows.push(...rows);
 
-   console.info(`${area.name} — ANCHORED SPECIES WEATHER LAB v111`);
+   console.info(`${area.name} — ANCHORED SPECIES WEATHER LAB v112`);
    console.table([...rows].sort((a,b)=>Math.abs(b.anchoredFruitingDelta)-Math.abs(a.anchoredFruitingDelta)).map(r=>({
      gatunek:r.label,
      profil:r.profile,
@@ -11111,15 +11172,15 @@ function auditSpeciesWeatherLab(){
    warning:'ArchGap jest diagnostyką różnicy architektury i NIE jest nakładany na mapę. Anchored delta izoluje gatunkowość.',
    rows:allRows
  };
- console.info('ANCHORED SPECIES WEATHER LAB v111',report);
+ console.info('ANCHORED SPECIES WEATHER LAB v112',report);
  return report;
 }
 window.auditSpeciesWeatherLab=auditSpeciesWeatherLab;
 
 function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v111',ok:false,error:'Pogoda nie jest gotowa.'};
-   console.warn('SPECIES WEATHER SPATIAL IMPACT v111',report);
+   const report={version:'v112',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER SPATIAL IMPACT v112',report);
    return report;
  }
  const rows=[];
@@ -11204,14 +11265,14 @@ function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
    note:'Nie zmienia mapy. Oczekujemy mniejszych, gatunkowo zróżnicowanych korekt niż v109.',
    rows
  };
- console.info('SPECIES WEATHER SPATIAL IMPACT v111',report);
+ console.info('SPECIES WEATHER SPATIAL IMPACT v112',report);
  return report;
 }
 
 function auditSpeciesWeatherArchitectureGap(){
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v111',ok:false,error:'Pogoda nie jest gotowa.'};
-   console.warn('SPECIES WEATHER ARCHITECTURE GAP v111',report);
+   const report={version:'v112',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER ARCHITECTURE GAP v112',report);
    return report;
  }
  const rows=[];
@@ -11238,7 +11299,7 @@ function auditSpeciesWeatherArchitectureGap(){
    note:'To NIE jest delta gatunkowa. Pokazuje tylko, jak bardzo nowa architektura skali różni się od obecnego weatherAt().',
    rows
  };
- console.info('SPECIES WEATHER ARCHITECTURE GAP v111',report);
+ console.info('SPECIES WEATHER ARCHITECTURE GAP v112',report);
  return report;
 }
 
@@ -11254,7 +11315,7 @@ function auditSpeciesWeatherStressMatrix(){
 
  for(const scenarioKey of Object.keys(SPECIES_WEATHER_STRESS_SCENARIOS)){
    const scenario=SPECIES_WEATHER_STRESS_SCENARIOS[scenarioKey];
-   console.info(`${scenario.label} — SPECIES WEATHER STRESS v111`);
+   console.info(`${scenario.label} — SPECIES WEATHER STRESS v112`);
    console.table(rows.filter(r=>r.scenario===scenarioKey).map(r=>({
      gatunek:r.label,profil:r.profile,dowod:r.evidence,
      neutral:Number(r.neutral.toFixed(1)),
@@ -11269,11 +11330,11 @@ function auditSpeciesWeatherStressMatrix(){
  }
 
  const report={
-   version:'v111',ok:rows.length>0,productionScoringChanged:false,
+   version:'v112',ok:rows.length>0,productionScoringChanged:false,
    scenarios:Object.fromEntries(Object.entries(SPECIES_WEATHER_STRESS_SCENARIOS).map(([k,v])=>[k,v.label])),
    rows
  };
- console.info('SPECIES WEATHER STRESS MATRIX v111',report);
+ console.info('SPECIES WEATHER STRESS MATRIX v112',report);
  return report;
 }
 window.auditSpeciesWeatherStressMatrix=auditSpeciesWeatherStressMatrix;
@@ -11330,12 +11391,241 @@ function auditSpeciesWeatherStressAssertions(){
  const failures=checks.filter(x=>!x.ok);
  console.table(checks.map(c=>({test:c.name,ok:c.ok,details:JSON.stringify(c.details)})));
  const report={
-   version:'v111',ok:failures.length===0,productionScoringChanged:false,
+   version:'v112',ok:failures.length===0,productionScoringChanged:false,
    passed:checks.length-failures.length,total:checks.length,failures,checks,maxAppliedDelta:maxApplied
  };
- console.info('SPECIES WEATHER STRESS ASSERTIONS v111',report);
+ console.info('SPECIES WEATHER STRESS ASSERTIONS v112',report);
  return report;
 }
+
+function legacyGenericFruitingConditions(type,f){
+ const season=seasonScore(type);
+ if(weatherReady){
+   const weather=weatherAt(f._center);
+   const base=.60*weather+.40*season;
+   return Math.max(0,Math.min(100,base*seasonGate(season)));
+ }
+ return Math.max(0,Math.min(100,season));
+}
+
+function legacyGenericSpeciesEffective(type,f){
+ const habitat=staticSuitability(type,f);
+ const fruit=Math.max(0,Math.min(1,legacyGenericFruitingConditions(type,f)/100));
+ const conditionFactor=.12+.88*Math.pow(fruit,.52);
+ return clamp(habitat*conditionFactor);
+}
+
+function speciesWeatherAuditCompositeRaw(f,useProduction=true,types=PICK_TYPES){
+ const rows=[];
+ for(const t of types){
+   if(!featureRelevant(t,f))continue;
+   const potential=stableScoreForType(t,f);
+   const raw=Math.min(useProduction?speciesEffective(t,f):legacyGenericSpeciesEffective(t,f),potential);
+   if(!Number.isFinite(raw))continue;
+   rows.push({type:t,raw:clamp(raw),potential,niche:opportunityNicheKey(t)});
+ }
+ rows.sort((a,b)=>b.raw-a.raw||
+   (HUMAN_NAMES[a.type]||a.type).localeCompare(HUMAN_NAMES[b.type]||b.type,'pl'));
+
+ if(!rows.length)return {rawScore:0,bestRaw:0,bestType:null,supportRaw:0,breadthWeight:0,rows:[],nicheRows:[]};
+
+ const byNiche=new Map();
+ for(const r of rows){
+   const prev=byNiche.get(r.niche);
+   if(!prev||r.raw>prev.raw)byNiche.set(r.niche,r);
+ }
+ const nicheRows=[...byNiche.values()].sort((a,b)=>b.raw-a.raw);
+ const best=nicheRows[0];
+
+ if(types.length===1){
+   return {rawScore:best.raw,bestRaw:best.raw,bestType:best.type,supportRaw:best.raw,breadthWeight:0,rows,nicheRows};
+ }
+
+ const extras=nicheRows.slice(1,4);
+ const weights=[.50,.30,.20];
+ let supportRaw=4.80;
+ if(extras.length){
+   let sum=0,ws=0;
+   for(let i=0;i<3;i++){
+     const w=weights[i],val=extras[i]?.raw??4.80;
+     sum+=w*val;ws+=w;
+   }
+   supportRaw=sum/ws;
+ }
+
+ const targetNiches=new Set(types.map(opportunityNicheKey)).size;
+ const possibleExtras=Math.min(3,Math.max(0,targetNiches-1));
+ const breadthWeight=possibleExtras<=0?0:(possibleExtras===1?.18:(possibleExtras===2?.24:.30));
+
+ if(possibleExtras<3&&possibleExtras>0){
+   let sum=0,ws=0;
+   for(let i=0;i<possibleExtras;i++){
+     const w=weights[i],val=extras[i]?.raw??4.80;
+     sum+=w*val;ws+=w;
+   }
+   supportRaw=ws?sum/ws:4.80;
+ }
+
+ const rawScore=clamp((1-breadthWeight)*best.raw+breadthWeight*supportRaw);
+ return {rawScore,bestRaw:best.raw,bestType:best.type,supportRaw,breadthWeight,rows,nicheRows};
+}
+
+function speciesWeatherAuditAllScore(f,useProduction=true){
+ const types=PICK_TYPES;
+ const overall=opportunityRawComposite(f,false,types);
+ if(!overall.bestType)return 0;
+
+ const overallInfo=opportunityAggregateInfo(f,false,types);
+ const today=speciesWeatherAuditCompositeRaw(f,useProduction,types);
+ const retention=Math.max(0,Math.min(1,today.rawScore/Math.max(.001,overall.rawScore)));
+ const weatherFactor=.15+.85*Math.pow(retention,1.25);
+ return clamp(Math.min(overallInfo.score,overallInfo.score*weatherFactor));
+}
+
+function speciesWeatherAuditClass(f,score){
+ let c=0;
+ if(score>=8.48)c=4;
+ else if(score>=7.05)c=3;
+ else if(score>=5.15)c=2;
+ else if(score>=2.95)c=1;
+ return Math.min(c,balancedClass(f));
+}
+
+function speciesWeatherAuditBestType(f,useProduction=true){
+ let best=null;
+ for(const t of PICK_TYPES){
+   if(!featureRelevant(t,f))continue;
+   const potential=stableScoreForType(t,f);
+   const actualRaw=useProduction?speciesEffective(t,f):legacyGenericSpeciesEffective(t,f);
+   const actualToday=Math.min(actualRaw,potential);
+   const prior=ALL_MODE_WEIGHT[t]||1;
+   const selectionScore=Math.min(practicalAllScore(t,f,actualRaw),potential*prior);
+   if(
+     !best ||
+     selectionScore>best.selectionScore ||
+     (Math.abs(selectionScore-best.selectionScore)<1e-9&&actualToday>best.score) ||
+     (Math.abs(selectionScore-best.selectionScore)<1e-9&&Math.abs(actualToday-best.score)<1e-9&&potential>best.potential)
+   ){
+     best={type:t,score:actualToday,potential,selectionScore};
+   }
+ }
+ return best||{type:null,score:0,potential:0,selectionScore:0};
+}
+
+function auditSpeciesWeatherActivation({topN=50}={}){
+ if(!weatherReady||!weatherSamples.length){
+   const report={version:'v112',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER ACTIVATION v112',report);
+   return report;
+ }
+ const rows=[];
+ for(const area of ANALYSIS_CENTERS){
+   const fs=stableCandidateFeatures(area.name).filter(f=>!f._blocked&&f._kind!=='open');
+   const vals=[];
+   let classUp=0,classDown=0,classSame=0,switches=0,todayOver=0,nan=0;
+   for(const f of fs){
+     const before=speciesWeatherAuditAllScore(f,false);
+     const after=speciesWeatherAuditAllScore(f,true);
+     const cb=speciesWeatherAuditClass(f,before);
+     const ca=speciesWeatherAuditClass(f,after);
+     if(ca>cb)classUp++; else if(ca<cb)classDown++; else classSame++;
+     const bt=speciesWeatherAuditBestType(f,false);
+     const at=speciesWeatherAuditBestType(f,true);
+     if(bt.type!==at.type)switches++;
+     const overall=stableAnchorScore(f);
+     if(after>overall+1e-9)todayOver++;
+     if(!Number.isFinite(before)||!Number.isFinite(after))nan++;
+     vals.push({f,before,after,delta:after-before,cb,ca,beforeType:bt.type,afterType:at.type});
+   }
+   const sortedDelta=vals.map(x=>x.delta).sort((a,b)=>a-b);
+   const q=(arr,p)=>{
+     if(!arr.length)return NaN;
+     const x=(arr.length-1)*p,lo=Math.floor(x),hi=Math.ceil(x),t=x-lo;
+     return arr[lo]*(1-t)+arr[hi]*t;
+   };
+   const beforeTop=[...vals].sort((a,b)=>b.before-a.before).slice(0,Math.max(1,topN));
+   const afterTop=[...vals].sort((a,b)=>b.after-a.after).slice(0,Math.max(1,topN));
+   const beforeKeys=new Set(beforeTop.map(x=>stableFeatureKey(x.f)));
+   const overlap=afterTop.filter(x=>beforeKeys.has(stableFeatureKey(x.f))).length;
+   const meanAbs=vals.length?vals.reduce((s,x)=>s+Math.abs(x.delta),0)/vals.length:0;
+   const maxAbs=vals.length?Math.max(...vals.map(x=>Math.abs(x.delta))):0;
+
+   rows.push({
+     area:area.name,n:vals.length,
+     deltaP10:q(sortedDelta,.10),deltaMedian:q(sortedDelta,.50),deltaP90:q(sortedDelta,.90),
+     meanAbsDelta:meanAbs,maxAbsDelta:maxAbs,
+     classChangedPct:vals.length?100*(classUp+classDown)/vals.length:0,
+     classUpPct:vals.length?100*classUp/vals.length:0,
+     classDownPct:vals.length?100*classDown/vals.length:0,
+     bestSpeciesSwitchPct:vals.length?100*switches/vals.length:0,
+     topN,topOverlapPct:beforeTop.length?100*overlap/beforeTop.length:0,
+     todayOverOverall:todayOver,nan
+   });
+ }
+ console.table(rows.map(r=>({
+   area:r.area,n:r.n,
+   dP10:Number(r.deltaP10.toFixed(3)),
+   dMed:Number(r.deltaMedian.toFixed(3)),
+   dP90:Number(r.deltaP90.toFixed(3)),
+   meanAbs:Number(r.meanAbsDelta.toFixed(3)),
+   maxAbs:Number(r.maxAbsDelta.toFixed(3)),
+   classChangedPct:Number(r.classChangedPct.toFixed(1)),
+   classUpPct:Number(r.classUpPct.toFixed(1)),
+   classDownPct:Number(r.classDownPct.toFixed(1)),
+   bestSpeciesSwitchPct:Number(r.bestSpeciesSwitchPct.toFixed(1)),
+   topOverlapPct:Number(r.topOverlapPct.toFixed(1)),
+   todayOverOverall:r.todayOverOverall,
+   nan:r.nan
+ })));
+ const ok=rows.length>0&&rows.every(r=>r.todayOverOverall===0&&r.nan===0);
+ const report={
+   version:'v112',ok,productionEnabled:speciesWeatherProductionEnabled,
+   productionMaxWeatherDelta:SPECIES_WEATHER_PRODUCTION_MAX_DELTA,
+   rule:'porównanie szerokiej mapy DZIŚ przed (generic weather) i po (species weather); OGÓLNIE bez zmian',
+   rows
+ };
+ console.info('SPECIES WEATHER ACTIVATION v112',report);
+ return report;
+}
+window.auditSpeciesWeatherActivation=auditSpeciesWeatherActivation;
+
+function auditSpeciesWeatherProductionSafety(){
+ const rows=[];
+ let violations=0,nan=0,maxApplied=0;
+ for(const area of ANALYSIS_CENTERS){
+   let areaN=0,areaViol=0,areaNan=0,areaMax=0;
+   for(const f of stableCandidateFeatures(area.name)){
+     if(f._blocked)continue;
+     const overall=stableAnchorScore(f);
+     const today=speciesWeatherAuditAllScore(f,true);
+     if(!Number.isFinite(overall)||!Number.isFinite(today)){nan++;areaNan++;continue;}
+     if(today>overall+1e-9){violations++;areaViol++;}
+     for(const t of PICK_TYPES){
+       if(!featureRelevant(t,f))continue;
+       const x=speciesWeatherProductionInfo(t,f._center);
+       const a=Math.abs(x.productionAppliedDelta);
+       if(a>maxApplied)maxApplied=a;
+       if(a>areaMax)areaMax=a;
+     }
+     areaN++;
+   }
+   rows.push({area:area.name,n:areaN,todayOverOverall:areaViol,nan:areaNan,maxAppliedWeatherDelta:areaMax});
+ }
+ console.table(rows.map(r=>({
+   area:r.area,n:r.n,todayOverOverall:r.todayOverOverall,nan:r.nan,
+   maxAppliedWeatherDelta:Number(r.maxAppliedWeatherDelta.toFixed(3))
+ })));
+ const ok=violations===0&&nan===0&&maxApplied<=SPECIES_WEATHER_PRODUCTION_MAX_DELTA+1e-9;
+ const report={
+   version:'v112',ok,productionEnabled:speciesWeatherProductionEnabled,
+   todayOverOverall:violations,nan,maxAppliedWeatherDelta:maxApplied,
+   cap:SPECIES_WEATHER_PRODUCTION_MAX_DELTA,rows
+ };
+ console.info('SPECIES WEATHER PRODUCTION SAFETY v112',report);
+ return report;
+}
+window.auditSpeciesWeatherProductionSafety=auditSpeciesWeatherProductionSafety;
+
 window.auditSpeciesWeatherStressAssertions=auditSpeciesWeatherStressAssertions;
 
 window.auditSpeciesWeatherArchitectureGap=auditSpeciesWeatherArchitectureGap;
@@ -12294,12 +12584,14 @@ function auditAppBootstrap(){
    speciesWeatherArchitectureAudit:typeof window.auditSpeciesWeatherArchitectureGap==='function',
    speciesWeatherStressAudit:typeof window.auditSpeciesWeatherStressMatrix==='function',
    speciesWeatherStressAssertions:typeof window.auditSpeciesWeatherStressAssertions==='function',
+   speciesWeatherActivationAudit:typeof window.auditSpeciesWeatherActivation==='function',
+   speciesWeatherProductionSafetyAudit:typeof window.auditSpeciesWeatherProductionSafety==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v111',ok:failed.length===0,checks,failed};
+ const report={version:'v112',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }
@@ -18102,7 +18394,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v111: automatyczny start w tle');
+      console.info('Benchmark krajowy v112: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

@@ -1,6 +1,37 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v111:
+     SPECIES WEATHER STRESS TEST LAB.
+
+     v110 poprawnie odseparował "architecture gap" od prawdziwego delta gatunkowego.
+     Na realnej pogodzie korekty stały się umiarkowane:
+       - Prószków: max median applied ~2.1 pkt,
+       - Białowieża: ~3.7 pkt,
+       - Tuchola: ~4.4 pkt.
+
+     Zanim cokolwiek aktywujemy w DZIŚ, v111 dodaje testy syntetyczne.
+     Powód: aktualne trzy regiony mają bardzo wysokie temperature modifier (~100),
+     więc bieżący dzień słabo testuje zachowanie profili przy suszy, mrozie,
+     przesyceniu wodą i różnym czasie opadu.
+
+     v111 NIE zmienia produkcji. Dodaje:
+       auditSpeciesWeatherStressMatrix()
+       auditSpeciesWeatherStressAssertions()
+
+     Testujemy m.in.:
+       - susza + upał,
+       - świeży opad po suszy,
+       - opad przesunięty 3–4 tygodnie wstecz,
+       - długotrwale wilgotne warunki,
+       - chłodno + mokro,
+       - ciepło + mokro,
+       - przemoczenie,
+       - mokro + nocny mróz.
+
+     Dzięki temu sprawdzamy nie "czy liczby wyglądają ładnie dziś",
+     tylko czy krzywe zachowują się logicznie w skrajnych warunkach.
+
 <!-- GitHub production v110:
      ANCHORED SPECIES-SPECIFIC WEATHER LAB.
 
@@ -5646,6 +5677,114 @@ function speciesWeatherLabCompute(type,c,profileKey,moistOverride=null){
  };
 }
 
+function speciesWeatherLabComputeFromPayload(type,p,profileKey,moistOverride=null){
+ if(!p)return {score:60,profile:'none',components:{},payload:null};
+
+ const profile=SPECIES_WEATHER_LAB_PROFILES[profileKey]||SPECIES_WEATHER_LAB_PROFILES.generic_reference;
+ const m=SPECIES_META[type]||{moist:'mesic'};
+ const moist=moistOverride||m.moist||'mesic';
+
+ const w1=Math.max(0,Number(p.rain7)||0);
+ const w2=Math.max(0,(Number(p.rain14)||0)-(Number(p.rain7)||0));
+ const w3=Math.max(0,(Number(p.rain21)||0)-(Number(p.rain14)||0));
+ const w4=Math.max(0,(Number(p.rain28)||0)-(Number(p.rain21)||0));
+ const rainWeeks=[w1,w2,w3,w4];
+
+ const rainResponse=(mm,scale)=>1-Math.exp(-Math.max(0,mm)/Math.max(1,scale));
+ let rain=0;
+ for(let i=0;i<4;i++)rain+=profile.rainW[i]*rainResponse(rainWeeks[i],profile.rainScale);
+
+ const soil=speciesWeatherLabSoilMoisture(moist,Number(p.soilM));
+ const moisture=Number.isFinite(soil)?(.62*rain+.38*soil):rain;
+ const temp=speciesWeatherLabTemp(profile.temp,Number(p.soilT));
+
+ const rh=Number(p.rh),vpd=Number(p.vpd),dryDays=Number(p.dryDays),nightMin=Number(p.nightMin);
+ const rhScore=Number.isFinite(rh)
+   ?Math.max(.05,Math.min(1,piecewise(rh,[[30,.18],[45,.36],[60,.58],[75,.82],[88,1],[100,1]])))
+   :.70;
+ const vpdScore=Number.isFinite(vpd)
+   ?Math.max(.05,Math.min(1,piecewise(vpd,[[0,1],[.35,.97],[.7,.84],[1.1,.64],[1.6,.42],[2.2,.22],[3,.08]])))
+   :.70;
+ const dryScore=Number.isFinite(dryDays)
+   ?Math.max(.05,Math.min(1,piecewise(dryDays,[[0,1],[3,1],[5,.90],[8,.68],[12,.43],[20,.18],[28,.08]])))
+   :.70;
+ const persistence=.42*rhScore+.36*vpdScore+.22*dryScore;
+
+ const frost=speciesWeatherLabFrost(profile.frost,nightMin);
+ const ww=profile.weights;
+ const raw=
+   Math.pow(Math.max(.03,moisture),ww.moisture)*
+   Math.pow(Math.max(.03,temp),ww.temp)*
+   Math.pow(Math.max(.03,persistence),ww.persistence)*
+   frost;
+
+ return {
+   score:Math.max(0,Math.min(100,100*raw)),
+   profile:profileKey,
+   profileLabel:profile.label,
+   components:{
+     moisture:100*moisture,rain:100*rain,
+     soil:100*(Number.isFinite(soil)?soil:rain),
+     temp:100*temp,persistence:100*persistence,frost:100*frost,
+     rainWeeks
+   },
+   payload:p
+ };
+}
+
+const SPECIES_WEATHER_STRESS_SCENARIOS={
+  drought_hot:{
+    label:'Susza + upał',
+    payload:{rain7:0,rain14:1,rain21:2,rain28:3,soilM:.10,soilT:27,rh:38,vpd:2.4,dryDays:19,nightMin:14}
+  },
+  recent_rain:{
+    label:'Świeży deszcz po suchości',
+    payload:{rain7:24,rain14:27,rain21:29,rain28:31,soilM:.20,soilT:18,rh:78,vpd:.65,dryDays:0,nightMin:10}
+  },
+  old_rain:{
+    label:'Ten sam opad, ale głównie 3–4 tyg. temu',
+    payload:{rain7:2,rain14:7,rain21:17,rain28:31,soilM:.18,soilT:18,rh:68,vpd:.95,dryDays:5,nightMin:10}
+  },
+  sustained_wet_mild:{
+    label:'Długotrwale wilgotno + łagodnie',
+    payload:{rain7:18,rain14:36,rain21:54,rain28:72,soilM:.28,soilT:14,rh:89,vpd:.30,dryDays:0,nightMin:7}
+  },
+  cool_wet:{
+    label:'Chłodno + mokro',
+    payload:{rain7:14,rain14:31,rain21:49,rain28:67,soilM:.30,soilT:8,rh:92,vpd:.22,dryDays:0,nightMin:3}
+  },
+  warm_wet:{
+    label:'Ciepło + wilgotno',
+    payload:{rain7:15,rain14:29,rain21:42,rain28:54,soilM:.24,soilT:21,rh:82,vpd:.55,dryDays:1,nightMin:12}
+  },
+  waterlogged:{
+    label:'Przemoczenie',
+    payload:{rain7:28,rain14:58,rain21:88,rain28:118,soilM:.47,soilT:12,rh:96,vpd:.12,dryDays:0,nightMin:5}
+  },
+  frost_after_wet:{
+    label:'Mokro + nocny mróz',
+    payload:{rain7:16,rain14:34,rain21:52,rain28:70,soilM:.29,soilT:4,rh:88,vpd:.30,dryDays:0,nightMin:-4}
+  }
+};
+
+function speciesWeatherStressRow(type,scenarioKey){
+ const scenario=SPECIES_WEATHER_STRESS_SCENARIOS[scenarioKey];
+ const a=speciesWeatherLabAssignment(type);
+ const neutral=speciesWeatherLabComputeFromPayload(type,scenario.payload,'generic_reference','mesic');
+ const specific=speciesWeatherLabComputeFromPayload(type,scenario.payload,a.profile,null);
+ const rawDelta=specific.score-neutral.score;
+ const capped=Math.max(-12,Math.min(12,rawDelta));
+ const evidenceWeight=speciesWeatherEvidenceWeight(a.evidence);
+ return {
+   type,label:SPECIES_META[type]?.label||type,scenario:scenarioKey,scenarioLabel:scenario.label,
+   profile:a.profile,evidence:a.evidence,
+   neutral:neutral.score,specific:specific.score,
+   rawDelta,cappedDelta:capped,evidenceWeight,appliedDelta:capped*evidenceWeight,
+   moisture:specific.components.moisture,temp:specific.components.temp,
+   persistence:specific.components.persistence,frost:specific.components.frost
+ };
+}
+
 function speciesWeatherLabScore(type,c){
  const a=speciesWeatherLabAssignment(type);
  const out=speciesWeatherLabCompute(type,c,a.profile,null);
@@ -8794,11 +8933,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v110: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v111: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v110 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v111 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -8808,7 +8947,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v110 health',health);
+     console.info('National benchmark v111 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -10766,7 +10905,7 @@ function auditExplorationMosaicLab({top=20}={}){
    };
    rows.push(row);
 
-   console.info(`${area.name} — EXPLORATION MOSAIC LAB v110`);
+   console.info(`${area.name} — EXPLORATION MOSAIC LAB v111`);
    console.table(topRows.map(x=>({
      drzewo:x.tree,siedlisko:x.habitat,rodzina:x.habitatFamily,wiek:x.age,
      ha:Number(x.areaHa.toFixed(2)),
@@ -10807,7 +10946,7 @@ function auditExplorationMosaicLab({top=20}={}){
  const impossibleAgeCategory=rows.some(r=>r.maxAgeBandCount>5);
 
  const report={
-   version:'v110',
+   version:'v111',
    ok:rows.length>0&&!fragmentationWarning&&!impossibleAgeCategory,
    scoringChanged:false,
    meaning:'exploration / mosaic effective richness; missing data excluded and tracked via coverage; NOT biological edge bonus',
@@ -10816,7 +10955,7 @@ function auditExplorationMosaicLab({top=20}={}){
    impossibleAgeCategory,
    rows
  };
- console.info('EXPLORATION MOSAIC LAB v110',report);
+ console.info('EXPLORATION MOSAIC LAB v111',report);
  return report;
 }
 window.auditExplorationMosaicLab=auditExplorationMosaicLab;
@@ -10851,8 +10990,8 @@ function auditRegionalTop3Robustness(){
    dzisTop3Mean:Number.isFinite(r.todayTop3Mean)?Number(r.todayTop3Mean.toFixed(2)):null,
    dzisStabilnosc:r.todayLabel
  })));
- const report={version:'v110',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
- console.info('REGIONAL TOP3 ROBUSTNESS v110',report);
+ const report={version:'v111',ok:rows.length>0,rule:'region oceniaj przez kilka mocnych hotspotów, nie pojedynczy outlier',rows};
+ console.info('REGIONAL TOP3 ROBUSTNESS v111',report);
  return report;
 }
 window.auditRegionalTop3Robustness=auditRegionalTop3Robustness;
@@ -10871,8 +11010,8 @@ function auditBorrowedIdeas(){
    {element:'Road/satellite accessibility',status:'BRAK',source:'shroom-fm / Boletus',note:'nie mieszamy z biologicznym score bez osobnej warstwy'}
  ];
  console.table(rows);
- const report={version:'v110',ok:true,productionScoringChanged:false,rows,
-   nextPriority:['przetestować v110 w różnych warunkach pogodowych','backtest obserwacji','OSM access as separate practical score']};
+ const report={version:'v111',ok:true,productionScoringChanged:false,rows,
+   nextPriority:['przetestować v111 w różnych warunkach pogodowych','backtest obserwacji','OSM access as separate practical score']};
  console.info('BORROWED IDEAS AUDIT v108',report);
  return report;
 }
@@ -10882,8 +11021,8 @@ function auditSpeciesWeatherLab(){
  const allRows=[];
 
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v110',ok:false,error:'Pogoda nie jest jeszcze załadowana. Wybierz rejon i poczekaj na Open-Meteo.'};
-   console.warn('SPECIES WEATHER LAB v110',report);
+   const report={version:'v111',ok:false,error:'Pogoda nie jest jeszcze załadowana. Wybierz rejon i poczekaj na Open-Meteo.'};
+   console.warn('SPECIES WEATHER LAB v111',report);
    return report;
  }
 
@@ -10919,7 +11058,7 @@ function auditSpeciesWeatherLab(){
    });
    allRows.push(...rows);
 
-   console.info(`${area.name} — ANCHORED SPECIES WEATHER LAB v110`);
+   console.info(`${area.name} — ANCHORED SPECIES WEATHER LAB v111`);
    console.table([...rows].sort((a,b)=>Math.abs(b.anchoredFruitingDelta)-Math.abs(a.anchoredFruitingDelta)).map(r=>({
      gatunek:r.label,
      profil:r.profile,
@@ -10972,15 +11111,15 @@ function auditSpeciesWeatherLab(){
    warning:'ArchGap jest diagnostyką różnicy architektury i NIE jest nakładany na mapę. Anchored delta izoluje gatunkowość.',
    rows:allRows
  };
- console.info('ANCHORED SPECIES WEATHER LAB v110',report);
+ console.info('ANCHORED SPECIES WEATHER LAB v111',report);
  return report;
 }
 window.auditSpeciesWeatherLab=auditSpeciesWeatherLab;
 
 function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v110',ok:false,error:'Pogoda nie jest gotowa.'};
-   console.warn('SPECIES WEATHER SPATIAL IMPACT v110',report);
+   const report={version:'v111',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER SPATIAL IMPACT v111',report);
    return report;
  }
  const rows=[];
@@ -11065,14 +11204,14 @@ function auditSpeciesWeatherSpatialImpact({maxPerSpecies=1200}={}){
    note:'Nie zmienia mapy. Oczekujemy mniejszych, gatunkowo zróżnicowanych korekt niż v109.',
    rows
  };
- console.info('SPECIES WEATHER SPATIAL IMPACT v110',report);
+ console.info('SPECIES WEATHER SPATIAL IMPACT v111',report);
  return report;
 }
 
 function auditSpeciesWeatherArchitectureGap(){
  if(!weatherReady||!weatherSamples.length){
-   const report={version:'v110',ok:false,error:'Pogoda nie jest gotowa.'};
-   console.warn('SPECIES WEATHER ARCHITECTURE GAP v110',report);
+   const report={version:'v111',ok:false,error:'Pogoda nie jest gotowa.'};
+   console.warn('SPECIES WEATHER ARCHITECTURE GAP v111',report);
    return report;
  }
  const rows=[];
@@ -11099,9 +11238,106 @@ function auditSpeciesWeatherArchitectureGap(){
    note:'To NIE jest delta gatunkowa. Pokazuje tylko, jak bardzo nowa architektura skali różni się od obecnego weatherAt().',
    rows
  };
- console.info('SPECIES WEATHER ARCHITECTURE GAP v110',report);
+ console.info('SPECIES WEATHER ARCHITECTURE GAP v111',report);
  return report;
 }
+
+function auditSpeciesWeatherStressMatrix(){
+ const focus=['borowik','kurka','maslak_sitarz','rydz','opienka_ciemna','ponury','kania','pieczarka_polna'];
+ const rows=[];
+ for(const scenarioKey of Object.keys(SPECIES_WEATHER_STRESS_SCENARIOS)){
+   for(const type of focus){
+     if(!SPECIES_META[type])continue;
+     rows.push(speciesWeatherStressRow(type,scenarioKey));
+   }
+ }
+
+ for(const scenarioKey of Object.keys(SPECIES_WEATHER_STRESS_SCENARIOS)){
+   const scenario=SPECIES_WEATHER_STRESS_SCENARIOS[scenarioKey];
+   console.info(`${scenario.label} — SPECIES WEATHER STRESS v111`);
+   console.table(rows.filter(r=>r.scenario===scenarioKey).map(r=>({
+     gatunek:r.label,profil:r.profile,dowod:r.evidence,
+     neutral:Number(r.neutral.toFixed(1)),
+     species:Number(r.specific.toFixed(1)),
+     rawDelta:Number(r.rawDelta.toFixed(1)),
+     applied:Number(r.appliedDelta.toFixed(1)),
+     wilgoc:Number(r.moisture.toFixed(0)),
+     temp:Number(r.temp.toFixed(0)),
+     persistence:Number(r.persistence.toFixed(0)),
+     mroz:Number(r.frost.toFixed(0))
+   })));
+ }
+
+ const report={
+   version:'v111',ok:rows.length>0,productionScoringChanged:false,
+   scenarios:Object.fromEntries(Object.entries(SPECIES_WEATHER_STRESS_SCENARIOS).map(([k,v])=>[k,v.label])),
+   rows
+ };
+ console.info('SPECIES WEATHER STRESS MATRIX v111',report);
+ return report;
+}
+window.auditSpeciesWeatherStressMatrix=auditSpeciesWeatherStressMatrix;
+
+function auditSpeciesWeatherStressAssertions(){
+ const r=(type,scenario)=>speciesWeatherStressRow(type,scenario);
+ const checks=[];
+
+ const push=(name,ok,details)=>checks.push({name,ok:!!ok,details});
+
+ const porcDry=r('borowik','drought_hot'),porcWet=r('borowik','sustained_wet_mild');
+ push('Borowik: mokry łagodny okres > susza',porcWet.specific>porcDry.specific+15,
+   {dry:porcDry.specific,wet:porcWet.specific});
+
+ const chanRecent=r('kurka','recent_rain'),chanOld=r('kurka','old_rain');
+ push('Kurka: starszy opad nie jest ignorowany',chanOld.specific>=chanRecent.specific*.72,
+   {recent:chanRecent.specific,old:chanOld.specific});
+
+ const edgeRecent=r('kania','recent_rain'),edgeOld=r('kania','old_rain');
+ push('Kania/skraj: świeży opad >= stary opad',edgeRecent.specific>edgeOld.specific,
+   {recent:edgeRecent.specific,old:edgeOld.specific});
+
+ const suDry=r('maslak_sitarz','drought_hot'),suWet=r('maslak_sitarz','sustained_wet_mild');
+ push('Maślak sitarz: wilgotno > susza',suWet.specific>suDry.specific+15,
+   {dry:suDry.specific,wet:suWet.specific});
+
+ const warmWet=r('ponury','warm_wet'),warmCool=r('ponury','cool_wet');
+ push('Ciepłolubny borowik: warm-wet > cool-wet',warmWet.specific>warmCool.specific,
+   {warm: warmWet.specific,cool:warmCool.specific});
+
+ const warmFrost=r('ponury','frost_after_wet');
+ push('Ciepłolubny borowik: nocny mróz wyraźnie szkodzi',warmFrost.specific<warmWet.specific*.70,
+   {warm: warmWet.specific,frost:warmFrost.specific});
+
+ const armWet=r('opienka_ciemna','sustained_wet_mild'),armFrost=r('opienka_ciemna','frost_after_wet');
+ push('Opieńka: mróz szkodzi mniej niż profilowi ciepłolubnemu',
+   (armFrost.specific/armWet.specific)>(warmFrost.specific/warmWet.specific),
+   {armRatio:armFrost.specific/armWet.specific,warmRatio:warmFrost.specific/warmWet.specific});
+
+ const waterPorc=r('borowik','waterlogged');
+ push('Borowik: przemoczenie nie powinno przewyższać łagodnie wilgotnego okresu',
+   waterPorc.specific<=porcWet.specific+5,
+   {waterlogged:waterPorc.specific,wetMild:porcWet.specific});
+
+ const all=[];
+ for(const type of Object.keys(SPECIES_META)){
+   for(const scenario of Object.keys(SPECIES_WEATHER_STRESS_SCENARIOS)){
+     all.push(r(type,scenario));
+   }
+ }
+ const maxApplied=Math.max(...all.map(x=>Math.abs(x.appliedDelta)));
+ push('Safety: applied delta zawsze <= 9 pkt',maxApplied<=9.000001,{maxApplied});
+
+ const failures=checks.filter(x=>!x.ok);
+ console.table(checks.map(c=>({test:c.name,ok:c.ok,details:JSON.stringify(c.details)})));
+ const report={
+   version:'v111',ok:failures.length===0,productionScoringChanged:false,
+   passed:checks.length-failures.length,total:checks.length,failures,checks,maxAppliedDelta:maxApplied
+ };
+ console.info('SPECIES WEATHER STRESS ASSERTIONS v111',report);
+ return report;
+}
+window.auditSpeciesWeatherStressAssertions=auditSpeciesWeatherStressAssertions;
+
 window.auditSpeciesWeatherArchitectureGap=auditSpeciesWeatherArchitectureGap;
 
 window.auditSpeciesWeatherSpatialImpact=auditSpeciesWeatherSpatialImpact;
@@ -12056,12 +12292,14 @@ function auditAppBootstrap(){
    speciesWeatherLabAudit:typeof window.auditSpeciesWeatherLab==='function',
    speciesWeatherSpatialAudit:typeof window.auditSpeciesWeatherSpatialImpact==='function',
    speciesWeatherArchitectureAudit:typeof window.auditSpeciesWeatherArchitectureGap==='function',
+   speciesWeatherStressAudit:typeof window.auditSpeciesWeatherStressMatrix==='function',
+   speciesWeatherStressAssertions:typeof window.auditSpeciesWeatherStressAssertions==='function',
    visualAudit:typeof window.auditVisualClassCalibration==='function',
    opportunityAudit:typeof window.auditOpportunityBalance==='function',
    unifiedAudit:typeof window.auditUnifiedOpportunityModel==='function'
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);
- const report={version:'v110',ok:failed.length===0,checks,failed};
+ const report={version:'v111',ok:failed.length===0,checks,failed};
  console.info('APP BOOTSTRAP AUDIT',report);
  return report;
 }
@@ -17864,7 +18102,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v110: automatyczny start w tle');
+      console.info('Benchmark krajowy v111: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

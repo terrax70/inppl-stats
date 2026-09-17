@@ -5798,10 +5798,18 @@ async function prodPaceSource(key,minIntervalMs){
  const k=String(key||'');
  const min=Math.max(0,Number(minIntervalMs)||0);
  if(!k||!min)return;
- const now=prodNow();
- const next=Number(prodPaceNextAt.get(k)||0);
- if(next>now)await prodSleep(next-now);
- prodPaceNextAt.set(k,prodNow()+min);
+ // v163: pętla zamiast pojedynczego sleep. Gdy dwa moduły czekają na ten
+ // sam slot, po przebudzeniu tylko pierwszy go zajmuje; drugi ponownie
+ // sprawdza zegar i nie wystrzeli równolegle w tej samej milisekundzie.
+ while(true){
+   const now=prodNow();
+   const next=Number(prodPaceNextAt.get(k)||0);
+   if(next<=now){
+     prodPaceNextAt.set(k,now+min);
+     return;
+   }
+   await prodSleep(Math.max(1,next-now));
+ }
 }
 function prodRetryAfterMs(response){
  try{
@@ -5878,6 +5886,14 @@ async function prodFetchJson(url,opts={}){
      if(timer)clearTimeout(timer);
      lastErr=err;
      const status=Number(err?.status||0);
+     // v163: 429 powinien spowolnić kolejne PRAWDZIWE requesty do tego
+     // samego źródła, również gdy bieżące wywołanie ma tries:1. Fresh cache
+     // wraca wyżej przed pacingiem, więc nie ponosi tego kosztu.
+     if(status===429&&opts.pace?.key){
+       const paceKey=String(opts.pace.key);
+       const cooldown=Math.max(5000,Number(err?.retryAfterMs)||0,Number(opts.pace.minMs)||0);
+       prodPaceNextAt.set(paceKey,Math.max(Number(prodPaceNextAt.get(paceKey)||0),prodNow()+cooldown));
+     }
      const retryable=!status || status===408 || status===429 || status>=500;
      if(attempt+1<tries && retryable){
        prodNetStats.retries++;
@@ -8074,6 +8090,8 @@ async function fetchOverpassWithFallback(body,opts={}){
  for(let i=0;i<endpoints.length;i++){
    const [endpoint,timeoutMs]=endpoints[i];
    try{
+     let hostKey='overpass';
+     try{hostKey='overpass:'+new URL(endpoint).hostname;}catch(_){ }
      const out=await prodFetchJson(endpoint,{
        method:'POST',
        headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
@@ -8081,6 +8099,10 @@ async function fetchOverpassWithFallback(body,opts={}){
        timeoutMs,
        tries:1,
        abortOnTimeout:false,
+       // v163: fresh cache nadal omija pacing całkowicie. Tylko realny miss
+       // sieciowy dostaje krótki odstęp, dzięki czemu OSM i HOTSPOT ACCESS
+       // nie strzelają burstem do tego samego publicznego endpointu.
+       pace:{key:hostKey,minMs:endpoint.includes('overpass-api.de')?1500:900},
        policy:{ttl:12*3600e3,stale:7*86400e3}
      });
      if(useCircuit)overpassCircuitUntil=0;
@@ -8129,9 +8151,10 @@ async function loadOpenHabitats(){
      return {idx,elements:j?.elements||[]};
    });
 
-   // 2 równoległe requesty są znacznie lżejsze dla API niż 3+ naraz,
-   // a nadal wyraźnie szybsze od jednego wielkiego query.
-   const results=await runLimited(tasks,Math.min(2,Math.max(1,tasks.length)));
+   // v163: publiczny Overpass zaczął zwracać 429 przy dwóch równoległych
+   // requestach z multi-area. To źródło jest opcjonalne, więc wolimy jeden
+   // request naraz i płynną mapę niż burst + 429 + kosztowny fallback.
+   const results=await runLimited(tasks,1);
    const elementMap=new Map();
    let successes=0,failures=0;
 
@@ -9270,6 +9293,18 @@ function browserYield(){
      setTimeout(resolve,0);
    }
  });
+}
+
+// v163 — do obliczeń, które mają pozostać płynne, ale NIE powinny czekać
+// na pełny idle przeglądarki. requestIdleCallback był właściwy dla pracy
+// naprawdę tła, lecz przy tysiącach wydzieleń potrafił sztucznie rozciągać
+// warm-up o sekundy. scheduler.yield()/setTimeout(0) oddaje UI następną klatkę
+// bez wielokrotnego czekania po 45 ms.
+function lowLatencyYield(){
+ if(globalThis.scheduler?.yield){
+   try{return globalThis.scheduler.yield();}catch(_){ }
+ }
+ return new Promise(resolve=>setTimeout(resolve,0));
 }
 
 
@@ -25683,35 +25718,40 @@ async function prewarmMultiAreaScoring(){
  multiAreaWarmPromise=(async()=>{
    const t0=performance.now();
    let t=performance.now();
+   let yields=0;
 
-   // Najdroższa część BEST: raw composite po wielu gatunkach.
-   // Liczymy feature po feature i co chwilę oddajemy przeglądarkę.
-   const types=atlasSelected.size?[...atlasSelected]:(currentFilter==='all'?PICK_TYPES:null);
-   if(types&&types.length>1){
+   // v163: ta sama matematyka i te same cache co v162, ale porcje są
+   // ograniczane czasem CPU (~7 ms), a nie liczbą 75/90 feature'ów.
+   // Najważniejsze: NIE używamy tu requestIdleCallback.
+   const runSmooth=async(fn)=>{
+     let slice=performance.now();
      for(let i=0;i<allFeatures.length;i++){
        const f=allFeatures[i];
-       if(!f._blocked)opportunityRawComposite(f,false,types);
-       if(i>0&&i%90===0)await browserYield();
+       if(!f._blocked)fn(f,i);
+       if(performance.now()-slice>=7){
+         await lowLatencyYield();
+         yields++;
+         slice=performance.now();
+       }
      }
+   };
+
+   // Najdroższa część BEST: raw composite po wielu gatunkach. Nadal jest
+   // liczona dokładnie raz / feature i trafia do tego samego cache.
+   const types=atlasSelected.size?[...atlasSelected]:(currentFilter==='all'?PICK_TYPES:null);
+   if(types&&types.length>1){
+     await runSmooth(f=>opportunityRawComposite(f,false,types));
    }
    const rawMs=performance.now()-t;
    t=performance.now();
 
-   for(let i=0;i<allFeatures.length;i++){
-     const f=allFeatures[i];
-     if(!f._blocked)stableAnchorScore(f);
-     if(i>0&&i%90===0)await browserYield();
-   }
+   await runSmooth(f=>stableAnchorScore(f));
    const scoreMs=performance.now()-t;
 
    let todayMs=0;
    if(mapMode==='today'){
      t=performance.now();
-     for(let i=0;i<allFeatures.length;i++){
-       const f=allFeatures[i];
-       if(!f._blocked)todayScoreForStyle(f);
-       if(i>0&&i%75===0)await browserYield();
-     }
+     await runSmooth(f=>todayScoreForStyle(f));
      todayMs=performance.now()-t;
    }
 
@@ -25724,9 +25764,9 @@ async function prewarmMultiAreaScoring(){
      key,
      features:allFeatures.length,
      elapsedMs:performance.now()-t0,
-     rawMs,scoreMs,todayMs
+     rawMs,scoreMs,todayMs,yields
    };
-   console.info('MULTI-AREA SCORE WARM v142',multiAreaWarmLast);
+   console.info('MULTI-AREA SCORE WARM v163',multiAreaWarmLast);
    return true;
  })().finally(()=>{multiAreaWarmPromise=null;});
 
@@ -25752,7 +25792,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v162-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
+   'v163-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -25959,7 +25999,7 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase
    };
-   console.info('HOTSPOT PIPELINE WARM v162',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v163',hotspotPipelineWarmLast);
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -27925,7 +27965,7 @@ async function loadHotspotAccessContext(hotspots){
    if(!hotspotAccessReady){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v160: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v163: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -27941,7 +27981,7 @@ async function loadHotspotAccessContext(hotspots){
      console.warn('Access UI refresh',e);
    }
 
-   console.info('HOTSPOT ACCESS v162',{
+   console.info('HOTSPOT ACCESS v163',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -27963,7 +28003,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=e?.message||String(e);
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v160: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v163: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }
 }

@@ -8706,14 +8706,24 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    progressiveAnalysisLayerBuild(feats);
  }else{
    const t0=performance.now();
-   for(const f of feats)addAnalysisFeature(f,true);
+   // v168: także mały/pojedynczy obszar budujemy paczkami, żeby nie tworzyć
+   // osobnego kontenera L.GeoJSON dla każdego wydzielenia.
+   const chunk=220;
+   let cpuMs=0,containers=0;
+   for(let i=0;i<feats.length;i+=chunk){
+     const c0=performance.now();
+     addAnalysisFeatureBatch(feats.slice(i,i+chunk),true);
+     cpuMs+=performance.now()-c0;
+     containers++;
+   }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync',
+     mode:'sync-batched-v168',
      features:feats.length,
      elapsedMs:performance.now()-t0,
-     batches:1
+     cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
+   console.info('LAYER BUILD PERFORMANCE v168',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -24803,7 +24813,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v167',{
+   console.info('UI ACTION v168',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -25793,72 +25803,84 @@ function cancelProgressiveAnalysisLayerBuild(){
  analysisLayerBuildPending=false;
 }
 
+function analysisBuildStyle(){
+ // v168: jeden obiekt stylu na paczkę zamiast składania go tysiące razy.
+ return analysisScoringReady
+   ?{color:'transparent',weight:0,fillOpacity:0}
+   :{color:'#557064',weight:.35,opacity:.28,fillColor:'#789083',fillOpacity:.055};
+}
+
+function addAnalysisFeatureBatch(feats,deferGridInvalidate=false){
+ if(!feats?.length)return;
+ const fc={type:'FeatureCollection',features:feats};
+ const batchLayer=L.geoJSON(fc,{
+   renderer:perfCanvasRenderer,
+   smoothFactor:1.8,
+   interactive:false,
+   style:analysisBuildStyle(),
+   onEachFeature:(feature,ly)=>{
+     analysisLayers.push({layer:ly,f:feature});
+   }
+ });
+ // Dodajemy do mapy jeden kontener Leafleta na całą paczkę. Dzieci nadal
+ // zostają osobnymi warstwami w analysisLayers, więc style/hit-test działają jak wcześniej.
+ analysisGroup.addLayer(batchLayer);
+ if(!deferGridInvalidate)invalidateInteractionGrid();
+}
+
 function progressiveAnalysisLayerBuild(feats){
  const token=++analysisLayerBuildToken;
  analysisLayerBuildPending=true;
  const t0=performance.now();
- let i=0,batches=0;
- const batchSize=ANALYSIS_CENTERS.length>=3?90:180;
+ let i=0,batches=0,containers=0,cpuMs=0,maxSliceMs=0;
+ // v168: większe paczki redukują koszt tworzenia wrapperów Leafleta, ale każda
+ // porcja nadal oddaje sterowanie przeglądarce.
+ const batchSize=ANALYSIS_CENTERS.length>=3?180:260;
 
- const schedule=fn=>{
-   if('requestIdleCallback' in window){
-     requestIdleCallback(fn,{timeout:70});
-   }else{
-     setTimeout(()=>fn(null),0);
-   }
- };
-
- const step=deadline=>{
+ const step=()=>{
    if(token!==analysisLayerBuildToken)return;
    const start=performance.now();
-   let n=0;
+   let built=0;
 
-   while(i<feats.length){
-     addAnalysisFeature(feats[i++],true);
-     n++;
-
-     if(n>=batchSize)break;
-     if(deadline&&n>=24&&deadline.timeRemaining&&deadline.timeRemaining()<2)break;
-     if(!deadline&&performance.now()-start>9)break;
+   while(i<feats.length && built<batchSize){
+     const remain=batchSize-built;
+     // Jedna paczka GeoJSON zamiast L.geoJSON() osobno dla każdego wydzielenia.
+     const take=Math.min(remain,ANALYSIS_CENTERS.length>=3?90:130,feats.length-i);
+     const c0=performance.now();
+     addAnalysisFeatureBatch(feats.slice(i,i+take),true);
+     cpuMs+=performance.now()-c0;
+     containers++;
+     i+=take;
+     built+=take;
+     // Nie pozwól pojedynczej porcji monopolizować głównego wątku.
+     if(built>=45 && performance.now()-start>10)break;
    }
 
+   maxSliceMs=Math.max(maxSliceMs,performance.now()-start);
    batches++;
 
    if(i<feats.length){
-     schedule(step);
+     scheduleBrowserSlice(step);
      return;
    }
 
    analysisLayerBuildPending=false;
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'progressive',
+     mode:'progressive-batched-v168',
      features:feats.length,
      elapsedMs:performance.now()-t0,
-     batches
+     cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v142',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v168',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
- schedule(step);
+ scheduleBrowserSlice(step);
 }
 
 function addAnalysisFeature(f,deferGridInvalidate=false){
- const gj=L.geoJSON(f,{
-   renderer:perfCanvasRenderer,
-   smoothFactor:1.8,
-   interactive:false,
-   // Przy progresywnym buildzie pokazujemy tani, neutralny placeholder.
-   style:analysisScoringReady
-     ?{color:'transparent',weight:0,fillOpacity:0}
-     :{color:'#557064',weight:.35,opacity:.28,fillColor:'#789083',fillOpacity:.055}
- });
- gj.eachLayer(ly=>{
-   analysisLayers.push({layer:ly,f});
-   analysisGroup.addLayer(ly);
- });
- if(!deferGridInvalidate)invalidateInteractionGrid();
+ addAnalysisFeatureBatch([f],deferGridInvalidate);
 }
 
 function atlasShowsFeature(f){
@@ -26169,8 +26191,8 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase
    };
-   console.info('HOTSPOT PIPELINE WARM v167',hotspotPipelineWarmLast);
-   console.info('HOTSPOT PHASE v167',{
+   console.info('HOTSPOT PIPELINE WARM v168',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PHASE v168',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),
      mainScoreMs:+phase.mainScoreMs.toFixed(1),buildMs:+buildMs.toFixed(1),anchorMs:+anchorMs.toFixed(1),
@@ -28144,7 +28166,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v167: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v168: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -28161,7 +28183,7 @@ async function loadHotspotAccessContext(hotspots){
      console.warn('Access UI refresh',e);
    }
 
-   console.info('HOTSPOT ACCESS v167',{
+   console.info('HOTSPOT ACCESS v168',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -28184,7 +28206,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v167: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v168: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -28212,7 +28234,7 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v167: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v168: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }

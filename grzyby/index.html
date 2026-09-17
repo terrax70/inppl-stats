@@ -1,6 +1,27 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v158:
+     OBSERVATION SIGNAL v3 — ANTI-BIAS + HISTORY RADAR + API PACING.
+
+     v157 miał już produkcyjne iNaturalist + GBIF oraz IndexedDB cache.
+     v158 nie duplikuje tego systemu; wzmacnia jakość istniejącego sygnału:
+       - lokalny bonus historii jest liczony z przestrzennie/czasowo
+         odszumionych potwierdzeń zamiast z surowej liczby punktów,
+       - wiele zgłoszeń z tego samego ~0.8 km miejsca w tym samym roku
+         nie może już sztucznie wypompować bonusu do maksimum,
+       - dokładność współrzędnych wpływa na wagę obserwacji,
+       - sezon i trend wysypu używają próbek odszumionych w czasie/przestrzeni,
+       - warstwa obserwacji dostała radar gęstości (agregaty + najnowsze punkty)
+         z jawnym ostrzeżeniem, że gęstość zgłoszeń != prawdopodobieństwo,
+       - iNaturalist jest odpytywany maks. ~1 raz/s przy REALNYM requestcie
+         (cache nie jest sztucznie opóźniany), GBIF ma łagodny pacing,
+       - Retry-After z HTTP 429 jest respektowany przez wspólną warstwę sieciową.
+
+     Ważne: jeśli historia wybranego gatunku nie jest załadowana, biologiczny
+     scoring pozostaje identyczny jak w v157. Zmiana dotyczy wyłącznie jawnego
+     trybu pojedynczego gatunku z aktywnymi publicznymi obserwacjami.
+
 <!-- GitHub production v157:
      NETWORK RESILIENCE HOTFIX — PARKING/ACCESS + SOIL WCS.
 
@@ -5265,7 +5286,7 @@ L.control.layers({'OpenStreetMap':osm}, {
  'TOP miejsca':topGroup,
  'Podpowiedzi gatunków':hintGroup,
  'Rezerwaty / zakazy':reserveGroup,
- 'iNaturalist / GBIF — obserwacje':obsGroup,
+ 'iNaturalist / GBIF — historia (radar)':obsGroup,
  'OSM — łąki / polany / pastwiska':openGroup,
  'Parkingi leśne':forestParkingGroup,
  'BDL — oficjalna warstwa awaryjna':bdl,
@@ -5724,6 +5745,30 @@ async function prodCacheClear(){
 }
 function prodSleep(ms){return new Promise(r=>setTimeout(r,ms));}
 
+// v158 — per-source pacing uruchamiany dopiero po missie świeżego cache.
+// Dzięki temu ponowne otwarcie tej samej analizy jest natychmiastowe, a API
+// nie dostaje krótkich burstów po kilku stronach wyników.
+const prodPaceNextAt=new Map();
+async function prodPaceSource(key,minIntervalMs){
+ const k=String(key||'');
+ const min=Math.max(0,Number(minIntervalMs)||0);
+ if(!k||!min)return;
+ const now=prodNow();
+ const next=Number(prodPaceNextAt.get(k)||0);
+ if(next>now)await prodSleep(next-now);
+ prodPaceNextAt.set(k,prodNow()+min);
+}
+function prodRetryAfterMs(response){
+ try{
+   const raw=response?.headers?.get?.('retry-after');
+   if(!raw)return 0;
+   const sec=Number(raw);
+   if(Number.isFinite(sec))return Math.max(0,sec*1000);
+   const at=Date.parse(raw);
+   return Number.isFinite(at)?Math.max(0,at-Date.now()):0;
+ }catch(_){return 0;}
+}
+
 async function prodFetchJson(url,opts={}){
  const method=opts.method||'GET';
  const body=opts.body||'';
@@ -5745,6 +5790,7 @@ async function prodFetchJson(url,opts={}){
 
  let lastErr=null;
  for(let attempt=0;attempt<tries;attempt++){
+   if(opts.pace?.key)await prodPaceSource(opts.pace.key,opts.pace.minMs);
    const ctrl=abortOnTimeout?new AbortController():null;
    let timer=null;
    try{
@@ -5774,6 +5820,7 @@ async function prodFetchJson(url,opts={}){
        }catch(_){}
        const err=new Error(`HTTP ${r.status}${detail?': '+detail:''}`);
        err.status=r.status;
+       err.retryAfterMs=prodRetryAfterMs(r);
        throw err;
      }
 
@@ -5790,7 +5837,8 @@ async function prodFetchJson(url,opts={}){
      if(attempt+1<tries && retryable){
        prodNetStats.retries++;
        prodUpdateNetUi('ponawiam…');
-       await prodSleep(650*Math.pow(attempt+1,2)+Math.random()*250);
+       const localBackoff=650*Math.pow(attempt+1,2)+Math.random()*250;
+       await prodSleep(Math.max(localBackoff,Number(err?.retryAfterMs)||0));
        continue;
      }
      break;
@@ -7465,13 +7513,25 @@ const observationTaxonResolverCache={
  gbif:new Map()
 };
 
+const OBS_PACING={
+ inat:{key:'iNaturalist',minMs:1050},
+ gbif:{key:'GBIF',minMs:350}
+};
+async function observationFetchJson(url,source,timeoutMs=18000,tries=2){
+ return prodFetchJson(url,{
+   timeoutMs,tries,
+   pace:source==='inat'?OBS_PACING.inat:OBS_PACING.gbif,
+   policy:{ttl:24*3600e3,stale:14*86400e3}
+ });
+}
+
 async function resolveINatTaxonId(type){
  if(observationTaxonResolverCache.inat.has(type))return observationTaxonResolverCache.inat.get(type);
  const scientific=SCI_NAMES[type];
  let out=null;
  try{
    const q=new URLSearchParams({q:scientific,rank:'species',per_page:'30'});
-   const j=await fetchJsonWithTimeout('https://api.inaturalist.org/v1/taxa?'+q,15000,2);
+   const j=await observationFetchJson('https://api.inaturalist.org/v1/taxa?'+q,'inat',15000,2);
    const exact=(j.results||[]).find(x=>String(x.name||'').toLowerCase()===String(scientific).toLowerCase());
    if(exact?.id)out={id:exact.id,name:exact.name,matched:'exact'};
    else if(j.results?.[0]?.id)out={id:j.results[0].id,name:j.results[0].name,matched:'fallback'};
@@ -7488,7 +7548,7 @@ async function resolveGbifTaxonKey(type){
  let out=null;
  try{
    const q=new URLSearchParams({name:scientific,rank:'SPECIES'});
-   const j=await fetchJsonWithTimeout('https://api.gbif.org/v1/species/match?'+q,15000,2);
+   const j=await observationFetchJson('https://api.gbif.org/v1/species/match?'+q,'gbif',15000,2);
    const key=Number(j.acceptedUsageKey||j.usageKey);
    if(Number.isFinite(key))out={
      key,
@@ -7542,7 +7602,7 @@ async function fetchINat(type){
      const q=new URLSearchParams(params);
      let j;
      try{
-       j=await fetchJsonWithTimeout('https://api.inaturalist.org/v1/observations?'+q,18000,2);
+       j=await observationFetchJson('https://api.inaturalist.org/v1/observations?'+q,'inat',18000,2);
      }catch(e){
        diag.errors.push(`${a.name}: ${String(e?.message||e)}`);
        console.warn('iNat '+a.name,e);
@@ -7626,7 +7686,7 @@ async function fetchGBIF(type){
 
      const q=new URLSearchParams(params);
      try{
-       const j=await fetchJsonWithTimeout('https://api.gbif.org/v1/occurrence/search?'+q,18000,2);
+       const j=await observationFetchJson('https://api.gbif.org/v1/occurrence/search?'+q,'gbif',18000,2);
        const results=j.results||[];
        diag.pages++;
        diag.raw+=results.length;
@@ -7688,6 +7748,63 @@ function dedupObs(arr){
  }
  return out;
 }
+
+// v158 — publiczne obserwacje nie są równomiernym samplingiem przyrody.
+// Poniższy guard nie próbuje "zgadywać" pełnego effortu obserwatorów; usuwa
+// najbardziej oczywisty bias: serię wielu wpisów z niemal tego samego miejsca/czasu.
+const OBS_BIAS_CELL_KM=.80;
+function observationQualityWeight(o){
+ const acc=Number(o?.acc);
+ if(!o?.accKnown||!Number.isFinite(acc))return .82;
+ if(acc<=100)return 1;
+ if(acc<=500)return .90;
+ return .74;
+}
+function observationCellKey(o,cellKm=OBS_BIAS_CELL_KM){
+ const lat=Number(o?.lat),lon=Number(o?.lon);
+ if(!Number.isFinite(lat)||!Number.isFinite(lon))return 'bad';
+ const y=lat*111.32;
+ const x=lon*111.32*Math.max(.2,Math.cos(lat*Math.PI/180));
+ return `${Math.floor(x/cellKm)},${Math.floor(y/cellKm)}`;
+}
+function observationTimeBucket(o,days=14){
+ const d=new Date(o?.date);
+ const t=d.getTime();
+ if(!Number.isFinite(t))return 'bad';
+ const year=d.getUTCFullYear();
+ const start=Date.UTC(year,0,1);
+ return `${year}:${Math.floor((t-start)/(Math.max(1,days)*86400000))}`;
+}
+function biasReducedObservations(arr,{cellKm=OBS_BIAS_CELL_KM,timeBucketDays=14}={}){
+ const best=new Map();
+ for(const o of (arr||[])){
+   const t=new Date(o?.date).getTime();
+   if(!Number.isFinite(t)||!Number.isFinite(Number(o?.lat))||!Number.isFinite(Number(o?.lon)))continue;
+   const key=`${observationCellKey(o,cellKm)}|${observationTimeBucket(o,timeBucketDays)}`;
+   const q=observationQualityWeight(o);
+   const old=best.get(key);
+   if(!old||q>old._obsQuality)best.set(key,{...o,_obsQuality:q});
+ }
+ return [...best.values()].sort((a,b)=>new Date(b.date)-new Date(a.date));
+}
+function observationHistoryCells(arr,cellKm=2.4){
+ const cells=new Map();
+ for(const o of (arr||[])){
+   const key=observationCellKey(o,cellKm);
+   if(key==='bad')continue;
+   let c=cells.get(key);
+   if(!c)c={lat:0,lon:0,n:0,weighted:0,latest:0,sources:new Set()};
+   const q=observationQualityWeight(o);
+   c.lat+=Number(o.lat);c.lon+=Number(o.lon);c.n++;c.weighted+=q;
+   c.latest=Math.max(c.latest,new Date(o.date).getTime()||0);
+   c.sources.add(o.source||'?');
+   cells.set(key,c);
+ }
+ return [...cells.values()].map(c=>({
+   ...c,lat:c.lat/c.n,lon:c.lon/c.n,sources:[...c.sources]
+ })).sort((a,b)=>b.weighted-a.weighted);
+}
+
 async function ensureObservations(type){
  if(type==='all'||!SPECIES_META[type]?.scientific){
    setSourceState('obs','off','Historia jest pobierana dla konkretnego gatunku');
@@ -7711,11 +7828,14 @@ async function ensureObservations(type){
  observationFetchDiagnostics[type].finishedAt=new Date().toISOString();
  observationFetchDiagnostics[type].unknownAccuracy=arr.filter(o=>!o.accKnown).length;
  observationFetchDiagnostics[type].knownAccuracy=arr.filter(o=>o.accKnown).length;
+ const reduced14=biasReducedObservations(arr,{cellKm:OBS_BIAS_CELL_KM,timeBucketDays:14});
+ observationFetchDiagnostics[type].biasReduced14d=reduced14.length;
+ observationFetchDiagnostics[type].biasReduction=arr.length?1-reduced14.length/arr.length:0;
  el.textContent=arr.length+' obserw.';el.className=arr.length?'st-ok':'st-warn';
  const id=observationFetchDiagnostics[type]?.inat||{};
  const gb=observationFetchDiagnostics[type]?.gbif||{};
  const detail=arr.length
-   ?`${HUMAN_NAMES[type]} • ${arr.length} obserwacji`
+   ?`${HUMAN_NAMES[type]} • ${arr.length} obserwacji • ${reduced14.length} po anti-bias`
    :`${HUMAN_NAMES[type]} • 0 obserwacji (iNat raw ${id.raw||0}/accepted ${id.accepted||0}; GBIF raw ${gb.raw||0}/accepted ${gb.accepted||0})`;
  setSourceState('obs','ok',detail);
  showObsLayer(type);
@@ -7725,10 +7845,24 @@ async function ensureObservations(type){
 }
 function showObsLayer(type){
  obsGroup.clearLayers();
- for(const o of (observationData[type]||[]).slice(0,150)){
-   L.marker([o.lat,o.lon],{
-     icon:L.divIcon({className:'',html:'<div class="obs-dot"></div>',iconAnchor:[6,6]})
-   }).bindPopup(`<b>${HUMAN_NAMES[type]}</b><br>${new Date(o.date).toLocaleDateString('pl-PL')}<br>${o.source}`).addTo(obsGroup);
+ const arr=observationData[type]||[];
+ if(!arr.length)return;
+
+ // Radar gęstości zgłoszeń — wyłącznie wizualizacja historii, NIE score.
+ const cells=observationHistoryCells(arr,2.4).slice(0,90);
+ for(const c of cells){
+   const radius=Math.max(5,Math.min(18,5+Math.log1p(c.weighted)*4.2));
+   const opacity=Math.max(.16,Math.min(.46,.16+Math.log1p(c.weighted)*.07));
+   L.circleMarker([c.lat,c.lon],{
+     radius,weight:1,color:'#d8b4ff',opacity:.58,fillColor:'#9b59b6',fillOpacity:opacity,interactive:true
+   }).bindPopup(`<b>${HUMAN_NAMES[type]} — historia</b><br>${c.n} publicznych zgłoszeń w komórce ~2,4 km<br>Źródła: ${c.sources.join(' + ')}<br><span style="opacity:.72">Gęstość zgłoszeń pokazuje aktywność obserwacji, nie procent szans znalezienia grzyba.</span>`).addTo(obsGroup);
+ }
+
+ // Najnowsze rekordy zostają jako precyzyjne punkty nad radarem.
+ for(const o of arr.slice(0,120)){
+   L.circleMarker([o.lat,o.lon],{
+     radius:3.2,weight:1,color:'#ffffff',opacity:.92,fillColor:'#9b59b6',fillOpacity:.88
+   }).bindPopup(`<b>${HUMAN_NAMES[type]}</b><br>${new Date(o.date).toLocaleDateString('pl-PL')}<br>${o.source}<br><span style="opacity:.72">Publiczna obserwacja; lokalizacja nie jest gwarancją aktualnego owocnikowania.</span>`).addTo(obsGroup);
  }
 }
 
@@ -7749,19 +7883,39 @@ function observationEvidenceActive(type){
 
 function historyInfo(type,f){
  const arr=observationEvidenceActive(type)?(observationData[type]||[]):[];
- if(!arr.length)return {bonus:0,nearest:Infinity,count2:0};
- let nearest=Infinity,count2=0,signal=0;
+ if(!arr.length)return {bonus:0,nearest:Infinity,count2:0,rawCount2:0,independent5:0,raw5:0};
+
+ let nearest=Infinity,rawCount2=0,raw5=0;
  const now=Date.now();
+ const independent=new Map();
+ const independent2=new Set();
+
  for(const o of arr){
-   const d=hav(f._center,[o.lat,o.lon]); if(d<nearest)nearest=d;
-   if(d<=2)count2++;
-   if(d<=5){
-     const years=Math.max(0,(now-new Date(o.date).getTime())/(365.25*86400000));
-     signal+=Math.exp(-d/1.4)*Math.exp(-years/8);
-   }
+   const d=hav(f._center,[o.lat,o.lon]);
+   if(d<nearest)nearest=d;
+   if(d<=2)rawCount2++;
+   if(d>5)continue;
+   raw5++;
+
+   const t=new Date(o.date).getTime();
+   if(!Number.isFinite(t))continue;
+   const years=Math.max(0,(now-t)/(365.25*86400000));
+   const year=new Date(t).getUTCFullYear();
+   // Jedno najsilniejsze potwierdzenie na ~0.8 km / rok.
+   // Kolejne lata nadal są niezależnym sygnałem, seria 30 wpisów z jednego spaceru — nie.
+   const key=`${observationCellKey(o,OBS_BIAS_CELL_KM)}|${year}`;
+   const weight=Math.exp(-d/1.4)*Math.exp(-years/8)*observationQualityWeight(o);
+   if(weight>(independent.get(key)||0))independent.set(key,weight);
+   if(d<=2)independent2.add(key);
  }
- const bonus=Math.min(1.15,.40*Math.log1p(signal*3)+(.25*Math.log1p(count2)));
- return {bonus,nearest,count2};
+
+ const signal=[...independent.values()].reduce((a,b)=>a+b,0);
+ const count2=independent2.size;
+ const bonus=Math.min(1.15,.42*Math.log1p(signal*3)+.18*Math.log1p(count2));
+ return {
+   bonus,nearest,count2,rawCount2,independent5:independent.size,raw5,
+   repeatRatio:independent.size?raw5/independent.size:0
+ };
 }
 function doy(d){
  const y=d.getFullYear(),start=new Date(y,0,0);return Math.floor((d-start)/86400000);
@@ -7772,22 +7926,26 @@ function fallbackSeason(type,day){
  return curve?piecewise(day,curve):50;
 }
 function seasonScore(type){
- const arr=observationEvidenceActive(type)?(observationData[type]||[]):[];
+ const raw=observationEvidenceActive(type)?(observationData[type]||[]):[];
+ const arr=biasReducedObservations(raw,{cellKm:OBS_BIAS_CELL_KM,timeBucketDays:14});
  const today=doy(new Date());
  const fallback=fallbackSeason(type,today);
 
  if(arr.length>=8){
-   let sw=0;
+   let sw=0,totalQ=0;
    for(const o of arr){
      const od=doy(new Date(o.date));
      const dist=circularDayDist(today,od);
-     const w=Math.exp(-(dist*dist)/(2*28*28));
-     sw+=w;
+     const q=observationQualityWeight(o);
+     const w=Math.exp(-(dist*dist)/(2*28*28))*q;
+     sw+=w;totalQ+=q;
    }
 
    // Publiczne obserwacje mogą skorygować typową krzywą sezonową,
    // ale nie mogą zrobić "pełni sezonu" w środku zimy.
-   const density=Math.min(1,sw/Math.max(3,arr.length*.28));
+   // v158: denominator też jest effort-reduced, więc popularny parking/miasto
+   // nie dostaje wielokrotnego głosu tylko dlatego, że ma wielu obserwatorów.
+   const density=Math.min(1,sw/Math.max(3,totalQ*.28));
    const observed=100*density;
    return Math.max(0,Math.min(100,.78*fallback+.22*observed));
  }
@@ -12992,6 +13150,42 @@ function auditRegionalTop3Robustness(){
 }
 window.auditRegionalTop3Robustness=auditRegionalTop3Robustness;
 
+function auditObservationBiasGuardV158(){
+ const fakeFeature={_center:[52.0,17.0]};
+ const oldLoaded=obsLoaded.__v158_test,oldData=observationData.__v158_test;
+ const now=new Date();
+ const iso=(days=0)=>new Date(now.getTime()-days*86400000).toISOString();
+ const duplicate=Array.from({length:24},(_,i)=>({lat:52.0002+(i%3)*.00003,lon:17.0001+(i%4)*.00003,date:iso(i%2),acc:20,accKnown:true,source:'test'}));
+ const independent=Array.from({length:6},(_,i)=>({lat:52.0000+(i*.0068),lon:17.0000,date:iso(i*30),acc:50,accKnown:true,source:'test'}));
+
+ // Test helpera bez przepinania UI: liczymy odpowiednik lokalnego grupowania.
+ function summary(arr){
+   const groups=new Map();
+   let raw5=0;
+   for(const o of arr){
+     const d=hav(fakeFeature._center,[o.lat,o.lon]);
+     if(d>5)continue;raw5++;
+     const t=new Date(o.date).getTime(),year=new Date(t).getUTCFullYear();
+     const key=`${observationCellKey(o,OBS_BIAS_CELL_KM)}|${year}`;
+     const years=Math.max(0,(Date.now()-t)/(365.25*86400000));
+     const w=Math.exp(-d/1.4)*Math.exp(-years/8)*observationQualityWeight(o);
+     if(w>(groups.get(key)||0))groups.set(key,w);
+   }
+   return {raw5,independent:groups.size,signal:[...groups.values()].reduce((a,b)=>a+b,0)};
+ }
+ const a=summary(duplicate),b=summary(independent);
+ const report={
+   version:'v158',ok:a.independent<a.raw5&&b.independent>=4,
+   duplicateBurst:a,independentSpread:b,
+   rules:{cellKm:OBS_BIAS_CELL_KM,historyBucket:'cell + calendar year',seasonBucket:'cell + 14 days',trendBucket:'cell + 7 days'},
+   scoringScope:'only active single-species mode with loaded observation history',
+   noHistoryBaseline:'v157 behavior preserved'
+ };
+ console.info('OBSERVATION BIAS GUARD v158',report);
+ return report;
+}
+window.auditObservationBiasGuardV158=auditObservationBiasGuardV158;
+
 function auditBorrowedIdeas(){
  const rows=[
    {element:'Osobny habitat i DZIŚ',status:'MAMY',source:'Tattis / shroom-fm / Oma Tienoo',note:'stały potencjał + dynamiczna pogoda/sezon'},
@@ -12999,15 +13193,15 @@ function auditBorrowedIdeas(){
    {element:'Pewność / jawne źródła',status:'MAMY',source:'shroom-fm / FungiRadar',note:'evidenceConfidence + lista aktywnych danych'},
    {element:'Ranking kilku miejsc zamiast 1 outliera',status:'MAMY',source:'shroom-fm',note:'hotspoty + nowy TOP3 robustness'},
    {element:'Mozaika / ecotone jako exploration value',status:'LAB',source:'shroom-fm + literatura o ekotonach',note:'v106 osobno; nie wpływa na biologię'},
-   {element:'Odległość od drogi / dostęp',status:'BRAK',source:'shroom-fm',note:'warto dodać jako osobny praktyczny wskaźnik, nie habitat'},
+   {element:'Odległość od drogi / dostęp',status:'MAMY',source:'shroom-fm',note:'v154–v157: osobny praktyczny wskaźnik + parkingi leśne; nie wpływa na habitat'},
    {element:'Pogoda specyficzna dla gatunku',status:'MAMY',source:'Tattis + shroom-fm + literatura',note:'v112 aktywne w DZIŚ: weatherAt jako kotwica + evidence-weighted species delta, cap ±6'},
-   {element:'ML uczony na obserwacjach',status:'BRAK',source:'Tattis + SDM',note:'największy kolejny krok; wymaga korekty biasu obserwacyjnego'},
+   {element:'ML uczony na obserwacjach',status:'BRAK',source:'Tattis + SDM',note:'v158 ma anti-clustering bias guard; pełny ML nadal wymaga effort/background correction i holdoutu'},
    {element:'Niezależny backtest/out-of-sample',status:'LAB',source:'literatura SDM',note:'v113 presence-vs-background bez observation leakage; pełny temporal weather holdout nadal przed nami'},
-   {element:'Road/satellite accessibility',status:'BRAK',source:'shroom-fm / Boletus',note:'nie mieszamy z biologicznym score bez osobnej warstwy'}
+   {element:'Road/satellite accessibility',status:'CZĘŚCIOWO',source:'shroom-fm / Boletus',note:'road/parking mamy od v154; satelity nadal brak i nie mieszamy tego z biologicznym score'}
  ];
  console.table(rows);
- const report={version:'v142',ok:true,productionScoringChanged:false,rows,
-   nextPriority:['przetestować v112 w różnych warunkach pogodowych','backtest obserwacji','OSM access as separate practical score']};
+ const report={version:'v158',ok:true,productionScoringChanged:'observation-aware single species only',rows,
+   nextPriority:['all-fungi effort normalization dla obserwacji','temporal holdout / backtest poza sezonem treningowym','opcjonalny kontekst satelitarny bez mieszania z biologicznym score']};
  console.info('BORROWED IDEAS AUDIT v108',report);
  return report;
 }
@@ -13655,7 +13849,7 @@ async function observationCoverageCandidateCountINat(type,center,radiusKm){
  };
  if(taxon?.id)params.taxon_id=String(taxon.id);
  else params.taxon_name=SCI_NAMES[type];
- const j=await fetchJsonWithTimeout('https://api.inaturalist.org/v1/observations?'+new URLSearchParams(params),15000,2);
+ const j=await observationFetchJson('https://api.inaturalist.org/v1/observations?'+new URLSearchParams(params),'inat',15000,2);
  return {count:Number(j.total_results)||0,taxon:taxon?.id||null};
 }
 
@@ -13667,7 +13861,7 @@ async function observationCoverageCandidateCountGbif(type,center,radiusKm){
  };
  if(taxon?.key)params.taxon_key=String(taxon.key);
  else params.scientificName=SCI_NAMES[type];
- const j=await fetchJsonWithTimeout('https://api.gbif.org/v1/occurrence/search?'+new URLSearchParams(params),15000,2);
+ const j=await observationFetchJson('https://api.gbif.org/v1/occurrence/search?'+new URLSearchParams(params),'gbif',15000,2);
  return {count:Number(j.count)||0,taxon:taxon?.key||null};
 }
 
@@ -13760,7 +13954,7 @@ async function fetchGbifPolandValidationOccurrences(type,{maxRecords=1500}={}){
    else params.scientificName=SCI_NAMES[type];
 
    try{
-     const j=await fetchJsonWithTimeout('https://api.gbif.org/v1/occurrence/search?'+new URLSearchParams(params),18000,2);
+     const j=await observationFetchJson('https://api.gbif.org/v1/occurrence/search?'+new URLSearchParams(params),'gbif',18000,2);
      const results=j.results||[];
      diag.pages++;diag.raw+=results.length;
 
@@ -23070,7 +23264,7 @@ function popupHtmlBase(f){
    `<div class="factor"><span>Gleba</span><b>${soilSuitability(type,f).toFixed(1)}</b></div>`+
    `<div class="factor"><span>Mikroteren</span><b>${moistureTerrainScore(type,f).toFixed(1)}</b></div></div>`+
    (soilRaw?`<div class="popup-mini" style="margin-top:6px">SoilGrids WCS: pH ${soilRaw.ph.toFixed(1)} • SOC ${soilRaw.soc.toFixed(1)} • piasek ${soilRaw.sand.toFixed(1)}</div>`:'')+
-   (Number.isFinite(hist.nearest)?`<div class="popup-mini">Najbliższa publiczna obserwacja: ${hist.nearest.toFixed(1)} km</div>`:'')+`</details>`+
+   (Number.isFinite(hist.nearest)?`<div class="popup-mini">Najbliższa publiczna obserwacja: ${hist.nearest.toFixed(1)} km${hist.rawCount2?` • ≤2 km: ${hist.count2} niezależnych potwierdzeń z ${hist.rawCount2} zgłoszeń`:''}</div>`:'')+`</details>`+
    `<details class="popup-more"><summary>🍄 Co jeszcze może tu pasować?</summary>${what.slice(0,5).map(([s,t])=>`<div class="what-row"><span>${HUMAN_NAMES[t]}</span><b>${s.toFixed(1)}/10</b></div>`).join('')}</details>`+
    `<details class="popup-more"><summary>ℹ️ Źródła / techniczne</summary><div class="popup-mini">Źródło geometrii: ${src}. Klasa jest heurystyczną rekomendacją terenową, nie gwarancją owocników.</div></details></div>`;
 }
@@ -23409,7 +23603,7 @@ function unifiedPopupHtml(f,h=null){
      `<div class="factor"><span>Gleba</span><b>${soilSuitability(type,f).toFixed(1)}</b></div>`+
      `<div class="factor"><span>Mikroteren</span><b>${moistureTerrainScore(type,f).toFixed(1)}</b></div></div>`+
      (soilRaw?`<div class="popup-mini" style="margin-top:6px">SoilGrids: pH ${soilRaw.ph.toFixed(1)} • SOC ${soilRaw.soc.toFixed(1)} • piasek ${soilRaw.sand.toFixed(1)}</div>`:'')+
-     (Number.isFinite(hist.nearest)?`<div class="popup-mini">Najbliższa publiczna obserwacja: ${hist.nearest.toFixed(1)} km</div>`:'')+
+     (Number.isFinite(hist.nearest)?`<div class="popup-mini">Najbliższa publiczna obserwacja: ${hist.nearest.toFixed(1)} km${hist.rawCount2?` • ≤2 km: ${hist.count2} niezależnych potwierdzeń z ${hist.rawCount2} zgłoszeń`:''}</div>`:'')+
      `<div class="popup-mini">🧭 Mozaika eksploracyjna: ${exploration.score.toFixed(1)}/10 • efektywne kategorie: drzewa ${exploration.treeEffective.toFixed(1)}, siedliska ${exploration.habitatEffective.toFixed(1)}, klasy wieku ${exploration.ageEffective.toFixed(1)} • pokrycie danych ${Math.round(exploration.dataCoverage*100)}%. <b>Nie wpływa na ocenę biologiczną.</b></div>`+
      (confidenceNotes.length?`<div class="popup-mini">🔎 Pewność oparta na: ${confidenceNotes.map(escapeHtml).join(' • ')}.</div>`:'')+
      `</details>`;
@@ -27518,7 +27712,8 @@ function localObservationMomentum(type,c){
  const now=Date.now();
  let recent=0,previous=0,total=0;
 
- for(const o of observationData[type]){
+ const trendObs=biasReducedObservations(observationData[type],{cellKm:OBS_BIAS_CELL_KM,timeBucketDays:7});
+ for(const o of trendObs){
    const t=new Date(o.date).getTime();
    if(!Number.isFinite(t))continue;
    const age=(now-t)/86400000;

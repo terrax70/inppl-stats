@@ -1,6 +1,24 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v161:
+     HOTSPOT SCORE PIPELINE — INNER CHUNKING.
+
+     Realne logi v160 pokazały, że ~97% czasu pierwszego buildu hotspotów
+     potrafi siedzieć w scoreMs. Problemem nie była już zewnętrzna pętla,
+     lecz synchroniczne pełne skany ukryte WEWNĄTRZ pierwszego score.
+
+     v161:
+       - prewarmuje opportunityCompositeDistribution porcjami zanim pierwszy
+         stableAnchorScore może uruchomić pełny .map(allFeatures),
+       - prewarmuje krajowy/regionalny prior BDL porcjami, zachowując ten sam wzór,
+       - rozdziela fazy warm-upu i loguje ich czasy osobno,
+       - bestTodayInfo liczy porcjami dopiero po bazowym scoringu,
+       - cache dystansów par wydzieleń ogranicza powtórne hav() w kontekście lasu,
+       - hotspotowy yield ma mniejszy budżet CPU, więc przeglądarka częściej maluje klatkę.
+
+     Formuły scoringu, progi i reguły hotspotów pozostają bez zmian.
+-->
 <!-- GitHub production v160:
      HOTSPOT PIPELINE PERFORMANCE HOTFIX — SMOOTH BUILD.
 
@@ -9320,6 +9338,7 @@ function invalidateScoringCaches(reason=''){
  forestGridKey='';
  forestGrid=null;
  forestContextCache=new WeakMap();
+ forestPairDistanceCache=new WeakMap();
  hotspotCacheKey='';
  hotspotCache=[];
  todayHotspotCacheKey='';
@@ -11472,6 +11491,9 @@ let staticScoreCache=new WeakMap();
 let forestGridKey='';
 let forestGrid=null;
 let forestContextCache=new WeakMap();
+// v161: hav() dla tej samej pary sąsiadujących wydzieleń był liczony ponownie
+// z obu stron. WeakMap nie zmienia wyniku, tylko pamięta identyczny dystans.
+let forestPairDistanceCache=new WeakMap();
 let hotspotCacheKey='';
 let hotspotCache=[];
 let todayHotspotCacheKey='';
@@ -11636,6 +11658,117 @@ function opportunityCompositeDistribution(types,areaName,kind='forest'){
  const out={rows,min:rows[0]??0,max:rows.at(-1)??10};
  opportunityCompositeDistributionCache.set(key,out);
  return out;
+}
+
+// v161 — ta sama zawartość cache co opportunityCompositeDistribution(), ale
+// budowana w małych porcjach. Dzięki temu pierwszy stableAnchorScore() nie może
+// ukryć pełnego skanu kilku tysięcy wydzieleń w jednej synchronicznej funkcji.
+async function prewarmOpportunityCompositeDistributionsChunked(types){
+ if(!Array.isArray(types)||types.length<=1)return {targets:0,rows:0,elapsedMs:0};
+ const t0=performance.now();
+ let targets=0,rowCount=0;
+ const typeKey=opportunityTypeSetKey(types);
+
+ for(const area of ANALYSIS_CENTERS){
+   for(const kind of ['forest','open']){
+     const key=`v105|${scoringRevision}|${typeKey}|${area.name}|${RADIUS_KM}|${kind}|${allFeatures.length}|${openFeatures.length}`;
+     if(opportunityCompositeDistributionCache.has(key))continue;
+
+     const rows=[];
+     let sliceStarted=performance.now(),n=0;
+     for(const f of allFeatures){
+       if(f._blocked||!featureInAnalysisAreaName(f,area.name))continue;
+       if(kind==='open' ? f._kind!=='open' : f._kind==='open')continue;
+       const raw=opportunityRawComposite(f,false,types).rawScore;
+       if(Number.isFinite(raw)){rows.push(raw);rowCount++;}
+       n++;
+       if(n%18===0||performance.now()-sliceStarted>3.2){
+         await browserYield();
+         sliceStarted=performance.now();
+       }
+     }
+     rows.sort((a,b)=>a-b);
+     opportunityCompositeDistributionCache.set(key,{rows,min:rows[0]??0,max:rows.at(-1)??10});
+     targets++;
+     await browserYield();
+   }
+ }
+ return {targets,rows:rowCount,elapsedMs:performance.now()-t0};
+}
+
+function activeOpportunityTypesForWarm(){
+ if(atlasSelected.size>1)return [...atlasSelected];
+ if(!atlasSelected.size&&currentFilter==='all')return PICK_TYPES.slice();
+ return null;
+}
+
+// nationalAreaPrior() ma pełny skan allFeatures przy pierwszym użyciu.
+// Wypełniamy DOKŁADNIE ten sam cache wcześniej, lecz porcjami.
+async function prewarmNationalAreaPriorsChunked(types){
+ const t0=performance.now();
+ const supported=nationalForestBenchmarkTypes(types||[]);
+ const allForest=nationalForestBenchmarkTypes(PICK_TYPES);
+ const requestedKey=[...supported].sort().join(',');
+ const allKey=[...allForest].sort().join(',');
+ let areas=0,rowsDone=0;
+
+ // Dla subsetów funkcja produkcyjna i tak natychmiast zwraca lokalny fallback.
+ if(requestedKey!==allKey)return {areas:0,rows:0,elapsedMs:performance.now()-t0,state:'subset'};
+ if(!nationalBenchmark||nationalBenchmarkState!=='ready')return {areas:0,rows:0,elapsedMs:performance.now()-t0,state:nationalBenchmarkState};
+ const health=nationalBenchmarkHealth(nationalBenchmark);
+ if(!health.ok)return {areas:0,rows:0,elapsedMs:performance.now()-t0,state:'benchmark-unhealthy'};
+
+ const nicheProfiles=nationalBenchmark?.composites?.nicheProfiles;
+ const relProfile=nationalBenchmark?.composites?.nicheRelative?.nicheRel_70_15_9_6;
+ const weights=[.70,.15,.09,.06];
+ if(!nicheProfiles||!relProfile?.total)return {areas:0,rows:0,elapsedMs:performance.now()-t0,state:'missing-profile'};
+
+ for(const area of ANALYSIS_CENTERS){
+   const cacheKey=`v105-centerIsolated|${nationalBenchmark?.builtAt||0}|${area.name}|${RADIUS_KM}|${requestedKey}|${allFeatures.length}`;
+   if(nationalAreaPriorCache.has(cacheKey))continue;
+
+   const vals=[];
+   let totalAreaHa=0,fallbackWeight=0;
+   let sliceStarted=performance.now(),n=0;
+   for(const f of allFeatures){
+     if(f._blocked||f._kind==='open'||!featureInAnalysisAreaName(f,area.name))continue;
+     n++;
+     const rel=nationalNicheRelativeScoreForFeature(allForest,f,nicheProfiles,weights);
+     if(!Number.isFinite(rel?.score))continue;
+     const pct=nationalRelativePercentile(relProfile,rel.score);
+     if(!Number.isFinite(pct))continue;
+     const aw=nationalFeatureAreaWeight(f);
+     vals.push({value:pct,weight:aw.weight,source:aw.source});
+     totalAreaHa+=aw.weight;
+     if(aw.source==='fallback-1')fallbackWeight+=aw.weight;
+     rowsDone++;
+     if(n%22===0||performance.now()-sliceStarted>3.2){
+       await browserYield();
+       sliceStarted=performance.now();
+     }
+   }
+
+   if(!vals.length){
+     nationalAreaPriorCache.set(cacheKey,{
+       active:false,medianPercentile:NaN,p10:NaN,p90:NaN,adjustment:0,n:0,
+       totalAreaHa:0,areaFallbackPct:0,state:'no-area-features',
+       method:'niche-relative-70/15/9/6-area-weighted'
+     });
+   }else{
+     const median=weightedQuantile(vals,.5);
+     const p10=weightedQuantile(vals,.1);
+     const p90=weightedQuantile(vals,.9);
+     nationalAreaPriorCache.set(cacheKey,{
+       active:true,medianPercentile:median,p10,p90,adjustment:nationalAreaPriorAdjustment(median),n:vals.length,
+       totalAreaHa,areaFallbackPct:totalAreaHa>0?100*fallbackWeight/totalAreaHa:0,
+       state:'regional-prior-niche-relative-area-weighted',
+       method:'niche-relative-70/15/9/6-area-weighted',health
+     });
+   }
+   areas++;
+   await browserYield();
+ }
+ return {areas,rows:rowsDone,elapsedMs:performance.now()-t0,state:'ready'};
 }
 
 function opportunityPercentileFromSorted(rows,score){
@@ -11876,7 +12009,7 @@ function resetStaticCachesIfNeeded(){
  const k=currentFilter+'|'+atlasSelectionKey()+'|'+allFeatures.length+'|'+openFeatures.length;
  if(staticCacheFilter===k)return;
  staticCacheFilter=k;staticTypeCache=new WeakMap();staticScoreCache=new WeakMap();
- forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();hotspotCacheKey='';hotspotCache=[];
+ forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();forestPairDistanceCache=new WeakMap();hotspotCacheKey='';hotspotCache=[];
  todayHotspotCacheKey='';todayHotspotCache=[];
  stableCandidateCacheKey='';stableCandidateCache=new Map();hotspotPipelineWarmKey='';
  balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();opportunityRawCompositeCache.clear();opportunityCompositeDistributionCache.clear();nationalAreaPriorCache.clear();hotspotMembershipKey='';
@@ -12018,7 +12151,19 @@ function prepareForestGrid(){
    const i=Math.floor(f._center[0]/cell),j=Math.floor(f._center[1]/cell),k=i+'|'+j;
    if(!grid.has(k))grid.set(k,[]);grid.get(k).push(f);
  }
- forestGrid={cell,grid};forestGridKey=key;forestContextCache=new WeakMap();return forestGrid;
+ forestGrid={cell,grid};forestGridKey=key;forestContextCache=new WeakMap();forestPairDistanceCache=new WeakMap();return forestGrid;
+}
+
+function forestPairDistance(a,b){
+ if(a===b)return 0;
+ let wm=forestPairDistanceCache.get(a);
+ if(wm&&wm.has(b))return wm.get(b);
+ const rev=forestPairDistanceCache.get(b);
+ if(rev&&rev.has(a))return rev.get(a);
+ const d=hav(a._center,b._center);
+ if(!wm){wm=new WeakMap();forestPairDistanceCache.set(a,wm);}
+ wm.set(b,d);
+ return d;
 }
 
 function forestContextInfo(f){
@@ -12029,7 +12174,7 @@ function forestContextInfo(f){
  for(let di=-2;di<=2;di++)for(let dj=-2;dj<=2;dj++){
    for(const g of (grid.get((ci+di)+'|'+(cj+dj))||[])){
      const key=stableFeatureKey(g);if(seen.has(key))continue;seen.add(key);
-     const d=hav(f._center,g._center),a=Math.max(.05,featureAreaHa(g));
+     const d=forestPairDistance(f,g),a=Math.max(.05,featureAreaHa(g));
      if(d<=.45){near45+=a;count45++;}if(d<=.90){near90+=a;count90++;}
    }
  }
@@ -25755,30 +25900,87 @@ async function prewarmHotspotPipeline(){
    // Cache list kandydatów per rejon zanim zaczniemy scoring.
    for(const a of ANALYSIS_CENTERS)stableCandidateFeatures(a.name);
 
-   let t=performance.now();
-   let sliceStarted=performance.now();
-   let processed=0;
+   const phase={priorMs:0,distributionMs:0,contextMs:0,stableMs:0,todayMs:0,bestTodayMs:0};
+   const opportunityTypes=activeOpportunityTypesForWarm();
+
+   // 1) Dwa ukryte pełne skany, które w v160 mogły odpalić się wewnątrz
+   // pierwszego stableAnchorScore(). Tu wykonujemy je jawnie i porcjami.
+   if(opportunityTypes){
+     let pt=performance.now();
+     await prewarmNationalAreaPriorsChunked(opportunityTypes);
+     phase.priorMs=performance.now()-pt;
+
+     pt=performance.now();
+     await prewarmOpportunityCompositeDistributionsChunked(opportunityTypes);
+     phase.distributionMs=performance.now()-pt;
+   }
+
+   // 2) Kontekst lasu osobno. Dzięki temu nawet wybór jednego gatunku nie
+   // chowa ciężkich sąsiedztw wewnątrz pierwszego stableScoreForType().
+   let t=performance.now(),sliceStarted=performance.now(),processed=0;
    for(let i=0;i<allFeatures.length;i++){
      const f=allFeatures[i];
      if(f._blocked)continue;
-
-     // Te wywołania rozgrzewają dokładnie cache używane później przez
-     // buildBalancedScales() + stable/todayLocalHotspots().
-     stableAnchorScore(f);
      forestContextInfo(f);
-     if(mapMode==='today'){
-       todayScoreForStyle(f);
-       if(!atlasSelected.size&&currentFilter==='all')bestTodayInfo(f);
-     }
      processed++;
-
-     // Nie pozwalamy jednej porcji zająć głównego wątku na długo.
-     if(processed%42===0||performance.now()-sliceStarted>6.5){
+     if(processed%20===0||performance.now()-sliceStarted>3.2){
        await browserYield();
        sliceStarted=performance.now();
      }
    }
-   const scoreMs=performance.now()-t;
+   phase.contextMs=performance.now()-t;
+
+   // 3) Potencjał.
+   t=performance.now();sliceStarted=performance.now();processed=0;
+   for(let i=0;i<allFeatures.length;i++){
+     const f=allFeatures[i];
+     if(f._blocked)continue;
+     stableAnchorScore(f);
+     processed++;
+     if(processed%20===0||performance.now()-sliceStarted>3.2){
+       await browserYield();
+       sliceStarted=performance.now();
+     }
+   }
+   phase.stableMs=performance.now()-t;
+
+   // 4) DZIŚ jest osobnym przebiegiem, żeby żadna iteracja nie robiła dwóch
+   // drogich modeli przed oddaniem sterowania przeglądarce.
+   if(mapMode==='today'){
+     t=performance.now();sliceStarted=performance.now();let n=0;
+     for(const f of allFeatures){
+       if(f._blocked)continue;
+       todayScoreForStyle(f);
+       n++;
+       if(n%18===0||performance.now()-sliceStarted>3.2){
+         await browserYield();
+         sliceStarted=performance.now();
+       }
+     }
+     phase.todayMs=performance.now()-t;
+
+     // BEST DZIŚ ma inny wybór gatunku niż agregat mapy. Potrzebują go hotspoty,
+     // ale liczymy go dopiero po rozgrzaniu wspólnych cache i również porcjami.
+     if(!atlasSelected.size&&currentFilter==='all'){
+       t=performance.now();sliceStarted=performance.now();let nBest=0;
+       const seen=new Set();
+       for(const a of ANALYSIS_CENTERS){
+         for(const f of stableCandidateFeatures(a.name)){
+           if(seen.has(f)||f._blocked)continue;
+           seen.add(f);
+           bestTodayInfo(f);
+           nBest++;
+           if(nBest%18===0||performance.now()-sliceStarted>3.2){
+             await browserYield();
+             sliceStarted=performance.now();
+           }
+         }
+       }
+       phase.bestTodayMs=performance.now()-t;
+     }
+   }
+
+   const scoreMs=phase.priorMs+phase.distributionMs+phase.contextMs+phase.stableMs+phase.todayMs+phase.bestTodayMs;
 
    t=performance.now();
    buildBalancedScales();
@@ -25789,18 +25991,17 @@ async function prewarmHotspotPipeline(){
    t=performance.now();
    for(let i=0;i<hs.length;i++){
      hotspotMapAnchor(hs[i]);
-     // Dokładna kotwica potrafi być geometrycznie kosztowna; liczymy ją
-     // progresywnie, żeby kilkanaście hotspotów nie skleiło się w jeden freeze.
      if(i<hs.length-1)await browserYield();
    }
    const anchorMs=performance.now()-t;
 
    hotspotPipelineWarmKey=key;
    hotspotPipelineWarmLast={
-     key,features:processed,hotspots:hs.length,
-     elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs
+     key,features:allFeatures.filter(f=>!f._blocked).length,hotspots:hs.length,
+     elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
+     ...phase
    };
-   console.info('HOTSPOT PIPELINE WARM v160',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v161',hotspotPipelineWarmLast);
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 

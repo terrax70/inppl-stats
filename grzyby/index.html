@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<!-- GitHub production v152:
+<!-- GitHub production v153:
      TREND WYSYPU — BEZ NOWEGO TRYBU MAPY.
 
      v151 pozostaje bazą produkcyjną. Scoring biologiczny jest nietknięty.
@@ -3295,12 +3295,22 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   font-size:8.5px;line-height:1.35;color:#b9c6be;
 }
 .u-hotspot-trend{
-  margin-top:8px;padding:7px 8px;border-radius:9px;
-  background:rgba(255,255,255,.035);
-  border:1px solid rgba(255,255,255,.055);
-  font-size:10px;line-height:1.4;color:#becac2;
+  margin-top:8px;padding:9px 10px;border-radius:10px;
+  background:linear-gradient(180deg,#fff7e7,#fff1d0);
+  border:1px solid #e6c774;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7);
+  font-size:11px;line-height:1.5;color:#6c5524;
 }
-.u-hotspot-trend b{color:#f0f5f1}
+.u-hotspot-trend b{color:#493813}
+.u-hotspot-trend span{color:#7a6332!important;opacity:1!important}
+.u-hotspot-trend .flush-trend{
+  margin-left:0;margin-right:6px;padding:3px 8px;font-size:9px;
+  border-width:1px;border-style:solid;font-weight:950;vertical-align:middle;
+}
+.u-hotspot-trend .flush-trend.up{background:#dff7dd;color:#1f6b2d;border-color:#8ed19a}
+.u-hotspot-trend .flush-trend.flat{background:#f7e9b7;color:#6e5514;border-color:#e0bf62}
+.u-hotspot-trend .flush-trend.down{background:#f8ddd8;color:#8b2f23;border-color:#e1a092}
+.u-hotspot-trend .flush-trend.unknown{background:#e8ece9;color:#51605a;border-color:#c3cdc8}
 
 
 /* ===== GitHub production: resilience / cache diagnostics ===== */
@@ -10620,11 +10630,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v152: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v153: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v152 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v153 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10634,7 +10644,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v152 health',health);
+     console.info('National benchmark v153 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -21196,7 +21206,7 @@ function auditFlushTrendV152(){
  });
  const counts=rows.reduce((a,r)=>(a[r.status]=(a[r.status]||0)+1,a),{});
  const report={
-   version:'v152',
+   version:'v153',
    hotspots:rows.length,
    counts,
    changesProductionScore:false,
@@ -21205,9 +21215,10 @@ function auditFlushTrendV152(){
    rows
  };
  console.table(rows);
- console.info('TREND WYSYPU AUDIT v152',report);
+ console.info('TREND WYSYPU AUDIT v153',report);
  return report;
 }
+window.auditFlushTrendV153=auditFlushTrendV152;
 window.auditFlushTrendV152=auditFlushTrendV152;
 
 function auditAppBootstrap(){
@@ -23017,7 +23028,7 @@ function unifiedPopupHtml(f,h=null){
        <div class="u-section-badge">${memberLabel}</div>
      </div>
      <div class="u-hotspot-note">To tylko podsumowanie całego hotspotu. Główny werdykt, gatunek i lista grzybów wyżej dotyczą dokładnie klikniętego miejsca.</div>
-     ${flushTrend?`<div class="u-hotspot-trend">${hotspotFlushTrendBadge(h)} <b>Trend wysypu:</b> ${escapeHtml(flushTrend.reasons.join(' • '))}${flushTrend.forecast?' • '+escapeHtml(flushTrend.forecast):''}<br><span style="opacity:.72">Trend jest wskazówką kierunku warunków i nie zmienia wyniku hotspotu.</span></div>`:''}
+     ${flushTrend?`<div class="u-hotspot-trend">${hotspotFlushTrendBadge(h)} <b>Trend wysypu:</b> ${escapeHtml(flushTrend.reasons.join(' • '))}${flushTrend.forecast?' • '+escapeHtml(flushTrend.forecast):''}<br><span>Trend jest wskazówką kierunku warunków i nie zmienia wyniku hotspotu.</span></div>`:''}
      <div class="u-hotspot-stats">
        <div class="u-hotspot-stat"><span>Najlepszy wynik hotspotu</span><b>${(mapMode==='today'?(h.todayBestScore??hi.bestScore):h.stableBestScore).toFixed(1)}/10</b></div>
        <div class="u-hotspot-stat"><span>Średnia hotspotu</span><b>${(mapMode==='today'?(h.todayAvgScore??hi.avg):h.stableAvgScore).toFixed(1)}/10</b></div>
@@ -27831,7 +27842,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v152: automatyczny start w tle');
+      console.info('Benchmark krajowy v153: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

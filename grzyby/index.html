@@ -1,6 +1,32 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v147:
+     SPARSE-SPECIES COVERAGE VALIDATION.
+
+     v146 zakończył się poprawnie:
+       - Borowik: STRICT >=25, 2 regiony, AUC-like 0.563,
+         enrich10 1.27, enrich25 1.37.
+       - Podgrzybek: CLEAN >=10, 2 regiony, AUC-like 0.650,
+         enrich10 1.15, enrich25 1.69.
+       - Kurka: CLEAN >=10, 3 regiony, AUC-like 0.618,
+         enrich10 1.21, enrich25 1.70.
+       - 3/3 gatunki z wystarczającą próbą miały dodatni kierunek.
+       - 0 gatunków z przeciwnym sygnałem.
+       - Koźlarz babka, Maślak sitarz i Rydz miały ZA MAŁO danych
+         przy promieniu 10 km — to nie jest negatywny wynik modelu.
+
+     v147 bada wyłącznie te 3 sparse species:
+       - najpierw promień 15 km,
+       - jeśli nadal brak >=2 CLEAN, automatycznie 20 km,
+       - do 6 kandydatów regionów na promień,
+       - bez OSM dla gatunków leśnych,
+       - observation evidence OFF podczas backtestu,
+       - każdy promień agregowany OSOBNO — nie mieszamy skal przestrzennych.
+
+     Cel v147 to rozstrzygnąć "brak danych" vs "model nie działa".
+     Produkcyjny scoring jest byte-identical z v146.
+
 <!-- GitHub production v146:
      ADAPTIVE PLACE-QUALITY VALIDATION — NO OSM FOR FOREST SPECIES.
 
@@ -10397,11 +10423,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v146: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v147: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v146 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v147 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10411,7 +10437,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v146 health',health);
+     console.info('National benchmark v147 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -20572,6 +20598,350 @@ async function autoRunAdaptivePlaceQualityV146(){
 }
 window.autoRunAdaptivePlaceQualityV146=autoRunAdaptivePlaceQualityV146;
 
+
+const V147_SPARSE_SPECIES=['kozlarz_babka','maslak_sitarz','rydz'];
+const V147_RADII_KM=[15,20];
+
+let v147SparseQualityState={
+ status:'idle',startedAt:0,finishedAt:0,result:null
+};
+
+function v147RadiusSummary(type,radiusKm,rows,search){
+ const agg=v146AggregateRows(rows);
+ const clean=v146CompactAggregate(agg.clean);
+ const strict=v146CompactAggregate(agg.strict);
+ const primary=(strict?.regions||0)>=2
+   ?{tier:'STRICT >=25',...strict}
+   :(clean?.regions||0)>=2
+     ?{tier:'CLEAN >=10',...clean}
+     :{
+       tier:'INSUFFICIENT',
+       regions:Math.max(strict?.regions||0,clean?.regions||0),
+       positives:Math.max(strict?.positives||0,clean?.positives||0),
+       auc:null,enrich10:null,enrich25:null
+     };
+
+ return {
+   type,
+   label:HUMAN_NAMES[type],
+   radiusKm,
+   tested:rows.length,
+   candidateCount:search?.rows?.length||0,
+   clean,strict,primary,
+   supported:primary.tier!=='INSUFFICIENT',
+   signal:v146Signal(primary),
+   rows,
+   search
+ };
+}
+
+async function v147ValidateSparseAtRadius(type,radiusKm,{
+ searchTopN=8,
+ maxCandidates=6,
+ maxGbifRecords=2000,
+ pipelineTimeoutMs=80000,
+ backgroundPerPositive=10,
+ maxPositive=150,
+ excludeObsKm=1.5,
+ ringToleranceKm=2.5
+}={}){
+ const previousRadius=RADIUS_KM;
+ RADIUS_KM=radiusKm;
+
+ try{
+   setValidationSpeciesForAudit(type);
+
+   console.info(
+     `SPARSE QUALITY v147: ${HUMAN_NAMES[type]} • promień ${radiusKm} km — szukam regionów`
+   );
+
+   const search=await auditObservationFindValidationRegions({
+     topN:searchTopN,
+     maxGbifRecords,
+     minSpacingKm:Math.max(30,radiusKm*2.2)
+   });
+
+   if(!search?.ok||!search.rows?.length){
+     return {
+       type,label:HUMAN_NAMES[type],radiusKm,
+       supported:false,tested:0,error:search?.error||'brak regionów',
+       rows:[],search,clean:null,strict:null,
+       primary:{tier:'INSUFFICIENT',regions:0,positives:0,auc:null,enrich10:null,enrich25:null}
+     };
+   }
+
+   const candidateIndices=search.rows
+     .slice(0,Math.min(maxCandidates,search.rows.length))
+     .map(r=>r.index);
+
+   const rows=[];
+
+   for(let pos=0;pos<candidateIndices.length;pos++){
+     const idx=candidateIndices[pos];
+
+     console.info(
+       `SPARSE QUALITY v147 ${HUMAN_NAMES[type]} ${radiusKm} km: `+
+       `region ${pos+1}/${candidateIndices.length} (#${idx})`
+     );
+
+     const one=await auditObservationBacktestPortfolio({
+       indices:[idx],
+       pipelineTimeoutMs,
+       backgroundPerPositive,
+       maxPositive,
+       excludeObsKm,
+       ringToleranceKm
+     });
+
+     const row=one?.rows?.[0];
+     if(row)rows.push(row);
+
+     const cur=v147RadiusSummary(type,radiusKm,rows,search);
+
+     console.info(
+       `SPARSE QUALITY v147 ${HUMAN_NAMES[type]} ${radiusKm} km progress`,
+       {
+         tested:rows.length,
+         cleanRegions:cur.clean?.regions||0,
+         strictRegions:cur.strict?.regions||0
+       }
+     );
+
+     if((cur.strict?.regions||0)>=2 || (cur.clean?.regions||0)>=3)break;
+     await waitMs(250);
+   }
+
+   return v147RadiusSummary(type,radiusKm,rows,search);
+ }finally{
+   RADIUS_KM=previousRadius;
+ }
+}
+
+async function v147ValidateSparseSpecies(type,options={}){
+ const radiusRuns=[];
+
+ for(const radiusKm of V147_RADII_KM){
+   const run=await v147ValidateSparseAtRadius(type,radiusKm,options);
+   radiusRuns.push(run);
+
+   // Nie mieszamy promieni. Jeżeli jedna skala sama daje >=2 CLEAN,
+   // mamy wystarczającą próbę dla tej skali i nie rozszerzamy dalej.
+   if(run.supported)break;
+ }
+
+ const supported=radiusRuns.find(r=>r.supported)||null;
+ const best=supported || radiusRuns
+   .slice()
+   .sort((a,b)=>
+     (b.clean?.regions||0)-(a.clean?.regions||0) ||
+     (b.clean?.positives||0)-(a.clean?.positives||0)
+   )[0];
+
+ return {
+   type,
+   label:HUMAN_NAMES[type],
+   supported:!!supported,
+   selectedRadiusKm:supported?.radiusKm||null,
+   primary:supported?.primary||best?.primary||null,
+   signal:supported?.signal||'za mało danych',
+   radiusRuns
+ };
+}
+
+async function auditSparseSpeciesCoverageV147(options={}){
+ const {
+   species=V147_SPARSE_SPECIES,
+   searchTopN=8,
+   maxCandidates=6,
+   maxGbifRecords=2000,
+   pipelineTimeoutMs=80000,
+   backgroundPerPositive=10,
+   maxPositive=150,
+   excludeObsKm=1.5,
+   ringToleranceKm=2.5
+ }=options||{};
+
+ const previous={
+   filter:currentFilter,
+   atlas:[...atlasSelected],
+   mapMode,
+   headless:analysisHeadlessBatchMode,
+   skipOpen:analysisSkipOpenForForestValidation,
+   radius:RADIUS_KM
+ };
+
+ const pageWasBlank=
+   !analysisRunning &&
+   ANALYSIS_CENTERS.length===0 &&
+   selectedDraft.length===0 &&
+   allFeatures.length===0;
+
+ analysisHeadlessBatchMode=false;
+ analysisSkipOpenForForestValidation=true;
+
+ console.info(
+   'SPARSE SPECIES COVERAGE v147: start — 15 km → 20 km, skale agregowane osobno, leakage-safe'
+ );
+
+ try{
+   try{await ensureNationalBenchmark();}catch(e){
+     console.warn('SPARSE QUALITY v147: benchmark krajowy niegotowy',e);
+   }
+
+   const results=[];
+
+   for(let i=0;i<species.length;i++){
+     const type=species[i];
+     if(!SPECIES_META[type])continue;
+
+     console.info(
+       `SPARSE SPECIES v147 ${i+1}/${species.length}: ${HUMAN_NAMES[type]}`
+     );
+
+     const r=await v147ValidateSparseSpecies(type,{
+       searchTopN,maxCandidates,maxGbifRecords,pipelineTimeoutMs,
+       backgroundPerPositive,maxPositive,excludeObsKm,ringToleranceKm
+     });
+     results.push(r);
+   }
+
+   console.table(results.map(r=>({
+     gatunek:r.label,
+     supported:r.supported,
+     radiusKm:r.selectedRadiusKm,
+     tier:r.primary?.tier||'INSUFFICIENT',
+     regiony:r.primary?.regions||0,
+     pozytywy:r.primary?.positives||0,
+     aucLike:Number.isFinite(r.primary?.auc)?Number(r.primary.auc.toFixed(3)):null,
+     enrich10:Number.isFinite(r.primary?.enrich10)?Number(r.primary.enrich10.toFixed(2)):null,
+     enrich25:Number.isFinite(r.primary?.enrich25)?Number(r.primary.enrich25.toFixed(2)):null,
+     signal:r.signal,
+     radiiTried:r.radiusRuns.map(x=>x.radiusKm).join(' → ')
+   })));
+
+   const supported=results.filter(r=>r.supported);
+   const positive=supported.filter(r=>
+     Number.isFinite(r.primary?.auc)&&r.primary.auc>.5 &&
+     (
+       (Number.isFinite(r.primary?.enrich10)&&r.primary.enrich10>1) ||
+       (Number.isFinite(r.primary?.enrich25)&&r.primary.enrich25>1)
+     )
+   );
+   const contrary=supported.filter(r=>r.signal==='przeciwny');
+
+   const report={
+     version:'v147',
+     ok:true,
+     productionScoringChanged:false,
+     speciesTested:results.length,
+     supportedSpecies:supported.length,
+     positiveDirectionSpecies:positive.length,
+     contrarySpecies:contrary.length,
+     radiiKm:[...V147_RADII_KM],
+     spatialScalesMixedInAggregate:false,
+     osmSkippedForForestValidation:true,
+     observationEvidenceDisabledDuringBacktest:true,
+     results,
+     interpretation:
+       'Jeżeli gatunek staje się supported dopiero przy 15/20 km, oznacza to przede wszystkim '+
+       'problem gęstości danych obserwacyjnych w skali 10 km. Wyniku nie porównujemy 1:1 z '+
+       '10-km AUC innych gatunków.',
+     nextStep:
+       'Jeżeli sparse species uzyskają dodatni kierunek, nie ma podstaw do strojenia wag. '+
+       'Jeżeli któryś uzyska >=2 CLEAN i sygnał przeciwny, dopiero wtedy robimy osobny holdout tego gatunku.'
+   };
+
+   console.table([{
+     version:'v147',
+     tested:report.speciesTested,
+     supported:report.supportedSpecies,
+     positiveDirection:report.positiveDirectionSpecies,
+     contrary:report.contrarySpecies,
+     scalesMixed:false,
+     osmSkipped:true,
+     leakageSafe:true
+   }]);
+
+   console.info('SPARSE SPECIES COVERAGE v147',report);
+   return report;
+ }finally{
+   RADIUS_KM=previous.radius;
+   currentFilter=previous.filter;
+   atlasSelected.clear();
+   for(const t of previous.atlas)atlasSelected.add(t);
+   mapMode=previous.mapMode;
+   analysisHeadlessBatchMode=previous.headless;
+   analysisSkipOpenForForestValidation=previous.skipOpen;
+   invalidateScoringCaches('v147 sparse quality restore');
+
+   if(pageWasBlank){
+     try{clearAnalysisData();}catch(_){}
+     try{
+       selectedDraft.length=0;
+       ANALYSIS_CENTERS.length=0;
+       renderDraft();
+       syncDraftPreview();
+       syncSelectionMarkers();
+     }catch(_){}
+   }
+
+   try{
+     syncAtlasSelectionUI();
+     syncSpeciesModeButtons();
+     updateSpeciesMeta();
+   }catch(_){}
+ }
+}
+window.auditSparseSpeciesCoverageV147=auditSparseSpeciesCoverageV147;
+
+async function autoRunSparseSpeciesCoverageV147(){
+ if(v147SparseQualityState.status==='running'||v147SparseQualityState.status==='done'){
+   return v147SparseQualityState;
+ }
+
+ v147SparseQualityState.status='running';
+ v147SparseQualityState.startedAt=Date.now();
+
+ console.info('AUTO SPARSE QUALITY v147: start — nic nie musisz wpisywać');
+
+ try{
+   const result=await auditSparseSpeciesCoverageV147();
+   v147SparseQualityState.result=result;
+   v147SparseQualityState.status='done';
+   v147SparseQualityState.finishedAt=Date.now();
+
+   const sec=(v147SparseQualityState.finishedAt-v147SparseQualityState.startedAt)/1000;
+   const final={
+     version:'v147',
+     ok:!!result?.ok,
+     tested:result?.speciesTested||0,
+     supported:result?.supportedSpecies||0,
+     positiveDirection:result?.positiveDirectionSpecies||0,
+     contrary:result?.contrarySpecies||0,
+     scalesMixed:false,
+     osmSkipped:result?.osmSkippedForForestValidation===true,
+     leakageSafe:result?.observationEvidenceDisabledDuringBacktest===true,
+     sec:Number(sec.toFixed(1))
+   };
+
+   console.table([final]);
+   console.info(
+     'AUTO SPARSE QUALITY v147 RESULT: ✅ zakończone — patrzymy czy brak danych z 10 km znika przy 15/20 km.',
+     result
+   );
+
+   return v147SparseQualityState;
+ }catch(e){
+   v147SparseQualityState.status='done';
+   v147SparseQualityState.finishedAt=Date.now();
+   v147SparseQualityState.result={
+     version:'v147',ok:false,error:e?.message||String(e)
+   };
+   console.error('AUTO SPARSE QUALITY v147: fatal',e);
+   return v147SparseQualityState;
+ }
+}
+window.autoRunSparseSpeciesCoverageV147=autoRunSparseSpeciesCoverageV147;
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
@@ -20627,7 +20997,9 @@ function auditAppBootstrap(){
    placeQualityAuditV145:typeof window.auditPlaceQualityAcrossSpeciesV145==='function',
    placeQualityAuditAutoStart:false,
    adaptivePlaceQualityV146:typeof window.auditAdaptivePlaceQualityV146==='function',
-   adaptivePlaceQualityAutoStart:true,
+   adaptivePlaceQualityAutoStart:false,
+   sparseSpeciesCoverageV147:typeof window.auditSparseSpeciesCoverageV147==='function',
+   sparseSpeciesCoverageAutoStart:true,
    multiAreaPerformance:typeof window.auditMultiAreaPerformance==='function',
    activeSpeciesResolver:typeof activeSingleSpeciesType==='function',
    observationPreloadHelper:typeof ensureActiveSingleSpeciesObservations==='function',
@@ -26722,7 +27094,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v146: automatyczny start w tle');
+      console.info('Benchmark krajowy v147: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){
@@ -26735,20 +27107,21 @@ if('requestIdleCallback' in window){
   setTimeout(startNationalBenchmarkDeferred,1500);
 }
 
-// v146 LAB: automatyczna adaptacyjna walidacja jakości miejsc.
-// Dla testowanych gatunków leśnych OSM jest świadomie pomijane.
-const startAdaptiveQualityV146=()=>{
+// v147 LAB: automatyczny follow-up tylko dla sparse species.
+const startSparseCoverageV147=()=>{
   try{
-    autoRunAdaptivePlaceQualityV146();
+    autoRunSparseSpeciesCoverageV147();
   }catch(e){
-    console.error('AUTO ADAPTIVE QUALITY v146: start failed',e);
+    console.error('AUTO SPARSE QUALITY v147: start failed',e);
   }
 };
 if('requestIdleCallback' in window){
-  requestIdleCallback(startAdaptiveQualityV146,{timeout:4200});
+  requestIdleCallback(startSparseCoverageV147,{timeout:4200});
 }else{
-  setTimeout(startAdaptiveQualityV146,3200);
+  setTimeout(startSparseCoverageV147,3200);
 }
+
+// v147: pełny v146 audit zakończony; teraz automatycznie testujemy tylko sparse species.
 
 // v146: stary fixed-top3 auto-audit wyłączony; poniżej startuje adaptive validation.
 

@@ -1,6 +1,16 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v159:
+     PERFORMANCE HOTFIX — SMOOTH DZIŚ/OGÓLNIE + ACCESSIBILITY.
+
+     Po teście v158 na realnym laptopie:
+       - nie kasujemy już poprawnego cache hotspotów DZIŚ przy samym przełączeniu trybu,
+       - render stylów jest porcjowany także dla jednego dużego obszaru,
+       - v158 anti-bias dostaje memoizację pochodnych obserwacji i seasonScore,
+       - panel szczegółów używa inert + bezpiecznego przeniesienia fokusu przed aria-hidden,
+       - biologiczny scoring, progi i hotspoty pozostają logicznie bez zmian.
+-->
 <!-- GitHub production v158:
      OBSERVATION SIGNAL v3 — ANTI-BIAS + HISTORY RADAR + API PACING.
 
@@ -7753,6 +7763,11 @@ function dedupObs(arr){
 // Poniższy guard nie próbuje "zgadywać" pełnego effortu obserwatorów; usuwa
 // najbardziej oczywisty bias: serię wielu wpisów z niemal tego samego miejsca/czasu.
 const OBS_BIAS_CELL_KM=.80;
+// v159: tablice observationData[type] są traktowane jako immutable po załadowaniu.
+// Dzięki WeakMap poniższe agregacje powstają raz, a nie setki razy podczas renderu.
+const obsBiasReducedMemo=new WeakMap();
+const obsHistoryCellsMemo=new WeakMap();
+const obsSeasonScoreMemo=new Map();
 function observationQualityWeight(o){
  const acc=Number(o?.acc);
  if(!o?.accKnown||!Number.isFinite(acc))return .82;
@@ -7776,20 +7791,34 @@ function observationTimeBucket(o,days=14){
  return `${year}:${Math.floor((t-start)/(Math.max(1,days)*86400000))}`;
 }
 function biasReducedObservations(arr,{cellKm=OBS_BIAS_CELL_KM,timeBucketDays=14}={}){
+ if(!Array.isArray(arr)||!arr.length)return [];
+ const memoKey=`${Number(cellKm).toFixed(3)}|${Math.max(1,Number(timeBucketDays)||14)}`;
+ let memo=obsBiasReducedMemo.get(arr);
+ if(!memo){memo=new Map();obsBiasReducedMemo.set(arr,memo);}
+ if(memo.has(memoKey))return memo.get(memoKey);
+
  const best=new Map();
- for(const o of (arr||[])){
+ for(const o of arr){
    const t=new Date(o?.date).getTime();
    if(!Number.isFinite(t)||!Number.isFinite(Number(o?.lat))||!Number.isFinite(Number(o?.lon)))continue;
    const key=`${observationCellKey(o,cellKm)}|${observationTimeBucket(o,timeBucketDays)}`;
    const q=observationQualityWeight(o);
-   const old=best.get(key);
-   if(!old||q>old._obsQuality)best.set(key,{...o,_obsQuality:q});
+   const prev=best.get(key);
+   if(!prev||q>prev._obsQuality)best.set(key,{...o,_obsQuality:q});
  }
- return [...best.values()].sort((a,b)=>new Date(b.date)-new Date(a.date));
+ const out=[...best.values()].sort((a,b)=>new Date(b.date)-new Date(a.date));
+ memo.set(memoKey,out);
+ return out;
 }
 function observationHistoryCells(arr,cellKm=2.4){
+ if(!Array.isArray(arr)||!arr.length)return [];
+ const memoKey=Number(cellKm).toFixed(3);
+ let memo=obsHistoryCellsMemo.get(arr);
+ if(!memo){memo=new Map();obsHistoryCellsMemo.set(arr,memo);}
+ if(memo.has(memoKey))return memo.get(memoKey);
+
  const cells=new Map();
- for(const o of (arr||[])){
+ for(const o of arr){
    const key=observationCellKey(o,cellKm);
    if(key==='bad')continue;
    let c=cells.get(key);
@@ -7800,9 +7829,11 @@ function observationHistoryCells(arr,cellKm=2.4){
    c.sources.add(o.source||'?');
    cells.set(key,c);
  }
- return [...cells.values()].map(c=>({
+ const out=[...cells.values()].map(c=>({
    ...c,lat:c.lat/c.n,lon:c.lon/c.n,sources:[...c.sources]
  })).sort((a,b)=>b.weighted-a.weighted);
+ memo.set(memoKey,out);
+ return out;
 }
 
 async function ensureObservations(type){
@@ -7926,30 +7957,42 @@ function fallbackSeason(type,day){
  return curve?piecewise(day,curve):50;
 }
 function seasonScore(type){
- const raw=observationEvidenceActive(type)?(observationData[type]||[]):[];
- const arr=biasReducedObservations(raw,{cellKm:OBS_BIAS_CELL_KM,timeBucketDays:14});
+ const active=observationEvidenceActive(type);
+ const raw=active?(observationData[type]||[]):[];
  const today=doy(new Date());
  const fallback=fallbackSeason(type,today);
 
- if(arr.length>=8){
-   let sw=0,totalQ=0;
-   for(const o of arr){
-     const od=doy(new Date(o.date));
-     const dist=circularDayDist(today,od);
-     const q=observationQualityWeight(o);
-     const w=Math.exp(-(dist*dist)/(2*28*28))*q;
-     sw+=w;totalQ+=q;
-   }
+ // v159: seasonScore jest identyczny dla wszystkich wydzieleń danego gatunku.
+ // W v158 anti-bias sortował tę samą listę przy wielu wywołaniach w jednym renderze.
+ const stamp=raw.length
+   ? `${type}|${today}|${raw.length}|${raw[0]?.date||''}|${raw[raw.length-1]?.date||''}`
+   : `${type}|${today}|off`;
+ if(obsSeasonScoreMemo.has(stamp))return obsSeasonScoreMemo.get(stamp);
 
-   // Publiczne obserwacje mogą skorygować typową krzywą sezonową,
-   // ale nie mogą zrobić "pełni sezonu" w środku zimy.
-   // v158: denominator też jest effort-reduced, więc popularny parking/miasto
-   // nie dostaje wielokrotnego głosu tylko dlatego, że ma wielu obserwatorów.
-   const density=Math.min(1,sw/Math.max(3,totalQ*.28));
-   const observed=100*density;
-   return Math.max(0,Math.min(100,.78*fallback+.22*observed));
+ let result=fallback;
+ if(raw.length){
+   const arr=biasReducedObservations(raw,{cellKm:OBS_BIAS_CELL_KM,timeBucketDays:14});
+   if(arr.length>=8){
+     let sw=0,totalQ=0;
+     for(const o of arr){
+       const od=doy(new Date(o.date));
+       const dist=circularDayDist(today,od);
+       const q=observationQualityWeight(o);
+       const w=Math.exp(-(dist*dist)/(2*28*28))*q;
+       sw+=w;totalQ+=q;
+     }
+     const density=Math.min(1,sw/Math.max(3,totalQ*.28));
+     const observed=100*density;
+     result=Math.max(0,Math.min(100,.78*fallback+.22*observed));
+   }
  }
- return fallback;
+ obsSeasonScoreMemo.set(stamp,result);
+ // Ochrona przed wielodniowym uptime strony bez nieograniczonego wzrostu Map.
+ if(obsSeasonScoreMemo.size>180){
+   const first=obsSeasonScoreMemo.keys().next().value;
+   obsSeasonScoreMemo.delete(first);
+ }
+ return result;
 }
 
 
@@ -9170,6 +9213,7 @@ let perfBestCache=new WeakMap();
 let perfBestTodayInfoCache=new WeakMap();
 let perfDiversityCache=new WeakMap();
 let perfRenderRAF=0;
+let perfForceProgressiveRender=false;
 let multiAreaWarmKey='';
 let multiAreaWarmPromise=null;
 let multiAreaWarmLast={key:'',features:0,elapsedMs:0,rawMs:0,scoreMs:0,todayMs:0};
@@ -23670,7 +23714,18 @@ function unifiedPopupHtml(f,h=null){
 
 function closeUnifiedDetails(clearLock=true){
  const panel=document.getElementById('placeDetailsPanel');
- if(panel){panel.classList.remove('open');panel.setAttribute('aria-hidden','true');}
+ if(panel){
+   // Chrome blokuje aria-hidden, jeżeli fokus nadal siedzi na potomku panelu.
+   // Najpierw zdejmujemy fokus, potem wyłączamy interakcję i chowamy panel.
+   const active=document.activeElement;
+   if(active&&panel.contains(active)){
+     try{active.blur();}catch(_){}
+     try{document.getElementById('map')?.focus?.({preventScroll:true});}catch(_){}
+   }
+   panel.inert=true;
+   panel.classList.remove('open');
+   panel.setAttribute('aria-hidden','true');
+ }
  try{map.closePopup();}catch(_){}
  if(clearLock&&linkedLockedFeature){
    try{clearLinkedLock();}catch(err){console.warn('Close linked focus',err);}
@@ -23833,6 +23888,7 @@ function openUnifiedDetails(f,h=null){
 
  renderUnifiedDetailsContent(f,h,{preserveScroll:false,flash:false});
 
+ panel.inert=false;
  panel.classList.add('open');
  panel.setAttribute('aria-hidden','false');
 
@@ -23843,6 +23899,8 @@ function openUnifiedDetails(f,h=null){
 window.refreshUnifiedDetails=refreshUnifiedDetails;
 
 (function installUnifiedDetailsPanel(){
+ const panel=document.getElementById('placeDetailsPanel');
+ if(panel&&!panel.classList.contains('open'))panel.inert=true;
  const closeBtn=document.getElementById('placeDetailsClose');
  if(closeBtn&&!closeBtn.dataset.bound){
    closeBtn.dataset.bound='1';
@@ -25655,7 +25713,7 @@ function perfRenderNow(){
    const ts=performance.now();
 
    const rows=[...analysisLayers];
-   const progressive=ANALYSIS_CENTERS.length>1&&rows.length>1800;
+   const progressive=perfForceProgressiveRender||rows.length>950||(ANALYSIS_CENTERS.length>1&&rows.length>650);
 
    const doneLoadingStyles=()=>{
      if(workToken!==perfRenderWorkToken)return;
@@ -25725,7 +25783,8 @@ function perfRenderNow(){
  const tp1=performance.now();
 
  const rows=[...analysisLayers];
- const progressive=ANALYSIS_CENTERS.length>1&&rows.length>1800;
+ const progressive=perfForceProgressiveRender||rows.length>950||(ANALYSIS_CENTERS.length>1&&rows.length>650);
+ perfForceProgressiveRender=false;
 
  const finish=(ts1)=>{
    if(workToken!==perfRenderWorkToken)return;
@@ -27541,7 +27600,7 @@ async function loadHotspotAccessContext(hotspots){
    if(!hotspotAccessReady){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v157: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v159: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -27557,7 +27616,7 @@ async function loadHotspotAccessContext(hotspots){
      console.warn('Access UI refresh',e);
    }
 
-   console.info('HOTSPOT ACCESS v157',{
+   console.info('HOTSPOT ACCESS v159',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -27579,7 +27638,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=e?.message||String(e);
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v157: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v159: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }
 }
@@ -28801,13 +28860,17 @@ document.getElementById('speciesSelect').onchange=async e=>{
 };
 
 document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{
+ const nextMode=b.dataset.mode;
+ if(!nextMode||nextMode===mapMode)return;
  document.querySelectorAll('.mode').forEach(x=>x.classList.remove('active'));
  b.classList.add('active');
- mapMode=b.dataset.mode;
+ mapMode=nextMode;
 
- // POTENCJAŁ i DZIŚ mają od v18 różne hotspoty.
+ // POTENCJAŁ i DZIŚ mają różne membership, ale same gotowe hotspoty są cache'owane
+ // niezależnie. v158 kasował cache DZIŚ przy KAŻDYM kliknięciu i wymuszał ciężkie
+ // ponowne liczenie przy powrocie z „Ogólnie” — w v159 tego nie robimy.
  hotspotMembershipKey='';
- todayHotspotCacheKey='';
+ perfForceProgressiveRender=true;
 
  ensurePerfCache();
  render();

@@ -8718,12 +8718,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v170',
+     mode:'sync-batched-v171',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v170',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v171',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -9444,10 +9444,9 @@ function scheduleBrowserSlice(fn){
  setTimeout(()=>fn(null),0);
 }
 
-// v170 — porcje, które bezpośrednio zmieniają tysiące ścieżek na mapie,
-// idą po klatkach. scheduler.postTask może wykonać wiele tasków user-visible
-// zanim Chromium zdecyduje się na paint; requestAnimationFrame gwarantuje
-// naturalny punkt renderowania pomiędzy porcjami.
+// v171 — porcje bezpośrednio zmieniające tysiące ścieżek nadal idą po klatkach,
+// ale są znacznie większe niż w v170. requestAnimationFrame zachowuje płynny paint,
+// a adaptacyjny budżet ogranicza sztuczne rozciąganie przejścia.
 function scheduleVisualSlice(fn){
  if(typeof requestAnimationFrame==='function'){
    requestAnimationFrame(()=>fn(null));
@@ -24849,7 +24848,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v169',{
+   console.info('UI ACTION v171',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -25908,7 +25907,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v170',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v171',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -26020,7 +26019,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v170-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
+   'v171-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -26235,9 +26234,9 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase
    };
-   console.info('HOTSPOT PIPELINE WARM v170',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v171',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v170',{
+   console.info('HOTSPOT PHASE v171',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),
      mainScoreMs:+phase.mainScoreMs.toFixed(1),buildMs:+buildMs.toFixed(1),anchorMs:+anchorMs.toFixed(1),
@@ -26360,7 +26359,7 @@ function perfRenderNow(){
  const progressive=perfForceProgressiveRender||rows.length>950||(ANALYSIS_CENTERS.length>1&&rows.length>650);
  perfForceProgressiveRender=false;
 
- const finish=(ts1,styleCpuMs=0,styleBatches=0)=>{
+ const finish=(ts1,styleCpuMs=0,styleBatches=0,stylePlan=null)=>{
    if(workToken!==perfRenderWorkToken)return;
 
    const top0=performance.now();
@@ -26376,12 +26375,16 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v170',{
+   console.info('HOTSPOT RENDER v171',{
      features:rows.length,
      progressive,
      stylesWallMs:+(ts1-tp1).toFixed(1),
      stylesCpuMs:+styleCpuMs.toFixed(1),
      styleBatches,
+     maxBatchCpuMs:stylePlan?+stylePlan.maxBatchCpuMs.toFixed(1):null,
+     rowBudget:stylePlan?.rowBudget||null,
+     timeBudgetMs:stylePlan?.timeBudgetMs||null,
+     targetBatches:stylePlan?.targetBatches||null,
      topMs:+(tt1-top0).toFixed(1),
      hintsMs:+(th1-hints0).toFixed(1),
      sincePhaseMs:hotspotPhaseLastAt?+(th1-hotspotPhaseLastAt).toFixed(1):null
@@ -26461,23 +26464,33 @@ function perfRenderNow(){
    return;
  }
 
- let i=0,styleCpuMs=0,styleBatches=0;
+ let i=0,styleCpuMs=0,styleBatches=0,styleMaxBatchCpuMs=0;
+ // v171: v170 było ZA delikatne. Limit 180 wierszy oznaczał 23–50 pełnych
+ // requestAnimationFrame, choć rzeczywista praca JS zajmowała 10–100 ms.
+ // Rozciągało to płynne przejście do 0.4–0.8 s i było odbierane jak lag.
+ // Celujemy w ~6–12 klatek; limit czasu nadal chroni przed pojedynczym freeze.
+ const styleTargetBatches=Math.max(4,Math.min(12,Math.ceil(rows.length/700)));
+ const styleRowBudget=Math.max(360,Math.min(1000,Math.ceil(rows.length/styleTargetBatches)));
+ const styleTimeBudgetMs=(mapMode==='today'&&!atlasSelected.size&&currentFilter==='all')?7.5:9;
  const step=()=>{
    if(workToken!==perfRenderWorkToken)return;
    const started=performance.now();
    let n=0;
-   // Krótka porcja CPU na jedną klatkę. Dzięki temu zmiana trybu może płynnie
-   // "przejść" przez las zamiast blokować główny wątek serią back-to-back tasków.
-   while(i<rows.length&&n<180&&performance.now()-started<5){
+   while(i<rows.length&&n<styleRowBudget&&performance.now()-started<styleTimeBudgetMs){
      const {f,layer:ly}=rows[i++];
      const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
      ly.setStyle(currentForestStyle(f,show));
      n++;
    }
-   styleCpuMs+=performance.now()-started;
+   const batchCpu=performance.now()-started;
+   styleCpuMs+=batchCpu;
+   styleMaxBatchCpuMs=Math.max(styleMaxBatchCpuMs,batchCpu);
    styleBatches++;
    if(i<rows.length)scheduleVisualSlice(step);
-   else finish(performance.now(),styleCpuMs,styleBatches);
+   else finish(performance.now(),styleCpuMs,styleBatches,{
+     maxBatchCpuMs:styleMaxBatchCpuMs,rowBudget:styleRowBudget,
+     timeBudgetMs:styleTimeBudgetMs,targetBatches:styleTargetBatches
+   });
  };
  scheduleVisualSlice(step);
 }
@@ -28214,7 +28227,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v170: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v171: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -28223,7 +28236,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v170',{
+   console.info('HOTSPOT ACCESS NETWORK v171',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -28237,7 +28250,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v170',{
+   console.info('HOTSPOT ACCESS v171',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -28262,7 +28275,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v170: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v171: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -28284,15 +28297,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v170',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v171',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v170',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v171',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v170: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v171: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }

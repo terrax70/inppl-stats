@@ -4978,6 +4978,8 @@ let hotspotAccessTimer=0;
 let hotspotAccessRetryAfter=0;
 // v165: globalny cooldown warstwy dostępu — zmiana klucza hotspotów nie omija awarii API.
 let hotspotAccessGlobalRetryAfter=0;
+// v166: tylko jeden łańcuch parkingi/drogi w locie; zmiany hotspotów są scalane.
+let hotspotAccessPendingRefresh=false;
 let hotspotAccessLastError='';
 
 const observationData={};
@@ -5835,24 +5837,28 @@ async function prodFetchJson(url,opts={}){
  const key='json|'+method+'|'+url+'|'+(body?prodHash(body):'');
  const cached=await prodCacheGet(key);
  const age=cached?prodNow()-cached.ts:Infinity;
-
- // Fresh cache = zero external request.
  if(cached && age<=pol.ttl){
    prodNetStats.fresh++;
    prodUpdateNetUi();
    return cached.data;
  }
-
  let lastErr=null;
  for(let attempt=0;attempt<tries;attempt++){
    if(opts.pace?.key)await prodPaceSource(opts.pace.key,opts.pace.minMs);
-   const ctrl=abortOnTimeout?new AbortController():null;
    let timer=null;
    try{
      let r;
      if(abortOnTimeout){
-       timer=setTimeout(()=>ctrl.abort(),timeoutMs);
-       r=await fetch(url,{method,body:body||undefined,headers,signal:ctrl.signal});
+       // v166: natywny timeout nie odpala już ctrl.abort() z naszego setTimeout.
+       if(typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'){
+         r=await fetch(url,{method,body:body||undefined,headers,signal:AbortSignal.timeout(timeoutMs)});
+       }else{
+         const ctrl=new AbortController();
+         timer=setTimeout(()=>{
+           try{ctrl.abort(new DOMException(`Timeout ${timeoutMs} ms`,'TimeoutError'));}catch(_){}
+         },timeoutMs);
+         r=await fetch(url,{method,body:body||undefined,headers,signal:ctrl.signal});
+       }
      }else{
        const timeoutPromise=new Promise((_,reject)=>{
          timer=setTimeout(()=>reject(Object.assign(new Error(`Timeout ${timeoutMs} ms`),{status:408})),timeoutMs);
@@ -5863,7 +5869,6 @@ async function prodFetchJson(url,opts={}){
        ]);
      }
      if(timer)clearTimeout(timer);
-
      if(!r.ok){
        let detail='';
        try{
@@ -5878,7 +5883,6 @@ async function prodFetchJson(url,opts={}){
        err.retryAfterMs=prodRetryAfterMs(r);
        throw err;
      }
-
      const data=await r.json();
      prodNetStats.network++;
      prodUpdateNetUi();
@@ -5886,11 +5890,15 @@ async function prodFetchJson(url,opts={}){
      return data;
    }catch(err){
      if(timer)clearTimeout(timer);
+     if(abortOnTimeout&&(err?.name==='AbortError'||err?.name==='TimeoutError')){
+       const timeoutErr=new Error(`Timeout ${timeoutMs} ms`);
+       timeoutErr.status=408;
+       timeoutErr.code='FETCH_TIMEOUT';
+       timeoutErr.cause=err;
+       err=timeoutErr;
+     }
      lastErr=err;
      const status=Number(err?.status||0);
-     // v163: 429 powinien spowolnić kolejne PRAWDZIWE requesty do tego
-     // samego źródła, również gdy bieżące wywołanie ma tries:1. Fresh cache
-     // wraca wyżej przed pacingiem, więc nie ponosi tego kosztu.
      if(status===429&&opts.pace?.key){
        const paceKey=String(opts.pace.key);
        const cooldown=Math.max(5000,Number(err?.retryAfterMs)||0,Number(opts.pace.minMs)||0);
@@ -5907,14 +5915,11 @@ async function prodFetchJson(url,opts={}){
      break;
    }
  }
-
- // Network dead / rate-limited -> stale local cache is better than blank map.
  if(cached && age<=pol.stale){
    prodNetStats.stale++;
    prodUpdateNetUi();
    return cached.data;
  }
-
  prodNetStats.failures++;
  prodUpdateNetUi('problem z API');
  throw lastErr||new Error('Błąd sieci');
@@ -9584,8 +9589,10 @@ function soilSuitability(type,f){
 
 function practicalAllScore(type,f,precomputedScore=NaN){
  let s=Number.isFinite(precomputedScore)?precomputedScore:speciesEffective(type,f);
- const p=f.properties||{},sp=speciesCode(p),hab=habitatCode(p),soil=soilAt(f._center);
+ // v166: tylko ponury używa tu danych siedliska/gleby. W v165 soilAt() było
+ // wywoływane dla wszystkich gatunków, mimo że wynik pozostałych go nie używał.
  if(type==='ponury'){
+   const p=f.properties||{},sp=speciesCode(p),hab=habitatCode(p),soil=soilAt(f._center);
    if(['SO','SW','JD','MD'].includes(sp))s-=3;
    else if(['BRZ','OS','TP'].includes(sp))s-=1.5;
    else if(!['DB','BK','GB','JW','JS'].includes(sp))s-=1;
@@ -9604,51 +9611,53 @@ function practicalAllScore(type,f,precomputedScore=NaN){
 
 function bestTodayInfo(f){
  ensurePerfCache();
-
  const invariantCacheable=
    mapMode==='today' &&
    !atlasSelected.size &&
    currentFilter==='all';
-
  if(invariantCacheable&&perfBestTodayInvariantCache.has(f)){
    return perfBestTodayInvariantCache.get(f);
  }
  if(perfBestTodayInfoCache.has(f))return perfBestTodayInfoCache.get(f);
-
  let best={
    type:null,score:0,rawToday:0,potential:0,potentialClass:0,selectionScore:-Infinity
  };
-
- for(const t of PICK_TYPES){
-   if(!featureRelevant(t,f))continue;
-
-   const potential=stableScoreForType(t,f);
-   const actualRaw=speciesEffective(t,f);
-   const actualToday=Math.min(actualRaw,potential);
-
-   const prior=ALL_MODE_WEIGHT[t]||1;
-   const selectionScore=Math.min(practicalAllScore(t,f,actualRaw),potential*prior);
-
-   if(
-     selectionScore>best.selectionScore ||
-     (Math.abs(selectionScore-best.selectionScore)<1e-9&&actualToday>best.score) ||
-     (Math.abs(selectionScore-best.selectionScore)<1e-9&&Math.abs(actualToday-best.score)<1e-9&&potential>best.potential)
-   ){
-     best={
-       type:t,
-       score:actualToday,
-       rawToday:actualRaw,
-       potential,
-       potentialClass:atlasSingleSpeciesClass(t,f),
-       selectionScore
-     };
+ // v166: pełny dynamiczny composite ma już dokładnie tego samego kandydata BEST,
+ // policzonego w oryginalnej kolejności PICK_TYPES i oryginalnym wzorem.
+ const candidate=opportunityRawComposite(f,true,PICK_TYPES)?._bestTodayCandidate;
+ if(candidate?.type){
+   best={
+     type:candidate.type,
+     score:candidate.score,
+     rawToday:candidate.rawToday,
+     potential:candidate.potential,
+     potentialClass:atlasSingleSpeciesClass(candidate.type,f),
+     selectionScore:candidate.selectionScore
+   };
+ }else{
+   // Fallback zachowuje algorytm v165 1:1 dla nietypowych wywołań.
+   for(const t of PICK_TYPES){
+     if(!featureRelevant(t,f))continue;
+     const potential=stableScoreForType(t,f);
+     const actualRaw=speciesEffective(t,f);
+     const actualToday=Math.min(actualRaw,potential);
+     const prior=ALL_MODE_WEIGHT[t]||1;
+     const selectionScore=Math.min(practicalAllScore(t,f,actualRaw),potential*prior);
+     if(
+       selectionScore>best.selectionScore ||
+       (Math.abs(selectionScore-best.selectionScore)<1e-9&&actualToday>best.score) ||
+       (Math.abs(selectionScore-best.selectionScore)<1e-9&&Math.abs(actualToday-best.score)<1e-9&&potential>best.potential)
+     ){
+       best={
+         type:t,score:actualToday,rawToday:actualRaw,potential,
+         potentialClass:atlasSingleSpeciesClass(t,f),selectionScore
+       };
+     }
    }
  }
-
  if(!best.type){
    best={type:'borowik',score:0,rawToday:0,potential:0,potentialClass:0,selectionScore:0};
  }
-
  perfBestTodayInfoCache.set(f,best);
  if(invariantCacheable)perfBestTodayInvariantCache.set(f,best);
  return best;
@@ -11666,28 +11675,39 @@ function opportunityTypeSetKey(types){
 function opportunityRawComposite(f,dynamic=false,typesOverride=null){
  const types=Array.isArray(typesOverride)?typesOverride:opportunityTargetTypes();
  const key=`v90|${scoringRevision}|${dynamic?1:0}|${opportunityTypeSetKey(types)}`;
-
  return perfTypeFeatureCache(opportunityRawCompositeCache,key,f,()=>{
    const rows=[];
-
+   const buildBestTodayCandidate=dynamic&&types.length===PICK_TYPES.length&&types.every((t,i)=>t===PICK_TYPES[i]);
+   let bestTodayCandidate=null;
    for(const t of types){
      if(!featureRelevant(t,f))continue;
      const potential=stableScoreForType(t,f);
-     const raw=dynamic?Math.min(speciesEffective(t,f),potential):potential;
+     const effectiveRaw=dynamic?speciesEffective(t,f):potential;
+     const raw=dynamic?Math.min(effectiveRaw,potential):potential;
      if(!Number.isFinite(raw))continue;
      rows.push({type:t,raw:clamp(raw),potential,niche:opportunityNicheKey(t)});
+     if(buildBestTodayCandidate){
+       const actualToday=Math.min(effectiveRaw,potential);
+       const prior=ALL_MODE_WEIGHT[t]||1;
+       const selectionScore=Math.min(practicalAllScore(t,f,effectiveRaw),potential*prior);
+       const prev=bestTodayCandidate;
+       if(!prev||
+          selectionScore>prev.selectionScore||
+          (Math.abs(selectionScore-prev.selectionScore)<1e-9&&actualToday>prev.score)||
+          (Math.abs(selectionScore-prev.selectionScore)<1e-9&&Math.abs(actualToday-prev.score)<1e-9&&potential>prev.potential)){
+         bestTodayCandidate={type:t,score:actualToday,rawToday:effectiveRaw,potential,selectionScore};
+       }
+     }
    }
-
    rows.sort((a,b)=>b.raw-a.raw||
      (HUMAN_NAMES[a.type]||a.type).localeCompare(HUMAN_NAMES[b.type]||b.type,'pl'));
-
    if(!rows.length){
      return {
        rawScore:0,bestRaw:0,bestType:null,supportRaw:0,breadthWeight:0,
-       nicheCount:0,strongNiches:0,matched:0,total:types.length,rows:[],nicheRows:[]
+       nicheCount:0,strongNiches:0,matched:0,total:types.length,rows:[],nicheRows:[],
+       _bestTodayCandidate:null
      };
    }
-
    const byNiche=new Map();
    for(const r of rows){
      const prev=byNiche.get(r.niche);
@@ -11695,22 +11715,17 @@ function opportunityRawComposite(f,dynamic=false,typesOverride=null){
    }
    const nicheRows=[...byNiche.values()].sort((a,b)=>b.raw-a.raw);
    const best=nicheRows[0];
-
-   // Dla jednego gatunku surowa ocena jest dokładnie jego score.
    if(types.length===1){
      return {
        rawScore:best.raw,bestRaw:best.raw,bestType:best.type,supportRaw:best.raw,
        breadthWeight:0,nicheCount:1,strongNiches:best.raw>=7?1:0,
-       matched:best.raw>=6.25?1:0,total:1,rows,nicheRows
+       matched:best.raw>=6.25?1:0,total:1,rows,nicheRows,
+       _bestTodayCandidate:bestTodayCandidate
      };
    }
-
-   // "Szerokość" ma realny wpływ na kolejność miejsc, ale nie może sama dominować.
-   // Patrzymy najwyżej na 3 inne niezależne nisze.
    const extras=nicheRows.slice(1,4);
    const weights=[.50,.30,.20];
    let supportRaw=4.80;
-
    if(extras.length){
      let sum=0,ws=0;
      for(let i=0;i<extras.length;i++){
@@ -11718,7 +11733,6 @@ function opportunityRawComposite(f,dynamic=false,typesOverride=null){
        sum+=w*extras[i].raw;
        ws+=w;
      }
-     // Jeżeli brakuje 2./3. wspierającej niszy, lekko obniżamy szerokość zamiast dawać zero.
      for(let i=extras.length;i<3;i++){
        const w=weights[i];
        sum+=w*4.80;
@@ -11726,12 +11740,9 @@ function opportunityRawComposite(f,dynamic=false,typesOverride=null){
      }
      supportRaw=sum/ws;
    }
-
-   // Przy bardzo małym zestawie gatunków nie zmuszamy sztucznie 3 nisz.
    const targetNiches=new Set(types.map(opportunityNicheKey)).size;
    const possibleExtras=Math.min(3,Math.max(0,targetNiches-1));
    const breadthWeight=possibleExtras<=0?0:(possibleExtras===1?.18:(possibleExtras===2?.24:.30));
-
    if(possibleExtras<3&&possibleExtras>0){
      const used=extras.slice(0,possibleExtras);
      if(used.length){
@@ -11746,15 +11757,14 @@ function opportunityRawComposite(f,dynamic=false,typesOverride=null){
        supportRaw=4.80;
      }
    }
-
    const rawScore=clamp(best.raw*(1-breadthWeight)+supportRaw*breadthWeight);
-
    return {
      rawScore,bestRaw:best.raw,bestType:best.type,supportRaw,breadthWeight,
      nicheCount:nicheRows.length,
      strongNiches:nicheRows.filter(r=>r.raw>=7).length,
      matched:rows.filter(r=>r.raw>=6.25).length,
-     total:types.length,rows,nicheRows
+     total:types.length,rows,nicheRows,
+     _bestTodayCandidate:bestTodayCandidate
    };
  });
 }
@@ -26086,7 +26096,7 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase
    };
-   console.info('HOTSPOT PIPELINE WARM v165',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v166',hotspotPipelineWarmLast);
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -27967,6 +27977,7 @@ map.on('layeradd',e=>{
 
 async function loadHotspotAccessContext(hotspots){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return false;
+ if(hotspotAccessLoading){hotspotAccessPendingRefresh=true;return false;}
  const parkingSample=hotspotAccessSpatialSample(hotspots,5,1.6);
  if(!parkingSample.length)return false;
 
@@ -28054,7 +28065,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v165: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v166: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -28071,7 +28082,7 @@ async function loadHotspotAccessContext(hotspots){
      console.warn('Access UI refresh',e);
    }
 
-   console.info('HOTSPOT ACCESS v165',{
+   console.info('HOTSPOT ACCESS v166',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -28094,13 +28105,22 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v165: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v166: opcjonalne dane pominięte',e?.message||String(e));
    return false;
+ }finally{
+   if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
+   if(hotspotAccessPendingRefresh){
+     hotspotAccessPendingRefresh=false;
+     if(Date.now()>=hotspotAccessGlobalRetryAfter){
+       scheduleHotspotAccessLoad(activeHotspots(),1400);
+     }
+   }
  }
 }
 
 function scheduleHotspotAccessLoad(hotspots,delay=2600){
  clearTimeout(hotspotAccessTimer);
+ if(hotspotAccessLoading){hotspotAccessPendingRefresh=true;return;}
  const key=hotspotAccessKey(hotspots||[]);
  if(!key)return;
  if(hotspotAccessReady&&key===hotspotAccessQueryKey)return;
@@ -28113,7 +28133,7 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v165: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v166: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }

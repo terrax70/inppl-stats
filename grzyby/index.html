@@ -1,6 +1,35 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v154:
+     PRAKTYCZNA DOSTĘPNOŚĆ TERENU — BEZ NOWEGO TRYBU.
+
+     v154 nie zmienia biologicznego rankingu ani scoringu hotspotów.
+
+     Dodaje pomocniczy kontekst terenowy dla aktualnych hotspotów:
+       - warstwa ochronna / rezerwat: ostrzeżenie nadrzędne,
+       - odległość do najbliższej zwykłej drogi OSM,
+       - odległość do leśnej drogi/track OSM,
+       - najbliższy parking OSM.
+
+     Dane dojazdu są pobierane LEKKO:
+       - tylko wokół najmocniejszych hotspotów,
+       - maks. 8 hotspotów na jedno zapytanie,
+       - zapytanie jest opcjonalne i nie blokuje mapy,
+       - wynik jest cache'owany dla bieżącego zestawu hotspotów.
+
+     Ważne:
+       - droga/track OSM NIE oznacza automatycznie legalnego wjazdu samochodem,
+       - brak wykrytej ochrony NIE oznacza braku czasowego zakazu,
+       - dostępność jest wyłącznie praktyczną wskazówką i nie wpływa na wynik grzybowy.
+
+     Dostępność pojawia się:
+       - w karcie "Najlepszy wybór",
+       - przy hotspotach na liście,
+       - w szczegółach hotspotu.
+
+     Produkcyjny scoring jest byte-identical z v153/v152/v151.
+
 <!-- GitHub production v153:
      TREND WYSYPU — BEZ NOWEGO TRYBU MAPY.
 
@@ -3312,6 +3341,40 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 .u-hotspot-trend .flush-trend.down{background:#f8ddd8;color:#8b2f23;border-color:#e1a092}
 .u-hotspot-trend .flush-trend.unknown{background:#e8ece9;color:#51605a;border-color:#c3cdc8}
 
+.access-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  margin-left:5px;padding:2px 6px;border-radius:999px;
+  font-size:8px;font-weight:950;line-height:1.15;white-space:nowrap;
+  border:1px solid rgba(255,255,255,.10);
+}
+.access-badge.easy{background:rgba(57,164,85,.15);color:#a8efb5;border-color:rgba(111,218,135,.23)}
+.access-badge.walk{background:rgba(197,166,72,.12);color:#e8d99e;border-color:rgba(215,190,102,.18)}
+.access-badge.remote{background:rgba(198,116,66,.12);color:#efbf97;border-color:rgba(222,139,82,.20)}
+.access-badge.warn{background:rgba(195,75,75,.16);color:#ffc0b9;border-color:rgba(225,99,99,.24)}
+.access-badge.unknown{background:rgba(130,143,135,.10);color:#b6c2bb;border-color:rgba(170,180,174,.14)}
+.trip-pick-access{
+  margin-top:5px;padding:5px 7px;border-radius:8px;
+  background:rgba(255,255,255,.035);
+  font-size:8.5px;line-height:1.35;color:#b9c6be;
+}
+.access-line{
+  margin-top:4px;font-size:8.5px;line-height:1.35;color:#aebbb3;
+}
+.u-hotspot-access{
+  margin-top:8px;padding:9px 10px;border-radius:10px;
+  background:linear-gradient(180deg,#eef7f0,#e5f0e8);
+  border:1px solid #bfd7c5;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.72);
+  font-size:10.5px;line-height:1.5;color:#36513d;
+}
+.u-hotspot-access b{color:#1d3825}
+.u-hotspot-access .access-badge{margin-left:0;margin-right:6px;font-size:9px;padding:3px 8px}
+.u-hotspot-access .access-badge.easy{background:#dff7dd;color:#1f6b2d;border-color:#8ed19a}
+.u-hotspot-access .access-badge.walk{background:#f7e9b7;color:#6e5514;border-color:#e0bf62}
+.u-hotspot-access .access-badge.remote{background:#f5dfca;color:#7b461d;border-color:#dfb184}
+.u-hotspot-access .access-badge.warn{background:#f8ddd8;color:#8b2f23;border-color:#e1a092}
+.u-hotspot-access .access-badge.unknown{background:#e8ece9;color:#51605a;border-color:#c3cdc8}
+
 
 /* ===== GitHub production: resilience / cache diagnostics ===== */
 .prod-net-actions{
@@ -4743,6 +4806,16 @@ let soilLastError='';
 let terrainReady=false;
 let obsReady=false;
 let openFeatures=[], openReady=false;
+
+// v154 — praktyczna dostępność. Osobna od biologicznego scoringu.
+let hotspotAccessRoads=[];
+let hotspotAccessParking=[];
+let hotspotAccessReady=false;
+let hotspotAccessLoading=false;
+let hotspotAccessQueryKey='';
+let hotspotAccessSeq=0;
+let hotspotAccessTimer=0;
+
 const observationData={};
 const obsLoaded={};
 const SPECIES_META={"borowik":{"label":"Borowik szlachetny","scientific":"Boletus edulis","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["DB","BK","SW","SO"],"secondary":["JD","GB","JW"],"age":[35,120],"ph":[4.2,6.3],"sand":"neutral","moist":"mesic","season":[[90,15],[140,35],[175,65],[215,82],[250,100],[285,88],[315,48],[345,15]],"warning":"Możliwa pomyłka z goryczakiem żółciowym — mapa nie służy do oznaczania grzybów."},"ceglastopory":{"label":"Krasnoborowik ceglastopory","scientific":"Neoboletus luridiformis","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["BK","DB","SW","SO"],"secondary":["GB","JD"],"age":[25,120],"ph":[4.0,6.5],"sand":"neutral","moist":"mesic","season":[[130,10],[175,38],[210,72],[245,96],[275,100],[305,68],[330,20]],"warning":"Może być mylony z innymi czerwonoporowymi borowikami. Krwistoborowik szatański jest trujący i ściśle chroniony."},"ponury":{"label":"Modroborowik ponury","scientific":"Suillellus luridus","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["DB","BK","GB","JW"],"secondary":["BRZ","SO"],"age":[30,120],"ph":[5.7,7.7],"sand":"neutral","moist":"mesic_dry","season":[[135,10],[175,40],[210,78],[240,100],[270,94],[300,62],[325,15]],"warning":"Może być mylony z krwistoborowikiem szatańskim. Nie identyfikuj czerwonoporowych borowików wyłącznie po mapie."},"gorzkoborowik":{"label":"Gorzkoborowik żółtopory","scientific":"Caloboletus calopus","group":"Borowikowate","ecology":"mycorrhiza","collect":false,"radar":"borowik","strong":["BK","DB","SW","JD"],"secondary":["SO","GB"],"age":[35,140],"ph":[4.1,6.2],"sand":"neutral","moist":"mesic","season":[[150,10],[190,45],[225,82],[255,100],[285,82],[315,35]],"warning":"Gatunek gorzki/niejadalny — mapa pokazuje potencjalne siedlisko tylko informacyjnie."},"kozlarz_babka":{"label":"Koźlarz babka","scientific":"Leccinum scabrum","group":"Koźlarze","ecology":"mycorrhiza","collect":true,"radar":"kozlarz","strong":["BRZ"],"secondary":["OS","TP"],"age":[10,85],"ph":[4.0,6.7],"sand":"neutral","moist":"mesic_moist","season":[[120,10],[155,42],[190,78],[225,96],[260,100],[295,72],[325,25]],"warning":"Wynik jest mocno uzależniony od obecności brzozy — to celowa bramka gospodarza."},"podgrzybek":{"label":"Podgrzybek brunatny","scientific":"Imleria badia","group":"Podgrzybki","ecology":"mycorrhiza","collect":true,"radar":"podgrzybek","strong":["SO","SW"],"secondary":["DB","BK","BRZ","JD"],"age":[25,115],"ph":[3.7,5.9],"sand":"sandy","moist":"mesic","season":[[120,8],[170,30],[210,62],[245,90],[275,100],[310,82],[340,28]],"warning":"Preferowane są kwaśniejsze siedliska iglaste i mieszane; wilgotna ściółka mocno poprawia ocenę."},"maslak_zolty":{"label":"Maślak żółty","scientific":"Suillus grevillei","group":"Maślaki","ecology":"mycorrhiza","collect":true,"radar":"maslak","strong":["MD"],"secondary":[],"age":[5,65],"ph":[4.3,6.5],"sand":"sandy","moist":"mesic","season":[[145,10],[185,40],[220,78],[255,98],[285,100],[315,64],[340,20]],"warning":"Ten gatunek jest bardzo silnie związany z modrzewiem; bez modrzewia wynik jest mocno obniżany."},"maslak_sitarz":{"label":"Maślak sitarz","scientific":"Suillus bovinus","group":"Maślaki","ecology":"mycorrhiza","collect":true,"radar":"maslak","strong":["SO"],"secondary":[],"age":[5,50],"ph":[3.6,5.5],"sand":"very_sandy","moist":"mesic","season":[[145,8],[185,35],[225,75],[260,98],[290,100],[315,70],[345,20]],"warning":"Premiowane są młodsze lub zaburzone bory sosnowe na kwaśnych, piaszczystych glebach."},"maslak_pstry":{"label":"Maślak pstry","scientific":"Suillus variegatus","group":"Maślaki","ecology":"mycorrhiza","collect":true,"radar":"maslak","strong":["SO"],"secondary":[],"age":[10,75],"ph":[3.5,5.6],"sand":"very_sandy","moist":"mesic_moist","season":[[145,8],[185,35],[225,72],[260,96],[290,100],[320,68],[345,18]],"warning":"Najbardziej interesujące są kwaśne, piaszczyste i omszone lasy sosnowe, także nieco wilgotniejsze."},"opienka_ciemna":{"label":"Opieńka ciemna","scientific":"Armillaria ostoyae","group":"Opieńki","ecology":"wood","collect":true,"radar":"all","strong":["SO","SW","JD","MD"],"secondary":["BK","DB"],"age":[35,160],"ph":[3.8,6.5],"sand":"neutral","moist":"mesic_moist","season":[[210,10],[235,35],[260,80],[280,100],[300,92],[320,55],[340,15]],"warning":"Opieńka rośnie przy korzeniach, pniakach i osłabionych drzewach; niedawne cięcia mogą zwiększyć liczbę pniaków."},"opienka_miodowa":{"label":"Opieńka miodowa","scientific":"Armillaria mellea","group":"Opieńki","ecology":"wood","collect":true,"radar":"all","strong":["DB","BK","GB","JW","BRZ","OS","TP","OL"],"secondary":["SO","SW"],"age":[30,160],"ph":[4.5,7.3],"sand":"neutral","moist":"mesic_moist","season":[[210,8],[240,35],[265,78],[285,100],[305,94],[325,55],[345,15]],"warning":"Szukaj głównie przy pniakach, korzeniach i osłabionych drzewach; sama barwa wydzielenia nie zastępuje oględzin martwego drewna."},"kania":{"label":"Czubajka kania","scientific":"Macrolepiota procera","group":"Kanie","ecology":"edge","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,80],"ph":[4.8,7.4],"sand":"neutral","moist":"mesic","season":[[155,10],[195,35],[225,72],[255,98],[285,100],[315,70],[340,20]],"warning":"Model premiuje polany, łąki i skraje lasu. Nie opieraj decyzji o zjedzeniu na mapie."},"kania_gwiazdzista":{"label":"Czubajka gwieździsta","scientific":"Macrolepiota konradii","group":"Kanie","ecology":"edge","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,100],"ph":[4.8,7.3],"sand":"neutral","moist":"mesic","season":[[165,10],[205,40],[235,78],[265,100],[295,92],[320,55],[345,15]],"warning":"Najwyżej oceniane są skraje drzewostanów, polany i widne lasy."},"czernidlak":{"label":"Czernidłak kołpakowaty","scientific":"Coprinus comatus","group":"Czernidłaki","ecology":"grassland","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,20],"ph":[5.5,7.8],"sand":"neutral","moist":"mesic_moist","season":[[120,10],[175,35],[220,68],[260,94],[285,100],[315,80],[345,35]],"warning":"To gatunek terenów otwartych, trawników, poboczy i miejsc żyznych; warstwa OSM jest ważniejsza niż BDL."},"pieczarka_polna":{"label":"Pieczarka polna","scientific":"Agaricus campestris","group":"Pieczarki","ecology":"grassland","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,10],"ph":[5.8,7.8],"sand":"neutral","moist":"mesic","season":[[120,10],[165,35],[210,72],[245,94],[275,100],[310,76],[340,25]],"warning":"Model szuka głównie łąk i pastwisk. Pieczarki mają gatunki mylące — mapa nie jest narzędziem identyfikacji."},"purchawka_oczkowana":{"label":"Purchawka oczkowana","scientific":"Bovistella utriformis","group":"Purchawki","ecology":"grassland","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,15],"ph":[4.8,7.4],"sand":"neutral","moist":"mesic_dry","season":[[130,10],[180,40],[220,78],[255,98],[285,100],[315,68],[340,20]],"warning":"Najbardziej interesujące są łąki, pastwiska, wrzosowiska i inne otwarte siedliska."},"kurka":{"label":"Kurka","scientific":"Cantharellus cibarius","group":"Dodatkowe","ecology":"mycorrhiza","collect":true,"radar":"kurka","strong":["SO","SW","BK","DB"],"secondary":["JD","BRZ","GB"],"age":[15,100],"ph":[3.7,5.9],"sand":"neutral","moist":"mesic_moist","season":[[100,18],[145,55],[180,90],[215,100],[250,88],[285,55],[320,20]],"warning":"Kurka została zachowana z poprzedniej wersji mapy; nie było jej na Twojej liście."},"goryczak":{"label":"⚠ Goryczak żółciowy","scientific":"Tylopilus felleus","group":"Gatunki mylące","ecology":"mycorrhiza","collect":false,"radar":"all","strong":["SO","SW","BK","DB"],"secondary":["JD"],"age":[25,140],"ph":[3.6,5.8],"sand":"neutral","moist":"mesic","season":[[130,10],[175,40],[215,78],[250,100],[280,90],[310,55],[335,18]],"warning":"Niejadalny z powodu bardzo gorzkiego smaku; dodany jako ostrzeżenie dla borowika szlachetnego i koźlarzy."},"szatanski":{"label":"⛔ Krwistoborowik szatański","scientific":"Rubroboletus satanas","group":"Gatunki mylące","ecology":"mycorrhiza","collect":false,"radar":"all","strong":["DB","BK","GB","JW"],"secondary":[],"age":[35,140],"ph":[6.2,8.0],"sand":"neutral","moist":"mesic_dry","season":[[145,10],[180,45],[210,90],[235,100],[260,82],[285,35]],"warning":"TRUJĄCY i ściśle chroniony w Polsce. Jeśli trafisz na podobny okaz — nie zbieraj ani nie niszcz."},"borowik_usiatkowany":{"label":"Borowik usiatkowany","scientific":"Boletus reticulatus","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["DB","BK"],"secondary":["GB","JW"],"age":[30,140],"ph":[5.0,7.3],"sand":"neutral","moist":"mesic_dry","season":[[120,10],[155,48],[190,88],[220,100],[250,84],[280,50],[305,16]],"warning":"Ciepłolubny borowik lasów liściastych. Najmocniej premiowane są dęby i buki; mapa nie służy do oznaczania gatunku."},"borowik_sosnowy":{"label":"Borowik sosnowy","scientific":"Boletus pinophilus","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["SO"],"secondary":["SW","JD"],"age":[30,145],"ph":[3.8,5.9],"sand":"sandy","moist":"mesic","season":[[115,8],[155,35],[195,72],[235,96],[270,100],[305,72],[335,25]],"warning":"Silnie związany z borami sosnowymi, zwłaszcza starszymi i kwaśniejszymi."},"maslak_zwyczajny":{"label":"Maślak zwyczajny","scientific":"Suillus luteus","group":"Maślaki","ecology":"mycorrhiza","collect":true,"radar":"maslak","strong":["SO"],"secondary":[],"age":[5,65],"ph":[4.0,6.4],"sand":"sandy","moist":"mesic","season":[[145,8],[185,32],[225,72],[260,98],[290,100],[320,68],[345,18]],"warning":"Silny związek z sosną. Dobrze wypadają młode i średniowiekowe drzewostany oraz piaszczyste gleby."},"rydz":{"label":"Mleczaj rydz","scientific":"Lactarius deliciosus","group":"Mleczaje","ecology":"mycorrhiza","collect":true,"radar":"all","strong":["SO"],"secondary":[],"age":[5,70],"ph":[4.2,6.6],"sand":"sandy","moist":"mesic","season":[[155,8],[195,35],[230,72],[260,96],[285,100],[315,70],[340,22]],"warning":"Rydz jest silnie związany z sosną. Mapa wskazuje siedliska, nie potwierdza obecności owocników."},"kozlarz_czerwony":{"label":"Koźlarz czerwony","scientific":"Leccinum rufum","group":"Koźlarze","ecology":"mycorrhiza","collect":true,"radar":"kozlarz","strong":["OS"],"secondary":["TP"],"age":[10,100],"ph":[4.2,6.8],"sand":"neutral","moist":"mesic_moist","season":[[125,8],[165,38],[205,78],[240,98],[270,100],[300,70],[330,22]],"warning":"Najmocniej związany z osiką i innymi topolami. Bez gospodarza wynik jest celowo mocno obniżany."},"kozlarz_pomaranczowozolty":{"label":"Koźlarz pomarańczowożółty","scientific":"Leccinum versipelle","group":"Koźlarze","ecology":"mycorrhiza","collect":true,"radar":"kozlarz","strong":["BRZ"],"secondary":[],"age":[10,95],"ph":[4.0,6.5],"sand":"neutral","moist":"mesic_moist","season":[[125,8],[165,40],[205,80],[240,98],[270,100],[300,68],[328,20]],"warning":"Bardzo silny związek z brzozą; model celowo stosuje ostrą bramkę gospodarza."},"mleczaj_swierkowy":{"label":"Mleczaj świerkowy","scientific":"Lactarius deterrimus","group":"Mleczaje","ecology":"mycorrhiza","collect":true,"radar":"all","strong":["SW"],"secondary":[],"age":[5,90],"ph":[4.0,6.4],"sand":"neutral","moist":"mesic_moist","season":[[160,8],[200,35],[235,76],[265,100],[292,96],[320,62],[345,18]],"warning":"Silnie związany ze świerkiem. Pomarańczowe mleczaje mogą być do siebie podobne — mapa nie służy do identyfikacji."},"siedzun_sosnowy":{"label":"Siedzuń sosnowy","scientific":"Sparassis crispa","group":"Siedzunie","ecology":"wood","collect":true,"radar":"all","strong":["SO"],"secondary":["SW"],"age":[35,155],"ph":[3.8,6.4],"sand":"sandy","moist":"mesic","season":[[170,8],[205,35],[235,72],[265,98],[290,100],[315,65],[340,18]],"warning":"Rośnie zwykle u podstawy lub przy korzeniach starszych sosen. W modelu ważny jest wiek drzewostanu i obecność sosny."}};
@@ -8211,6 +8284,13 @@ async function main(){
  }
 
  resetSourceStates();
+ hotspotAccessSeq++;
+ hotspotAccessRoads=[];
+ hotspotAccessParking=[];
+ hotspotAccessReady=false;
+ hotspotAccessLoading=false;
+ hotspotAccessQueryKey='';
+ clearTimeout(hotspotAccessTimer);
  perfResetSourceTimings();
  validationForestBaseMode='unknown';
  validationKoOutcome=null;
@@ -10630,11 +10710,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v153: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v154: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v153 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v154 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10644,7 +10724,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v153 health',health);
+     console.info('National benchmark v154 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -21221,6 +21301,37 @@ function auditFlushTrendV152(){
 window.auditFlushTrendV153=auditFlushTrendV152;
 window.auditFlushTrendV152=auditFlushTrendV152;
 
+
+function auditHotspotAccessV154(){
+ const rows=activeHotspots().map(h=>{
+   const a=hotspotAccessInfo(h);
+   return {
+     hotspot:hotspotLabel(h),
+     area:h.areaName,
+     state:a.state,
+     label:a.label,
+     publicRoadM:Number.isFinite(a.publicKm)?Math.round(a.publicKm*1000):null,
+     serviceM:Number.isFinite(a.serviceKm)?Math.round(a.serviceKm*1000):null,
+     trackM:Number.isFinite(a.trackKm)?Math.round(a.trackKm*1000):null,
+     parkingM:Number.isFinite(a.parkingKm)?Math.round(a.parkingKm*1000):null,
+     protected:!!a.protected
+   };
+ });
+ const report={
+   version:'v154',
+   ready:hotspotAccessReady,
+   loading:hotspotAccessLoading,
+   roads:hotspotAccessRoads.length,
+   parking:hotspotAccessParking.length,
+   changesProductionScore:false,
+   rows
+ };
+ console.table(rows);
+ console.info('HOTSPOT ACCESS AUDIT v154',report);
+ return report;
+}
+window.auditHotspotAccessV154=auditHotspotAccessV154;
+
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
@@ -23022,6 +23133,7 @@ function unifiedPopupHtml(f,h=null){
    const memberIndex=Math.max(0,(h.members||[]).indexOf(f));
    const memberLabel=f===h.best?'najmocniejsze miejsce':`wydzielenie ${memberIndex+1}/${h.count}`;
    const flushTrend=mapMode==='today'?hotspotFlushTrend(h):null;
+   const access=hotspotAccessInfo(h);
    hotspotHtml=`<div class="u-hotspot-box">
      <div class="u-hotspot-head">
        <div class="u-hotspot-title">📌 Hotspot ${escapeHtml(hotspotLabel(h))} • ${escapeHtml(h.areaName)}</div>
@@ -23029,6 +23141,7 @@ function unifiedPopupHtml(f,h=null){
      </div>
      <div class="u-hotspot-note">To tylko podsumowanie całego hotspotu. Główny werdykt, gatunek i lista grzybów wyżej dotyczą dokładnie klikniętego miejsca.</div>
      ${flushTrend?`<div class="u-hotspot-trend">${hotspotFlushTrendBadge(h)} <b>Trend wysypu:</b> ${escapeHtml(flushTrend.reasons.join(' • '))}${flushTrend.forecast?' • '+escapeHtml(flushTrend.forecast):''}<br><span>Trend jest wskazówką kierunku warunków i nie zmienia wyniku hotspotu.</span></div>`:''}
+     <div class="u-hotspot-access">${hotspotAccessBadge(h)} <b>Dostępność terenu:</b> ${escapeHtml(access.detail)}<br><span style="opacity:.78">Droga/track OSM nie oznacza automatycznie legalnego wjazdu autem. Brak wykrytej ochrony nie wyklucza czasowego zakazu.</span></div>
      <div class="u-hotspot-stats">
        <div class="u-hotspot-stat"><span>Najlepszy wynik hotspotu</span><b>${(mapMode==='today'?(h.todayBestScore??hi.bestScore):h.stableBestScore).toFixed(1)}/10</b></div>
        <div class="u-hotspot-stat"><span>Średnia hotspotu</span><b>${(mapMode==='today'?(h.todayAvgScore??hi.avg):h.stableAvgScore).toFixed(1)}/10</b></div>
@@ -26598,6 +26711,250 @@ function renderSpeciesHints(){
 
 
 
+
+function accessTagBlocked(tags){
+ const a=String(tags?.access||'').toLowerCase();
+ const v=String(tags?.vehicle||'').toLowerCase();
+ const mv=String(tags?.motor_vehicle||'').toLowerCase();
+ return ['no','private'].includes(a)||['no','private'].includes(v)||['no','private'].includes(mv);
+}
+
+function accessElementPoint(e){
+ if(Number.isFinite(Number(e?.lat))&&Number.isFinite(Number(e?.lon)))return [Number(e.lat),Number(e.lon)];
+ if(Number.isFinite(Number(e?.center?.lat))&&Number.isFinite(Number(e?.center?.lon)))return [Number(e.center.lat),Number(e.center.lon)];
+ if(Array.isArray(e?.geometry)&&e.geometry.length){
+   const pts=e.geometry.filter(p=>Number.isFinite(Number(p?.lat))&&Number.isFinite(Number(p?.lon)));
+   if(pts.length){
+     const lat=pts.reduce((a,p)=>a+Number(p.lat),0)/pts.length;
+     const lon=pts.reduce((a,p)=>a+Number(p.lon),0)/pts.length;
+     return [lat,lon];
+   }
+ }
+ return null;
+}
+
+function accessDistanceToWayKm(c,e){
+ if(!Array.isArray(c))return Infinity;
+ const geom=Array.isArray(e?.geometry)?e.geometry:[];
+ if(geom.length>=2){
+   let best=Infinity;
+   for(let i=1;i<geom.length;i++){
+     const a=[Number(geom[i-1].lon),Number(geom[i-1].lat)];
+     const b=[Number(geom[i].lon),Number(geom[i].lat)];
+     if(a.every(Number.isFinite)&&b.every(Number.isFinite)){
+       best=Math.min(best,hotspotPointSegDistanceKm(c,a,b));
+     }
+   }
+   if(Number.isFinite(best))return best;
+ }
+ const p=accessElementPoint(e);
+ return p?hav(c,p):Infinity;
+}
+
+function hotspotAccessBalancedSample(hotspots,max=8){
+ const valid=(hotspots||[]).filter(h=>h?.best&&Array.isArray(hotspotMapAnchor(h)));
+ if(valid.length<=max)return valid;
+
+ const byArea=new Map();
+ for(const h of valid){
+   if(!byArea.has(h.areaName))byArea.set(h.areaName,[]);
+   byArea.get(h.areaName).push(h);
+ }
+ for(const a of byArea.values())a.sort((x,y)=>hotspotHintPriority(y)-hotspotHintPriority(x));
+
+ const out=[],used=new Set();
+ for(const a of byArea.values()){
+   if(a[0]&&out.length<max){out.push(a[0]);used.add(hotspotLabelKey(a[0]));}
+ }
+ const rest=valid.filter(h=>!used.has(hotspotLabelKey(h))).sort((x,y)=>hotspotHintPriority(y)-hotspotHintPriority(x));
+ for(const h of rest){if(out.length>=max)break;out.push(h);}
+ return out;
+}
+
+function hotspotAccessKey(hotspots){
+ return hotspotAccessBalancedSample(hotspots,8).map(h=>{
+   const a=hotspotMapAnchor(h)||h._center;
+   return `${a[0].toFixed(3)},${a[1].toFixed(3)}`;
+ }).sort().join('|');
+}
+
+function parseHotspotAccessElements(elements){
+ const roads=[],parking=[];
+ const seen=new Set();
+
+ for(const e of elements||[]){
+   const key=`${e.type||''}|${e.id??''}`;
+   if(seen.has(key))continue;
+   seen.add(key);
+
+   const tags=e.tags||{};
+   if(tags.amenity==='parking'){
+     if(!accessTagBlocked(tags)){
+       const p=accessElementPoint(e);
+       if(p)parking.push({e,point:p,name:tags.name||'',access:tags.access||''});
+     }
+     continue;
+   }
+
+   const hw=String(tags.highway||'');
+   if(!hw)continue;
+
+   const publicRoad=['secondary','tertiary','unclassified','residential'].includes(hw) && !accessTagBlocked(tags);
+   const serviceRoad=hw==='service' && !accessTagBlocked(tags);
+   const track=hw==='track';
+
+   if(publicRoad||serviceRoad||track){
+     roads.push({e,kind:publicRoad?'public':(serviceRoad?'service':'track'),highway:hw});
+   }
+ }
+ return {roads,parking};
+}
+
+async function loadHotspotAccessContext(hotspots){
+ const sample=hotspotAccessBalancedSample(hotspots,8);
+ if(!sample.length)return false;
+
+ const key=hotspotAccessKey(sample);
+ if(hotspotAccessReady&&key===hotspotAccessQueryKey)return true;
+ if(hotspotAccessLoading&&key===hotspotAccessQueryKey)return false;
+
+ hotspotAccessLoading=true;
+ hotspotAccessQueryKey=key;
+ const seq=++hotspotAccessSeq;
+
+ try{
+   const selectors=[];
+   for(const h of sample){
+     const a=hotspotMapAnchor(h)||h._center;
+     const lat=Number(a[0]).toFixed(6),lon=Number(a[1]).toFixed(6);
+
+     // Drogi: 1.4 km od reprezentatywnego wydzielenia.
+     selectors.push(`way(around:1400,${lat},${lon})["highway"~"^(secondary|tertiary|unclassified|residential|service|track)$"];`);
+     // Parkingi: szerszy promień, bo często są przy skraju kompleksu.
+     selectors.push(`node(around:2600,${lat},${lon})["amenity"="parking"];`);
+     selectors.push(`way(around:2600,${lat},${lon})["amenity"="parking"];`);
+   }
+
+   const q=`[out:json][timeout:18];(${selectors.join('')});out geom center tags;`;
+   const body='data='+encodeURIComponent(q);
+   const j=await fetchOverpassWithFallback(body,{fast:true,optional:true});
+
+   if(seq!==hotspotAccessSeq)return false;
+
+   const parsed=parseHotspotAccessElements(j?.elements||[]);
+   hotspotAccessRoads=parsed.roads;
+   hotspotAccessParking=parsed.parking;
+   hotspotAccessReady=true;
+   hotspotAccessLoading=false;
+
+   // Odświeżamy tylko UI hotspotów. Nie dotykamy scoringu.
+   try{
+     topGroup.clearLayers();
+     buildTop();
+     refreshUnifiedDetails({preserveScroll:true,flash:false});
+   }catch(e){
+     console.warn('Access UI refresh',e);
+   }
+
+   console.info('HOTSPOT ACCESS v154',{
+     sampledHotspots:sample.length,
+     roads:hotspotAccessRoads.length,
+     parking:hotspotAccessParking.length
+   });
+   return true;
+ }catch(e){
+   if(seq===hotspotAccessSeq){
+     hotspotAccessLoading=false;
+     hotspotAccessReady=false;
+     hotspotAccessRoads=[];
+     hotspotAccessParking=[];
+   }
+   console.warn('Hotspot access optional source failed',e);
+   return false;
+ }
+}
+
+function scheduleHotspotAccessLoad(hotspots,delay=1200){
+ clearTimeout(hotspotAccessTimer);
+ const key=hotspotAccessKey(hotspots||[]);
+ if(!key)return;
+ if(hotspotAccessReady&&key===hotspotAccessQueryKey)return;
+
+ hotspotAccessTimer=setTimeout(()=>{
+   if(!analysisScoringReady||analysisHeadlessBatchMode)return;
+   loadHotspotAccessContext(activeHotspots());
+ },delay);
+}
+
+function hotspotAccessInfo(h){
+ if(!h?.best)return {state:'unknown',label:'? brak danych',short:'?',detail:'Brak danych dostępności.',roadKm:Infinity,parkingKm:Infinity};
+
+ if(h.best._blocked||inReserve(h.best)){
+   return {
+     state:'warn',
+     label:'Ochrona / nie zbieraj',
+     short:'⛔ ochrona',
+     detail:'Najmocniejsze wydzielenie wpada w wykrytą warstwę ochronną. Nie traktuj go jako miejsca do zbioru.',
+     roadKm:Infinity,parkingKm:Infinity,protected:true
+   };
+ }
+
+ if(hotspotAccessLoading&&!hotspotAccessReady){
+   return {state:'unknown',label:'sprawdzam dostęp',short:'… dojazd',detail:'Sprawdzam drogi i parkingi OSM.',roadKm:Infinity,parkingKm:Infinity};
+ }
+ if(!hotspotAccessReady){
+   return {
+     state:'unknown',
+     label:'dostęp nieznany',
+     short:'? dojazd',
+     detail:'Dane OSM dojazdu są niedostępne. Brak wykrytej ochrony nie oznacza braku czasowego zakazu.',
+     roadKm:Infinity,parkingKm:Infinity
+   };
+ }
+
+ const c=hotspotMapAnchor(h)||h._center;
+ let publicKm=Infinity,serviceKm=Infinity,trackKm=Infinity;
+
+ for(const r of hotspotAccessRoads){
+   const d=accessDistanceToWayKm(c,r.e);
+   if(r.kind==='public')publicKm=Math.min(publicKm,d);
+   else if(r.kind==='service')serviceKm=Math.min(serviceKm,d);
+   else trackKm=Math.min(trackKm,d);
+ }
+
+ let parkingKm=Infinity;
+ for(const p of hotspotAccessParking)parkingKm=Math.min(parkingKm,hav(c,p.point));
+
+ // "Droga" = publiczna kategoria OSM. Service/track pokazujemy osobno i
+ // nigdy nie nazywamy ich legalnym dojazdem samochodem.
+ const roadKm=Math.min(publicKm,serviceKm);
+
+ let state='remote',label='głębiej w lesie';
+ if(roadKm<=.25){state='easy';label='blisko drogi';}
+ else if(roadKm<=.70){state='walk';label='krótkie dojście';}
+ else if(trackKm<=.35){state='walk';label='blisko drogi leśnej';}
+
+ const bits=[];
+ if(Number.isFinite(publicKm))bits.push(`zwykła droga OSM ${Math.round(publicKm*1000)} m`);
+ else if(Number.isFinite(serviceKm))bits.push(`service OSM ${Math.round(serviceKm*1000)} m`);
+ if(Number.isFinite(trackKm))bits.push(`track/leśna droga ${Math.round(trackKm*1000)} m`);
+ if(Number.isFinite(parkingKm)&&parkingKm<=3)bits.push(`parking OSM ${Math.round(parkingKm*1000)} m`);
+ if(!bits.length)bits.push('brak bliskiej drogi/parkingu w pobranych danych OSM');
+
+ return {
+   state,label,
+   short:`${state==='easy'?'✓':state==='walk'?'🚶':'🥾'} ${label}`,
+   detail:bits.join(' • '),
+   roadKm,publicKm,serviceKm,trackKm,parkingKm,
+   protected:false
+ };
+}
+
+function hotspotAccessBadge(h,{short=false}={}){
+ const a=hotspotAccessInfo(h);
+ return `<span class="access-badge ${a.state}">${short?escapeHtml(a.short):`🧭 ${escapeHtml(a.label)}`}</span>`;
+}
+
 let hotspotFlushTrendCacheKey='';
 let hotspotFlushTrendCache=new WeakMap();
 
@@ -26815,6 +27172,7 @@ function renderTripPick(hotspots){
    ?`✅+🔥 ${today.worthShare.toFixed(0)}% powierzchni • ${h.areaHa.toFixed(1)} ha • aktualne warunki`
    :`${h.areaHa.toFixed(1)} ha • kontekst lasu ${h.forestContext.toFixed(1)}/10 • trwały potencjał`;
  const trend=mapMode==='today'?hotspotFlushTrend(h):null;
+ const access=hotspotAccessInfo(h);
  const icon=t?`<img src="${atlasSvg(t)}" alt="${escapeHtml(species)}">`:'🍄';
 
  el.className='trip-pick';
@@ -26824,6 +27182,7 @@ function renderTripPick(hotspots){
      <div class="trip-pick-sub">${reason}</div>
    </div><div class="trip-pick-score">${Number.isFinite(score)?score.toFixed(1):'—'}<small>/10</small></div></div>
    ${trend?`<div class="trip-pick-trend">${hotspotFlushTrendBadge(h)} <span>${escapeHtml(trend.reasons.slice(0,2).join(' • '))}${trend.forecast?' • '+escapeHtml(trend.forecast):''}</span></div>`:''}
+   <div class="trip-pick-access">${hotspotAccessBadge(h)} <span>${escapeHtml(access.detail)}</span></div>
    <div class="trip-pick-actions">
      <button type="button" data-trip-action="show">Pokaż na mapie</button>
      <button type="button" data-trip-action="details">Szczegóły</button>
@@ -26878,15 +27237,17 @@ function buildTop(){
 
    const score=dynamic?(h.todayBestScore??today.bestScore):h.stableBestScore;
    const trend=dynamic?hotspotFlushTrend(h):null;
+   const access=hotspotAccessInfo(h);
    const sub=dynamic
      ? `dziś średnio ${(h.todayAvgScore??today.avg).toFixed(1)}/10 • ✅+🔥 ${today.worthShare.toFixed(0)}% • ${h.areaHa.toFixed(1)} ha`
      : `potencjał ${h.stableBestScore.toFixed(1)}/10 • dziś ✅+🔥 ${today.worthShare.toFixed(0)}% • ${h.areaHa.toFixed(1)} ha`;
 
    const d=document.createElement('div');
    d.className='topitem';
-   d.innerHTML=`<div class="num" style="background:${vm.color};color:white">${label}</div><div><div class="tmain">📌 ${name} • ${vm.short}${trend?' '+hotspotFlushTrendBadge(h,{short:true}):''}</div>`+
+   d.innerHTML=`<div class="num" style="background:${vm.color};color:white">${label}</div><div><div class="tmain">📌 ${name} • ${vm.short}${trend?' '+hotspotFlushTrendBadge(h,{short:true}):''} ${hotspotAccessBadge(h,{short:true})}</div>`+
      `<div class="tsub">${sub}</div>`+
      `${trend?`<div class="flush-trend-line">${escapeHtml(trend.reasons.slice(0,2).join(' • '))}${trend.forecast?' • '+escapeHtml(trend.forecast):''}</div>`:''}`+
+     `<div class="access-line">${escapeHtml(access.detail)}</div>`+
      `</div><div class="tscore">${score.toFixed(1)}</div>`;
 
    d.title=dynamic
@@ -26909,6 +27270,7 @@ function buildTop(){
  updateAreaComparison();
  syncToplistHeight();
  syncPanelHeight();
+ scheduleHotspotAccessLoad(hotspots);
 }
 
 // --- 5. Porównanie rejonów ------------------------------------------------------------------
@@ -27842,7 +28204,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v153: automatyczny start w tle');
+      console.info('Benchmark krajowy v154: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

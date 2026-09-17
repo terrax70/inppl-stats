@@ -7377,14 +7377,36 @@ function speciesWeatherEvidenceWeight(evidence){
 }
 
 function speciesWeatherAnchoredScore(type,c){
- // v167: jedna interpolacja weatherSamples na centroid zamiast trzech.
- // speciesWeatherLabComputeFromPayload() ma ten sam wzór co wcześniejsze
- // speciesWeatherLabCompute(); zmienia się wyłącznie ponowne użycie wejścia.
+ // v172: payload nadal jest identyczny jak w v167, ale neutralny profil jest
+ // wspólny dla wszystkich gatunków, a profil specyficzny jest wspólny dla
+ // gatunków o tym samym profile+moist. To usuwa tysiące identycznych obliczeń.
  const payload=speciesWeatherLabPayloadAt(c);
  const generic=payload?payload.index:weatherAt(c);
  const assignment=speciesWeatherLabAssignment(type);
- const neutral=speciesWeatherLabComputeFromPayload(type,payload,'generic_reference','mesic');
- const specificBase=speciesWeatherLabComputeFromPayload(type,payload,assignment.profile,null);
+
+ let neutral;
+ if(c&&typeof c==='object'&&perfSpeciesWeatherNeutralCache.has(c)){
+   neutral=perfSpeciesWeatherNeutralCache.get(c);
+ }else{
+   neutral=speciesWeatherLabComputeFromPayload(type,payload,'generic_reference','mesic');
+   if(c&&typeof c==='object')perfSpeciesWeatherNeutralCache.set(c,neutral);
+ }
+
+ const moist=SPECIES_META[type]?.moist||'mesic';
+ const profileKey=`${assignment.profile}|${moist}`;
+ let specificBase=null;
+ if(c&&typeof c==='object'){
+   let m=perfSpeciesWeatherProfileCache.get(c);
+   if(!m){m=new Map();perfSpeciesWeatherProfileCache.set(c,m);}
+   specificBase=m.get(profileKey)||null;
+   if(!specificBase){
+     specificBase=speciesWeatherLabComputeFromPayload(type,payload,assignment.profile,moist);
+     m.set(profileKey,specificBase);
+   }
+ }else{
+   specificBase=speciesWeatherLabComputeFromPayload(type,payload,assignment.profile,moist);
+ }
+
  const specific={...specificBase,evidence:assignment.evidence,basis:assignment.basis};
  const evidenceWeight=speciesWeatherEvidenceWeight(specific.evidence);
 
@@ -7523,45 +7545,69 @@ function moistureTerrainScore(type,f){
  if(m.moist==='mesic_dry')return clamp(13.2-base);
  return base;
 }
+function speciesStaticComponents(type,f){
+ const evidenceKey=observationEvidenceActive(type)?1:0;
+ const cacheKey=`${type}|${evidenceKey}`;
+ return perfTypeFeatureCache(perfSpeciesStaticComponentCache,cacheKey,f,()=>{
+   const m=SPECIES_META[type];
+   if(!m)return {m:null};
+
+   const hist=historyInfo(type,f);
+   const soil=soilSuitability(type,f);
+   const terr=moistureTerrainScore(type,f);
+   const evidence=7+Math.min(3,hist.bonus*2.4);
+
+   if(m.ecology==='mycorrhiza'){
+     const tree=treePreference(type,f);
+     const age=ageSuitability(type,Number(f.properties?.species_age||0));
+     const hab=stableHabitatScore(type,f);
+     const disturb=disturbancePenalty(type,f);
+     const gate=hostGate(type,f);
+     return {m,hist,soil,terr,evidence,tree,age,hab,disturb,gate,strict:STRICT_HOST_TYPES.has(type)};
+   }
+   if(m.ecology==='wood'){
+     const tree=treePreference(type,f);
+     const hab=stableHabitatScore(type,f);
+     const old=woodAgeScore(f);
+     const stumpStatic=f._ko?9.3:6.2;
+     const stumpStable=f._ko?9.1:6.1;
+     return {m,hist,soil,terr,evidence,tree,hab,old,stumpStatic,stumpStable};
+   }
+   if(m.ecology==='edge'){
+     const age=ageSuitability(type,Number(f.properties?.species_age||0));
+     const disturb=disturbancePenalty(type,f);
+     const open=openHabitatScore(type,f);
+     return {m,hist,soil,terr,evidence,age,disturb,open};
+   }
+   if(m.ecology==='grassland'){
+     const open=openHabitatScore(type,f);
+     return {m,hist,soil,terr,evidence,open};
+   }
+   return {m,hist,soil,terr,evidence};
+ });
+}
+
 function staticSuitability(type,f){
  const evidenceKey=observationEvidenceActive(type)?1:0;
  const cacheKey=`${type}|${evidenceKey}`;
  return perfTypeFeatureCache(perfStaticSuitabilityCache,cacheKey,f,()=>{
- const m=SPECIES_META[type];if(!m)return 0;
+  const m=SPECIES_META[type];if(!m)return 0;
+  if(m.ecology==='mycorrhiza'&&f._kind==='open')return .4;
+  if(m.ecology==='wood'&&f._kind==='open')return .6;
 
-  const hist=historyInfo(type,f);
-  const soil=soilSuitability(type,f);
-  const terr=moistureTerrainScore(type,f);
-  const tree=treePreference(type,f);
-  const age=ageSuitability(type,Number(f.properties?.species_age||0));
-  const hab=stableHabitatScore(type,f);
-  const disturb=disturbancePenalty(type,f);
-  const evidence=7+Math.min(3,hist.bonus*2.4);
-
+  const c=speciesStaticComponents(type,f);
   let raw=0;
 
   if(m.ecology==='mycorrhiza'){
-    if(f._kind==='open')return .4;
-    const gate=hostGate(type,f);
-    const strict=STRICT_HOST_TYPES.has(type);
-
-    // Gospodarz > gleba > typ siedliska > wiek > teren.
-    raw=.38*tree+.14*age+.19*soil+.08*terr+.13*hab+.08*evidence;
-
-    const gateFactor=strict ? (.20+.80*gate) : (.42+.58*gate);
-    raw=(raw-disturb*.55)*gateFactor;
+    raw=.38*c.tree+.14*c.age+.19*c.soil+.08*c.terr+.13*c.hab+.08*c.evidence;
+    const gateFactor=c.strict ? (.20+.80*c.gate) : (.42+.58*c.gate);
+    raw=(raw-c.disturb*.55)*gateFactor;
   }else if(m.ecology==='wood'){
-    if(f._kind==='open')return .6;
-
-    const old=woodAgeScore(f);
-    const stump=f._ko?9.3:6.2;
-
-    raw=.30*tree+.20*old+.13*soil+.07*terr+.10*hab+.15*stump+.05*evidence;
+    raw=.30*c.tree+.20*c.old+.13*c.soil+.07*c.terr+.10*c.hab+.15*c.stumpStatic+.05*c.evidence;
   }else if(m.ecology==='edge'){
-    // v65 FIX: disturbancePenalty bylo liczone i ignorowane w tej galezi.
-    raw=.50*openHabitatScore(type,f)+.20*soil+.10*terr+.08*age+.12*evidence-disturb*.35;
+    raw=.50*c.open+.20*c.soil+.10*c.terr+.08*c.age+.12*c.evidence-c.disturb*.35;
   }else if(m.ecology==='grassland'){
-    raw=.62*openHabitatScore(type,f)+.22*soil+.08*terr+.08*evidence;
+    raw=.62*c.open+.22*c.soil+.08*c.terr+.08*c.evidence;
   }
 
   return clamp(raw);
@@ -8718,12 +8764,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v171',
+     mode:'sync-batched-v172',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v171',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v172',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -9484,6 +9530,12 @@ let perfWeatherPointCache=new Map();
 // v167: pełny pakiet pogodowy per dokładny obiekt współrzędnych.
 // WeakMap nie łączy sąsiednich centroidów i zachowuje dokładnie te same wyniki.
 let perfSpeciesWeatherPayloadCache=new WeakMap();
+// v172: wyniki pogody współdzielone przez gatunki o tym samym profilu na tym samym centroidzie.
+let perfSpeciesWeatherNeutralCache=new WeakMap();
+let perfSpeciesWeatherProfileCache=new WeakMap();
+// v172: wspólny pakiet drogich komponentów siedliska używany równocześnie przez
+// staticSuitability() i stableSpeciesPotential(). Nie zmienia wzorów — usuwa duplikację.
+let perfSpeciesStaticComponentCache=new Map();
 let perfStaticSuitabilityCache=new Map();
 let perfStableSpeciesPotentialCache=new Map();
 let perfStableTypeScoreCache=new Map();
@@ -9525,6 +9577,9 @@ function invalidateScoringCaches(reason=''){
  perfSoilPointCache.clear();
  perfWeatherPointCache.clear();
  perfSpeciesWeatherPayloadCache=new WeakMap();
+ perfSpeciesWeatherNeutralCache=new WeakMap();
+ perfSpeciesWeatherProfileCache=new WeakMap();
+ perfSpeciesStaticComponentCache.clear();
  perfStaticSuitabilityCache.clear();
  perfStableSpeciesPotentialCache.clear();
  perfStableTypeScoreCache.clear();
@@ -12074,6 +12129,52 @@ function opportunityAggregateInfo(f,dynamic=false,typesOverride=null){
    rows:today.rows.map(r=>({...r,score:r.raw})),nicheRows:today.nicheRows
  };
 }
+
+// v172 — gorąca ścieżka mapy/hotspotów. opportunityAggregateInfo() jest bogatym
+// obiektem diagnostycznym do popupów i audytów. Dla tysięcy polygonów mapa
+// potrzebuje wyłącznie liczby score, więc nie kopiujemy rows/nicheRows i nie
+// liczymy per-feature benchmarku Polski, który NIE uczestniczy w samym score.
+function opportunityAggregateScoreOnly(f,dynamic=false,typesOverride=null){
+ const types=Array.isArray(typesOverride)?typesOverride:opportunityTargetTypes();
+ if(types.length===1){
+   const t=types[0];
+   if(!featureRelevant(t,f))return 0;
+   const potential=stableScoreForType(t,f);
+   return dynamic?Math.min(speciesEffective(t,f),potential):potential;
+ }
+
+ const overall=opportunityRawComposite(f,false,types);
+ if(!overall.bestType)return 0;
+ const kind=f._kind==='open'?'open':'forest';
+ const areaName=featureAreaName(f);
+ let distribution,prior;
+
+ if(OVERLAP_CLUSTER_PRODUCTION_ENABLED){
+   const cluster=overlapClusterForArea(areaName,ANALYSIS_CENTERS);
+   if(cluster.length>1){
+     const ctx=buildOverlapClusterScoringContext(types,cluster,kind);
+     distribution=ctx.distribution;
+     prior=ctx.prior;
+   }
+ }
+ if(!distribution){
+   distribution=opportunityCompositeDistribution(types,areaName,kind);
+   prior=nationalAreaPrior(types,areaName);
+ }
+
+ const percentile=opportunityPercentileFromSorted(distribution.rows,overall.rawScore);
+ const relative=Math.pow(percentile,.78);
+ const qualityGate=opportunityCompositeQualityGate(overall.rawScore);
+ const localIndex=clamp(10*relative*qualityGate);
+ const overallIndex=clamp(localIndex+(prior?.active?prior.adjustment:0));
+ if(!dynamic)return overallIndex;
+
+ const today=opportunityRawComposite(f,true,types);
+ const retention=Math.max(0,Math.min(1,today.rawScore/Math.max(.001,overall.rawScore)));
+ const weatherFactor=.15+.85*Math.pow(retention,1.25);
+ return clamp(Math.min(overallIndex,overallIndex*weatherFactor));
+}
+
 function atlasAggregateScore(f,dynamic=false){
  return opportunityAggregateInfo(f,dynamic,[...atlasSelected]);
 }
@@ -12170,42 +12271,30 @@ function stableHabitatScore(type,f){
 }
 
 function stableSpeciesPotential(type,f){
- // v65 FIX: potencjal zawiera teraz ten sam komponent obserwacyjny co
- // staticSuitability. Wczesniej bonus z iNat/GBIF podnosil tylko jedna z dwoch
- // funkcji, a druga sluzyla jako sufit - wiec min() natychmiast go zjadal.
+ // v172: dokładnie te same wzory co wcześniej, ale komponenty statyczne są
+ // współdzielone z staticSuitability(), zamiast liczone drugi raz.
  const cacheKey=`${type}|${observationEvidenceActive(type)?1:0}`;
  return perfTypeFeatureCache(perfStableSpeciesPotentialCache,cacheKey,f,()=>{
- const m=SPECIES_META[type];if(!m||m.collect===false)return 0;
+  const m=SPECIES_META[type];if(!m||m.collect===false)return 0;
   if((m.ecology==='mycorrhiza'||m.ecology==='wood')&&f._kind==='open')return .3;
 
-  const age=ageSuitability(type,Number(f.properties?.species_age||0));
-  const tree=treePreference(type,f);
-  const gate=hostGate(type,f)*10;
-  const hab=stableHabitatScore(type,f);
-  const soil=soilSuitability(type,f);
-  const terr=moistureTerrainScore(type,f);
-  const disturb=disturbancePenalty(type,f);
-  const evidence=7+Math.min(3,historyInfo(type,f).bonus*2.4);
-
-  let s=0;
-
+  const c=speciesStaticComponents(type,f);
+  let out=0;
   if(m.ecology==='mycorrhiza'){
-    if(STRICT_HOST_TYPES.has(type)){
-      s=.32*tree+.11*age+.23*gate+.09*hab+.14*soil+.05*terr+.06*evidence-disturb*.55;
+    const gate10=c.gate*10;
+    if(c.strict){
+      out=.32*c.tree+.11*c.age+.23*gate10+.09*c.hab+.14*c.soil+.05*c.terr+.06*c.evidence-c.disturb*.55;
     }else{
-      s=.30*tree+.12*age+.16*gate+.12*hab+.17*soil+.07*terr+.06*evidence-disturb*.55;
+      out=.30*c.tree+.12*c.age+.16*gate10+.12*c.hab+.17*c.soil+.07*c.terr+.06*c.evidence-c.disturb*.55;
     }
   }else if(m.ecology==='wood'){
-    const old=woodAgeScore(f);
-    const stump=f._ko?9.1:6.1;
-    s=.28*tree+.19*old+.11*hab+.12*soil+.06*terr+.19*stump+.05*evidence;
+    out=.28*c.tree+.19*c.old+.11*c.hab+.12*c.soil+.06*c.terr+.19*c.stumpStable+.05*c.evidence;
   }else if(m.ecology==='edge'){
-    s=.58*openHabitatScore(type,f)+.19*soil+.09*terr+.08*age+.06*evidence-disturb*.35;
+    out=.58*c.open+.19*c.soil+.09*c.terr+.08*c.age+.06*c.evidence-c.disturb*.35;
   }else if(m.ecology==='grassland'){
-    s=.62*openHabitatScore(type,f)+.23*soil+.09*terr+.06*evidence;
+    out=.62*c.open+.23*c.soil+.09*c.terr+.06*c.evidence;
   }
-
-  return clamp(s);
+  return clamp(out);
  });
 }
 
@@ -12431,9 +12520,9 @@ function stableAnchorScore(f){
  if(atlasSelected.size===1){
    s=stableScoreForType([...atlasSelected][0],f);
  }else if(atlasSelected.size>1){
-   s=opportunityAggregateInfo(f,false,[...atlasSelected]).score;
+   s=opportunityAggregateScoreOnly(f,false,[...atlasSelected]);
  }else if(currentFilter==='all'){
-   s=opportunityAggregateInfo(f,false,PICK_TYPES).score;
+   s=opportunityAggregateScoreOnly(f,false,PICK_TYPES);
  }else if(currentFilter==='diversity'){
    s=stableDiversityPotential(f);
  }else{
@@ -22378,42 +22467,47 @@ function todayLocalHotspots(areaName,maxHotspots){
  const features=stableCandidateFeatures(areaName);
  if(!features.length)return [];
 
- const scored=features.map(f=>{
-   const info=(!atlasSelected.size&&currentFilter==='all')?bestTodayInfo(f):null;
-   const overallPotentialClass=balancedClass(f);
-   const todayScore=todayScoreForStyle(f);
-
-   return {
-     f,
-     s:todayScore,
-     cls:todayBalancedClass(f,todayScore),
-     potential:info?info.potential:stableAnchorScore(f),
-     potentialClass:info
-       ? Math.min(info.potentialClass,overallPotentialClass)
-       : (activeSingleSpeciesType()
-           ? (()=>{const p=stableAnchorScore(f);return p>=8.8?4:p>=6.8?3:p>=5.8?2:p>=4.8?1:0;})()
-           : overallPotentialClass),
-     type:info?.type||null,
-     ctx:forestContextInfo(f),
-     key:stableFeatureKey(f)
-   };
- })
- .filter(x=>Number.isFinite(x.s))
- .sort((a,b)=>(b.cls-a.cls)||(b.s-a.s)||a.key.localeCompare(b.key));
-
- // Hotspot DZIŚ zawsze musi leżeć na dobrym Potencjale.
- // Dla "Najlepszego miejsca" próg bieżący jest niższy niż dawniej,
- // bo score DZIŚ jest już celowo niższy od Potencjału.
  const bestAll=!atlasSelected.size&&currentFilter==='all';
  const singleType=activeSingleSpeciesType();
  const singleMode=!!singleType;
  const memberMin=bestAll?6.10:(singleMode?5.80:6.50);
  const seedMin=bestAll?7.05:(singleMode?6.80:7.70);
-
- const membersPool=scored.filter(
-   x=>x.cls>=2&&x.potentialClass>=2&&x.s>=memberMin
- );
  const seedPotentialMin=singleMode?6.80:7.05;
+
+ // v172: najpierw wykonujemy wyłącznie testy, które i tak są obowiązkowe
+ // dla membersPool. Dzięki temu bestTodayInfo(), atlasSingleSpeciesClass()
+ // i forestContextInfo() nie są materializowane dla tysięcy polygonów,
+ // które później natychmiast odpadały na s<memberMin / potentialClass<2.
+ const scored=[];
+ for(const f of features){
+   const todayScore=todayScoreForStyle(f);
+   if(!Number.isFinite(todayScore)||todayScore<memberMin)continue;
+
+   const overallPotentialClass=balancedClass(f);
+   if(overallPotentialClass<2)continue;
+
+   const info=bestAll?bestTodayInfo(f):null;
+   const potential=info?info.potential:stableAnchorScore(f);
+   const potentialClass=info
+     ? Math.min(info.potentialClass,overallPotentialClass)
+     : (singleMode
+         ? (potential>=8.8?4:potential>=6.8?3:potential>=5.8?2:potential>=4.8?1:0)
+         : overallPotentialClass);
+   if(potentialClass<2)continue;
+
+   const cls=todayBalancedClass(f,todayScore);
+   if(cls<2)continue;
+
+   scored.push({
+     f,s:todayScore,cls,potential,potentialClass,
+     type:info?.type||null,
+     ctx:forestContextInfo(f),
+     key:stableFeatureKey(f)
+   });
+ }
+ scored.sort((a,b)=>(b.cls-a.cls)||(b.s-a.s)||a.key.localeCompare(b.key));
+
+ const membersPool=scored;
  const seedsPool=scored.filter(
    x=>x.cls>=3&&x.potentialClass>=3&&x.potential>=seedPotentialMin&&x.s>=seedMin
  );
@@ -22424,50 +22518,32 @@ function todayLocalHotspots(areaName,maxHotspots){
  const broadMode=!atlasSelected.size&&(currentFilter==='all'||currentFilter==='diversity');
  const minSeedDistance=broadMode?.68:.56;
  const assignRadius=broadMode?.78:.58;
- const seeds=chooseBalancedBestSeeds(
-   seedsPool,
-   maxHotspots,
-   minSeedDistance
- );
-
+ const seeds=chooseBalancedBestSeeds(seedsPool,maxHotspots,minSeedDistance);
  const groups=seeds.map(seed=>({seed,members:[]}));
 
  for(const x of membersPool){
    let bi=-1,bd=Infinity;
-
    for(let i=0;i<seeds.length;i++){
      if(!sameBestHabitatDomain(x.f,seeds[i].f))continue;
      const d=hav(x.f._center,seeds[i].f._center);
      if(d<bd){bd=d;bi=i;}
    }
-
    if(bi>=0&&bd<=assignRadius)groups[bi].members.push(x);
  }
 
  const hs=[];
-
  for(const g of groups){
    if(!g.members.length)g.members=[g.seed];
-
    const uniq=new Map();
    for(const x of g.members)uniq.set(stableFeatureKey(x.f),x);
-
-   const members=[...uniq.values()]
-     .sort((a,b)=>(b.cls-a.cls)||(b.s-a.s)||a.key.localeCompare(b.key));
-
+   const members=[...uniq.values()].sort((a,b)=>(b.cls-a.cls)||(b.s-a.s)||a.key.localeCompare(b.key));
    const bestX=members[0];
-   const bestAll=!atlasSelected.size&&currentFilter==='all';
-   const singleType=activeSingleSpeciesType();
-   const singleMode=!!singleType;
-   const minToday=bestAll?7.05:(singleMode?6.80:7.70);
-   const minPotential=singleMode?6.80:7.05;
-   if(bestX.cls<3||bestX.potentialClass<3||bestX.potential<minPotential||bestX.s<minToday)continue;
+   if(bestX.cls<3||bestX.potentialClass<3||bestX.potential<seedPotentialMin||bestX.s<seedMin)continue;
 
    const memberFeatures=members.map(x=>x.f);
    const areaHa=members.reduce((a,x)=>a+featureAreaHa(x.f),0);
    const avgToday=members.reduce((a,x)=>a+x.s*featureAreaHa(x.f),0)/Math.max(.01,areaHa);
    const avgCtx=members.reduce((a,x)=>a+x.ctx.score,0)/members.length;
-
    const weights=members.map(x=>
      Math.max(.25,(x.s-5.7)**2) *
      (1+.28*x.cls) *
@@ -22476,10 +22552,8 @@ function todayLocalHotspots(areaName,maxHotspots){
    const wsum=weights.reduce((a,b)=>a+b,0)||1;
    const lat=members.reduce((a,x,i)=>a+x.f._center[0]*weights[i],0)/wsum;
    const lon=members.reduce((a,x,i)=>a+x.f._center[1]*weights[i],0)/wsum;
-
    const areaScore=piecewise(areaHa,[[0,3],[3,5],[10,7],[25,8.5],[60,9.5],[120,10]]);
    const clusterScore=clamp(.57*avgToday+.30*bestX.s+.08*avgCtx+.05*areaScore);
-
    if(broadMode&&areaHa<2.2&&members.length<2&&bestX.cls<4)continue;
 
    hs.push({
@@ -22506,13 +22580,7 @@ function todayLocalHotspots(areaName,maxHotspots){
    });
  }
 
- hs.sort((a,b)=>
-   (b.clusterScore-a.clusterScore)||
-   (b.todayBestScore-a.todayBestScore)||
-   (b.areaHa-a.areaHa)||
-   stableFeatureKey(a.best).localeCompare(stableFeatureKey(b.best))
- );
-
+ hs.sort((a,b)=>(b.clusterScore-a.clusterScore)||(b.todayBestScore-a.todayBestScore)||(b.areaHa-a.areaHa)||stableFeatureKey(a.best).localeCompare(stableFeatureKey(b.best)));
  return hs.slice(0,maxHotspots);
 }
 
@@ -23368,10 +23436,10 @@ function todayScoreForStyle(f){
    const raw=speciesDisplayScore(single,f);
    out=clamp(Math.min(raw,stableAnchorScore(f)));
  }else if(atlasSelected.size>1){
-   const s=opportunityAggregateInfo(f,true,[...atlasSelected]).score;
+   const s=opportunityAggregateScoreOnly(f,true,[...atlasSelected]);
    out=clamp(Math.min(s,stableAnchorScore(f)));
  }else if(!atlasSelected.size&&currentFilter==='all'){
-   const s=opportunityAggregateInfo(f,true,PICK_TYPES).score;
+   const s=opportunityAggregateScoreOnly(f,true,PICK_TYPES);
    out=clamp(Math.min(s,stableAnchorScore(f)));
  }else if(currentFilter==='diversity'){
    out=clamp(Math.min(diversityData(f).score,stableAnchorScore(f)));
@@ -24848,7 +24916,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v171',{
+   console.info('UI ACTION v172',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -25907,7 +25975,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v171',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v172',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -25984,7 +26052,7 @@ async function prewarmMultiAreaScoring(){
 
    // Te funkcje korzystają już z rozgrzanych score-cache.
    buildBalancedScales();
-   if(mapMode==='today')buildTodayScales();
+   if(mapMode==='today'&&activeSingleSpeciesType())buildTodayScales();
 
    multiAreaWarmKey=key;
    multiAreaWarmLast={
@@ -26019,7 +26087,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v171-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
+   'v172-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -26185,10 +26253,11 @@ async function prewarmHotspotPipeline(){
      const f=allFeatures[i];
      if(f._blocked)continue;
      stableAnchorScore(f);
-     forestContextInfo(f);
      if(mapMode==='today'){
+       // v172: todayScoreForStyle() już buduje dynamiczny composite i zapisuje
+       // _bestTodayCandidate. Nie materializujemy bestTodayInfo() dla KAŻDEGO
+       // poligonu — robi to dopiero hotspot builder dla realnych kandydatów.
        todayScoreForStyle(f);
-       if(!atlasSelected.size&&currentFilter==='all')bestTodayInfo(f);
      }
      processed++;
 
@@ -26204,7 +26273,7 @@ async function prewarmHotspotPipeline(){
    if(!hotspotWarmStillCurrent(key))return false;
    t=performance.now();
    buildBalancedScales();
-   if(mapMode==='today')buildTodayScales();
+   if(mapMode==='today'&&activeSingleSpeciesType())buildTodayScales();
    const hs=activeHotspots();
    const buildMs=performance.now()-t;
 
@@ -26234,9 +26303,9 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase
    };
-   console.info('HOTSPOT PIPELINE WARM v171',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v172',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v171',{
+   console.info('HOTSPOT PHASE v172',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),
      mainScoreMs:+phase.mainScoreMs.toFixed(1),buildMs:+buildMs.toFixed(1),anchorMs:+anchorMs.toFixed(1),
@@ -26375,7 +26444,7 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v171',{
+   console.info('HOTSPOT RENDER v172',{
      features:rows.length,
      progressive,
      stylesWallMs:+(ts1-tp1).toFixed(1),
@@ -28227,7 +28296,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v171: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v172: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -28236,7 +28305,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v171',{
+   console.info('HOTSPOT ACCESS NETWORK v172',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -28250,7 +28319,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v171',{
+   console.info('HOTSPOT ACCESS v172',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -28275,7 +28344,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v171: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v172: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -28297,15 +28366,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v171',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v172',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v171',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v172',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v171: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v172: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }

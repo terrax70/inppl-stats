@@ -1,6 +1,23 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v160:
+     HOTSPOT PIPELINE PERFORMANCE HOTFIX — SMOOTH BUILD.
+
+     v159 wygładził zmianę trybów, ale pierwszy build hotspotów nadal potrafił
+     wykonać cały ciężki pipeline w jednym synchronicznym bloku.
+
+     v160:
+       - rozgrzewa scoring potrzebny hotspotom porcjami z browserYield(),
+       - buduje cache hotspotów zanim właściwy render wejdzie w sekcję krytyczną,
+       - precomputuje dokładne kotwice hotspotów po jednej / kilka na porcję,
+       - cache'uje listę kandydatów hotspotów per rejon/filtr,
+       - solver dokładnej kotwicy używa adaptacyjnej siatki 7x7 + lokalnego refinement
+         zamiast pełnej 11x11, zachowując cel: punkt wewnątrz najlepszego poligonu,
+       - porównanie rejonów jest odroczone poza krytyczny moment budowy listy hotspotów.
+
+     Formuły biologiczne, progi, ranking i reguły grupowania hotspotów bez zmian.
+-->
 <!-- GitHub production v159:
      PERFORMANCE HOTFIX — SMOOTH DZIŚ/OGÓLNIE + ACCESSIBILITY.
 
@@ -11459,6 +11476,12 @@ let hotspotCacheKey='';
 let hotspotCache=[];
 let todayHotspotCacheKey='';
 let todayHotspotCache=[];
+// v160: osobny cache kandydatów i asynchroniczny warm-up pipeline hotspotów.
+let stableCandidateCacheKey='';
+let stableCandidateCache=new Map();
+let hotspotPipelineWarmKey='';
+let hotspotPipelineWarmPromise=null;
+let hotspotPipelineWarmLast={key:'',features:0,hotspots:0,elapsedMs:0,scoreMs:0,buildMs:0,anchorMs:0};
 let balancedScaleKey='';
 let balancedScales={};
 
@@ -11855,6 +11878,7 @@ function resetStaticCachesIfNeeded(){
  staticCacheFilter=k;staticTypeCache=new WeakMap();staticScoreCache=new WeakMap();
  forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();hotspotCacheKey='';hotspotCache=[];
  todayHotspotCacheKey='';todayHotspotCache=[];
+ stableCandidateCacheKey='';stableCandidateCache=new Map();hotspotPipelineWarmKey='';
  balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();opportunityRawCompositeCache.clear();opportunityCompositeDistributionCache.clear();nationalAreaPriorCache.clear();hotspotMembershipKey='';
  todayScaleCacheKey='';todayScales={};bestTodayConditionScaleCache.clear();
  perfKeyLast='';
@@ -21908,13 +21932,22 @@ window.auditDiversitySingleSource=auditDiversitySingleSource;
 
 function stableCandidateFeatures(areaName){
  resetStaticCachesIfNeeded();
- return allFeatures.filter(f=>{
+ const cacheKey=`v160|${currentFilter}|${atlasSelectionKey()}|${allFeatures.length}|${openFeatures.length}|${ANALYSIS_CENTERS.length}`;
+ if(stableCandidateCacheKey!==cacheKey){
+   stableCandidateCacheKey=cacheKey;
+   stableCandidateCache=new Map();
+ }
+ if(stableCandidateCache.has(areaName))return stableCandidateCache.get(areaName);
+
+ const selected=atlasSelected.size?[...atlasSelected]:null;
+ const rows=allFeatures.filter(f=>{
    if(f._blocked||!featureInAnalysisAreaName(f,areaName))return false;
-   if(atlasSelected.size)return [...atlasSelected].some(t=>featureRelevant(t,f));
-   if(currentFilter==='all')return true;
-   if(currentFilter==='diversity')return true;
+   if(selected)return selected.some(t=>featureRelevant(t,f));
+   if(currentFilter==='all'||currentFilter==='diversity')return true;
    return featureRelevant(currentFilter,f);
  });
+ stableCandidateCache.set(areaName,rows);
+ return rows;
 }
 
 
@@ -25682,6 +25715,98 @@ async function prewarmMultiAreaScoring(){
  return multiAreaWarmPromise;
 }
 
+function activeHotspotCacheKeyExpected(){
+ if(mapMode==='today'){
+   return [
+     'today-hotspots',scoringRevision,currentFilter,atlasSelectionKey(),
+     allFeatures.length,openFeatures.length,
+     weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
+     window.innerWidth<=700?'m':'d'
+   ].join('|');
+ }
+ return `clean|${currentFilter}|${atlasSelectionKey()}|${allFeatures.length}|${openFeatures.length}|${window.innerWidth<=700?'m':'d'}`;
+}
+
+function activeHotspotCacheReady(){
+ const expected=activeHotspotCacheKeyExpected();
+ return mapMode==='today'?todayHotspotCacheKey===expected:hotspotCacheKey===expected;
+}
+
+function hotspotPipelineSignature(){
+ return [
+   'v160-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
+   allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
+   weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
+   window.innerWidth<=700?'m':'d'
+ ].join('|');
+}
+
+async function prewarmHotspotPipeline(){
+ if(analysisHeadlessBatchMode||!analysisScoringReady||!allFeatures.length)return true;
+ const key=hotspotPipelineSignature();
+ if(hotspotPipelineWarmKey===key&&activeHotspotCacheReady())return true;
+ if(hotspotPipelineWarmPromise)return hotspotPipelineWarmPromise;
+
+ hotspotPipelineWarmPromise=(async()=>{
+   const t0=performance.now();
+   resetStaticCachesIfNeeded();
+   prepareForestGrid();
+
+   // Cache list kandydatów per rejon zanim zaczniemy scoring.
+   for(const a of ANALYSIS_CENTERS)stableCandidateFeatures(a.name);
+
+   let t=performance.now();
+   let sliceStarted=performance.now();
+   let processed=0;
+   for(let i=0;i<allFeatures.length;i++){
+     const f=allFeatures[i];
+     if(f._blocked)continue;
+
+     // Te wywołania rozgrzewają dokładnie cache używane później przez
+     // buildBalancedScales() + stable/todayLocalHotspots().
+     stableAnchorScore(f);
+     forestContextInfo(f);
+     if(mapMode==='today'){
+       todayScoreForStyle(f);
+       if(!atlasSelected.size&&currentFilter==='all')bestTodayInfo(f);
+     }
+     processed++;
+
+     // Nie pozwalamy jednej porcji zająć głównego wątku na długo.
+     if(processed%42===0||performance.now()-sliceStarted>6.5){
+       await browserYield();
+       sliceStarted=performance.now();
+     }
+   }
+   const scoreMs=performance.now()-t;
+
+   t=performance.now();
+   buildBalancedScales();
+   if(mapMode==='today')buildTodayScales();
+   const hs=activeHotspots();
+   const buildMs=performance.now()-t;
+
+   t=performance.now();
+   for(let i=0;i<hs.length;i++){
+     hotspotMapAnchor(hs[i]);
+     // Dokładna kotwica potrafi być geometrycznie kosztowna; liczymy ją
+     // progresywnie, żeby kilkanaście hotspotów nie skleiło się w jeden freeze.
+     if(i<hs.length-1)await browserYield();
+   }
+   const anchorMs=performance.now()-t;
+
+   hotspotPipelineWarmKey=key;
+   hotspotPipelineWarmLast={
+     key,features:processed,hotspots:hs.length,
+     elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs
+   };
+   console.info('HOTSPOT PIPELINE WARM v160',hotspotPipelineWarmLast);
+   return true;
+ })().finally(()=>{hotspotPipelineWarmPromise=null;});
+
+ return hotspotPipelineWarmPromise;
+}
+
 function renderSingle(ly,f){
  const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
  ly.setStyle(currentForestStyle(f,show));
@@ -25776,6 +25901,27 @@ function perfRenderNow(){
    return;
  }
 
+ // v160: pierwszy build hotspotów nie może blokować głównego wątku.
+ // Jeśli aktywny cache nie istnieje, rozgrzewamy cały pipeline porcjami i
+ // dopiero potem wracamy do normalnego renderu.
+ if(!activeHotspotCacheReady()){
+   // Zawsze podpinamy aktualny render pod trwający warm-up. Jeśli użytkownik
+   // zmieni tryb w trakcie, po zakończeniu starej porcji nowy render sam
+   // uruchomi warm-up dla aktualnego klucza — bez utknięcia UI.
+   prewarmHotspotPipeline()
+     .then(()=>{if(workToken===perfRenderWorkToken)render();})
+     .catch(e=>console.warn('Hotspot pipeline prewarm',e));
+   perfAuditLast={
+     ...perfAuditLast,
+     total:performance.now()-t0,
+     prepare:0,styles:0,top:0,hints:0,linked:0,
+     features:allFeatures.length,layers:analysisLayers.length,
+     mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,
+     hotspotWarming:true
+   };
+   return;
+ }
+
  const tp0=performance.now();
  ensurePerfCache();
  buildBalancedScales();
@@ -25857,7 +26003,11 @@ function perfRenderNow(){
      filter:currentFilter,
      atlas:atlasSelected.size,
      progressiveStyles:progressive,
-     warmMs:multiAreaWarmLast.elapsedMs||0
+     warmMs:multiAreaWarmLast.elapsedMs||0,
+     hotspotWarmMs:hotspotPipelineWarmLast.elapsedMs||0,
+     hotspotWarmScoreMs:hotspotPipelineWarmLast.scoreMs||0,
+     hotspotWarmBuildMs:hotspotPipelineWarmLast.buildMs||0,
+     hotspotWarmAnchorMs:hotspotPipelineWarmLast.anchorMs||0
    };
  };
 
@@ -26825,16 +26975,32 @@ function hotspotFeatureInteriorAnchor(f){
  const bb=hotspotGeometryBBox(g);
  let best=null,bestClear=-1;
  if(bb){
-   const n=11;
-   for(let iy=0;iy<n;iy++){
-     const lat=bb.minLat+(iy+.5)/n*(bb.maxLat-bb.minLat);
-     for(let ix=0;ix<n;ix++){
-       const lon=bb.minLon+(ix+.5)/n*(bb.maxLon-bb.minLon);
-       const p=[lat,lon];
-       if(!pointInFeatureGeometryStrict(p,g))continue;
-       const clear=hotspotBoundaryClearanceKm(p,g);
-       if(clear>bestClear){bestClear=clear;best=p;}
+   // v160: ten sam cel (punkt możliwie głęboko wewnątrz poligonu), ale
+   // zamiast 121 drogich testów robimy 49 coarse + maks. 25 lokalnych.
+   const scan=(minLat,maxLat,minLon,maxLon,n)=>{
+     for(let iy=0;iy<n;iy++){
+       const lat=minLat+(iy+.5)/n*(maxLat-minLat);
+       for(let ix=0;ix<n;ix++){
+         const lon=minLon+(ix+.5)/n*(maxLon-minLon);
+         const p=[lat,lon];
+         if(!pointInFeatureGeometryStrict(p,g))continue;
+         const clear=hotspotBoundaryClearanceKm(p,g);
+         if(clear>bestClear){bestClear=clear;best=p;}
+       }
      }
+   };
+   const coarse=7;
+   scan(bb.minLat,bb.maxLat,bb.minLon,bb.maxLon,coarse);
+   if(best){
+     const dLat=(bb.maxLat-bb.minLat)/coarse;
+     const dLon=(bb.maxLon-bb.minLon)/coarse;
+     scan(
+       Math.max(bb.minLat,best[0]-dLat*.72),
+       Math.min(bb.maxLat,best[0]+dLat*.72),
+       Math.max(bb.minLon,best[1]-dLon*.72),
+       Math.min(bb.maxLon,best[1]+dLon*.72),
+       5
+     );
    }
  }
 
@@ -27600,7 +27766,7 @@ async function loadHotspotAccessContext(hotspots){
    if(!hotspotAccessReady){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v159: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v160: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -27616,7 +27782,7 @@ async function loadHotspotAccessContext(hotspots){
      console.warn('Access UI refresh',e);
    }
 
-   console.info('HOTSPOT ACCESS v159',{
+   console.info('HOTSPOT ACCESS v160',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -27638,7 +27804,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=e?.message||String(e);
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v159: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v160: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }
 }
@@ -27977,6 +28143,19 @@ function renderTripPick(hotspots){
  if(show)show.onclick=()=>focusHotspotExact(h,{openDetails:true,temporary:true});
  if(details)details.onclick=()=>openUnifiedDetails(h.best,h);
 }
+let areaComparisonRenderToken=0;
+function scheduleAreaComparisonRefresh(){
+ const token=++areaComparisonRenderToken;
+ scheduleBrowserSlice(()=>{
+   if(token!==areaComparisonRenderToken)return;
+   try{
+     updateAreaComparison();
+     syncToplistHeight();
+     syncPanelHeight();
+   }catch(e){console.warn('Area comparison refresh',e);}
+ });
+}
+
 function buildTop(){
  const dynamic=mapMode==='today';
  const title=document.getElementById('topTitleText');
@@ -28052,9 +28231,11 @@ function buildTop(){
    box.appendChild(empty);
  }
 
- updateAreaComparison();
+ // v160: porównanie rejonów robi kolejne pełne przejścia po feature'ach.
+ // Nie jest potrzebne do pokazania hotspotów, więc odsuwamy je poza krytyczny frame.
  syncToplistHeight();
  syncPanelHeight();
+ scheduleAreaComparisonRefresh();
  scheduleHotspotAccessLoad(hotspots);
 }
 

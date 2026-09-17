@@ -1,6 +1,26 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v155:
+     PARKINGI PRZY LESIE NA MAPIE.
+
+     Bazuje na lekkim źródle dostępności z v154 — nie dodaje drugiego
+     niezależnego zapytania OSM.
+
+     v155:
+       - rysuje parkingi OSM jako małe znaczniki "P",
+       - pokazuje je tylko od zoomu 12,
+       - filtruje parkingi do maks. ~300 m od analizowanych wydzieleń leśnych,
+       - deduplikuje parkingi leżące bardzo blisko siebie,
+       - popup podaje nazwę/typ i odległość do najbliższego hotspotu,
+       - osobna warstwa "Parkingi przy lesie" w standardowym panelu warstw,
+       - warstwa domyślnie włączona po analizie.
+
+     To są parkingi OSM przy analizowanych lasach, a nie gwarancja parkingu
+     oficjalnego Lasów Państwowych ani legalności postoju w każdej sytuacji.
+
+     Produkcyjny scoring jest byte-identical z v154/v153/v152.
+
 <!-- GitHub production v154:
      PRAKTYCZNA DOSTĘPNOŚĆ TERENU — BEZ NOWEGO TRYBU.
 
@@ -3375,6 +3395,24 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 .u-hotspot-access .access-badge.warn{background:#f8ddd8;color:#8b2f23;border-color:#e1a092}
 .u-hotspot-access .access-badge.unknown{background:#e8ece9;color:#51605a;border-color:#c3cdc8}
 
+.forest-parking-pin{
+  width:24px;height:24px;border-radius:7px;
+  display:grid;place-items:center;
+  background:rgba(16,30,21,.94);
+  border:2px solid #f4f7ef;
+  box-shadow:0 2px 9px rgba(0,0,0,.35),0 0 0 2px rgba(36,117,70,.35);
+  color:#dff6e5;font-size:13px;font-weight:1000;line-height:1;
+}
+.forest-parking-pin.near-top{
+  background:#1e6d3f;
+  box-shadow:0 2px 10px rgba(0,0,0,.38),0 0 0 3px rgba(75,193,113,.28);
+}
+.forest-parking-popup{
+  min-width:190px;font-size:11px;line-height:1.42;color:#24342a;
+}
+.forest-parking-popup b{font-weight:950}
+.forest-parking-popup .muted{opacity:.68;font-size:9px}
+
 
 /* ===== GitHub production: resilience / cache diagnostics ===== */
 .prod-net-actions{
@@ -5104,6 +5142,7 @@ map.on('resize',scheduleSpeciesHintLayout);
 window.addEventListener('resize',scheduleSpeciesHintLayout);
 const obsGroup=L.layerGroup();
 const openGroup=L.layerGroup();
+const forestParkingGroup=L.layerGroup().addTo(map);
 const selectionGroup=L.layerGroup().addTo(map);
 const nationalTopGroup=L.layerGroup().addTo(map);
 // v66 — statyczny radar całej Polski, generowany offline przez radar_poland_builder.
@@ -5170,6 +5209,7 @@ L.control.layers({'OpenStreetMap':osm}, {
  'Rezerwaty / zakazy':reserveGroup,
  'iNaturalist / GBIF — obserwacje':obsGroup,
  'OSM — łąki / polany / pastwiska':openGroup,
+ 'Parkingi przy lesie':forestParkingGroup,
  'BDL — oficjalna warstwa awaryjna':bdl,
  'Wybrane rejony':selectionGroup,
  'Radar Polski — statyczny':nationalRadarGroup
@@ -8287,6 +8327,7 @@ async function main(){
  hotspotAccessSeq++;
  hotspotAccessRoads=[];
  hotspotAccessParking=[];
+ forestParkingGroup.clearLayers();
  hotspotAccessReady=false;
  hotspotAccessLoading=false;
  hotspotAccessQueryKey='';
@@ -10710,11 +10751,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v154: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v155: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v154 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v155 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10724,7 +10765,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v154 health',health);
+     console.info('National benchmark v155 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -21332,6 +21373,34 @@ function auditHotspotAccessV154(){
 }
 window.auditHotspotAccessV154=auditHotspotAccessV154;
 
+
+function auditForestParkingV155(){
+ const rows=forestParkingRows().map(p=>({
+   name:p.name||'Parking OSM',
+   lat:Number(p.point[0].toFixed(5)),
+   lon:Number(p.point[1].toFixed(5)),
+   forestM:Math.round(p.forestKm*1000),
+   nearestHotspot:p.nearestHotspot?hotspotLabel(p.nearestHotspot):null,
+   hotspotM:Number.isFinite(p.hotspotKm)?Math.round(p.hotspotKm*1000):null
+ }));
+ const report={
+   version:'v155',
+   zoom:map.getZoom(),
+   sourceParking:hotspotAccessParking.length,
+   forestFiltered:rows.length,
+   visibleMarkers:forestParkingGroup.getLayers().length,
+   minZoom:12,
+   maxForestDistanceM:300,
+   dedupeDistanceM:60,
+   changesProductionScore:false,
+   rows
+ };
+ console.table(rows);
+ console.info('FOREST PARKING AUDIT v155',report);
+ return report;
+}
+window.auditForestParkingV155=auditForestParkingV155;
+
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
@@ -26810,6 +26879,119 @@ function parseHotspotAccessElements(elements){
  return {roads,parking};
 }
 
+function parkingDistanceToFeatureKm(point,f){
+ if(!Array.isArray(point)||!f?.geometry)return Infinity;
+ if(pointInFeatureGeometryStrict(point,f.geometry))return 0;
+
+ const bb=hotspotGeometryBBox(f.geometry);
+ if(bb){
+   const latPad=.0040;
+   const lonPad=.0060;
+   if(point[0]<bb.minLat-latPad||point[0]>bb.maxLat+latPad||
+      point[1]<bb.minLon-lonPad||point[1]>bb.maxLon+lonPad)return Infinity;
+ }
+ // Funkcja mierzy do granic ringów również wtedy, gdy punkt leży poza polygonem.
+ return hotspotBoundaryClearanceKm(point,f.geometry);
+}
+
+function parkingNearAnalysedForestKm(point,maxKm=.30){
+ let best=Infinity;
+ for(const f of allFeatures){
+   if(!f?.geometry)continue;
+   const d=parkingDistanceToFeatureKm(point,f);
+   if(d<best)best=d;
+   if(best<=.005)return best;
+ }
+ return best<=maxKm?best:Infinity;
+}
+
+function nearestHotspotForParking(point){
+ let best=null,bestKm=Infinity;
+ for(const h of activeHotspots()){
+   const a=hotspotMapAnchor(h)||h._center;
+   if(!Array.isArray(a))continue;
+   const d=hav(point,a);
+   if(d<bestKm){bestKm=d;best=h;}
+ }
+ return {hotspot:best,km:bestKm};
+}
+
+function dedupeForestParking(rows,thresholdKm=.06){
+ const out=[];
+ const sorted=[...rows].sort((a,b)=>{
+   const an=String(a.name||'').length?1:0,bn=String(b.name||'').length?1:0;
+   return bn-an;
+ });
+ for(const p of sorted){
+   if(out.some(x=>hav(x.point,p.point)<=thresholdKm))continue;
+   out.push(p);
+ }
+ return out;
+}
+
+function forestParkingRows(){
+ if(!hotspotAccessReady||!allFeatures.length)return [];
+ const rows=[];
+ for(const p of hotspotAccessParking){
+   if(!Array.isArray(p.point))continue;
+   const forestKm=parkingNearAnalysedForestKm(p.point,.30);
+   if(!Number.isFinite(forestKm))continue;
+   const near=nearestHotspotForParking(p.point);
+   rows.push({...p,forestKm,nearestHotspot:near.hotspot,hotspotKm:near.km});
+ }
+ return dedupeForestParking(rows,.06);
+}
+
+function forestParkingPopupHtml(p){
+ const name=p.name?escapeHtml(p.name):'Parking OSM';
+ const h=p.nearestHotspot;
+ const hotspotText=h&&Number.isFinite(p.hotspotKm)
+   ? `${escapeHtml(hotspotLabel(h))} • ${Math.round(p.hotspotKm*1000)} m`
+   : 'brak pobliskiego hotspotu';
+ const forestM=Math.round((p.forestKm||0)*1000);
+ const type=String(p.e?.tags?.parking||'').trim();
+ const typeTxt=type?`Typ OSM: ${escapeHtml(type)}`:'Parking oznaczony w OpenStreetMap';
+ return `<div class="forest-parking-popup">
+   <b>🅿️ ${name}</b><br>
+   ${typeTxt}<br>
+   Najbliższy hotspot: <b>${hotspotText}</b><br>
+   Do analizowanego lasu: <b>${forestM} m</b><br>
+   <span class="muted">Dane OSM. Znacznik nie gwarantuje oficjalnego parkingu LP ani legalności postoju.</span>
+ </div>`;
+}
+
+function renderForestParkingLayer(){
+ forestParkingGroup.clearLayers();
+
+ if(map.getZoom()<12)return;
+ if(!hotspotAccessReady)return;
+
+ const rows=forestParkingRows();
+ for(const p of rows){
+   const nearTop=Number.isFinite(p.hotspotKm)&&p.hotspotKm<=.65;
+   const marker=L.marker(p.point,{
+     zIndexOffset:nearTop?260:220,
+     keyboard:true,
+     icon:L.divIcon({
+       className:'',
+       html:`<div class="forest-parking-pin${nearTop?' near-top':''}">P</div>`,
+       iconSize:[24,24],
+       iconAnchor:[12,12],
+       popupAnchor:[0,-13]
+     })
+   });
+   marker.bindPopup(forestParkingPopupHtml(p),{maxWidth:280});
+   marker.addTo(forestParkingGroup);
+ }
+}
+
+map.on('zoomend',renderForestParkingLayer);
+map.on('layeradd',e=>{
+ if(e.layer===forestParkingGroup)renderForestParkingLayer();
+});
+
+
+
 async function loadHotspotAccessContext(hotspots){
  const sample=hotspotAccessBalancedSample(hotspots,8);
  if(!sample.length)return false;
@@ -26846,6 +27028,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessParking=parsed.parking;
    hotspotAccessReady=true;
    hotspotAccessLoading=false;
+   renderForestParkingLayer();
 
    // Odświeżamy tylko UI hotspotów. Nie dotykamy scoringu.
    try{
@@ -26868,6 +27051,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessReady=false;
      hotspotAccessRoads=[];
      hotspotAccessParking=[];
+     forestParkingGroup.clearLayers();
    }
    console.warn('Hotspot access optional source failed',e);
    return false;
@@ -28204,7 +28388,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v154: automatyczny start w tle');
+      console.info('Benchmark krajowy v155: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

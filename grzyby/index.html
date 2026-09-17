@@ -1,6 +1,27 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v151:
+     HOTSPOT ANCHOR + EXACT FOCUS UX.
+
+     v150 działał poprawnie, ale numer hotspotu (np. A4) był kotwiczony do
+     ważonego środka całego klastra h._center. Taki punkt może leżeć pomiędzy
+     wydzieleniami, więc badge wyglądał jak przypięty obok lasu.
+
+     v151:
+       - wszystkie elementy UI hotspotu korzystają z osobnego hotspotMapAnchor(),
+       - anchor jest wyliczany z NAJMOCNIEJSZEGO wydzielenia h.best,
+       - anchor jest szukany wewnątrz geometrii polygonu,
+       - scoringowy h._center zostaje nietknięty,
+       - numer A4, ikonki grzybów i KML wskazują reprezentatywne wydzielenie.
+
+     Kolejny krok UX wdrożony od razu:
+       - kliknięcie hotspotu / Pokaż na mapie robi EXACT FOCUS na winning polygon,
+       - wydzielenie dostaje czasowy obrys,
+       - fitBounds uwzględnia lewy panel i dolny Atlas.
+
+     Produkcyjny scoring jest byte-identical z v150/v149/v148.
+
 <!-- GitHub production v150:
      HOTFIX — "GDZIE JECHAĆ?" CARD.
 
@@ -3214,6 +3235,17 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   .trip-pick-score{font-size:14px;min-width:36px}
 }
 
+.hotspot-focus-note{
+  background:rgba(11,25,16,.94)!important;
+  border:1px solid rgba(198,239,143,.72)!important;
+  color:#f4f8ef!important;
+  border-radius:8px!important;
+  box-shadow:0 5px 18px rgba(0,0,0,.32)!important;
+  font-size:10px!important;
+  font-weight:900!important;
+  padding:4px 7px!important;
+}
+
 
 /* ===== GitHub production: resilience / cache diagnostics ===== */
 .prod-net-actions{
@@ -4892,6 +4924,13 @@ const topGroup=L.layerGroup().addTo(map);
 const hintGroup=L.layerGroup().addTo(map);
 const linkedHoverGroup=L.layerGroup().addTo(map);
 const linkedLockGroup=L.layerGroup().addTo(map);
+const hotspotFocusGroup=L.layerGroup().addTo(map);
+
+if(!map.getPane('hotspotFocusPane')){
+  map.createPane('hotspotFocusPane');
+}
+map.getPane('hotspotFocusPane').style.zIndex='455';
+map.getPane('hotspotFocusPane').style.pointerEvents='none';
 
 if(!map.getPane('linkedFocusPane')){
   map.createPane('linkedFocusPane');
@@ -10525,11 +10564,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v150: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v151: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v150 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v151 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10539,7 +10578,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v150 health',health);
+     console.info('National benchmark v151 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -21063,6 +21102,23 @@ function auditHotspotUxV149(){
  console.table([report]);console.info('HOTSPOT UX AUDIT v150',report);return report;
 }
 window.auditHotspotUxV149=auditHotspotUxV149;
+
+function auditHotspotAnchorsV151(){
+ const rows=activeHotspots().map(h=>{
+   const anchor=hotspotMapAnchor(h);
+   const inside=!!(anchor&&h.best?.geometry&&pointInFeatureGeometryStrict(anchor,h.best.geometry));
+   const clusterOffsetKm=anchor&&h._center?hav(anchor,h._center):null;
+   return {hotspot:hotspotLabel(h),area:h.areaName,insideBestPolygon:inside,
+     clusterToPinKm:Number.isFinite(clusterOffsetKm)?Number(clusterOffsetKm.toFixed(3)):null,
+     bestFeature:stableFeatureKey(h.best)};
+ });
+ const off=rows.filter(x=>!x.insideBestPolygon);
+ const report={version:'v151',hotspots:rows.length,insideBestPolygon:rows.length-off.length,
+   offPolygon:off.length,maxClusterToPinKm:Math.max(0,...rows.map(x=>Number(x.clusterToPinKm)||0)),ok:off.length===0,rows};
+ console.table(rows);console.info('HOTSPOT ANCHOR AUDIT v151',report);return report;
+}
+window.auditHotspotAnchorsV151=auditHotspotAnchorsV151;
+
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
@@ -25999,6 +26055,168 @@ function auditHotspotSpeciesConsistency(){
 }
 window.auditHotspotSpeciesConsistency=auditHotspotSpeciesConsistency;
 
+
+const hotspotUiAnchorCache=new WeakMap();
+let hotspotFocusClearTimer=0;
+
+function pointInFeatureGeometryStrict(pt,g){
+ if(!g||!Array.isArray(pt))return false;
+ const inPoly=poly=>{
+   if(!poly?.length||!rayRing(pt,poly[0]))return false;
+   for(let i=1;i<poly.length;i++)if(rayRing(pt,poly[i]))return false;
+   return true;
+ };
+ if(g.type==='Polygon')return inPoly(g.coordinates||[]);
+ if(g.type==='MultiPolygon')return (g.coordinates||[]).some(inPoly);
+ return false;
+}
+
+function hotspotGeometryBBox(g){
+ let minLon=Infinity,minLat=Infinity,maxLon=-Infinity,maxLat=-Infinity;
+ eachCoord(g?.coordinates,c=>{
+   const lon=Number(c?.[0]),lat=Number(c?.[1]);
+   if(!Number.isFinite(lon)||!Number.isFinite(lat))return;
+   minLon=Math.min(minLon,lon);maxLon=Math.max(maxLon,lon);
+   minLat=Math.min(minLat,lat);maxLat=Math.max(maxLat,lat);
+ });
+ if(![minLon,minLat,maxLon,maxLat].every(Number.isFinite))return null;
+ return {minLon,minLat,maxLon,maxLat};
+}
+
+function hotspotPointSegDistanceKm(pt,a,b){
+ const lat0=(pt[0]+a[1]+b[1])/3*Math.PI/180;
+ const kx=111.32*Math.max(.15,Math.cos(lat0)),ky=110.57;
+ const px=pt[1]*kx,py=pt[0]*ky;
+ const ax=a[0]*kx,ay=a[1]*ky,bx=b[0]*kx,by=b[1]*ky;
+ const vx=bx-ax,vy=by-ay,wx=px-ax,wy=py-ay;
+ const vv=vx*vx+vy*vy;
+ const t=vv>1e-12?Math.max(0,Math.min(1,(wx*vx+wy*vy)/vv)):0;
+ return Math.hypot(px-(ax+t*vx),py-(ay+t*vy));
+}
+
+function hotspotBoundaryClearanceKm(pt,g){
+ let best=Infinity;
+ const polys=g?.type==='Polygon'?[g.coordinates]:(g?.type==='MultiPolygon'?g.coordinates:[]);
+ for(const poly of polys||[]){
+   for(const ring of poly||[]){
+     for(let i=1;i<ring.length;i++){
+       best=Math.min(best,hotspotPointSegDistanceKm(pt,ring[i-1],ring[i]));
+     }
+   }
+ }
+ return Number.isFinite(best)?best:0;
+}
+
+function hotspotFeatureInteriorAnchor(f){
+ if(!f?.geometry)return Array.isArray(f?._center)?f._center:null;
+ if(hotspotUiAnchorCache.has(f))return hotspotUiAnchorCache.get(f);
+
+ const g=f.geometry;
+ const raw=Array.isArray(f._center)?f._center:geomCenter(g);
+ if(raw&&pointInFeatureGeometryStrict(raw,g)){
+   hotspotUiAnchorCache.set(f,raw);
+   return raw;
+ }
+
+ const bb=hotspotGeometryBBox(g);
+ let best=null,bestClear=-1;
+ if(bb){
+   const n=11;
+   for(let iy=0;iy<n;iy++){
+     const lat=bb.minLat+(iy+.5)/n*(bb.maxLat-bb.minLat);
+     for(let ix=0;ix<n;ix++){
+       const lon=bb.minLon+(ix+.5)/n*(bb.maxLon-bb.minLon);
+       const p=[lat,lon];
+       if(!pointInFeatureGeometryStrict(p,g))continue;
+       const clear=hotspotBoundaryClearanceKm(p,g);
+       if(clear>bestClear){bestClear=clear;best=p;}
+     }
+   }
+ }
+
+ if(!best&&bb){
+   const c=[(bb.minLat+bb.maxLat)/2,(bb.minLon+bb.maxLon)/2];
+   const polys=g.type==='Polygon'?[g.coordinates]:(g.type==='MultiPolygon'?g.coordinates:[]);
+   for(const poly of polys||[]){
+     const ring=poly?.[0]||[];
+     const step=Math.max(1,Math.floor(ring.length/24));
+     for(let i=0;i<ring.length;i+=step){
+       const v=[ring[i][1],ring[i][0]];
+       for(const t of [.25,.4,.55,.7,.85]){
+         const p=[v[0]*(1-t)+c[0]*t,v[1]*(1-t)+c[1]*t];
+         if(pointInFeatureGeometryStrict(p,g)){best=p;break;}
+       }
+       if(best)break;
+     }
+     if(best)break;
+   }
+ }
+
+ const out=best||raw||f._center||null;
+ if(out)hotspotUiAnchorCache.set(f,out);
+ return out;
+}
+
+function hotspotMapAnchor(h){
+ return hotspotFeatureInteriorAnchor(h?.best)||(Array.isArray(h?._center)?h._center:null);
+}
+
+function hotspotVisibleUiPadding(){
+ const panel=document.querySelector('.panel');
+ const atlas=document.querySelector('.mushroom-atlas');
+ const mapRect=map.getContainer().getBoundingClientRect();
+ let left=28,bottom=32;
+ if(panel&&panel.offsetParent){
+   const r=panel.getBoundingClientRect();
+   left=Math.max(left,Math.min(mapRect.width*.44,Math.max(0,r.right-mapRect.left)+18));
+ }
+ if(atlas&&atlas.offsetParent){
+   const r=atlas.getBoundingClientRect();
+   bottom=Math.max(bottom,Math.min(mapRect.height*.40,Math.max(0,mapRect.bottom-r.top)+18));
+ }
+ return {topLeft:[left,34],bottomRight:[34,bottom]};
+}
+
+function clearHotspotFocus(){
+ if(hotspotFocusClearTimer){clearTimeout(hotspotFocusClearTimer);hotspotFocusClearTimer=0;}
+ hotspotFocusGroup.clearLayers();
+}
+window.clearHotspotFocus=clearHotspotFocus;
+
+function focusHotspotExact(h,{openDetails=true,temporary=true}={}){
+ if(!h?.best)return false;
+ clearHotspotFocus();
+ let bounds=null;
+ try{
+   const halo=L.geoJSON(h.best,{
+     pane:'hotspotFocusPane',interactive:false,
+     style:{color:'#f0df69',weight:4.2,opacity:.98,fillColor:'#bce97a',fillOpacity:.13,dashArray:'8 5',lineJoin:'round'}
+   }).addTo(hotspotFocusGroup);
+   bounds=halo.getBounds();
+   const a=hotspotMapAnchor(h);
+   if(a){
+     L.tooltip({permanent:false,direction:'top',offset:[0,-13],className:'hotspot-focus-note',opacity:1})
+       .setLatLng(a)
+       .setContent(`${hotspotLabel(h)} • najmocniejsze wydzielenie`)
+       .addTo(hotspotFocusGroup);
+   }
+ }catch(e){console.warn('Exact hotspot focus geometry failed',e);}
+
+ const pad=hotspotVisibleUiPadding();
+ if(bounds?.isValid?.()){
+   map.fitBounds(bounds,{paddingTopLeft:pad.topLeft,paddingBottomRight:pad.bottomRight,maxZoom:16,animate:true});
+ }else{
+   const a=hotspotMapAnchor(h);
+   if(a)map.setView(a,Math.max(map.getZoom(),15),{animate:true});
+ }
+ if(openDetails)setTimeout(()=>openUnifiedDetails(h.best,h),260);
+ if(temporary){
+   hotspotFocusClearTimer=setTimeout(()=>{hotspotFocusClearTimer=0;hotspotFocusGroup.clearLayers();},8500);
+ }
+ return true;
+}
+window.focusHotspotExact=focusHotspotExact;
+
 function hotspotLabelKey(h){
  return `${h.areaName}|${hotspotLabel(h)}`;
 }
@@ -26138,7 +26356,8 @@ function hotspotPlacementHardOverlap(rect,placed,obstacles){
  return {labelOverlap,uiOverlap,total:labelOverlap+uiOverlap};
 }
 function chooseRackPlacement(h,metrics,placed,pins,obstacles,mapSize,leaders=[]){
- const p=map.latLngToContainerPoint(h._center);
+ const anchor=hotspotMapAnchor(h)||h._center;
+ const p=map.latLngToContainerPoint(anchor);
  const dirs=[
    ['top',0,-1],['tr1',.45,-.89],['tr',.71,-.71],['rtr',.89,-.45],
    ['right',1,0],['rbr',.89,.45],['br',.71,.71],['br1',.45,.89],
@@ -26214,7 +26433,8 @@ function renderSpeciesHints(){
  visible=hotspotBalancedVisible(visible,hotspotLabelLimit(z));
 
  const pins=visible.map(h=>{
-   const p=map.latLngToContainerPoint(h._center);
+   const a=hotspotMapAnchor(h)||h._center;
+   const p=map.latLngToContainerPoint(a);
    return {key:hotspotLabelKey(h),rect:{x:p.x-18,y:p.y-18,w:36,h:36}};
  });
 
@@ -26256,14 +26476,15 @@ function renderSpeciesHints(){
    let labelHtml=hotspotRackHtml(h,types,view);
    labelHtml=labelHtml.replace('class="hotspot-icon-rack',`class="hotspot-icon-rack smart-callout${far?' smart-callout-far':''}`);
 
-   const rackMarker=L.marker(h._center,{
+   const rackAnchor=hotspotMapAnchor(h)||h._center;
+   const rackMarker=L.marker(rackAnchor,{
      interactive:true,keyboard:true,bubblingMouseEvents:false,zIndexOffset:-48,
      icon:L.divIcon({className:'',html:labelHtml,iconSize:[metrics.w,metrics.h],iconAnchor:rackIconAnchor(metrics,placement)})
    }).addTo(hintGroup);
 
    rackMarker.on('click',e=>{
      try{e.originalEvent?.stopPropagation?.();}catch(_){}
-     openUnifiedDetails(h.best,h);
+     focusHotspotExact(h,{openDetails:true,temporary:true});
    });
 
    placed.push(placement.rect);
@@ -26332,10 +26553,7 @@ function renderTripPick(hotspots){
    </div>`;
 
  const show=el.querySelector('[data-trip-action="show"]'),details=el.querySelector('[data-trip-action="details"]');
- if(show)show.onclick=()=>{
-   map.setView(h._center,Math.max(map.getZoom(),14),{animate:true});
-   setTimeout(()=>openUnifiedDetails(h.best,h),240);
- };
+ if(show)show.onclick=()=>focusHotspotExact(h,{openDetails:true,temporary:true});
  if(details)details.onclick=()=>openUnifiedDetails(h.best,h);
 }
 function buildTop(){
@@ -26366,7 +26584,8 @@ function buildTop(){
    const today=hotspotTodayInfo(h),vm=VERDICT_META[today.rank],t=currentHotspotType(h);
    const name=t?(HUMAN_NAMES[t]||t):'Różnorodność',label=hotspotLabel(h);
 
-   const marker=L.marker(h._center,{
+   const pinAnchor=hotspotMapAnchor(h)||h._center;
+   const marker=L.marker(pinAnchor,{
      bubblingMouseEvents:false,
      icon:L.divIcon({
        className:'',
@@ -26377,7 +26596,7 @@ function buildTop(){
 
    marker.on('click',e=>{
      try{e.originalEvent?.stopPropagation?.();}catch(_){}
-     openUnifiedDetails(h.best,h);
+     focusHotspotExact(h,{openDetails:true,temporary:true});
    });
 
    const score=dynamic?(h.todayBestScore??today.bestScore):h.stableBestScore;
@@ -26394,7 +26613,7 @@ function buildTop(){
      ? `Hotspot DZIŚ ${label}: wynik klastra ${h.clusterScore.toFixed(1)}/10; kontekst lasu ${h.forestContext.toFixed(1)}/10; ${h.areaHa.toFixed(1)} ha`
      : `Hotspot POTENCJAŁU ${label}: jakość całego obszaru ${h.clusterScore.toFixed(1)}/10; kontekst kompleksu ${h.forestContext.toFixed(1)}/10; ${h.areaHa.toFixed(1)} ha`;
 
-   d.onclick=()=>{openUnifiedDetails(h.best,h);};
+   d.onclick=()=>{focusHotspotExact(h,{openDetails:true,temporary:true});};
    box.appendChild(d);
  }
 
@@ -26486,7 +26705,8 @@ function downloadTopKml(){
  let body='';for(const h of topSpots){
    const label=hotspotLabel(h),t=stableHotspotType(h),species=t?(HUMAN_NAMES[t]||t):'Różnorodność',today=hotspotTodayInfo(h);
    const desc=`Rejon: ${h.areaName}; stały potencjał: ${h.stableBestScore.toFixed(1)}/10; dzisiaj warto+: ${today.worthShare.toFixed(0)}%; wydzieleń: ${h.count}; powierzchnia: ${h.areaHa.toFixed(1)} ha`;
-   body+=`<Placemark><name>${kmlEsc(label+' — '+h.areaName+' — '+species)}</name><description>${kmlEsc(desc)}</description><Point><coordinates>${h._center[1]},${h._center[0]},0</coordinates></Point></Placemark>`;
+   const anchor=hotspotMapAnchor(h)||h._center;
+   body+=`<Placemark><name>${kmlEsc(label+' — '+h.areaName+' — '+species)}</name><description>${kmlEsc(desc)}</description><Point><coordinates>${anchor[1]},${anchor[0]},0</coordinates></Point></Placemark>`;
  }
  const kml=`<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Stałe hotspoty grzybowe — wybrane rejony Polski</name>${body}</Document></kml>`;
  const blob=new Blob([kml],{type:'application/vnd.google-earth.kml+xml'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mapa_grzybowa_PL_hotspoty_${currentFilter}.kml`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
@@ -27342,7 +27562,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v150: automatyczny start w tle');
+      console.info('Benchmark krajowy v151: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

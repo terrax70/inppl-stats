@@ -4976,6 +4976,8 @@ let hotspotAccessQueryKey='';
 let hotspotAccessSeq=0;
 let hotspotAccessTimer=0;
 let hotspotAccessRetryAfter=0;
+// v165: globalny cooldown warstwy dostępu — zmiana klucza hotspotów nie omija awarii API.
+let hotspotAccessGlobalRetryAfter=0;
 let hotspotAccessLastError='';
 
 const observationData={};
@@ -8068,6 +8070,18 @@ function overpassOpenCircuit(ms=180000){
 // Tutaj kolejny request do tego samego hosta zaczyna się dopiero po pełnym
 // zakończeniu poprzedniego + krótkim odstępie. Cache nadal wraca w prodFetchJson.
 const overpassHostTails=new Map();
+// v165 — zdrowie hostów niezależne od globalnego circuit-breakera.
+// Timeout/429 jednego publicznego endpointu nie powinien powodować kolejnych
+// prób do tego samego hosta przy każdej zmianie trybu lub hotspotów.
+const overpassHostCooldownUntil=new Map();
+function overpassHostCooldownMs(hostKey){
+ return Math.max(0,Number(overpassHostCooldownUntil.get(String(hostKey||''))||0)-Date.now());
+}
+function overpassCoolHost(hostKey,ms){
+ const key=String(hostKey||'');
+ if(!key)return;
+ overpassHostCooldownUntil.set(key,Math.max(Number(overpassHostCooldownUntil.get(key)||0),Date.now()+Math.max(0,ms||0)));
+}
 let overpassSerialActive=0;
 async function overpassRunSerialized(hostKey,minMs,fn){
  const key=String(hostKey||'overpass');
@@ -8117,9 +8131,17 @@ async function fetchOverpassWithFallback(body,opts={}){
 
  for(let i=0;i<endpoints.length;i++){
    const [endpoint,timeoutMs]=endpoints[i];
+   let hostKey='overpass';
+   try{hostKey='overpass:'+new URL(endpoint).hostname;}catch(_){ }
+
+   // v165: martwy / rate-limitowany host pomijamy zamiast czekać na kolejny timeout.
+   const cooling=overpassHostCooldownMs(hostKey);
+   if(cooling>0){
+     lastErr=Object.assign(new Error(`Host cooldown ${Math.ceil(cooling/1000)} s`),{code:'OVERPASS_HOST_COOLDOWN'});
+     continue;
+   }
+
    try{
-     let hostKey='overpass';
-     try{hostKey='overpass:'+new URL(endpoint).hostname;}catch(_){ }
      const minMs=endpoint.includes('overpass-api.de')?1800:1100;
      const out=await overpassRunSerialized(hostKey,minMs,()=>prodFetchJson(endpoint,{
        method:'POST',
@@ -8127,16 +8149,25 @@ async function fetchOverpassWithFallback(body,opts={}){
        body,
        timeoutMs,
        tries:1,
-       abortOnTimeout:false,
-       // v164: pacing + pełna serializacja hosta. To samo źródło nie dostaje
-       // równoległych requestów z OSM i HOTSPOT ACCESS.
+       // v165: po timeoutcie request ma zostać naprawdę anulowany. W v164
+       // Promise.race kończył oczekiwanie, ale fetch mógł nadal żyć w tle.
+       abortOnTimeout:true,
        pace:{key:hostKey,minMs},
        policy:{ttl:12*3600e3,stale:7*86400e3}
      }));
+     overpassHostCooldownUntil.delete(hostKey);
      if(useCircuit)overpassCircuitUntil=0;
      return out;
    }catch(e){
      lastErr=e;
+     const status=Number(e?.status||0);
+     const msg=String(e?.message||e||'').toLowerCase();
+     if(status===429){
+       overpassCoolHost(hostKey,Math.max(30000,Number(e?.retryAfterMs)||0));
+     }else if(status===408||e?.name==='AbortError'||/timeout|failed to fetch|network|connection/.test(msg)){
+       // Publiczny primary po timeoutcie odpoczywa dłużej; fallbacki krócej.
+       overpassCoolHost(hostKey,endpoint.includes('overpass-api.de')?90000:45000);
+     }
      if(!quiet)console.warn(`Overpass ${i+1}/${endpoints.length} failed`,endpoint,e);
    }
  }
@@ -25822,7 +25853,7 @@ async function prewarmMultiAreaScoring(){
      elapsedMs:performance.now()-t0,
      rawMs,scoreMs,todayMs,yields
    };
-   console.info('MULTI-AREA SCORE WARM v164',multiAreaWarmLast);
+   console.info('MULTI-AREA SCORE WARM v165',multiAreaWarmLast);
    return true;
  })().finally(()=>{multiAreaWarmPromise=null;});
 
@@ -25848,7 +25879,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v164-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
+   'v165-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -26055,7 +26086,7 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase
    };
-   console.info('HOTSPOT PIPELINE WARM v164',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v165',hotspotPipelineWarmLast);
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -27935,6 +27966,7 @@ map.on('layeradd',e=>{
 
 
 async function loadHotspotAccessContext(hotspots){
+ if(Date.now()<hotspotAccessGlobalRetryAfter)return false;
  const parkingSample=hotspotAccessSpatialSample(hotspots,5,1.6);
  if(!parkingSample.length)return false;
 
@@ -28021,11 +28053,13 @@ async function loadHotspotAccessContext(hotspots){
    if(!hotspotAccessReady){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v164: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
+     console.info('HOTSPOT ACCESS v165: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
    hotspotAccessRetryAfter=0;
+   hotspotAccessGlobalRetryAfter=0;
    hotspotAccessLastError='';
 
    // Odświeżamy tylko UI. Scoring bez zmian.
@@ -28037,7 +28071,7 @@ async function loadHotspotAccessContext(hotspots){
      console.warn('Access UI refresh',e);
    }
 
-   console.info('HOTSPOT ACCESS v164',{
+   console.info('HOTSPOT ACCESS v165',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -28058,22 +28092,29 @@ async function loadHotspotAccessContext(hotspots){
      forestParkingGroup.clearLayers();
      hotspotAccessLastError=e?.message||String(e);
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
+     hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v164: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v165: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }
 }
 
-function scheduleHotspotAccessLoad(hotspots,delay=2200){
+function scheduleHotspotAccessLoad(hotspots,delay=2600){
  clearTimeout(hotspotAccessTimer);
  const key=hotspotAccessKey(hotspots||[]);
  if(!key)return;
  if(hotspotAccessReady&&key===hotspotAccessQueryKey)return;
+ if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   loadHotspotAccessContext(activeHotspots());
+   // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
+   // wypuścić rejected Promise do konsoli użytkownika.
+   Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
+     hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
+     console.info('HOTSPOT ACCESS v165: błąd sieci połknięty',e?.message||String(e));
+   });
  },delay);
 }
 
@@ -29436,11 +29477,21 @@ const startNationalBenchmarkDeferred=()=>{
     console.warn('Benchmark krajowy v103: nie udało się wystartować automatycznie',e);
   }
 };
-if('requestIdleCallback' in window){
-  requestIdleCallback(startNationalBenchmarkDeferred,{timeout:1800});
-}else{
-  setTimeout(startNationalBenchmarkDeferred,1500);
-}
+// v165: benchmark nie konkuruje już z pierwszym cold-startem DZIŚ/hotspotów.
+// Jeżeli użytkownik właśnie analizuje mapę, benchmark poczeka i wystartuje dopiero
+// po uspokojeniu głównego pipeline. Gdy użytkownik nic nie robi, rusza po ~5.5 s.
+let nationalBenchmarkAutoTimer=0;
+const scheduleNationalBenchmarkAuto=(delay=5500)=>{
+  clearTimeout(nationalBenchmarkAutoTimer);
+  nationalBenchmarkAutoTimer=setTimeout(()=>{
+    if(analysisRunning||hotspotPipelineWarmPromise||multiAreaWarmPromise){
+      scheduleNationalBenchmarkAuto(2200);
+      return;
+    }
+    startNationalBenchmarkDeferred();
+  },delay);
+};
+scheduleNationalBenchmarkAuto();
 
 // v148: quality-validation zakończone; clean production nie uruchamia ich automatycznie.
 

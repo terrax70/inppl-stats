@@ -1,6 +1,29 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v148:
+     CLEAN PRODUCTION RELEASE AFTER BIOLOGICAL / PLACE-QUALITY VALIDATION.
+
+     Final validation status:
+       - Borowik szlachetny: STRICT >=25, 2 regiony, 79 pozytywów,
+         AUC-like 0.563, enrich10 1.27, enrich25 1.37.
+       - Podgrzybek brunatny: CLEAN >=10, 2 regiony, 26 pozytywów,
+         AUC-like 0.650, enrich10 1.15, enrich25 1.69.
+       - Kurka: CLEAN >=10, 3 regiony, 33 pozytywy,
+         AUC-like 0.618, enrich10 1.21, enrich25 1.70.
+       - Koźlarz babka / Maślak sitarz / Mleczaj rydz:
+         data-limited przy 10/15/20 km; brak potwierdzonego przeciwnego sygnału.
+
+     3/3 gatunki z wystarczającą próbą miały dodatni kierunek.
+     0 gatunków miało potwierdzony sygnał przeciwny.
+     Brak podstaw do zmiany wag modelu.
+
+     v148 usuwa automatyczne quality/sparse audyty z normalnego startu.
+     Narzędzia audytowe pozostają diagnostycznie dostępne.
+
+     Produkcyjny scoring jest byte-identical z v147.
+     Observation Atlas fix, overlap-cluster i poprawki wydajności pozostają aktywne.
+
 <!-- GitHub production v147:
      SPARSE-SPECIES COVERAGE VALIDATION.
 
@@ -10423,11 +10446,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v147: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v148: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v147 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v148 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10437,7 +10460,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v147 health',health);
+     console.info('National benchmark v148 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -20999,7 +21022,7 @@ function auditAppBootstrap(){
    adaptivePlaceQualityV146:typeof window.auditAdaptivePlaceQualityV146==='function',
    adaptivePlaceQualityAutoStart:false,
    sparseSpeciesCoverageV147:typeof window.auditSparseSpeciesCoverageV147==='function',
-   sparseSpeciesCoverageAutoStart:true,
+   sparseSpeciesCoverageAutoStart:false,
    multiAreaPerformance:typeof window.auditMultiAreaPerformance==='function',
    activeSpeciesResolver:typeof activeSingleSpeciesType==='function',
    observationPreloadHelper:typeof ensureActiveSingleSpeciesObservations==='function',
@@ -27094,7 +27117,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v147: automatyczny start w tle');
+      console.info('Benchmark krajowy v148: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){
@@ -27107,19 +27130,7 @@ if('requestIdleCallback' in window){
   setTimeout(startNationalBenchmarkDeferred,1500);
 }
 
-// v147 LAB: automatyczny follow-up tylko dla sparse species.
-const startSparseCoverageV147=()=>{
-  try{
-    autoRunSparseSpeciesCoverageV147();
-  }catch(e){
-    console.error('AUTO SPARSE QUALITY v147: start failed',e);
-  }
-};
-if('requestIdleCallback' in window){
-  requestIdleCallback(startSparseCoverageV147,{timeout:4200});
-}else{
-  setTimeout(startSparseCoverageV147,3200);
-}
+// v148: quality-validation zakończone; clean production nie uruchamia ich automatycznie.
 
 // v147: pełny v146 audit zakończony; teraz automatycznie testujemy tylko sparse species.
 

@@ -1,6 +1,36 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v157:
+     NETWORK RESILIENCE HOTFIX — PARKING/ACCESS + SOIL WCS.
+
+     Log z v156 pokazał dwa niezależne problemy sieciowe:
+       1) nowy, opcjonalny request dostępności był za ciężki dla Overpass
+          (drogi + parkingi wokół do 8 hotspotów w jednym query),
+       2) SoilGrids WCS po timeoutcie próbował drugi URL na tym samym hoście,
+          co podwajało czekanie z ~18 s do ~36 s.
+
+     v157:
+       - parkingi i drogi są pobierane osobno,
+       - parkingi mają priorytet i lekki `out center tags`,
+       - do zapytania wchodzi maks. 5 przestrzennie rozdzielonych hotspotów,
+       - drogi są opcjonalnym drugim krokiem tylko dla maks. 3 hotspotów,
+       - request dostępności NIE otwiera globalnego circuit-breakera OSM,
+       - błędy tej opcjonalnej funkcji nie spamują konsoli endpoint po endpoincie,
+       - po pełnej awarii dostępność ma 5-minutowy cooldown zamiast ponawiać się
+         przy każdym kolejnym renderze,
+       - parkingi mogą się pojawić nawet jeśli request dróg zawiedzie.
+
+     SoilGrids:
+       - po timeout/network error pierwszego URL nie próbujemy drugiej ścieżki
+         na tym samym hoście maps.isric.org,
+       - uruchamia się krótki circuit-breaker WCS, więc kolejna analiza nie
+         czeka znowu na martwy host,
+       - alternate URL nadal jest próbowany dla błędów ścieżki/formatu,
+         gdy host odpowiada.
+
+     Formuły biologicznego scoringu są byte-identical z v156.
+
 <!-- GitHub production v156:
      TYLKO PARKINGI LEŚNE + NIEBIESKI ZNAK P.
 
@@ -4857,6 +4887,8 @@ let soilSamples=[], soilReady=false, soilCoverage=0;
 const SOIL_WCS_ENABLED=true;
 const SOIL_WCS_BASE='https://maps.isric.org/mapserv';
 const SOIL_WCS_GRID=7;
+let soilWcsCircuitUntil=0;
+let soilWcsLastNetworkError='';
 const SOIL_WCS_PROPERTIES=[
   {key:'ph',map:'phh2o',coverage:'phh2o_0-5cm_mean',factor:10},
   {key:'sand',map:'sand',coverage:'sand_0-5cm_mean',factor:10},
@@ -4871,10 +4903,14 @@ let openFeatures=[], openReady=false;
 let hotspotAccessRoads=[];
 let hotspotAccessParking=[];
 let hotspotAccessReady=false;
+let hotspotParkingReady=false;
+let hotspotRoadReady=false;
 let hotspotAccessLoading=false;
 let hotspotAccessQueryKey='';
 let hotspotAccessSeq=0;
 let hotspotAccessTimer=0;
+let hotspotAccessRetryAfter=0;
+let hotspotAccessLastError='';
 
 const observationData={};
 const obsLoaded={};
@@ -6427,6 +6463,12 @@ async function parseSoilGeoTiff(buffer){
 }
 
 async function fetchSoilWcsRaster(def,bb){
+ if(Date.now()<soilWcsCircuitUntil){
+   const e=new Error('SoilGrids WCS chwilowo pominięty po timeoutcie hosta');
+   e.code='SOIL_WCS_CIRCUIT_OPEN';
+   throw e;
+ }
+
  const urls=soilWcsUrls(def,bb);
  let lastErr=null;
 
@@ -6434,6 +6476,8 @@ async function fetchSoilWcsRaster(def,bb){
    try{
      const ab=await fetchArrayBufferWithTimeout(urls[i],18000);
      const raster=await parseSoilGeoTiff(ab);
+     soilWcsCircuitUntil=0;
+     soilWcsLastNetworkError='';
      console.debug(
        `Soil WCS ${def.key}: ${raster.width}x${raster.height}, layout=${raster.layout}, compression=${raster.compression}, predictor=${raster.predictor}, sampleFormat=${raster.sampleFormat}`+
        (raster.layout==='tiled'?`, tile=${raster.tileWidth}x${raster.tileHeight}`:` rowsPerStrip=${raster.rowsPerStrip}`)
@@ -6441,10 +6485,23 @@ async function fetchSoilWcsRaster(def,bb){
      return raster;
    }catch(e){
      lastErr=e;
+     const msg=String(e?.message||e);
+     const status=Number(e?.status||0);
+     const networkLike=status===408||/timeout|network|failed to fetch|load failed/i.test(msg);
+
+     if(networkLike){
+       // Oba warianty URL są na maps.isric.org. Gdy host nie odpowiada,
+       // drugi path nie daje realnego fallbacku — tylko kolejne 18 s czekania.
+       soilWcsCircuitUntil=Date.now()+3*60*1000;
+       soilWcsLastNetworkError=msg;
+       console.info(`Soil WCS ${def.key}: host timeout/network — pomijam drugi URL na tym samym hoście`);
+       break;
+     }
+
      console.warn(`Soil WCS ${def.key} endpoint ${i+1}/${urls.length} failed`,e,urls[i]);
    }
  }
- throw lastErr||new Error('SoilGrids WCS: oba endpointy zawiodły');
+ throw lastErr||new Error('SoilGrids WCS: endpointy zawiodły');
 }
 
 function soilValuePlausible(key,v){
@@ -6493,6 +6550,14 @@ async function loadSoilGrid(){
    el.textContent='wyłączone';
    el.className='st-warn';
    setSourceState('soil','off','Gleba WCS wyłączona • neutralna gleba 7/10');
+   return false;
+ }
+
+ if(Date.now()<soilWcsCircuitUntil){
+   el.textContent='pominięte • API timeout';
+   el.className='st-warn';
+   soilLastError=soilWcsLastNetworkError||'aktywny circuit po timeoutcie';
+   setSourceState('soil','error','SoilGrids WCS chwilowo pominięty • neutralna gleba 7/10');
    return false;
  }
 
@@ -7748,8 +7813,10 @@ function overpassOpenCircuit(ms=180000){
 async function fetchOverpassWithFallback(body,opts={}){
  const fast=!!opts.fast;
  const optional=opts.optional!==false;
+ const useCircuit=opts.useCircuit!==false;
+ const quiet=!!opts.quiet;
 
- if(optional&&overpassCircuitOpen()){
+ if(optional&&useCircuit&&overpassCircuitOpen()){
    const e=new Error('Overpass chwilowo pominięty po wcześniejszej awarii');
    e.code='OVERPASS_CIRCUIT_OPEN';
    throw e;
@@ -7780,15 +7847,15 @@ async function fetchOverpassWithFallback(body,opts={}){
        abortOnTimeout:false,
        policy:{ttl:12*3600e3,stale:7*86400e3}
      });
-     overpassCircuitUntil=0;
+     if(useCircuit)overpassCircuitUntil=0;
      return out;
    }catch(e){
      lastErr=e;
-     console.warn(`Overpass ${i+1}/${endpoints.length} failed`,endpoint,e);
+     if(!quiet)console.warn(`Overpass ${i+1}/${endpoints.length} failed`,endpoint,e);
    }
  }
 
- if(optional)overpassOpenCircuit(fast?120000:180000);
+ if(optional&&useCircuit)overpassOpenCircuit(fast?120000:180000);
  throw lastErr||new Error('Wszystkie serwery Overpass są niedostępne');
 }
 
@@ -8351,8 +8418,12 @@ async function main(){
  hotspotAccessParking=[];
  forestParkingGroup.clearLayers();
  hotspotAccessReady=false;
+ hotspotParkingReady=false;
+ hotspotRoadReady=false;
  hotspotAccessLoading=false;
  hotspotAccessQueryKey='';
+ hotspotAccessRetryAfter=0;
+ hotspotAccessLastError='';
  clearTimeout(hotspotAccessTimer);
  perfResetSourceTimings();
  validationForestBaseMode='unknown';
@@ -10773,11 +10844,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v156: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v157: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v156 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v157 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10787,7 +10858,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v156 health',health);
+     console.info('National benchmark v157 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -21458,6 +21529,43 @@ function auditForestParkingV156(){
 }
 window.auditForestParkingV156=auditForestParkingV156;
 
+
+function auditNetworkResilienceV157(){
+ const report={
+   version:'v157',
+   overpassGlobalCircuitOpen:overpassCircuitOpen(),
+   access:{
+     ready:hotspotAccessReady,
+     parkingReady:hotspotParkingReady,
+     roadReady:hotspotRoadReady,
+     loading:hotspotAccessLoading,
+     retryInSec:Math.max(0,Math.ceil((hotspotAccessRetryAfter-Date.now())/1000)),
+     parking:hotspotAccessParking.length,
+     roads:hotspotAccessRoads.length,
+     lastError:hotspotAccessLastError||null
+   },
+   soil:{
+     ready:soilReady,
+     circuitOpen:Date.now()<soilWcsCircuitUntil,
+     retryInSec:Math.max(0,Math.ceil((soilWcsCircuitUntil-Date.now())/1000)),
+     lastNetworkError:soilWcsLastNetworkError||null
+   },
+   changesProductionScoreFormula:false
+ };
+ console.table([{
+   accessReady:report.access.ready,
+   parkingReady:report.access.parkingReady,
+   roadReady:report.access.roadReady,
+   accessRetrySec:report.access.retryInSec,
+   soilReady:report.soil.ready,
+   soilCircuit:report.soil.circuitOpen,
+   soilRetrySec:report.soil.retryInSec
+ }]);
+ console.info('NETWORK RESILIENCE AUDIT v157',report);
+ return report;
+}
+window.auditNetworkResilienceV157=auditNetworkResilienceV157;
+
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
@@ -26897,8 +27005,27 @@ function hotspotAccessBalancedSample(hotspots,max=8){
  return out;
 }
 
+function hotspotAccessSpatialSample(hotspots,max=5,minSeparationKm=1.6){
+ const ranked=hotspotAccessBalancedSample(hotspots,Math.max(max*2,max));
+ const out=[];
+ for(const h of ranked){
+   const a=hotspotMapAnchor(h)||h._center;
+   if(!Array.isArray(a))continue;
+   if(out.some(x=>{
+     const b=hotspotMapAnchor(x)||x._center;
+     return Array.isArray(b)&&hav(a,b)<minSeparationKm;
+   }))continue;
+   out.push(h);
+   if(out.length>=max)break;
+ }
+ if(!out.length&&ranked[0])out.push(ranked[0]);
+ return out;
+}
+
+
+
 function hotspotAccessKey(hotspots){
- return hotspotAccessBalancedSample(hotspots,8).map(h=>{
+ return hotspotAccessSpatialSample(hotspots,5,1.6).map(h=>{
    const a=hotspotMapAnchor(h)||h._center;
    return `${a[0].toFixed(3)},${a[1].toFixed(3)}`;
  }).sort().join('|');
@@ -27060,7 +27187,7 @@ function dedupeForestParking(rows,thresholdKm=.06){
 }
 
 function forestParkingRows(){
- if(!hotspotAccessReady||!allFeatures.length)return [];
+ if(!hotspotParkingReady||!allFeatures.length)return [];
  const rows=[];
  for(const p of hotspotAccessParking){
    if(!Array.isArray(p.point))continue;
@@ -27105,7 +27232,7 @@ function renderForestParkingLayer(){
  forestParkingGroup.clearLayers();
 
  if(map.getZoom()<12)return;
- if(!hotspotAccessReady)return;
+ if(!hotspotParkingReady)return;
 
  const rows=forestParkingRows();
  for(const p of rows){
@@ -27134,44 +27261,100 @@ map.on('layeradd',e=>{
 
 
 async function loadHotspotAccessContext(hotspots){
- const sample=hotspotAccessBalancedSample(hotspots,8);
- if(!sample.length)return false;
+ const parkingSample=hotspotAccessSpatialSample(hotspots,5,1.6);
+ if(!parkingSample.length)return false;
 
- const key=hotspotAccessKey(sample);
+ const key=hotspotAccessKey(parkingSample);
  if(hotspotAccessReady&&key===hotspotAccessQueryKey)return true;
  if(hotspotAccessLoading&&key===hotspotAccessQueryKey)return false;
+ if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return false;
 
  hotspotAccessLoading=true;
  hotspotAccessQueryKey=key;
+ hotspotAccessLastError='';
  const seq=++hotspotAccessSeq;
 
+ let parkingOk=false,roadOk=false;
+ let parkingErr=null,roadErr=null;
+
  try{
+   // 1) PRIORYTET: lekkie parkingi. Nie potrzebujemy geometrii polygonów,
+   // wystarczy center + tags.
    const selectors=[];
-   for(const h of sample){
+   for(const h of parkingSample){
      const a=hotspotMapAnchor(h)||h._center;
      const lat=Number(a[0]).toFixed(6),lon=Number(a[1]).toFixed(6);
+     selectors.push(`nwr(around:2200,${lat},${lon})["amenity"="parking"];`);
+   }
+   const q=`[out:json][timeout:10];(${selectors.join('')});out center tags;`;
+   const body='data='+encodeURIComponent(q);
 
-     // Drogi: 1.4 km od reprezentatywnego wydzielenia.
-     selectors.push(`way(around:1400,${lat},${lon})["highway"~"^(secondary|tertiary|unclassified|residential|service|track)$"];`);
-     // Parkingi: szerszy promień, bo często są przy skraju kompleksu.
-     selectors.push(`node(around:2600,${lat},${lon})["amenity"="parking"];`);
-     selectors.push(`way(around:2600,${lat},${lon})["amenity"="parking"];`);
+   try{
+     const j=await fetchOverpassWithFallback(body,{
+       fast:true,optional:true,useCircuit:false,quiet:true
+     });
+     if(seq!==hotspotAccessSeq)return false;
+
+     const parsed=parseHotspotAccessElements(j?.elements||[]);
+     hotspotAccessParking=parsed.parking;
+     hotspotParkingReady=true;
+     parkingOk=true;
+     renderForestParkingLayer();
+   }catch(e){
+     parkingErr=e;
+     if(seq!==hotspotAccessSeq)return false;
+     hotspotAccessParking=[];
+     hotspotParkingReady=false;
+     forestParkingGroup.clearLayers();
    }
 
-   const q=`[out:json][timeout:18];(${selectors.join('')});out geom center tags;`;
-   const body='data='+encodeURIComponent(q);
-   const j=await fetchOverpassWithFallback(body,{fast:true,optional:true});
+   // 2) DROGI są dodatkiem. Mniej hotspotów, mniejszy promień.
+   // Ich awaria nie zabiera parkingów.
+   const roadSample=hotspotAccessSpatialSample(parkingSample,3,2.0);
+   if(roadSample.length){
+     const selectors=[];
+     for(const h of roadSample){
+       const a=hotspotMapAnchor(h)||h._center;
+       const lat=Number(a[0]).toFixed(6),lon=Number(a[1]).toFixed(6);
+       selectors.push(`way(around:750,${lat},${lon})["highway"~"^(secondary|tertiary|unclassified|residential|service|track)$"];`);
+     }
+     const q=`[out:json][timeout:9];(${selectors.join('')});out geom tags;`;
+     const body='data='+encodeURIComponent(q);
+
+     try{
+       const j=await fetchOverpassWithFallback(body,{
+         fast:true,optional:true,useCircuit:false,quiet:true
+       });
+       if(seq!==hotspotAccessSeq)return false;
+
+       const parsed=parseHotspotAccessElements(j?.elements||[]);
+       hotspotAccessRoads=parsed.roads;
+       hotspotRoadReady=true;
+       roadOk=true;
+     }catch(e){
+       roadErr=e;
+       if(seq!==hotspotAccessSeq)return false;
+       hotspotAccessRoads=[];
+       hotspotRoadReady=false;
+     }
+   }
 
    if(seq!==hotspotAccessSeq)return false;
 
-   const parsed=parseHotspotAccessElements(j?.elements||[]);
-   hotspotAccessRoads=parsed.roads;
-   hotspotAccessParking=parsed.parking;
-   hotspotAccessReady=true;
    hotspotAccessLoading=false;
-   renderForestParkingLayer();
+   hotspotAccessReady=parkingOk||roadOk;
 
-   // Odświeżamy tylko UI hotspotów. Nie dotykamy scoringu.
+   if(!hotspotAccessReady){
+     hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
+     hotspotAccessRetryAfter=Date.now()+5*60*1000;
+     console.info('HOTSPOT ACCESS v157: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     return false;
+   }
+
+   hotspotAccessRetryAfter=0;
+   hotspotAccessLastError='';
+
+   // Odświeżamy tylko UI. Scoring bez zmian.
    try{
      topGroup.clearLayers();
      buildTop();
@@ -27180,21 +27363,29 @@ async function loadHotspotAccessContext(hotspots){
      console.warn('Access UI refresh',e);
    }
 
-   console.info('HOTSPOT ACCESS v156',{
-     sampledHotspots:sample.length,
+   console.info('HOTSPOT ACCESS v157',{
+     parkingSample:parkingSample.length,
+     roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
+     parkingOk,
+     roadOk,
      roads:hotspotAccessRoads.length,
      parking:hotspotAccessParking.length
    });
    return true;
+
  }catch(e){
    if(seq===hotspotAccessSeq){
      hotspotAccessLoading=false;
      hotspotAccessReady=false;
+     hotspotParkingReady=false;
+     hotspotRoadReady=false;
      hotspotAccessRoads=[];
      hotspotAccessParking=[];
      forestParkingGroup.clearLayers();
+     hotspotAccessLastError=e?.message||String(e);
+     hotspotAccessRetryAfter=Date.now()+5*60*1000;
    }
-   console.warn('Hotspot access optional source failed',e);
+   console.info('HOTSPOT ACCESS v157: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }
 }
@@ -27204,6 +27395,7 @@ function scheduleHotspotAccessLoad(hotspots,delay=1200){
  const key=hotspotAccessKey(hotspots||[]);
  if(!key)return;
  if(hotspotAccessReady&&key===hotspotAccessQueryKey)return;
+ if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
@@ -27225,7 +27417,7 @@ function hotspotAccessInfo(h){
  }
 
  if(hotspotAccessLoading&&!hotspotAccessReady){
-   return {state:'unknown',label:'sprawdzam dostęp',short:'… dojazd',detail:'Sprawdzam drogi i parkingi OSM.',roadKm:Infinity,parkingKm:Infinity};
+   return {state:'unknown',label:'sprawdzam dostęp',short:'… dojazd',detail:'Sprawdzam parkingi i drogi OSM.',roadKm:Infinity,parkingKm:Infinity};
  }
  if(!hotspotAccessReady){
    return {
@@ -27240,37 +27432,49 @@ function hotspotAccessInfo(h){
  const c=hotspotMapAnchor(h)||h._center;
  let publicKm=Infinity,serviceKm=Infinity,trackKm=Infinity;
 
- for(const r of hotspotAccessRoads){
-   const d=accessDistanceToWayKm(c,r.e);
-   if(r.kind==='public')publicKm=Math.min(publicKm,d);
-   else if(r.kind==='service')serviceKm=Math.min(serviceKm,d);
-   else trackKm=Math.min(trackKm,d);
+ if(hotspotRoadReady){
+   for(const r of hotspotAccessRoads){
+     const d=accessDistanceToWayKm(c,r.e);
+     if(r.kind==='public')publicKm=Math.min(publicKm,d);
+     else if(r.kind==='service')serviceKm=Math.min(serviceKm,d);
+     else trackKm=Math.min(trackKm,d);
+   }
  }
 
  let parkingKm=Infinity;
- for(const p of forestParkingRows()){
-   parkingKm=Math.min(parkingKm,hav(c,p.point));
+ if(hotspotParkingReady){
+   for(const p of forestParkingRows())parkingKm=Math.min(parkingKm,hav(c,p.point));
  }
 
- // "Droga" = publiczna kategoria OSM. Service/track pokazujemy osobno i
- // nigdy nie nazywamy ich legalnym dojazdem samochodem.
  const roadKm=Math.min(publicKm,serviceKm);
+ let state='unknown',label='dostęp częściowy';
 
- let state='remote',label='głębiej w lesie';
- if(roadKm<=.25){state='easy';label='blisko drogi';}
- else if(roadKm<=.70){state='walk';label='krótkie dojście';}
- else if(trackKm<=.35){state='walk';label='blisko drogi leśnej';}
+ if(hotspotRoadReady){
+   state='remote';label='głębiej w lesie';
+   if(roadKm<=.25){state='easy';label='blisko drogi';}
+   else if(roadKm<=.70){state='walk';label='krótkie dojście';}
+   else if(trackKm<=.35){state='walk';label='blisko drogi leśnej';}
+ }else if(hotspotParkingReady&&Number.isFinite(parkingKm)){
+   if(parkingKm<=.70){state='easy';label='parking leśny blisko';}
+   else if(parkingKm<=1.50){state='walk';label='parking w zasięgu dojścia';}
+   else {state='remote';label='parking daleko';}
+ }
 
  const bits=[];
- if(Number.isFinite(publicKm))bits.push(`zwykła droga OSM ${Math.round(publicKm*1000)} m`);
- else if(Number.isFinite(serviceKm))bits.push(`service OSM ${Math.round(serviceKm*1000)} m`);
- if(Number.isFinite(trackKm))bits.push(`track/leśna droga ${Math.round(trackKm*1000)} m`);
- if(Number.isFinite(parkingKm)&&parkingKm<=3)bits.push(`parking OSM ${Math.round(parkingKm*1000)} m`);
- if(!bits.length)bits.push('brak bliskiej drogi/parkingu w pobranych danych OSM');
+ if(hotspotRoadReady){
+   if(Number.isFinite(publicKm))bits.push(`zwykła droga OSM ${Math.round(publicKm*1000)} m`);
+   else if(Number.isFinite(serviceKm))bits.push(`service OSM ${Math.round(serviceKm*1000)} m`);
+   if(Number.isFinite(trackKm))bits.push(`track/leśna droga ${Math.round(trackKm*1000)} m`);
+ }
+ if(hotspotParkingReady&&Number.isFinite(parkingKm)&&parkingKm<=3){
+   bits.push(`parking leśny ${Math.round(parkingKm*1000)} m`);
+ }
+ if(!hotspotRoadReady)bits.push('drogi: chwilowo nie sprawdzono');
+ if(!hotspotParkingReady)bits.push('parkingi: chwilowo nie sprawdzono');
 
  return {
    state,label,
-   short:`${state==='easy'?'✓':state==='walk'?'🚶':'🥾'} ${label}`,
+   short:`${state==='easy'?'✓':state==='walk'?'🚶':state==='remote'?'🥾':'?'} ${label}`,
    detail:bits.join(' • '),
    roadKm,publicKm,serviceKm,trackKm,parkingKm,
    protected:false
@@ -28531,7 +28735,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v156: automatyczny start w tle');
+      console.info('Benchmark krajowy v157: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

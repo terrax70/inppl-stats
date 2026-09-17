@@ -5826,6 +5826,39 @@ function prodRetryAfterMs(response){
  }catch(_){return 0;}
 }
 
+function prodXhrLikeResponse(url,{method='GET',body='',headers,timeoutMs=16000}={}){
+ return new Promise((resolve,reject)=>{
+   let xhr;
+   try{
+     xhr=new XMLHttpRequest();
+     xhr.open(method,url,true);
+     xhr.timeout=Math.max(1,Number(timeoutMs)||16000);
+     if(headers){
+       for(const [k,v] of Object.entries(headers)){
+         try{xhr.setRequestHeader(k,v);}catch(_){}
+       }
+     }
+     const rejectNet=(message,status=0,code='XHR_NETWORK')=>{
+       const e=new Error(message);e.status=status;e.code=code;reject(e);
+     };
+     xhr.onload=()=>resolve({
+       ok:xhr.status>=200&&xhr.status<300,
+       status:xhr.status,
+       statusText:xhr.statusText||'',
+       headers:{get:(name)=>{try{return xhr.getResponseHeader(name)||'';}catch(_){return '';}}},
+       json:async()=>{
+         const txt=xhr.responseText||'';
+         return txt?JSON.parse(txt):null;
+       }
+     });
+     xhr.onerror=()=>rejectNet('Failed to fetch',0,'XHR_NETWORK');
+     xhr.ontimeout=()=>rejectNet(`Timeout ${xhr.timeout} ms`,408,'FETCH_TIMEOUT');
+     xhr.onabort=()=>rejectNet('Request aborted',408,'FETCH_ABORTED');
+     xhr.send(body||null);
+   }catch(e){reject(e);}
+ });
+}
+
 async function prodFetchJson(url,opts={}){
  const method=opts.method||'GET';
  const body=opts.body||'';
@@ -5848,7 +5881,12 @@ async function prodFetchJson(url,opts={}){
    let timer=null;
    try{
      let r;
-     if(abortOnTimeout){
+     if(opts.transport==='xhr'&&typeof XMLHttpRequest!=='undefined'){
+       // v167: Overpass omija window.fetch. Niektóre rozszerzenia Edge/Chrome
+       // opakowują fetch i potrafią wypuścić osobny, nieobsłużony AbortError/TimeoutError.
+       // XHR ma natywny timeout i abort bez AbortSignal, więc błąd zostaje w naszym Promise.
+       r=await prodXhrLikeResponse(url,{method,body,headers,timeoutMs});
+     }else if(abortOnTimeout){
        // v166: natywny timeout nie odpala już ctrl.abort() z naszego setTimeout.
        if(typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'){
          r=await fetch(url,{method,body:body||undefined,headers,signal:AbortSignal.timeout(timeoutMs)});
@@ -7091,6 +7129,9 @@ function speciesWeatherLabAssignment(type){
 
 function speciesWeatherLabPayloadAt(c){
  if(!weatherSamples.length)return null;
+ const cacheable=!!c&&typeof c==='object';
+ if(cacheable&&perfSpeciesWeatherPayloadCache.has(c))return perfSpeciesWeatherPayloadCache.get(c);
+
  const fields=['rain7','rain14','rain21','rain28','soilM','soilT','rh','vpd','et7','dryDays','nightMin'];
  const sums=Object.fromEntries(fields.map(k=>[k,0]));
  const weights=Object.fromEntries(fields.map(k=>[k,0]));
@@ -7107,6 +7148,12 @@ function speciesWeatherLabPayloadAt(c){
  }
  const out={index:genericW?generic/genericW:60};
  for(const k of fields)out[k]=weights[k]?sums[k]/weights[k]:NaN;
+
+ // v167: wcześniej AnchoredScore wykonywał ten sam przestrzenny przebieg
+ // nawet 3× (weatherAt + neutral LAB + species LAB). Teraz payload powstaje raz.
+ if(cacheable)perfSpeciesWeatherPayloadCache.set(c,out);
+ const coordKey=perfCoordKey(c);
+ if(coordKey)perfWeatherPointCache.set(coordKey,out.index);
  return out;
 }
 
@@ -7330,9 +7377,15 @@ function speciesWeatherEvidenceWeight(evidence){
 }
 
 function speciesWeatherAnchoredScore(type,c){
- const generic=weatherAt(c);
- const neutral=speciesWeatherNeutralLabScore(type,c);
- const specific=speciesWeatherLabScore(type,c);
+ // v167: jedna interpolacja weatherSamples na centroid zamiast trzech.
+ // speciesWeatherLabComputeFromPayload() ma ten sam wzór co wcześniejsze
+ // speciesWeatherLabCompute(); zmienia się wyłącznie ponowne użycie wejścia.
+ const payload=speciesWeatherLabPayloadAt(c);
+ const generic=payload?payload.index:weatherAt(c);
+ const assignment=speciesWeatherLabAssignment(type);
+ const neutral=speciesWeatherLabComputeFromPayload(type,payload,'generic_reference','mesic');
+ const specificBase=speciesWeatherLabComputeFromPayload(type,payload,assignment.profile,null);
+ const specific={...specificBase,evidence:assignment.evidence,basis:assignment.basis};
  const evidenceWeight=speciesWeatherEvidenceWeight(specific.evidence);
 
  const rawProfileDelta=specific.score-neutral.score;
@@ -8157,6 +8210,7 @@ async function fetchOverpassWithFallback(body,opts={}){
        // v165: po timeoutcie request ma zostać naprawdę anulowany. W v164
        // Promise.race kończył oczekiwanie, ale fetch mógł nadal żyć w tle.
        abortOnTimeout:true,
+       transport:'xhr',
        pace:{key:hostKey,minMs},
        policy:{ttl:12*3600e3,stale:7*86400e3}
      }));
@@ -9405,6 +9459,9 @@ function lowLatencyYield(){
 // a nie przy samym przełączaniu DZIŚ <-> POTENCJAŁ.
 let perfSoilPointCache=new Map();
 let perfWeatherPointCache=new Map();
+// v167: pełny pakiet pogodowy per dokładny obiekt współrzędnych.
+// WeakMap nie łączy sąsiednich centroidów i zachowuje dokładnie te same wyniki.
+let perfSpeciesWeatherPayloadCache=new WeakMap();
 let perfStaticSuitabilityCache=new Map();
 let perfStableSpeciesPotentialCache=new Map();
 let perfStableTypeScoreCache=new Map();
@@ -9445,6 +9502,7 @@ function invalidateScoringCaches(reason=''){
 
  perfSoilPointCache.clear();
  perfWeatherPointCache.clear();
+ perfSpeciesWeatherPayloadCache=new WeakMap();
  perfStaticSuitabilityCache.clear();
  perfStableSpeciesPotentialCache.clear();
  perfStableTypeScoreCache.clear();
@@ -24743,10 +24801,24 @@ function updateAtlasHead(){
  if(!atlasSelected.size)info.textContent='Grzyby są pogrupowane według podobnych siedlisk. Kliknij mały gatunek albo nagłówek grupy, aby wybrać całą grupę.';
  else{const names=[...atlasSelected].map(t=>HUMAN_NAMES[t]||t);info.innerHTML='<span class="atlas-selected-summary">Wybrane '+atlasSelected.size+':</span> '+escapeHtml(names.join(', '));}
 }
+function logUiActionV167(action,extra={}){
+ try{
+   console.info('UI ACTION v167',{
+     action,
+     mode:mapMode,
+     filter:currentFilter,
+     species:[...atlasSelected],
+     areas:ANALYSIS_CENTERS.map(a=>a.name),
+     zoom:map?.getZoom?.(),
+     ...extra
+   });
+ }catch(_){}
+}
 function toggleAtlasType(t){
  atlasHoverTypes.clear();
  applyAtlasHoverFilter(null);
  currentFilter='all';atlasSelected.has(t)?atlasSelected.delete(t):atlasSelected.add(t);
+ logUiActionV167('species-toggle',{type:t,selected:atlasSelected.has(t)});
  if(ANALYSIS_CENTERS.length){
    ensureActiveSingleSpeciesObservations().catch(e=>console.warn('Observation preload',e));
  }
@@ -24760,6 +24832,7 @@ function toggleAtlasGroup(groupId){
  currentFilter='all';
  const allSelected=g.members.every(t=>atlasSelected.has(t));
  if(allSelected)g.members.forEach(t=>atlasSelected.delete(t));else g.members.forEach(t=>atlasSelected.add(t));
+ logUiActionV167('species-group-toggle',{group:groupId,selected:!allSelected});
  clearAtlasHover();syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();
  ensureActiveSingleSpeciesObservations().catch(e=>console.warn('Observation preload',e));
  if(allFeatures.length)render();
@@ -25863,7 +25936,7 @@ async function prewarmMultiAreaScoring(){
      elapsedMs:performance.now()-t0,
      rawMs,scoreMs,todayMs,yields
    };
-   console.info('MULTI-AREA SCORE WARM v165',multiAreaWarmLast);
+   console.info('MULTI-AREA SCORE WARM v167',multiAreaWarmLast);
    return true;
  })().finally(()=>{multiAreaWarmPromise=null;});
 
@@ -25889,7 +25962,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v165-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
+   'v167-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -26096,7 +26169,13 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase
    };
-   console.info('HOTSPOT PIPELINE WARM v166',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v167',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PHASE v167',{
+     mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
+     priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),
+     mainScoreMs:+phase.mainScoreMs.toFixed(1),buildMs:+buildMs.toFixed(1),anchorMs:+anchorMs.toFixed(1),
+     totalMs:+(performance.now()-t0).toFixed(1)
+   });
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -28065,7 +28144,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v166: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v167: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -28082,7 +28161,7 @@ async function loadHotspotAccessContext(hotspots){
      console.warn('Access UI refresh',e);
    }
 
-   console.info('HOTSPOT ACCESS v166',{
+   console.info('HOTSPOT ACCESS v167',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -28105,7 +28184,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v166: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v167: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -28133,7 +28212,7 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v166: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v167: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }
@@ -29009,7 +29088,9 @@ function addDraft(name,lat,lon){
    locatorHint.textContent='Bardzo podobny punkt jest już na liście.';
    return false;
  }
- selectedDraft.push({name:uniqueDraftName(name),point:[lat,lon]});
+ const addedName=uniqueDraftName(name);
+ selectedDraft.push({name:addedName,point:[lat,lon]});
+ logUiActionV167('area-add',{name:addedName,lat:+lat.toFixed(5),lon:+lon.toFixed(5),draftCount:selectedDraft.length});
  renderDraft();
  syncDraftPreview();
  scheduleAutoAnalyze();
@@ -29362,6 +29443,7 @@ document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{
  document.querySelectorAll('.mode').forEach(x=>x.classList.remove('active'));
  b.classList.add('active');
  mapMode=nextMode;
+ logUiActionV167('mode-change',{to:nextMode});
 
  // POTENCJAŁ i DZIŚ mają różne membership, ale same gotowe hotspoty są cache'owane
  // niezależnie. v158 kasował cache DZIŚ przy KAŻDYM kliknięciu i wymuszał ciężkie

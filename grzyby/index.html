@@ -1,6 +1,27 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v156:
+     TYLKO PARKINGI LEŚNE + NIEBIESKI ZNAK P.
+
+     v155 pokazywał każdy parking OSM do 300 m od analizowanego lasu,
+     przez co mogły pojawiać się zwykłe parkingi ze wsi i miast.
+
+     v156 stosuje dużo ostrzejszy filtr:
+       - standardowo parking musi leżeć maks. 80 m od analizowanego lasu,
+       - parking z wyraźnym leśnym sygnałem w nazwie/operatorze
+         (np. "parking leśny", "nadleśnictwo", "Lasy Państwowe",
+         "miejsce postoju pojazdów") może być do 300 m od lasu,
+       - parkingi underground / multi-storey / street_side / lane odpadają,
+       - parking access=customers/private/no odpada,
+       - zwykły parking przy ulicy residential odpada, jeśli nie ma
+         wyraźnego leśnego sygnału.
+
+     Znacznik parkingu jest teraz klasycznie NIEBIESKI z białym "P".
+
+     Warstwa nazywa się "Parkingi leśne".
+     Biologiczny scoring pozostaje byte-identical z v155/v154.
+
 <!-- GitHub production v155:
      PARKINGI PRZY LESIE NA MAPIE.
 
@@ -3396,16 +3417,17 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 .u-hotspot-access .access-badge.unknown{background:#e8ece9;color:#51605a;border-color:#c3cdc8}
 
 .forest-parking-pin{
-  width:24px;height:24px;border-radius:7px;
+  width:25px;height:25px;border-radius:5px;
   display:grid;place-items:center;
-  background:rgba(16,30,21,.94);
-  border:2px solid #f4f7ef;
-  box-shadow:0 2px 9px rgba(0,0,0,.35),0 0 0 2px rgba(36,117,70,.35);
-  color:#dff6e5;font-size:13px;font-weight:1000;line-height:1;
+  background:#1565c0;
+  border:2px solid #ffffff;
+  box-shadow:0 2px 9px rgba(0,0,0,.38),0 0 0 1px rgba(7,54,112,.78);
+  color:#ffffff;font-size:15px;font-weight:1000;line-height:1;
+  font-family:Arial,Helvetica,sans-serif;
 }
 .forest-parking-pin.near-top{
-  background:#1e6d3f;
-  box-shadow:0 2px 10px rgba(0,0,0,.38),0 0 0 3px rgba(75,193,113,.28);
+  background:#0d47a1;
+  box-shadow:0 2px 10px rgba(0,0,0,.42),0 0 0 2px rgba(65,139,231,.34);
 }
 .forest-parking-popup{
   min-width:190px;font-size:11px;line-height:1.42;color:#24342a;
@@ -5209,7 +5231,7 @@ L.control.layers({'OpenStreetMap':osm}, {
  'Rezerwaty / zakazy':reserveGroup,
  'iNaturalist / GBIF — obserwacje':obsGroup,
  'OSM — łąki / polany / pastwiska':openGroup,
- 'Parkingi przy lesie':forestParkingGroup,
+ 'Parkingi leśne':forestParkingGroup,
  'BDL — oficjalna warstwa awaryjna':bdl,
  'Wybrane rejony':selectionGroup,
  'Radar Polski — statyczny':nationalRadarGroup
@@ -10751,11 +10773,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v155: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v156: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v155 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v156 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10765,7 +10787,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v155 health',health);
+     console.info('National benchmark v156 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -21401,6 +21423,41 @@ function auditForestParkingV155(){
 }
 window.auditForestParkingV155=auditForestParkingV155;
 
+
+function auditForestParkingV156(){
+ const raw=hotspotAccessParking.map(p=>{
+   const forestKm=Array.isArray(p.point)?parkingNearAnalysedForestKm(p.point,.30):Infinity;
+   const road=Array.isArray(p.point)?nearestAccessRoadForParking(p.point):{road:null,km:Infinity};
+   return {
+     name:p.name||'Parking OSM',
+     forestM:Number.isFinite(forestKm)?Math.round(forestKm*1000):null,
+     forestSignal:forestParkingTextSignal(p),
+     parkingType:String(p.e?.tags?.parking||'')||null,
+     access:String(p.e?.tags?.access||'')||null,
+     nearestRoad:road.road?.highway||null,
+     roadM:Number.isFinite(road.km)?Math.round(road.km*1000):null,
+     accepted:Number.isFinite(forestKm)&&isStrictForestParking(p,forestKm)
+   };
+ });
+ const accepted=raw.filter(x=>x.accepted);
+ const report={
+   version:'v156',
+   sourceParking:raw.length,
+   acceptedForestParking:accepted.length,
+   rejected:raw.length-accepted.length,
+   visibleMarkers:forestParkingGroup.getLayers().length,
+   defaultMaxForestDistanceM:80,
+   explicitForestSignalMaxM:300,
+   blueParkingSign:true,
+   changesProductionScore:false,
+   rows:raw
+ };
+ console.table(raw);
+ console.info('FOREST PARKING AUDIT v156',report);
+ return report;
+}
+window.auditForestParkingV156=auditForestParkingV156;
+
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
@@ -26905,6 +26962,79 @@ function parkingNearAnalysedForestKm(point,maxKm=.30){
  return best<=maxKm?best:Infinity;
 }
 
+function forestParkingTextSignal(p){
+ const tags=p?.e?.tags||{};
+ const txt=[
+   p?.name,
+   tags.name,
+   tags.operator,
+   tags.description,
+   tags.note,
+   tags.ref,
+   tags.brand
+ ].filter(Boolean).join(' ').toLowerCase();
+
+ const strong=[
+   'parking leśny','parking lesny','leśny','lesny','forest',
+   'nadleśnictw','nadlesnictw','lasy państwowe','lasy panstwowe',
+   'miejsce postoju pojazdów','miejsce postoju pojazdow',
+   'miejsce postoju','mp pojazd','lp '
+ ];
+ return strong.some(x=>txt.includes(x));
+}
+
+function parkingUrbanTypeRejected(p){
+ const tags=p?.e?.tags||{};
+ const parking=String(tags.parking||'').toLowerCase();
+ const access=String(tags.access||'').toLowerCase();
+
+ if(['underground','multi-storey','street_side','lane'].includes(parking))return true;
+ if(['customers','private','no'].includes(access))return true;
+
+ const amenity=String(tags.amenity||'').toLowerCase();
+ if(amenity!=='parking')return true;
+
+ return false;
+}
+
+function nearestAccessRoadForParking(point){
+ let best=null,bestKm=Infinity;
+ for(const r of hotspotAccessRoads){
+   const d=accessDistanceToWayKm(point,r.e);
+   if(d<bestKm){bestKm=d;best=r;}
+ }
+ return {road:best,km:bestKm};
+}
+
+function isStrictForestParking(p,forestKm){
+ if(!p||!Number.isFinite(forestKm))return false;
+ if(parkingUrbanTypeRejected(p))return false;
+
+ const forestSignal=forestParkingTextSignal(p);
+
+ // Zwykły parking musi naprawdę siedzieć przy lesie.
+ // Wyraźnie opisany parking leśny może być trochę dalej od granicy BDL.
+ if(forestSignal){
+   if(forestKm>.30)return false;
+ }else{
+   if(forestKm>.08)return false;
+ }
+
+ const road=nearestAccessRoadForParking(p.point);
+
+ // Najczęstszy przypadek fałszywego parkingu miejskiego/wiejskiego:
+ // parking przy ulicy residential. Bez leśnej nazwy/operatora go odrzucamy.
+ if(!forestSignal && road.road?.highway==='residential' && road.km<=.07)return false;
+
+ // Parking typu service może być sklepem/firmą; bez leśnego sygnału
+ // wymagamy, żeby był praktycznie przy samej granicy lasu.
+ if(!forestSignal && road.road?.highway==='service' && road.km<=.05 && forestKm>.035)return false;
+
+ return true;
+}
+
+
+
 function nearestHotspotForParking(point){
  let best=null,bestKm=Infinity;
  for(const h of activeHotspots()){
@@ -26936,27 +27066,38 @@ function forestParkingRows(){
    if(!Array.isArray(p.point))continue;
    const forestKm=parkingNearAnalysedForestKm(p.point,.30);
    if(!Number.isFinite(forestKm))continue;
+   if(!isStrictForestParking(p,forestKm))continue;
+
    const near=nearestHotspotForParking(p.point);
-   rows.push({...p,forestKm,nearestHotspot:near.hotspot,hotspotKm:near.km});
+   const road=nearestAccessRoadForParking(p.point);
+   rows.push({
+     ...p,
+     forestKm,
+     forestSignal:forestParkingTextSignal(p),
+     nearestRoadType:road.road?.highway||null,
+     nearestRoadKm:road.km,
+     nearestHotspot:near.hotspot,
+     hotspotKm:near.km
+   });
  }
  return dedupeForestParking(rows,.06);
 }
 
 function forestParkingPopupHtml(p){
- const name=p.name?escapeHtml(p.name):'Parking OSM';
+ const name=p.name?escapeHtml(p.name):'Parking leśny / przy lesie';
  const h=p.nearestHotspot;
  const hotspotText=h&&Number.isFinite(p.hotspotKm)
    ? `${escapeHtml(hotspotLabel(h))} • ${Math.round(p.hotspotKm*1000)} m`
    : 'brak pobliskiego hotspotu';
  const forestM=Math.round((p.forestKm||0)*1000);
  const type=String(p.e?.tags?.parking||'').trim();
- const typeTxt=type?`Typ OSM: ${escapeHtml(type)}`:'Parking oznaczony w OpenStreetMap';
+ const typeTxt=p.forestSignal?'Wyraźnie oznaczony jako leśny w danych OSM':(type?`Typ OSM: ${escapeHtml(type)}`:'Parking OSM przy analizowanym lesie');
  return `<div class="forest-parking-popup">
    <b>🅿️ ${name}</b><br>
    ${typeTxt}<br>
    Najbliższy hotspot: <b>${hotspotText}</b><br>
    Do analizowanego lasu: <b>${forestM} m</b><br>
-   <span class="muted">Dane OSM. Znacznik nie gwarantuje oficjalnego parkingu LP ani legalności postoju.</span>
+   <span class="muted">Pokazujemy tylko parkingi bardzo blisko analizowanego lasu lub wyraźnie opisane jako leśne. Dane OSM nie gwarantują statusu oficjalnego parkingu LP ani legalności postoju.</span>
  </div>`;
 }
 
@@ -27039,7 +27180,7 @@ async function loadHotspotAccessContext(hotspots){
      console.warn('Access UI refresh',e);
    }
 
-   console.info('HOTSPOT ACCESS v154',{
+   console.info('HOTSPOT ACCESS v156',{
      sampledHotspots:sample.length,
      roads:hotspotAccessRoads.length,
      parking:hotspotAccessParking.length
@@ -27107,7 +27248,9 @@ function hotspotAccessInfo(h){
  }
 
  let parkingKm=Infinity;
- for(const p of hotspotAccessParking)parkingKm=Math.min(parkingKm,hav(c,p.point));
+ for(const p of forestParkingRows()){
+   parkingKm=Math.min(parkingKm,hav(c,p.point));
+ }
 
  // "Droga" = publiczna kategoria OSM. Service/track pokazujemy osobno i
  // nigdy nie nazywamy ich legalnym dojazdem samochodem.
@@ -28388,7 +28531,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v155: automatyczny start w tle');
+      console.info('Benchmark krajowy v156: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

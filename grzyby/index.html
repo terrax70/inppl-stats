@@ -8437,7 +8437,7 @@ async function loadOpenHabitats(){
      :(failures?`częściowo ${successes}/${boxes.length}`:'brak');
    el.className=openReady?'st-ok':'st-warn';
 
-   invalidateScoringCaches('OSM open habitats');
+   invalidateOpenHabitatScoringCaches('OSM open habitats');
    if(!deferSecondaryRenders)render();
    console.info('OSM PERFORMANCE v142',overpassLastPerf);
  }catch(e){
@@ -8728,6 +8728,7 @@ function rerunForestDerived(feats){
 }
 function renderForestBaseImmediately(feats,label='bazowe'){
  allFeatures=feats;
+ forestDatasetRevision++;
  invalidateScoringCaches('new forest base');
 
  topGroup.clearLayers();
@@ -8764,12 +8765,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v172',
+     mode:'sync-batched-v173',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v172',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v173',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -9544,6 +9545,31 @@ let perfBestTodayInvariantCache=new WeakMap();
 let perfHotspotTodayInfoCache=new WeakMap();
 let perfHotspotTodayInfoCacheKey='';
 
+// v173 — architektura kontekstu lasu.
+// Kontekst sąsiedztwa nie zależy od wybranego gatunku ani od warstwy OSM-open,
+// więc nie wolno go kasować przy każdym kliknięciu filtra/atlasu.
+let forestDatasetRevision=0;
+let perfFeatureDistanceCache=new WeakMap();
+let stableFeatureKeyMemo=new WeakMap();
+let forestContextPerf={hits:0,misses:0,distanceHits:0,distanceMisses:0};
+function featurePairDistance(a,b){
+ if(!a||!b||!a._center||!b._center)return Infinity;
+ if(a===b)return 0;
+ let ma=perfFeatureDistanceCache.get(a);
+ if(ma&&ma.has(b)){
+   forestContextPerf.distanceHits++;
+   return ma.get(b);
+ }
+ forestContextPerf.distanceMisses++;
+ const d=hav(a._center,b._center);
+ if(!ma){ma=new WeakMap();perfFeatureDistanceCache.set(a,ma);}
+ ma.set(b,d);
+ let mb=perfFeatureDistanceCache.get(b);
+ if(!mb){mb=new WeakMap();perfFeatureDistanceCache.set(b,mb);}
+ mb.set(a,d);
+ return d;
+}
+
 function perfTypeFeatureCache(store,key,f,compute){
  let wm=store.get(key);
  if(!wm){wm=new WeakMap();store.set(key,wm);}
@@ -9591,6 +9617,7 @@ function invalidateScoringCaches(reason=''){
  todayStyleScoreCache=new WeakMap();
  opportunityRawCompositeCache.clear();
  opportunityCompositeDistributionCache.clear();
+ opportunityStableScoreSideCache.clear();
  nationalAreaPriorCache.clear();
  overlapClusterContextCache.clear();
  nationalCompositeFeatureInfoCache.clear();
@@ -9618,6 +9645,66 @@ function invalidateScoringCaches(reason=''){
  try{invalidateLinkedContextDynamicCache();}catch(_){}
 
  if(reason)console.debug('Scoring cache invalidated:',reason,'rev',scoringRevision);
+}
+
+
+// v173 — OSM-open zmienia tylko gatunki skrajów/łąk oraz zbiory/agregaty zależne
+// od tych gatunków. Nie kasujemy statycznych wyników borowików, maślaków,
+// opieniek itd. ani kontekstu sąsiedztwa lasu.
+function invalidateOpenHabitatScoringCaches(reason='OSM open habitats'){
+ scoringRevision++;
+ multiAreaWarmKey='';multiAreaWarmPromise=null;
+ perfKeyLast='';
+ perfScoreCache=new WeakMap();
+ perfBestCache=new WeakMap();
+ perfBestTodayInfoCache=new WeakMap();
+ perfDiversityCache=new WeakMap();
+ perfBestTodayInvariantCache=new WeakMap();
+ perfHotspotTodayInfoCache=new WeakMap();
+ perfHotspotTodayInfoCacheKey='';
+
+ const affected=new Set(PICK_TYPES.filter(t=>{
+   const e=SPECIES_META[t]?.ecology;
+   return e==='edge'||e==='grassland';
+ }));
+ const clearTypeBuckets=store=>{
+   for(const k of [...store.keys()]){
+     const ks=String(k);
+     for(const t of affected){
+       if(ks===t||ks.startsWith(t+'|')){store.delete(k);break;}
+     }
+   }
+ };
+ clearTypeBuckets(perfSpeciesStaticComponentCache);
+ clearTypeBuckets(perfStaticSuitabilityCache);
+ clearTypeBuckets(perfStableSpeciesPotentialCache);
+ clearTypeBuckets(perfStableTypeScoreCache);
+ clearTypeBuckets(perfTodaySpeciesEffectiveCache);
+
+ // Zbiory wielogatunkowe zależą od gatunków edge/grassland — te są tanie do
+ // odbudowania, bo zachowane bucket-y pozostałych gatunków zostają trafione z cache.
+ opportunityRawCompositeCache.clear();
+ opportunityCompositeDistributionCache.clear();
+ opportunityStableScoreSideCache.clear();
+ nationalAreaPriorCache.clear();
+ overlapClusterContextCache.clear();
+ nationalCompositeFeatureInfoCache.clear();
+
+ staticCacheFilter='';
+ staticTypeCache=new WeakMap();
+ staticScoreCache=new WeakMap();
+ hotspotCacheKey='';hotspotCache=[];
+ todayHotspotCacheKey='';todayHotspotCache=[];
+ stableCandidateCacheKey='';stableCandidateCache=new Map();
+ hotspotPipelineWarmKey='';
+ balancedScaleKey='';balancedScales={};
+ atlasSpeciesScaleCache.clear();
+ hotspotMembershipKey='';
+ todayScaleCacheKey='';todayScales={};
+ bestTodayConditionScaleCache.clear();
+ todayStyleScoreCacheKey='';todayStyleScoreCache=new WeakMap();
+ try{invalidateLinkedContextDynamicCache();}catch(_){}
+ if(reason)console.debug('Open-habitat cache invalidated selectively:',reason,'rev',scoringRevision,'affected',affected.size);
 }
 
 function perfKey(){
@@ -11784,6 +11871,14 @@ function featureInAnalysisAreaName(f,areaName,padKm=.15){
 }
 function hotspotLabel(h){return `${h.areaCode}${h.localIndex}`;}
 function atlasSelectionKey(){return [...atlasSelected].sort().join(',');}
+let atlasTypesMemoSig='';
+let atlasTypesMemo=[];
+function currentAtlasTypes(){
+ const arr=[...atlasSelected];
+ const sig=arr.join('\u001f');
+ if(sig!==atlasTypesMemoSig){atlasTypesMemoSig=sig;atlasTypesMemo=arr;}
+ return atlasTypesMemo;
+}
 function atlasBestTypeForFeature(f){
  let best=null,bestScore=-Infinity;
  for(const t of atlasSelected){
@@ -11794,19 +11889,42 @@ function atlasBestTypeForFeature(f){
  return best;
 }
 
+let opportunityNicheIndex=null;
 function opportunityNicheKey(type){
- const g=ATLAS_GROUPS.find(x=>x.members.includes(type));
- return g?.id||`type:${type}`;
+ if(!opportunityNicheIndex){
+   opportunityNicheIndex=new Map();
+   for(const g of ATLAS_GROUPS||[]){
+     for(const t of g.members||[])if(!opportunityNicheIndex.has(t))opportunityNicheIndex.set(t,g.id);
+   }
+ }
+ return opportunityNicheIndex.get(type)||`type:${type}`;
 }
 function opportunityTargetTypes(){
- return atlasSelected.size?[...atlasSelected]:PICK_TYPES.slice();
+ return atlasSelected.size?currentAtlasTypes():PICK_TYPES;
 }
 
 let opportunityRawCompositeCache=new Map();
 let opportunityCompositeDistributionCache=new Map();
+let opportunityTypeSetKeyCache=new WeakMap();
+let opportunityStableScoreSideCache=new Map();
 
 function opportunityTypeSetKey(types){
- return [...new Set((types||[]).map(String))].sort().join(',');
+ if(Array.isArray(types)&&opportunityTypeSetKeyCache.has(types))return opportunityTypeSetKeyCache.get(types);
+ const key=[...new Set((types||[]).map(String))].sort().join(',');
+ if(Array.isArray(types))opportunityTypeSetKeyCache.set(types,key);
+ return key;
+}
+function opportunityStableSideKey(types){
+ return `${scoringRevision}|${allFeatures.length}|${openFeatures.length}|${opportunityTypeSetKey(types)}`;
+}
+function setOpportunityStableSideScore(types,f,score){
+ const k=opportunityStableSideKey(types);
+ let wm=opportunityStableScoreSideCache.get(k);
+ if(!wm){wm=new WeakMap();opportunityStableScoreSideCache.set(k,wm);}
+ wm.set(f,score);
+}
+function getOpportunityStableSideScore(types,f){
+ return opportunityStableScoreSideCache.get(opportunityStableSideKey(types))?.get(f);
 }
 
 function opportunityRawComposite(f,dynamic=false,typesOverride=null){
@@ -12140,6 +12258,7 @@ function opportunityAggregateScoreOnly(f,dynamic=false,typesOverride=null){
    const t=types[0];
    if(!featureRelevant(t,f))return 0;
    const potential=stableScoreForType(t,f);
+   setOpportunityStableSideScore(types,f,potential);
    return dynamic?Math.min(speciesEffective(t,f),potential):potential;
  }
 
@@ -12167,6 +12286,7 @@ function opportunityAggregateScoreOnly(f,dynamic=false,typesOverride=null){
  const qualityGate=opportunityCompositeQualityGate(overall.rawScore);
  const localIndex=clamp(10*relative*qualityGate);
  const overallIndex=clamp(localIndex+(prior?.active?prior.adjustment:0));
+ setOpportunityStableSideScore(types,f,overallIndex);
  if(!dynamic)return overallIndex;
 
  const today=opportunityRawComposite(f,true,types);
@@ -12199,20 +12319,25 @@ function atlasVerdictFor(f){
 }
 
 function stableFeatureKey(f){
- const p=f.properties||{};
+ if(f&&typeof f==='object'&&stableFeatureKeyMemo.has(f))return stableFeatureKeyMemo.get(f);
+ const p=f?.properties||{};
  const addr=String(p.adress_forest||p.address_forest||p.subarea_id||p.objectid||p.OBJECTID||'').trim();
- const c=f._center||[0,0];
- return `${f._src||''}|${addr}|${c[0].toFixed(5)}|${c[1].toFixed(5)}`;
+ const c=f?._center||[0,0];
+ const out=`${f?._src||''}|${addr}|${c[0].toFixed(5)}|${c[1].toFixed(5)}`;
+ if(f&&typeof f==='object')stableFeatureKeyMemo.set(f,out);
+ return out;
 }
 
 function resetStaticCachesIfNeeded(){
  const k=currentFilter+'|'+atlasSelectionKey()+'|'+allFeatures.length+'|'+openFeatures.length;
  if(staticCacheFilter===k)return;
  staticCacheFilter=k;staticTypeCache=new WeakMap();staticScoreCache=new WeakMap();
- forestGridKey='';forestGrid=null;forestContextCache=new WeakMap();hotspotCacheKey='';hotspotCache=[];
+ // v173: forestGrid/forestContext są zależne od geometrii lasu, nie od UI.
+ // prepareForestGrid() sam przebuduje je po zmianie forestDatasetRevision.
+ hotspotCacheKey='';hotspotCache=[];
  todayHotspotCacheKey='';todayHotspotCache=[];
  stableCandidateCacheKey='';stableCandidateCache=new Map();hotspotPipelineWarmKey='';
- balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();opportunityRawCompositeCache.clear();opportunityCompositeDistributionCache.clear();nationalAreaPriorCache.clear();hotspotMembershipKey='';
+ balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();opportunityRawCompositeCache.clear();opportunityCompositeDistributionCache.clear();opportunityStableScoreSideCache.clear();nationalAreaPriorCache.clear();hotspotMembershipKey='';
  todayScaleCacheKey='';todayScales={};bestTodayConditionScaleCache.clear();
  todayStyleScoreCacheKey='';todayStyleScoreCache=new WeakMap();
  perfKeyLast='';
@@ -12332,7 +12457,7 @@ function stableDiversityPotential(f){
 }
 
 function prepareForestGrid(){
- const key=allFeatures.length+'|'+ANALYSIS_CENTERS.length;
+ const key=`forest-v173|${forestDatasetRevision}`;
  if(forestGridKey===key&&forestGrid)return forestGrid;
  const cell=.0060,grid=new Map();
  for(const f of allFeatures){
@@ -12340,18 +12465,23 @@ function prepareForestGrid(){
    const i=Math.floor(f._center[0]/cell),j=Math.floor(f._center[1]/cell),k=i+'|'+j;
    if(!grid.has(k))grid.set(k,[]);grid.get(k).push(f);
  }
- forestGrid={cell,grid};forestGridKey=key;forestContextCache=new WeakMap();return forestGrid;
+ forestGrid={cell,grid};forestGridKey=key;forestContextCache=new WeakMap();
+ return forestGrid;
 }
 
 function forestContextInfo(f){
  if(f._kind==='open')return {score:5,near45:0,near90:0,count45:0,count90:0,own:featureAreaHa(f)};
- if(forestContextCache.has(f))return forestContextCache.get(f);
+ if(forestContextCache.has(f)){
+   forestContextPerf.hits++;
+   return forestContextCache.get(f);
+ }
+ forestContextPerf.misses++;
  const {cell,grid}=prepareForestGrid(),ci=Math.floor(f._center[0]/cell),cj=Math.floor(f._center[1]/cell);
  let near45=0,near90=0,count45=0,count90=0;const seen=new Set();
  for(let di=-2;di<=2;di++)for(let dj=-2;dj<=2;dj++){
    for(const g of (grid.get((ci+di)+'|'+(cj+dj))||[])){
      const key=stableFeatureKey(g);if(seen.has(key))continue;seen.add(key);
-     const d=hav(f._center,g._center),a=Math.max(.05,featureAreaHa(g));
+     const d=featurePairDistance(f,g),a=Math.max(.05,featureAreaHa(g));
      if(d<=.45){near45+=a;count45++;}if(d<=.90){near90+=a;count90++;}
    }
  }
@@ -12457,7 +12587,7 @@ function explorationMosaicInfo(f){
      const key=stableFeatureKey(g);
      if(seen.has(key))continue;
      seen.add(key);
-     const d=hav(f._center,g._center);
+     const d=featurePairDistance(f,g);
      if(d>.55)continue;
      addFeature(g,d,true);
    }
@@ -12520,7 +12650,7 @@ function stableAnchorScore(f){
  if(atlasSelected.size===1){
    s=stableScoreForType([...atlasSelected][0],f);
  }else if(atlasSelected.size>1){
-   s=opportunityAggregateScoreOnly(f,false,[...atlasSelected]);
+   s=opportunityAggregateScoreOnly(f,false,currentAtlasTypes());
  }else if(currentFilter==='all'){
    s=opportunityAggregateScoreOnly(f,false,PICK_TYPES);
  }else if(currentFilter==='diversity'){
@@ -23436,11 +23566,16 @@ function todayScoreForStyle(f){
    const raw=speciesDisplayScore(single,f);
    out=clamp(Math.min(raw,stableAnchorScore(f)));
  }else if(atlasSelected.size>1){
-   const s=opportunityAggregateScoreOnly(f,true,[...atlasSelected]);
-   out=clamp(Math.min(s,stableAnchorScore(f)));
+   const types=currentAtlasTypes();
+   const s=opportunityAggregateScoreOnly(f,true,types);
+   const stable=getOpportunityStableSideScore(types,f);
+   if(Number.isFinite(stable))staticScoreCache.set(f,stable);
+   out=clamp(Math.min(s,Number.isFinite(stable)?stable:stableAnchorScore(f)));
  }else if(!atlasSelected.size&&currentFilter==='all'){
    const s=opportunityAggregateScoreOnly(f,true,PICK_TYPES);
-   out=clamp(Math.min(s,stableAnchorScore(f)));
+   const stable=getOpportunityStableSideScore(PICK_TYPES,f);
+   if(Number.isFinite(stable))staticScoreCache.set(f,stable);
+   out=clamp(Math.min(s,Number.isFinite(stable)?stable:stableAnchorScore(f)));
  }else if(currentFilter==='diversity'){
    out=clamp(Math.min(diversityData(f).score,stableAnchorScore(f)));
  }else{
@@ -24916,7 +25051,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v172',{
+   console.info('UI ACTION v173',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -25975,7 +26110,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v172',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v173',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -26087,7 +26222,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v172-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
+   'v173-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -26111,8 +26246,8 @@ function hotspotWarmStillCurrent(key){
 }
 
 function activeOpportunityTypesForHotspotWarm(){
- if(atlasSelected.size>1)return [...atlasSelected];
- if(!atlasSelected.size&&currentFilter==='all')return PICK_TYPES.slice();
+ if(atlasSelected.size>1)return currentAtlasTypes();
+ if(!atlasSelected.size&&currentFilter==='all')return PICK_TYPES;
  return null;
 }
 
@@ -26223,6 +26358,7 @@ async function prewarmHotspotPipeline(){
 
  hotspotPipelineWarmPromise=(async()=>{
    const t0=performance.now();
+   const forestPerfStart={...forestContextPerf};
    resetStaticCachesIfNeeded();
    prepareForestGrid();
    for(const a of ANALYSIS_CENTERS)stableCandidateFeatures(a.name);
@@ -26252,12 +26388,12 @@ async function prewarmHotspotPipeline(){
    for(let i=0;i<allFeatures.length;i++){
      const f=allFeatures[i];
      if(f._blocked)continue;
-     stableAnchorScore(f);
      if(mapMode==='today'){
-       // v172: todayScoreForStyle() już buduje dynamiczny composite i zapisuje
-       // _bestTodayCandidate. Nie materializujemy bestTodayInfo() dla KAŻDEGO
-       // poligonu — robi to dopiero hotspot builder dla realnych kandydatów.
+       // v173: dynamiczny aggregate wylicza jednocześnie część OGÓLNEGO indeksu
+       // i zapisuje ją do staticScoreCache. Nie liczymy stableAnchorScore() drugi raz.
        todayScoreForStyle(f);
+     }else{
+       stableAnchorScore(f);
      }
      processed++;
 
@@ -26295,20 +26431,28 @@ async function prewarmHotspotPipeline(){
      multiAreaWarmKey=multiAreaWarmSignature();
      multiAreaWarmLast={
        key:multiAreaWarmKey,features:allFeatures.length,elapsedMs:0,rawMs:0,scoreMs:0,todayMs:0,
-       coveredBy:'hotspot-pipeline-v170'
+       coveredBy:'hotspot-pipeline-v173'
      };
    }
+   const forestPerfDelta={
+     contextHits:forestContextPerf.hits-forestPerfStart.hits,
+     contextMisses:forestContextPerf.misses-forestPerfStart.misses,
+     distanceHits:forestContextPerf.distanceHits-forestPerfStart.distanceHits,
+     distanceMisses:forestContextPerf.distanceMisses-forestPerfStart.distanceMisses
+   };
    hotspotPipelineWarmLast={
      key,features:processed,hotspots:hs.length,
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
-     ...phase
+     ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v172',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v173',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v172',{
+   console.info('HOTSPOT PHASE v173',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),
      mainScoreMs:+phase.mainScoreMs.toFixed(1),buildMs:+buildMs.toFixed(1),anchorMs:+anchorMs.toFixed(1),
+     contextHits:forestPerfDelta.contextHits,contextMisses:forestPerfDelta.contextMisses,
+     distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
    return true;
@@ -26444,7 +26588,7 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v172',{
+   console.info('HOTSPOT RENDER v173',{
      features:rows.length,
      progressive,
      stylesWallMs:+(ts1-tp1).toFixed(1),
@@ -28296,7 +28440,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v172: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v173: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -28305,7 +28449,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v172',{
+   console.info('HOTSPOT ACCESS NETWORK v173',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -28319,7 +28463,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v172',{
+   console.info('HOTSPOT ACCESS v173',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -28344,7 +28488,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v172: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v173: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -28366,15 +28510,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v172',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v173',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v172',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v173',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v172: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v173: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }

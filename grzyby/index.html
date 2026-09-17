@@ -1,6 +1,37 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v145:
+     AUTOMATIC PLACE-QUALITY VALIDATION.
+
+     v144 pozostaje bazą produkcyjną. v145 NIE zmienia scoringu.
+
+     Cel:
+       sprawdzić czy wysoko oceniane lasy rzeczywiście częściej pokrywają się
+       z niezależnymi publicznymi obserwacjami grzybów.
+
+     v145 automatycznie testuje:
+       - Borowik szlachetny,
+       - Podgrzybek brunatny,
+       - Kurka,
+       - Koźlarz babka,
+       - Maślak sitarz,
+       - Rydz.
+
+     Dla każdego gatunku:
+       - sam znajduje w Polsce regiony z wystarczającym coverage obserwacji,
+       - wybiera do 3 regionów bez patrzenia na wynik modelu,
+       - dopasowuje obserwacje do polygonów lasu,
+       - dobiera matched-background z podobnej strefy przestrzennej,
+       - WYŁĄCZA observation evidence podczas backtestu, żeby uniknąć leakage,
+       - raportuje AUC-like, TOP10/TOP25 hit-rate i enrichment,
+       - oddziela CLEAN >=10 od STRICT CLEAN >=25.
+
+     To jest walidacja jakości rankingu miejsc, nie estymacja prawdopodobieństwa
+     występowania i nie podstawa do automatycznego strojenia wag.
+
+     Produkcyjny scoring jest byte-identical z v144.
+
 <!-- GitHub production v144:
      CLEAN PRODUCTION RELEASE AFTER OBSERVATION-EVIDENCE FIX.
 
@@ -10339,11 +10370,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v144: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v145: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v144 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v145 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10353,7 +10384,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v144 health',health);
+     console.info('National benchmark v145 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -19902,6 +19933,261 @@ async function autoRunObservationEvidenceAtlasAudit(){
 }
 window.autoRunObservationEvidenceAtlasAudit=autoRunObservationEvidenceAtlasAudit;
 
+
+const V145_PLACE_QUALITY_SPECIES=[
+ 'borowik','podgrzybek','kurka',
+ 'kozlarz_babka','maslak_sitarz','rydz'
+];
+
+let v145PlaceQualityState={
+ status:'idle',startedAt:0,finishedAt:0,result:null
+};
+
+function v145QualityAggregateForSpecies(row){
+ if((row?.strictRegions||0)>=2){
+   return {
+     tier:'STRICT CLEAN >=25',
+     regions:row.strictRegions,
+     positives:row.strictPositive,
+     auc:row.strictAuc,
+     enrich10:row.strictEnrich10,
+     enrich25:row.strictEnrich25
+   };
+ }
+ if((row?.cleanRegions||0)>=2){
+   return {
+     tier:'CLEAN >=10',
+     regions:row.cleanRegions,
+     positives:row.cleanPositive,
+     auc:row.cleanAuc,
+     enrich10:row.cleanEnrich10,
+     enrich25:row.cleanEnrich25
+   };
+ }
+ return {
+   tier:'INSUFFICIENT',
+   regions:Math.max(row?.strictRegions||0,row?.cleanRegions||0),
+   positives:Math.max(row?.strictPositive||0,row?.cleanPositive||0),
+   auc:null,enrich10:null,enrich25:null
+ };
+}
+
+function v145SignalDescription(primary){
+ if(!primary||!Number.isFinite(primary.auc))return 'brak wystarczającej próbki';
+ const auc=primary.auc,e10=primary.enrich10,e25=primary.enrich25;
+ const both=Number.isFinite(e10)&&Number.isFinite(e25);
+
+ if(auc>=.60&&both&&e10>=1.25&&e25>=1.15)return 'wyraźny dodatni sygnał';
+ if(auc>=.55&&both&&e10>1&&e25>1)return 'umiarkowany dodatni sygnał';
+ if(auc>.50&&((Number.isFinite(e10)&&e10>1)||(Number.isFinite(e25)&&e25>1))){
+   return 'słaby dodatni sygnał';
+ }
+ if(auc<.50&&both&&e10<1&&e25<1)return 'sygnał przeciwny do modelu';
+ return 'mieszany / bliski losowemu';
+}
+
+function v145CompactQualityRow(row){
+ const p=v145QualityAggregateForSpecies(row);
+ return {
+   type:row.type,
+   gatunek:row.label,
+   tier:p.tier,
+   regiony:p.regions,
+   pozytywy:p.positives,
+   aucLike:Number.isFinite(p.auc)?Number(p.auc.toFixed(3)):null,
+   enrich10:Number.isFinite(p.enrich10)?Number(p.enrich10.toFixed(2)):null,
+   enrich25:Number.isFinite(p.enrich25)?Number(p.enrich25.toFixed(2)):null,
+   strictRegions:row.strictRegions||0,
+   cleanRegions:row.cleanRegions||0,
+   signal:v145SignalDescription(p),
+   error:row.error||null
+ };
+}
+
+async function auditPlaceQualityAcrossSpeciesV145(options={}){
+ const {
+   species=V145_PLACE_QUALITY_SPECIES,
+   topRegions=3,
+   searchTopN=7,
+   minCandidateCombined=20,
+   maxGbifRecords=1500,
+   pipelineTimeoutMs=70000,
+   backgroundPerPositive=10,
+   maxPositive=120,
+   excludeObsKm=1.5,
+   ringToleranceKm=2.5
+ }=options||{};
+
+ const previous={
+   filter:currentFilter,
+   atlas:[...atlasSelected],
+   mapMode,
+   headless:analysisHeadlessBatchMode
+ };
+ const pageWasBlank=
+   !analysisRunning &&
+   ANALYSIS_CENTERS.length===0 &&
+   selectedDraft.length===0 &&
+   allFeatures.length===0;
+
+ // Single-center validation is already smooth; keep normal pipeline because
+ // validationIntegrityForType() must see the real production sources.
+ analysisHeadlessBatchMode=false;
+
+ console.info(
+   'PLACE QUALITY VALIDATION v145: start — leakage-safe, observation evidence OFF during scoring'
+ );
+
+ try{
+   try{await ensureNationalBenchmark();}catch(e){
+     console.warn('PLACE QUALITY v145: benchmark krajowy niegotowy; walidacja obserwacyjna może działać dalej',e);
+   }
+
+   const report=await auditObservationMultiSpeciesBenchmark({
+     species,
+     topRegions,
+     searchTopN,
+     minCandidateCombined,
+     maxGbifRecords,
+     pipelineTimeoutMs,
+     backgroundPerPositive,
+     maxPositive,
+     excludeObsKm,
+     ringToleranceKm
+   });
+
+   const compact=(report?.summary||[]).map(v145CompactQualityRow);
+
+   console.table(compact);
+
+   const supported=compact.filter(r=>r.tier!=='INSUFFICIENT');
+   const strict=compact.filter(r=>r.tier==='STRICT CLEAN >=25');
+   const positive=supported.filter(r=>
+     Number.isFinite(r.aucLike)&&r.aucLike>.5 &&
+     (
+       (Number.isFinite(r.enrich10)&&r.enrich10>1) ||
+       (Number.isFinite(r.enrich25)&&r.enrich25>1)
+     )
+   );
+   const clearlyPositive=supported.filter(r=>r.signal==='wyraźny dodatni sygnał');
+   const contrary=supported.filter(r=>r.signal==='sygnał przeciwny do modelu');
+
+   const summary={
+     version:'v145',
+     ok:!!report?.ok,
+     productionScoringChanged:false,
+     speciesRequested:species.length,
+     speciesWithUsableValidation:supported.length,
+     speciesWithStrictValidation:strict.length,
+     speciesWithPositiveDirection:positive.length,
+     speciesWithClearPositiveSignal:clearlyPositive.length,
+     speciesWithContrarySignal:contrary.length,
+     leakageSafe:true,
+     observationEvidenceDisabledDuringBacktest:true,
+     compact
+   };
+
+   console.table([{
+     version:summary.version,
+     speciesRequested:summary.speciesRequested,
+     usable:summary.speciesWithUsableValidation,
+     strict:summary.speciesWithStrictValidation,
+     positiveDirection:summary.speciesWithPositiveDirection,
+     clearPositive:summary.speciesWithClearPositiveSignal,
+     contrary:summary.speciesWithContrarySignal,
+     leakageSafe:summary.leakageSafe
+   }]);
+
+   console.info('PLACE QUALITY VALIDATION v145',summary);
+
+   return {
+     ...summary,
+     raw:report,
+     interpretation:
+       'AUC-like > 0.5 i enrichment > 1 oznaczają dodatni kierunek rankingu. '+
+       'To nadal nie jest klasyczny AUC ani prawdopodobieństwo występowania; '+
+       'publiczne obserwacje mają bias dostępności i aktywności obserwatorów.',
+     nextStep:
+       'Najpierw interpretujemy wyniki per gatunek. Wagi zmieniamy dopiero wtedy, '+
+       'gdy słaby kierunek powtarza się w kilku czystych regionach i niezależnym holdoucie.'
+   };
+ }finally{
+   currentFilter=previous.filter;
+   atlasSelected.clear();
+   for(const t of previous.atlas)atlasSelected.add(t);
+   mapMode=previous.mapMode;
+   analysisHeadlessBatchMode=previous.headless;
+   invalidateScoringCaches('v145 quality audit restore');
+
+   if(pageWasBlank){
+     try{clearAnalysisData();}catch(_){}
+     try{
+       selectedDraft.length=0;
+       ANALYSIS_CENTERS.length=0;
+       renderDraft();
+       syncDraftPreview();
+       syncSelectionMarkers();
+     }catch(_){}
+   }
+
+   try{
+     syncAtlasSelectionUI();
+     syncSpeciesModeButtons();
+     updateSpeciesMeta();
+   }catch(_){}
+ }
+}
+window.auditPlaceQualityAcrossSpeciesV145=auditPlaceQualityAcrossSpeciesV145;
+
+async function autoRunPlaceQualityV145(){
+ if(v145PlaceQualityState.status==='running'||v145PlaceQualityState.status==='done'){
+   return v145PlaceQualityState;
+ }
+
+ v145PlaceQualityState.status='running';
+ v145PlaceQualityState.startedAt=Date.now();
+
+ console.info('AUTO PLACE QUALITY v145: start — nic nie musisz wpisywać');
+
+ try{
+   const result=await auditPlaceQualityAcrossSpeciesV145();
+   v145PlaceQualityState.result=result;
+   v145PlaceQualityState.status='done';
+   v145PlaceQualityState.finishedAt=Date.now();
+
+   const sec=(v145PlaceQualityState.finishedAt-v145PlaceQualityState.startedAt)/1000;
+   const final={
+     version:'v145',
+     ok:!!result?.ok,
+     usable:result?.speciesWithUsableValidation||0,
+     strict:result?.speciesWithStrictValidation||0,
+     positiveDirection:result?.speciesWithPositiveDirection||0,
+     clearPositive:result?.speciesWithClearPositiveSignal||0,
+     contrary:result?.speciesWithContrarySignal||0,
+     leakageSafe:result?.leakageSafe===true,
+     sec:Number(sec.toFixed(1))
+   };
+   console.table([final]);
+
+   if(!result?.ok){
+     console.warn('AUTO PLACE QUALITY v145 RESULT: ⚠️ za mało czystych danych do pełnej oceny',result);
+   }else if((result?.speciesWithContrarySignal||0)>0){
+     console.warn('AUTO PLACE QUALITY v145 RESULT: ⚠️ część gatunków ma przeciwny/mocno słaby kierunek — nie stroimy jeszcze, najpierw czytamy per gatunek',result);
+   }else{
+     console.info('AUTO PLACE QUALITY v145 RESULT: ✅ walidacja zakończona — wyniki per gatunek są w tabeli powyżej',result);
+   }
+
+   return v145PlaceQualityState;
+ }catch(e){
+   v145PlaceQualityState.status='done';
+   v145PlaceQualityState.finishedAt=Date.now();
+   v145PlaceQualityState.result={version:'v145',ok:false,error:e?.message||String(e)};
+   console.error('AUTO PLACE QUALITY v145: fatal',e);
+   return v145PlaceQualityState;
+ }
+}
+window.autoRunPlaceQualityV145=autoRunPlaceQualityV145;
+
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
@@ -19954,6 +20240,8 @@ function auditAppBootstrap(){
    deploymentAuditAutoStart:false,
    observationAtlasActivation:typeof window.auditObservationEvidenceAtlasActivation==='function',
    observationAtlasAuditAutoStart:false,
+   placeQualityAuditV145:typeof window.auditPlaceQualityAcrossSpeciesV145==='function',
+   placeQualityAuditAutoStart:true,
    multiAreaPerformance:typeof window.auditMultiAreaPerformance==='function',
    activeSpeciesResolver:typeof activeSingleSpeciesType==='function',
    observationPreloadHelper:typeof ensureActiveSingleSpeciesObservations==='function',
@@ -26048,7 +26336,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v144: automatyczny start w tle');
+      console.info('Benchmark krajowy v145: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){
@@ -26059,6 +26347,21 @@ if('requestIdleCallback' in window){
   requestIdleCallback(startNationalBenchmarkDeferred,{timeout:1800});
 }else{
   setTimeout(startNationalBenchmarkDeferred,1500);
+}
+
+// v145 LAB: automatyczna walidacja jakości rankingu miejsc.
+// Build diagnostyczny; po zebraniu wyników przygotujemy clean release.
+const startPlaceQualityAuditAutomatically=()=>{
+  try{
+    autoRunPlaceQualityV145();
+  }catch(e){
+    console.error('AUTO PLACE QUALITY v145: start failed',e);
+  }
+};
+if('requestIdleCallback' in window){
+  requestIdleCallback(startPlaceQualityAuditAutomatically,{timeout:4200});
+}else{
+  setTimeout(startPlaceQualityAuditAutomatically,3200);
 }
 
 // v144: observation audit przeszedł PASS; produkcja nie uruchamia go automatycznie.

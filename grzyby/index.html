@@ -1,6 +1,23 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v150:
+     HOTFIX — "GDZIE JECHAĆ?" CARD.
+
+     v149 miał prosty błąd w tripPickBest():
+       po sortowaniu hotspotów funkcja zwracała CAŁĄ tablicę zamiast pierwszego elementu.
+     renderTripPick() przekazywał więc tablicę do currentHotspotType(),
+     przez co h.best było undefined i kończyło się:
+       Cannot read properties of undefined (reading '_kind').
+
+     v150:
+       - tripPickBest() zwraca dokładnie 1 najlepszy hotspot,
+       - ignoruje ewentualne niepełne wpisy bez best/members/_center,
+       - renderTripPick() ma dodatkowy guard, aby karta nigdy nie przerwała renderu mapy.
+
+     Smart labels z v149 pozostają bez zmian.
+     Produkcyjny scoring jest byte-identical z v149/v148.
+
 <!-- GitHub production v149:
      UX RELEASE — SMART HOTSPOT LABELS + "GDZIE JECHAĆ?" CARD.
 
@@ -10508,11 +10525,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v149: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v150: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v149 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v150 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10522,7 +10539,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v149 health',health);
+     console.info('National benchmark v150 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -21040,10 +21057,10 @@ function auditHotspotUxV149(){
  const overflow=rects.filter(r=>hotspotOverflow(r,mapSize)>0).length;
  const uiCollisions=rects.filter(r=>obstacles.some(o=>hotspotRectOverlap(r,o,1)>2)).length;
  const leaders=[...hintGroup.getLayers()].filter(x=>x instanceof L.Polyline).length;
- const report={version:'v149',zoom:z,activeHotspots:activeHotspots().length,visibleLabels:racks.length,
+ const report={version:'v150',zoom:z,activeHotspots:activeHotspots().length,visibleLabels:racks.length,
    leaderLines:leaders,labelPairCollisions:overlaps,maxOverlapPx2:Number(maxOverlap.toFixed(1)),
    overflowLabels:overflow,uiCollisions,tripPickVisible:!!document.querySelector('#tripPick:not(.empty)')};
- console.table([report]);console.info('HOTSPOT UX AUDIT v149',report);return report;
+ console.table([report]);console.info('HOTSPOT UX AUDIT v150',report);return report;
 }
 window.auditHotspotUxV149=auditHotspotUxV149;
 function auditAppBootstrap(){
@@ -26256,8 +26273,19 @@ function renderSpeciesHints(){
 
 
 function tripPickBest(hotspots){
- if(!hotspots?.length)return null;
- return [...hotspots].sort((a,b)=>{
+ if(!Array.isArray(hotspots)||!hotspots.length)return null;
+
+ const valid=hotspots.filter(h=>
+   h &&
+   h.best &&
+   Array.isArray(h.members) &&
+   Array.isArray(h._center) &&
+   Number.isFinite(Number(h.clusterScore))
+ );
+
+ if(!valid.length)return null;
+
+ valid.sort((a,b)=>{
    const ta=hotspotTodayInfo(a),tb=hotspotTodayInfo(b);
    if(mapMode==='today'){
      return (Number(b.clusterScore)-Number(a.clusterScore))||
@@ -26268,12 +26296,14 @@ function tripPickBest(hotspots){
      (Number(b.stableBestScore||0)-Number(a.stableBestScore||0))||
      (Number(b.areaHa||0)-Number(a.areaHa||0));
  });
+
+ return valid[0]||null;
 }
 function renderTripPick(hotspots){
  const el=document.getElementById('tripPick');
  if(!el)return;
  const h=tripPickBest(hotspots);
- if(!h){
+ if(!h||!h.best||!Array.isArray(h.members)||!Array.isArray(h._center)){
    el.className='trip-pick empty';
    el.innerHTML=`<div class="trip-pick-kicker">Gdzie jechać?</div>
      <div class="trip-pick-main"><div class="trip-pick-icon">🍄</div><div>
@@ -27312,7 +27342,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v149: automatyczny start w tle');
+      console.info('Benchmark krajowy v150: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

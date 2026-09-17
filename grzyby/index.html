@@ -1,6 +1,35 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v152:
+     TREND WYSYPU — BEZ NOWEGO TRYBU MAPY.
+
+     v151 pozostaje bazą produkcyjną. Scoring biologiczny jest nietknięty.
+
+     v152 dodaje wyłącznie warstwę objaśniającą DZIŚ:
+       - 🔥 Rozkręca się
+       - ➡ Stabilnie
+       - ↘ Słabnie
+       - ? Za mało danych
+
+     Trend NIE jest nowym score i NIE zmienia rankingu hotspotów.
+     Jest liczony z kierunku warunków:
+       - opad z ostatnich 7 dni vs poprzednie 7 dni,
+       - liczba kolejnych suchych dni,
+       - VPD / aktualna wilgotność powietrza,
+       - kierunek sezonu gatunku,
+       - opcjonalnie tempo świeżych publicznych obserwacji, jeśli są już załadowane.
+
+     Prognoza opadu na 3 dni jest pokazywana jako osobna wskazówka
+     i nie udaje, że przyszły deszcz już poprawił dzisiejszy wysyp.
+
+     Trend pojawia się:
+       - w karcie "Najlepszy wybór",
+       - przy każdym hotspotcie na liście DZIŚ,
+       - w szczegółach hotspotu.
+
+     Produkcyjny scoring jest byte-identical z v151/v150/v149/v148.
+
 <!-- GitHub production v151:
      HOTSPOT ANCHOR + EXACT FOCUS UX.
 
@@ -3245,6 +3274,33 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   font-weight:900!important;
   padding:4px 7px!important;
 }
+
+.flush-trend{
+  display:inline-flex;align-items:center;gap:4px;
+  margin-left:5px;padding:2px 6px;border-radius:999px;
+  font-size:8px;font-weight:950;line-height:1.15;white-space:nowrap;
+  border:1px solid rgba(255,255,255,.08);
+}
+.flush-trend.up{background:rgba(64,166,86,.16);color:#a8efb5;border-color:rgba(115,224,139,.24)}
+.flush-trend.flat{background:rgba(202,181,105,.11);color:#e8d99e;border-color:rgba(214,194,118,.18)}
+.flush-trend.down{background:rgba(195,92,82,.12);color:#efaea7;border-color:rgba(220,116,105,.20)}
+.flush-trend.unknown{background:rgba(130,143,135,.10);color:#b6c2bb;border-color:rgba(170,180,174,.14)}
+.flush-trend-line{
+  margin-top:4px;font-size:8.5px;line-height:1.35;color:#aebbb3;
+}
+.flush-trend-line b{font-weight:950}
+.trip-pick-trend{
+  margin-top:6px;padding:5px 7px;border-radius:8px;
+  background:rgba(255,255,255,.035);
+  font-size:8.5px;line-height:1.35;color:#b9c6be;
+}
+.u-hotspot-trend{
+  margin-top:8px;padding:7px 8px;border-radius:9px;
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.055);
+  font-size:10px;line-height:1.4;color:#becac2;
+}
+.u-hotspot-trend b{color:#f0f5f1}
 
 
 /* ===== GitHub production: resilience / cache diagnostics ===== */
@@ -10564,11 +10620,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v151: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v152: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v151 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v152 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10578,7 +10634,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v151 health',health);
+     console.info('National benchmark v152 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -21119,6 +21175,41 @@ function auditHotspotAnchorsV151(){
 }
 window.auditHotspotAnchorsV151=auditHotspotAnchorsV151;
 
+
+function auditFlushTrendV152(){
+ const rows=activeHotspots().map(h=>{
+   const t=hotspotFlushTrend(h);
+   return {
+     hotspot:hotspotLabel(h),
+     area:h.areaName,
+     type:t.type||null,
+     status:t.status,
+     label:t.label,
+     trendScore:Number(t.score.toFixed(1)),
+     rain7:Number.isFinite(t.weather?.rain7)?Number(t.weather.rain7.toFixed(1)):null,
+     prev7:Number.isFinite(t.weather?.rain14)?Number(Math.max(0,t.weather.rain14-t.weather.rain7).toFixed(1)):null,
+     dryDays:Number.isFinite(t.weather?.dryDays)?Number(t.weather.dryDays.toFixed(1)):null,
+     seasonDelta:Number.isFinite(t.season?.delta)?Number(t.season.delta.toFixed(1)):null,
+     obsUsed:!!t.observations?.usable,
+     forecast:t.forecast
+   };
+ });
+ const counts=rows.reduce((a,r)=>(a[r.status]=(a[r.status]||0)+1,a),{});
+ const report={
+   version:'v152',
+   hotspots:rows.length,
+   counts,
+   changesProductionScore:false,
+   weatherReady,
+   observationEvidenceOptional:true,
+   rows
+ };
+ console.table(rows);
+ console.info('TREND WYSYPU AUDIT v152',report);
+ return report;
+}
+window.auditFlushTrendV152=auditFlushTrendV152;
+
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
@@ -22919,12 +23010,14 @@ function unifiedPopupHtml(f,h=null){
    const ctx=Number.isFinite(h.forestContext)?h.forestContext:forestContextInfo(h.best).score;
    const memberIndex=Math.max(0,(h.members||[]).indexOf(f));
    const memberLabel=f===h.best?'najmocniejsze miejsce':`wydzielenie ${memberIndex+1}/${h.count}`;
+   const flushTrend=mapMode==='today'?hotspotFlushTrend(h):null;
    hotspotHtml=`<div class="u-hotspot-box">
      <div class="u-hotspot-head">
        <div class="u-hotspot-title">📌 Hotspot ${escapeHtml(hotspotLabel(h))} • ${escapeHtml(h.areaName)}</div>
        <div class="u-section-badge">${memberLabel}</div>
      </div>
      <div class="u-hotspot-note">To tylko podsumowanie całego hotspotu. Główny werdykt, gatunek i lista grzybów wyżej dotyczą dokładnie klikniętego miejsca.</div>
+     ${flushTrend?`<div class="u-hotspot-trend">${hotspotFlushTrendBadge(h)} <b>Trend wysypu:</b> ${escapeHtml(flushTrend.reasons.join(' • '))}${flushTrend.forecast?' • '+escapeHtml(flushTrend.forecast):''}<br><span style="opacity:.72">Trend jest wskazówką kierunku warunków i nie zmienia wyniku hotspotu.</span></div>`:''}
      <div class="u-hotspot-stats">
        <div class="u-hotspot-stat"><span>Najlepszy wynik hotspotu</span><b>${(mapMode==='today'?(h.todayBestScore??hi.bestScore):h.stableBestScore).toFixed(1)}/10</b></div>
        <div class="u-hotspot-stat"><span>Średnia hotspotu</span><b>${(mapMode==='today'?(h.todayAvgScore??hi.avg):h.stableAvgScore).toFixed(1)}/10</b></div>
@@ -26493,6 +26586,177 @@ function renderSpeciesHints(){
 }
 
 
+
+let hotspotFlushTrendCacheKey='';
+let hotspotFlushTrendCache=new WeakMap();
+
+function weightedWeatherSnapshotAt(c){
+ if(!weatherReady||!Array.isArray(weatherSamples)||!weatherSamples.length||!Array.isArray(c))return null;
+
+ const fields=['index','rain7','rain14','rain21','rain28','future3','soilM','soilT','rh','vpd','et7','dryDays','nightMin'];
+ const sums=Object.fromEntries(fields.map(k=>[k,0]));
+ const weights=Object.fromEntries(fields.map(k=>[k,0]));
+
+ for(const s of weatherSamples){
+   const d=Math.max(.5,hav(c,[s.lat,s.lon]));
+   const q=1/(d*d);
+   for(const k of fields){
+     const v=Number(s[k]);
+     if(Number.isFinite(v)){sums[k]+=v*q;weights[k]+=q;}
+   }
+ }
+
+ const out={};
+ for(const k of fields)out[k]=weights[k]?sums[k]/weights[k]:NaN;
+ return out;
+}
+
+function localObservationMomentum(type,c){
+ if(!type||!obsLoaded[type]||!Array.isArray(observationData[type])||!Array.isArray(c)){
+   return {usable:false,score:0,recent:0,previous:0,total:0};
+ }
+
+ const now=Date.now();
+ let recent=0,previous=0,total=0;
+
+ for(const o of observationData[type]){
+   const t=new Date(o.date).getTime();
+   if(!Number.isFinite(t))continue;
+   const age=(now-t)/86400000;
+   if(age<0||age>42)continue;
+   if(hav(c,[o.lat,o.lon])>12)continue;
+   total++;
+   if(age<=14)recent++;
+   else previous++;
+ }
+
+ if(total<6)return {usable:false,score:0,recent,previous,total};
+
+ // Porównujemy tempo/dzień: 14 dni kontra wcześniejsze 28 dni.
+ const recentRate=recent/14;
+ const previousRate=previous/28;
+ const rel=(recentRate-previousRate)/Math.max(.035,previousRate+.035);
+ const score=Math.max(-1,Math.min(1,rel));
+ return {usable:true,score,recent,previous,total};
+}
+
+function seasonMomentumForType(type){
+ if(!type||!SPECIES_META[type])return {usable:false,score:0,delta:0,now:NaN};
+ const today=doy(new Date());
+ const before=fallbackSeason(type,today-7);
+ const now=fallbackSeason(type,today);
+ const after=fallbackSeason(type,today+7);
+ const delta=after-before;
+ return {
+   usable:true,
+   now,
+   delta,
+   score:Math.max(-1,Math.min(1,delta/24))
+ };
+}
+
+function hotspotFlushTrend(h){
+ if(!h)return {status:'unknown',label:'? Za mało danych',icon:'?',score:0,reasons:[],forecast:''};
+
+ const key=`${scoringRevision}|${mapMode}|${currentFilter}|${atlasSelectionKey()}|${weatherReady?1:0}|${weatherSamples.length}`;
+ if(hotspotFlushTrendCacheKey!==key){
+   hotspotFlushTrendCacheKey=key;
+   hotspotFlushTrendCache=new WeakMap();
+ }
+ if(hotspotFlushTrendCache.has(h))return hotspotFlushTrendCache.get(h);
+
+ const type=currentHotspotType(h);
+ const anchor=hotspotMapAnchor(h)||h._center;
+ const w=weightedWeatherSnapshotAt(anchor);
+ const s=seasonMomentumForType(type);
+ const o=localObservationMomentum(type,anchor);
+
+ let score=0,used=0;
+ const reasons=[];
+
+ if(w){
+   const recent=Math.max(0,Number(w.rain7)||0);
+   const previous=Math.max(0,(Number(w.rain14)||0)-recent);
+   const diff=recent-previous;
+
+   // Największy driver: czy ostatni tydzień zrobił się wyraźnie wilgotniejszy/suchszy.
+   const rainSignal=Math.max(-1,Math.min(1,diff/12));
+   score+=rainSignal*42; used+=1;
+
+   if(diff>=3)reasons.push(`opadów więcej niż tydzień wcześniej (+${diff.toFixed(1)} mm)`);
+   else if(diff<=-3)reasons.push(`opadów mniej niż tydzień wcześniej (${diff.toFixed(1)} mm)`);
+   else reasons.push('opady podobne do poprzedniego tygodnia');
+
+   const dry=Number(w.dryDays);
+   if(Number.isFinite(dry)){
+     if(dry>=10){score-=18;reasons.push(`${Math.round(dry)} suchych dni z rzędu`);}
+     else if(dry>=6){score-=9;reasons.push(`${Math.round(dry)} suchych dni`);}
+     else if(dry<=2){score+=5;reasons.push('brak długiej serii suszy');}
+     used+=.55;
+   }
+
+   const vpd=Number(w.vpd);
+   if(Number.isFinite(vpd)){
+     if(vpd>=1.8){score-=10;reasons.push('powietrze mocno wysusza');}
+     else if(vpd<=.75){score+=5;reasons.push('małe parowanie / dobry bilans wilgoci');}
+     used+=.35;
+   }
+ }
+
+ if(s.usable){
+   score+=s.score*24; used+=.65;
+   if(s.delta>=8)reasons.push('sezon gatunku wyraźnie rośnie');
+   else if(s.delta<=-8)reasons.push('sezon gatunku schodzi');
+   else reasons.push('sezon bez dużej zmiany');
+ }
+
+ if(o.usable){
+   score+=o.score*15; used+=.45;
+   if(o.score>.25)reasons.push('świeże obserwacje przyspieszają');
+   else if(o.score<-.25)reasons.push('świeże obserwacje zwalniają');
+ }
+
+ score=Math.max(-100,Math.min(100,score));
+
+ let status='unknown',label='? Za mało danych',icon='?';
+ if(used>=1){
+   if(score>=18){status='up';label='Rozkręca się';icon='🔥';}
+   else if(score<=-18){status='down';label='Słabnie';icon='↘';}
+   else {status='flat';label='Stabilnie';icon='➡';}
+ }
+
+ let forecast='';
+ if(w&&Number.isFinite(w.future3)){
+   if(w.future3>=10)forecast=`Prognoza: +${w.future3.toFixed(0)} mm deszczu / 3 dni`;
+   else if(w.future3>=4)forecast=`Prognoza: ${w.future3.toFixed(0)} mm deszczu / 3 dni`;
+   else forecast='Prognoza: mało deszczu przez 3 dni';
+ }
+
+ const out={
+   status,label,icon,score,
+   reasons:reasons.slice(0,3),
+   forecast,
+   type,
+   weather:w,
+   season:s,
+   observations:o
+ };
+ hotspotFlushTrendCache.set(h,out);
+ return out;
+}
+
+function hotspotFlushTrendBadge(h,{short=false}={}){
+ const t=hotspotFlushTrend(h);
+ const txt=short?`${t.icon} ${t.label.toLowerCase()}`:`${t.icon} ${t.label}`;
+ return `<span class="flush-trend ${t.status}">${txt}</span>`;
+}
+
+function hotspotFlushTrendText(h){
+ const t=hotspotFlushTrend(h);
+ const reasons=t.reasons.length?t.reasons.join(' • '):'brak wystarczających danych kierunkowych';
+ return `${t.icon} ${t.label} — ${reasons}${t.forecast?' • '+t.forecast:''}`;
+}
+
 function tripPickBest(hotspots){
  if(!Array.isArray(hotspots)||!hotspots.length)return null;
 
@@ -26539,6 +26803,7 @@ function renderTripPick(hotspots){
  const reason=mapMode==='today'
    ?`✅+🔥 ${today.worthShare.toFixed(0)}% powierzchni • ${h.areaHa.toFixed(1)} ha • aktualne warunki`
    :`${h.areaHa.toFixed(1)} ha • kontekst lasu ${h.forestContext.toFixed(1)}/10 • trwały potencjał`;
+ const trend=mapMode==='today'?hotspotFlushTrend(h):null;
  const icon=t?`<img src="${atlasSvg(t)}" alt="${escapeHtml(species)}">`:'🍄';
 
  el.className='trip-pick';
@@ -26547,6 +26812,7 @@ function renderTripPick(hotspots){
      <div class="trip-pick-title">${escapeHtml(label)} • ${escapeHtml(h.areaName)} • ${escapeHtml(species)}</div>
      <div class="trip-pick-sub">${reason}</div>
    </div><div class="trip-pick-score">${Number.isFinite(score)?score.toFixed(1):'—'}<small>/10</small></div></div>
+   ${trend?`<div class="trip-pick-trend">${hotspotFlushTrendBadge(h)} <span>${escapeHtml(trend.reasons.slice(0,2).join(' • '))}${trend.forecast?' • '+escapeHtml(trend.forecast):''}</span></div>`:''}
    <div class="trip-pick-actions">
      <button type="button" data-trip-action="show">Pokaż na mapie</button>
      <button type="button" data-trip-action="details">Szczegóły</button>
@@ -26600,14 +26866,17 @@ function buildTop(){
    });
 
    const score=dynamic?(h.todayBestScore??today.bestScore):h.stableBestScore;
+   const trend=dynamic?hotspotFlushTrend(h):null;
    const sub=dynamic
      ? `dziś średnio ${(h.todayAvgScore??today.avg).toFixed(1)}/10 • ✅+🔥 ${today.worthShare.toFixed(0)}% • ${h.areaHa.toFixed(1)} ha`
      : `potencjał ${h.stableBestScore.toFixed(1)}/10 • dziś ✅+🔥 ${today.worthShare.toFixed(0)}% • ${h.areaHa.toFixed(1)} ha`;
 
    const d=document.createElement('div');
    d.className='topitem';
-   d.innerHTML=`<div class="num" style="background:${vm.color};color:white">${label}</div><div><div class="tmain">📌 ${name} • ${vm.short}</div>`+
-     `<div class="tsub">${sub}</div></div><div class="tscore">${score.toFixed(1)}</div>`;
+   d.innerHTML=`<div class="num" style="background:${vm.color};color:white">${label}</div><div><div class="tmain">📌 ${name} • ${vm.short}${trend?' '+hotspotFlushTrendBadge(h,{short:true}):''}</div>`+
+     `<div class="tsub">${sub}</div>`+
+     `${trend?`<div class="flush-trend-line">${escapeHtml(trend.reasons.slice(0,2).join(' • '))}${trend.forecast?' • '+escapeHtml(trend.forecast):''}</div>`:''}`+
+     `</div><div class="tscore">${score.toFixed(1)}</div>`;
 
    d.title=dynamic
      ? `Hotspot DZIŚ ${label}: wynik klastra ${h.clusterScore.toFixed(1)}/10; kontekst lasu ${h.forestContext.toFixed(1)}/10; ${h.areaHa.toFixed(1)} ha`
@@ -27562,7 +27831,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v151: automatyczny start w tle');
+      console.info('Benchmark krajowy v152: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

@@ -1,6 +1,23 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- GitHub production v149:
+     UX RELEASE — SMART HOTSPOT LABELS + "GDZIE JECHAĆ?" CARD.
+
+     Produkcyjny scoring jest byte-identical z v148.
+
+     Zmiany UX:
+       - solver etykiet hotspotów v3: 16 kierunków + kilka promieni,
+       - kolizje z innymi etykietami, pinami hotspotów, UI i krawędziami mapy,
+       - stabilizacja kierunku etykiet przy przesuwaniu mapy,
+       - relayout po moveend / zoomend / resize,
+       - limity gęstości zależne od zoomu,
+       - leader line + strzałka przy mocno odsuniętych etykietach,
+       - nowa karta "Najlepszy wybór" nad listą hotspotów.
+
+     Nie dodano osobnego wyniku JUTRO bez osobnej walidacji temporalnej.
+     Karta korzysta z aktualnego trybu DZIŚ/POTENCJAŁ.
+
 <!-- GitHub production v148:
      CLEAN PRODUCTION RELEASE AFTER BIOLOGICAL / PLACE-QUALITY VALIDATION.
 
@@ -3147,6 +3164,39 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   .hotspot-icon-chip{width:19px;height:19px;flex-basis:19px}
 }
 
+/* ===== v149 SMART HOTSPOT UX ===== */
+.trip-pick{
+  margin:8px 12px 9px;padding:10px 11px;border-radius:13px;
+  border:1px solid rgba(114,224,139,.22);
+  background:radial-gradient(circle at 100% 0%,rgba(79,196,107,.11),transparent 42%),rgba(9,14,11,.78);
+  box-shadow:0 4px 16px rgba(0,0,0,.16);
+}
+.trip-pick.empty{opacity:.72}
+.trip-pick-kicker{font-size:8px;letter-spacing:.09em;text-transform:uppercase;color:#8fa398;font-weight:950}
+.trip-pick-main{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:9px;align-items:center;margin-top:5px}
+.trip-pick-icon{width:32px;height:32px;border-radius:9px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:#173021;display:grid;place-items:center}
+.trip-pick-icon img{width:100%;height:100%;object-fit:cover}
+.trip-pick-title{color:#f2f8f3;font-size:11px;font-weight:950;line-height:1.22}
+.trip-pick-sub{color:#9dafa3;font-size:9px;line-height:1.35;margin-top:2px}
+.trip-pick-score{min-width:42px;text-align:center;font-size:16px;font-weight:950;color:#a8efb5}
+.trip-pick-score small{display:block;font-size:7px;color:#819087;font-weight:850;line-height:1}
+.trip-pick-actions{display:flex;gap:6px;margin-top:8px}
+.trip-pick-actions button{padding:5px 8px!important;font-size:8px!important;border-radius:8px!important}
+.hotspot-leader-arrow{
+  width:12px;height:12px;display:grid;place-items:center;
+  color:rgba(193,238,204,.86);font-size:10px;font-weight:950;line-height:12px;
+  text-shadow:0 1px 3px rgba(0,0,0,.9);pointer-events:none;transform-origin:center;
+}
+.hotspot-icon-rack.smart-callout{box-shadow:0 4px 13px rgba(0,0,0,.34)}
+.hotspot-icon-rack.smart-callout-far{border-color:rgba(142,224,160,.24)}
+@media(max-width:700px){
+  .trip-pick{margin:7px 9px 8px;padding:9px 10px}
+  .trip-pick-main{grid-template-columns:30px minmax(0,1fr) auto;gap:7px}
+  .trip-pick-icon{width:28px;height:28px;border-radius:8px}
+  .trip-pick-title{font-size:10px}.trip-pick-sub{font-size:8px}
+  .trip-pick-score{font-size:14px;min-width:36px}
+}
+
 
 /* ===== GitHub production: resilience / cache diagnostics ===== */
 .prod-net-actions{
@@ -4501,6 +4551,17 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   </div>
   <div class="stable-note"></div>
 <div id="status" class="status">📍 Wyszukaj lub wskaż miejsce — analiza ruszy automatycznie.</div>
+  <div id="tripPick" class="trip-pick empty">
+    <div class="trip-pick-kicker">Gdzie jechać?</div>
+    <div class="trip-pick-main">
+      <div class="trip-pick-icon">🍄</div>
+      <div>
+        <div class="trip-pick-title">Wybierz rejon i uruchom analizę</div>
+        <div class="trip-pick-sub">Po analizie pokażę najmocniejszy hotspot w aktualnym trybie.</div>
+      </div>
+      <div class="trip-pick-score">—<small>wynik</small></div>
+    </div>
+  </div>
   <button id="toggleToplist" class="top-title collapsible" type="button" aria-expanded="true">
     <span id="topTitleText">Najlepsze hotspoty</span>
     <span id="toggleToplistIcon" class="chev">▾</span>
@@ -4843,8 +4904,9 @@ function scheduleSpeciesHintLayout(){
 // Zwykłe przesuwanie mapy NIE uruchamia ponownie solvera.
  // Leaflet sam przesuwa etykiety, linie i hotspoty razem z mapą.
  map.on('zoomend',scheduleSpeciesHintLayout);
- map.on('resize',scheduleSpeciesHintLayout);
- window.addEventListener('resize',scheduleSpeciesHintLayout);
+map.on('moveend',scheduleSpeciesHintLayout);
+map.on('resize',scheduleSpeciesHintLayout);
+window.addEventListener('resize',scheduleSpeciesHintLayout);
 const obsGroup=L.layerGroup();
 const openGroup=L.layerGroup();
 const selectionGroup=L.layerGroup().addTo(map);
@@ -10446,11 +10508,11 @@ function startNationalBenchmarkInBackground(){
  if(nationalBenchmarkPromise)return nationalBenchmarkPromise;
  if(nationalBenchmarkState==='ready'&&nationalBenchmark)return Promise.resolve(nationalBenchmark);
 
- console.info('Benchmark krajowy v148: start. Postęp: nationalBenchmarkProgress');
+ console.info('Benchmark krajowy v149: start. Postęp: nationalBenchmarkProgress');
  const p=ensureNationalBenchmark();
  p.then(b=>{
    if(!b){
-     console.warn('Benchmark krajowy v148 nie został aktywowany.',{
+     console.warn('Benchmark krajowy v149 nie został aktywowany.',{
        state:nationalBenchmarkState,
        error:nationalBenchmarkLastError,
        progress:nationalBenchmarkProgress,
@@ -10460,7 +10522,7 @@ function startNationalBenchmarkInBackground(){
    }
    try{
      const health=nationalBenchmarkHealth(b);
-     console.info('National benchmark v148 health',health);
+     console.info('National benchmark v149 health',health);
      if(allFeatures.length){
        render();
        refreshUnifiedDetails({preserveScroll:true,flash:true});
@@ -20965,6 +21027,25 @@ async function autoRunSparseSpeciesCoverageV147(){
  }
 }
 window.autoRunSparseSpeciesCoverageV147=autoRunSparseSpeciesCoverageV147;
+
+function auditHotspotUxV149(){
+ const z=map.getZoom(),mapSize=map.getSize(),obstacles=hotspotUiObstacleRects();
+ const racks=[...document.querySelectorAll('.hotspot-icon-rack')],mapRect=map.getContainer().getBoundingClientRect();
+ const rects=racks.map((el,i)=>{const r=el.getBoundingClientRect();return {i,x:r.left-mapRect.left,y:r.top-mapRect.top,w:r.width,h:r.height};});
+ let overlaps=0,maxOverlap=0;
+ for(let i=0;i<rects.length;i++)for(let j=i+1;j<rects.length;j++){
+   const a=hotspotRectOverlap(rects[i],rects[j],1);
+   if(a>1){overlaps++;maxOverlap=Math.max(maxOverlap,a);}
+ }
+ const overflow=rects.filter(r=>hotspotOverflow(r,mapSize)>0).length;
+ const uiCollisions=rects.filter(r=>obstacles.some(o=>hotspotRectOverlap(r,o,1)>2)).length;
+ const leaders=[...hintGroup.getLayers()].filter(x=>x instanceof L.Polyline).length;
+ const report={version:'v149',zoom:z,activeHotspots:activeHotspots().length,visibleLabels:racks.length,
+   leaderLines:leaders,labelPairCollisions:overlaps,maxOverlapPx2:Number(maxOverlap.toFixed(1)),
+   overflowLabels:overflow,uiCollisions,tripPickVisible:!!document.querySelector('#tripPick:not(.empty)')};
+ console.table([report]);console.info('HOTSPOT UX AUDIT v149',report);return report;
+}
+window.auditHotspotUxV149=auditHotspotUxV149;
 function auditAppBootstrap(){
  const checks={
    nationalAudit:typeof window.auditNationalBenchmarkV93==='function',
@@ -25914,15 +25995,10 @@ function hotspotRackDirection(h){
  return ['top','right','left','bottom'][n%4];
 }
 function hotspotRackView(types,z){
- if(z<=11){
-   return {visible:types.slice(0,1),showMore:false,compact:true};
- }
- if(z===12){
-   return {visible:types.slice(0,2),showMore:false,compact:false};
- }
- if(z===13){
-   return {visible:types.slice(0,2),showMore:types.length>2,compact:false};
- }
+ if(z<=10)return {visible:types.slice(0,1),showMore:false,compact:true};
+ if(z===11)return {visible:types.slice(0,1),showMore:false,compact:true};
+ if(z===12)return {visible:types.slice(0,2),showMore:types.length>2,compact:false};
+ if(z===13)return {visible:types.slice(0,3),showMore:types.length>3,compact:false};
  return {visible:types.slice(0,4),showMore:types.length>4,compact:false};
 }
 function hotspotRackMetrics(view){
@@ -25993,49 +26069,109 @@ function hotspotOverflow(r,size,margin=5){
  return Math.max(0,margin-r.x)+Math.max(0,margin-r.y)+
    Math.max(0,r.x+r.w-(size.x-margin))+Math.max(0,r.y+r.h-(size.y-margin));
 }
-function chooseRackPlacement(h,metrics,placed,pins,obstacles,mapSize){
- const p=map.latLngToContainerPoint(h._center);
- const dirs={
-   top:[0,-1],right:[1,0],bottom:[0,1],left:[-1,0],
-   tr:[.75,-.75],br:[.75,.75],bl:[-.75,.75],tl:[-.75,-.75]
- };
- const pref=hotspotRackDirection(h);
- const order={
-   top:['top','tr','tl','right','left','br','bl','bottom'],
-   right:['right','tr','br','top','bottom','tl','bl','left'],
-   left:['left','tl','bl','top','bottom','tr','br','right'],
-   bottom:['bottom','br','bl','right','left','tr','tl','top']
- }[pref]||['top','right','left','bottom','tr','tl','br','bl'];
 
- const distances=map.getZoom()<=11?[29,38,48,60]:[34,46,60,78];
+const hotspotRackPlacementMemory=new Map();
+
+function hotspotHintPriority(h){
+ const today=hotspotTodayInfo(h);
+ const score=Number(h?.clusterScore)||0;
+ const local=Math.max(1,Number(h?.localIndex)||99);
+ return score*100+(Number(today?.rank)||0)*35+(Number(today?.worthShare)||0)*.35-local*.8;
+}
+function hotspotLabelLimit(z){
+ const area=Math.max(1,map.getSize().x*map.getSize().y);
+ const base=z<=10?6:z===11?9:z===12?14:z===13?22:36;
+ const screenBoost=Math.max(0,Math.floor((area-520000)/150000));
+ return Math.max(4,Math.min(44,base+screenBoost));
+}
+function hotspotBalancedVisible(rows,limit){
+ if(rows.length<=limit)return rows;
+ const byArea=new Map();
+ for(const h of rows){
+   if(!byArea.has(h.areaName))byArea.set(h.areaName,[]);
+   byArea.get(h.areaName).push(h);
+ }
+ for(const arr of byArea.values())arr.sort((a,b)=>hotspotHintPriority(b)-hotspotHintPriority(a));
+ const out=[],used=new Set();
+ for(const arr of byArea.values()){
+   if(arr[0]&&out.length<limit){out.push(arr[0]);used.add(hotspotLabelKey(arr[0]));}
+ }
+ const rest=rows.filter(h=>!used.has(hotspotLabelKey(h))).sort((a,b)=>hotspotHintPriority(b)-hotspotHintPriority(a));
+ for(const h of rest){if(out.length>=limit)break;out.push(h);}
+ return out.sort((a,b)=>hotspotHintPriority(b)-hotspotHintPriority(a));
+}
+function hotspotSegmentIntersects(a,b,c,d){
+ const orient=(p,q,r)=>(q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x);
+ const o1=orient(a,b,c),o2=orient(a,b,d),o3=orient(c,d,a),o4=orient(c,d,b);
+ return ((o1>0&&o2<0)||(o1<0&&o2>0))&&((o3>0&&o4<0)||(o3<0&&o4>0));
+}
+function hotspotLeaderGeometry(pin,rect){
+ const cx=rect.x+rect.w/2,cy=rect.y+rect.h/2;
+ const vx=cx-pin.x,vy=cy-pin.y,len=Math.max(1,Math.hypot(vx,vy));
+ const ux=vx/len,uy=vy/len;
+ const sx=pin.x+ux*16,sy=pin.y+uy*16;
+ const ex=Math.max(rect.x+3,Math.min(rect.x+rect.w-3,pin.x));
+ const ey=Math.max(rect.y+3,Math.min(rect.y+rect.h-3,pin.y));
+ return {a:{x:sx,y:sy},b:{x:ex,y:ey},length:Math.hypot(ex-sx,ey-sy),angle:Math.atan2(ey-sy,ex-sx)*180/Math.PI};
+}
+function hotspotPlacementHardOverlap(rect,placed,obstacles){
+ let labelOverlap=0,uiOverlap=0;
+ for(const r of placed)labelOverlap+=hotspotRectOverlap(rect,r,2);
+ for(const r of obstacles)uiOverlap+=hotspotRectOverlap(rect,r,2);
+ return {labelOverlap,uiOverlap,total:labelOverlap+uiOverlap};
+}
+function chooseRackPlacement(h,metrics,placed,pins,obstacles,mapSize,leaders=[]){
+ const p=map.latLngToContainerPoint(h._center);
+ const dirs=[
+   ['top',0,-1],['tr1',.45,-.89],['tr',.71,-.71],['rtr',.89,-.45],
+   ['right',1,0],['rbr',.89,.45],['br',.71,.71],['br1',.45,.89],
+   ['bottom',0,1],['bl1',-.45,.89],['bl',-.71,.71],['lbl',-.89,.45],
+   ['left',-1,0],['ltl',-.89,-.45],['tl',-.71,-.71],['tl1',-.45,-.89]
+ ];
+ const pref=hotspotRackDirection(h);
+ const prefAngles={top:-90,right:0,bottom:90,left:180};
+ const pa=prefAngles[pref]??-90;
+ const ordered=[...dirs].sort((a,b)=>{
+   const aa=Math.atan2(a[2],a[1])*180/Math.PI,bb=Math.atan2(b[2],b[1])*180/Math.PI;
+   const da=Math.abs((((aa-pa)+540)%360)-180),db=Math.abs((((bb-pa)+540)%360)-180);
+   return da-db;
+ });
+ const z=map.getZoom();
+ const distances=z<=10?[27,36,46,59,74]:z===11?[29,39,50,64,82]:z===12?[31,42,55,70,90]:[34,46,60,78,98];
+ const memKey=`${z}|${mapMode}|${currentFilter}|${atlasSelectionKey()}|${hotspotLabelKey(h)}`;
+ const remembered=hotspotRackPlacementMemory.get(memKey);
  let best=null,bestCost=Infinity;
 
  for(let ri=0;ri<distances.length;ri++){
    const d=distances[ri];
-   for(let oi=0;oi<order.length;oi++){
-     const [dx,dy]=dirs[order[oi]];
-     const cx=p.x+dx*(metrics.w/2+d);
-     const cy=p.y+dy*(metrics.h/2+d);
+   for(let oi=0;oi<ordered.length;oi++){
+     const [dir,dx,dy]=ordered[oi];
+     const cx=p.x+dx*(metrics.w/2+d),cy=p.y+dy*(metrics.h/2+d);
      const rect={x:cx-metrics.w/2,y:cy-metrics.h/2,w:metrics.w,h:metrics.h};
-
-     let cost=d+oi*7+ri*5;
-     cost+=hotspotOverflow(rect,mapSize)*2400;
-
-     for(const r of placed)cost+=hotspotRectOverlap(rect,r,3)*900;
-     for(const r of obstacles)cost+=hotspotRectOverlap(rect,r,3)*1400;
-
-     // Nie zasłaniaj kółek hotspotów. Własne kółko pomijamy.
+     const overlap=hotspotPlacementHardOverlap(rect,placed,obstacles);
+     const overflow=hotspotOverflow(rect,mapSize);
+     const leader=hotspotLeaderGeometry(p,rect);
+     let crossings=0;
+     for(const seg of leaders)if(hotspotSegmentIntersects(leader.a,leader.b,seg.a,seg.b))crossings++;
+     let pinOverlap=0;
      for(const pin of pins){
        if(pin.key===hotspotLabelKey(h))continue;
-       cost+=hotspotRectOverlap(rect,pin.rect,3)*240;
+       pinOverlap+=hotspotRectOverlap(rect,pin.rect,3);
      }
-
+     let cost=d*.9+oi*2.2+ri*5;
+     cost+=overflow*2600+overlap.labelOverlap*1200+overlap.uiOverlap*1700+pinOverlap*330+crossings*4200;
+     if(remembered){
+       if(remembered.dir===dir)cost-=58;
+       if(remembered.ring===ri)cost-=16;
+     }
+     if(leader.length>76)cost+=(leader.length-76)*3.2;
      if(cost<bestCost){
        bestCost=cost;
-       best={rect,offsetX:cx-p.x,offsetY:cy-p.y,cost};
+       best={rect,offsetX:cx-p.x,offsetY:cy-p.y,cost,dir,ring:ri,leader,overlap,overflow,crossings};
      }
    }
  }
+ if(best)hotspotRackPlacementMemory.set(memKey,{dir:best.dir,ring:best.ring});
  return best;
 }
 function rackIconAnchor(metrics,placement){
@@ -26050,16 +26186,15 @@ function renderSpeciesHints(){
  hintGroup.clearLayers();
  if(!allFeatures.length)return;
 
- const bounds=map.getBounds().pad(.12);
- const z=map.getZoom();
- const mapSize=map.getSize();
- const obstacles=hotspotUiObstacleRects();
- const placed=[];
+ const bounds=map.getBounds().pad(.08);
+ const z=map.getZoom(),mapSize=map.getSize();
+ const obstacles=hotspotUiObstacleRects(),placed=[],leaders=[];
 
- // Najmocniejsze hotspoty układamy pierwsze.
- const visible=activeHotspots()
+ let visible=activeHotspots()
    .filter(h=>bounds.contains(L.latLng(h._center[0],h._center[1])))
-   .sort((a,b)=>(b.clusterScore-a.clusterScore)||(a.localIndex-b.localIndex));
+   .sort((a,b)=>hotspotHintPriority(b)-hotspotHintPriority(a));
+
+ visible=hotspotBalancedVisible(visible,hotspotLabelLimit(z));
 
  const pins=visible.map(h=>{
    const p=map.latLngToContainerPoint(h._center);
@@ -26069,39 +26204,44 @@ function renderSpeciesHints(){
  for(const h of visible){
    const types=hotspotRackTypes(h);
    if(!types.length)continue;
-
    const view=hotspotRackView(types,z);
    if(!view.visible.length)continue;
+
    const metrics=hotspotRackMetrics(view);
-   const placement=chooseRackPlacement(h,metrics,placed,pins,obstacles,mapSize);
+   const placement=chooseRackPlacement(h,metrics,placed,pins,obstacles,mapSize,leaders);
    if(!placement)continue;
 
-   // Przy mocnym oddaleniu wolimy brak jednej małej etykiety niż nachodzenie.
-   if(z<=11){
-     let collides=false;
-     for(const r of placed){
-       if(hotspotRectOverlap(placement.rect,r,2)>4){collides=true;break;}
+   const maxLabelOverlap=z<=11?3:8,maxUiOverlap=3;
+   if(placement.overflow>0||placement.overlap.labelOverlap>maxLabelOverlap||placement.overlap.uiOverlap>maxUiOverlap)continue;
+
+   const dist=Math.hypot(placement.offsetX,placement.offsetY),far=dist>62;
+
+   if(dist>46&&placement.leader.length>18){
+     const la=map.containerPointToLatLng([placement.leader.a.x,placement.leader.a.y]);
+     const lb=map.containerPointToLatLng([placement.leader.b.x,placement.leader.b.y]);
+     L.polyline([la,lb],{
+       color:far?'#9ee9ad':'#88c995',weight:far?1.5:1.1,opacity:far?.68:.42,
+       dashArray:far?null:'3 4',interactive:false
+     }).addTo(hintGroup);
+     leaders.push({a:placement.leader.a,b:placement.leader.b});
+     if(far){
+       L.marker(lb,{
+         interactive:false,keyboard:false,zIndexOffset:-60,
+         icon:L.divIcon({
+           className:'',
+           html:`<div class="hotspot-leader-arrow" style="transform:rotate(${placement.leader.angle.toFixed(1)}deg)">➤</div>`,
+           iconSize:[12,12],iconAnchor:[6,6]
+         })
+       }).addTo(hintGroup);
      }
-     if(!collides){
-       for(const r of obstacles){
-         if(hotspotRectOverlap(placement.rect,r,2)>4){collides=true;break;}
-       }
-     }
-     if(collides)continue;
    }
 
-   const labelHtml=hotspotRackHtml(h,types,view);
+   let labelHtml=hotspotRackHtml(h,types,view);
+   labelHtml=labelHtml.replace('class="hotspot-icon-rack',`class="hotspot-icon-rack smart-callout${far?' smart-callout-far':''}`);
+
    const rackMarker=L.marker(h._center,{
-     interactive:true,
-     keyboard:true,
-     bubblingMouseEvents:false,
-     zIndexOffset:-48,
-     icon:L.divIcon({
-       className:'',
-       html:labelHtml,
-       iconSize:[metrics.w,metrics.h],
-       iconAnchor:rackIconAnchor(metrics,placement)
-     })
+     interactive:true,keyboard:true,bubblingMouseEvents:false,zIndexOffset:-48,
+     icon:L.divIcon({className:'',html:labelHtml,iconSize:[metrics.w,metrics.h],iconAnchor:rackIconAnchor(metrics,placement)})
    }).addTo(hintGroup);
 
    rackMarker.on('click',e=>{
@@ -26114,6 +26254,60 @@ function renderSpeciesHints(){
  if(typeof reapplyLinkedVisualFocus==='function')reapplyLinkedVisualFocus();
 }
 
+
+function tripPickBest(hotspots){
+ if(!hotspots?.length)return null;
+ return [...hotspots].sort((a,b)=>{
+   const ta=hotspotTodayInfo(a),tb=hotspotTodayInfo(b);
+   if(mapMode==='today'){
+     return (Number(b.clusterScore)-Number(a.clusterScore))||
+       (Number(tb.worthShare)-Number(ta.worthShare))||
+       (Number(b.todayBestScore||0)-Number(a.todayBestScore||0));
+   }
+   return (Number(b.clusterScore)-Number(a.clusterScore))||
+     (Number(b.stableBestScore||0)-Number(a.stableBestScore||0))||
+     (Number(b.areaHa||0)-Number(a.areaHa||0));
+ });
+}
+function renderTripPick(hotspots){
+ const el=document.getElementById('tripPick');
+ if(!el)return;
+ const h=tripPickBest(hotspots);
+ if(!h){
+   el.className='trip-pick empty';
+   el.innerHTML=`<div class="trip-pick-kicker">Gdzie jechać?</div>
+     <div class="trip-pick-main"><div class="trip-pick-icon">🍄</div><div>
+       <div class="trip-pick-title">Brak mocnego hotspotu w aktualnym trybie</div>
+       <div class="trip-pick-sub">Spróbuj innego rejonu, gatunku albo trybu.</div>
+     </div><div class="trip-pick-score">—<small>wynik</small></div></div>`;
+   return;
+ }
+ const t=currentHotspotType(h),species=t?(HUMAN_NAMES[t]||t):'Różnorodność';
+ const label=hotspotLabel(h),today=hotspotTodayInfo(h);
+ const score=mapMode==='today'?Number(h.todayBestScore??today.bestScore??h.clusterScore):Number(h.stableBestScore??h.clusterScore);
+ const reason=mapMode==='today'
+   ?`✅+🔥 ${today.worthShare.toFixed(0)}% powierzchni • ${h.areaHa.toFixed(1)} ha • aktualne warunki`
+   :`${h.areaHa.toFixed(1)} ha • kontekst lasu ${h.forestContext.toFixed(1)}/10 • trwały potencjał`;
+ const icon=t?`<img src="${atlasSvg(t)}" alt="${escapeHtml(species)}">`:'🍄';
+
+ el.className='trip-pick';
+ el.innerHTML=`<div class="trip-pick-kicker">Najlepszy wybór • ${mapMode==='today'?'DZIŚ':'POTENCJAŁ'}</div>
+   <div class="trip-pick-main"><div class="trip-pick-icon">${icon}</div><div>
+     <div class="trip-pick-title">${escapeHtml(label)} • ${escapeHtml(h.areaName)} • ${escapeHtml(species)}</div>
+     <div class="trip-pick-sub">${reason}</div>
+   </div><div class="trip-pick-score">${Number.isFinite(score)?score.toFixed(1):'—'}<small>/10</small></div></div>
+   <div class="trip-pick-actions">
+     <button type="button" data-trip-action="show">Pokaż na mapie</button>
+     <button type="button" data-trip-action="details">Szczegóły</button>
+   </div>`;
+
+ const show=el.querySelector('[data-trip-action="show"]'),details=el.querySelector('[data-trip-action="details"]');
+ if(show)show.onclick=()=>{
+   map.setView(h._center,Math.max(map.getZoom(),14),{animate:true});
+   setTimeout(()=>openUnifiedDetails(h.best,h),240);
+ };
+ if(details)details.onclick=()=>openUnifiedDetails(h.best,h);
+}
 function buildTop(){
  const dynamic=mapMode==='today';
  const title=document.getElementById('topTitleText');
@@ -26123,6 +26317,7 @@ function buildTop(){
 
  const hotspots=activeHotspots();
  topSpots=hotspots;
+ renderTripPick(hotspots);
 
  const box=document.getElementById('toplist');
  box.innerHTML='';
@@ -27117,7 +27312,7 @@ setTimeout(()=>{scheduleNationalRadarRefresh();},900);
 const startNationalBenchmarkDeferred=()=>{
   try{
     if(nationalBenchmarkState==='idle'&&!nationalBenchmarkPromise){
-      console.info('Benchmark krajowy v148: automatyczny start w tle');
+      console.info('Benchmark krajowy v149: automatyczny start w tle');
       startNationalBenchmarkInBackground();
     }
   }catch(e){

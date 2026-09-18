@@ -8884,12 +8884,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v181',
+     mode:'sync-batched-v182',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v181',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v182',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -9255,7 +9255,7 @@ async function main(){
        st.innerHTML=`✅ Dane zakończone • <b>${feats.length}</b> drzewostanów. `+
          (reserves.length?`${reserves.length} obszarów ochronnych; ${blocked} wydzieleń wyłączono z rankingu.`:'');
      }
-     if(!analysisHeadlessBatchMode)scheduleSpeciesAuditV181('analysis-complete');
+     // v182: pełny audyt gatunków jest już manualny; nie dokładamy ~0.4 s pracy po każdej analizie.
    });
 
  }catch(e){
@@ -12805,7 +12805,7 @@ function ensureForestContextWorkerV174(){
    URL.revokeObjectURL(url);
    return forestContextWorker;
  }catch(e){
-   console.warn('FOREST CONTEXT WORKER v181 unavailable',e);
+   console.warn('FOREST CONTEXT WORKER v182 unavailable',e);
    return null;
  }
 }
@@ -12844,10 +12844,10 @@ async function prewarmForestContextWorkerV174(key){
    }
    forestContextWorkerRevision=revision;
    forestContextWorkerLast={state:'ready',revision,features:msg.rows.length,prepMs,workerMs:msg.workerMs,applyMs:performance.now()-ta,totalMs:performance.now()-t0};
-   console.info('FOREST CONTEXT WORKER v181',forestContextWorkerLast);
+   console.info('FOREST CONTEXT WORKER v182',forestContextWorkerLast);
    return forestContextWorkerLast;
  })().catch(e=>{
-   console.warn('FOREST CONTEXT WORKER v181 fallback',e);
+   console.warn('FOREST CONTEXT WORKER v182 fallback',e);
    return {state:'error',error:String(e?.message||e)};
  }).finally(()=>{forestContextWorkerPromise=null;});
  return forestContextWorkerPromise;
@@ -23257,9 +23257,14 @@ function atlasSpeciesScale(type,areaName){
 // v65 mialo podloge tylko w POTENCJALE, a w DZIS BEST recznie wpisane progi —
 // zmiana jednej liczby rozjezdzala tryby. Progi roznia sie miedzy trybami,
 // bo skale wynikow sa rozne, ale zrodlo jest teraz jedno.
+// v182 — absolutny wynik jest już wyłącznie "rescue floor" dla słabych
+// klas lokalnych. Nie może sam nadawać zielonego WARTO/TOP (klasa 3/4),
+// bo audyt v181 pokazał masowe zazielenianie jednorodnie dobrych rejonów:
+// np. borowik DZIŚ 81.8% zielone vs 23.8% bez floor.
+// Zielone klasy dla pojedynczego gatunku muszą wynikać z rankingu lokalnego.
 const ABSOLUTE_CLASS_FLOORS={
- potential:[[8.15,3],[7.60,2],[6.90,1]],
- today:[[7.60,3],[6.90,2],[6.10,1]],
+ potential:[[7.60,2],[6.90,1]],
+ today:[[6.90,2],[6.10,1]],
  diversity:[[8.60,3],[7.30,2],[5.60,1]]
 };
 function absoluteClassFloor(s,kind='potential'){
@@ -25449,7 +25454,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v181',{
+   console.info('UI ACTION v182',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -26508,7 +26513,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v181',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v182',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -26620,7 +26625,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v181-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
+   'v182-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -26906,9 +26911,9 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v181',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v182',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v181',{
+   console.info('HOTSPOT PHASE v182',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      forestWorkerWallMs:+phase.forestWorkerWallMs.toFixed(1),forestWorkerMs:+phase.forestWorkerMs.toFixed(1),
      priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),distributionPairs:phase.distributionPairs||0,finalizedScores:phase.finalizedScores||0,
@@ -26917,7 +26922,7 @@ async function prewarmHotspotPipeline(){
      distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
-   console.info(`HOTSPOT PHASE v181 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   console.info(`HOTSPOT PHASE v182 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -27092,10 +27097,10 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v181',{
+   console.info('HOTSPOT RENDER v182',{
      features:rows.length,
      visibleRows,
-     reasons:perfRenderNow._v180Reasons||[],
+     reasons:perfRenderNow._v182Reasons||[],
      coalesced:renderCoalescedV176,
      styleCacheHit:!!stylePlan?.cacheHit,
      stylesChanged:Number(stylePlan?.changed||0),
@@ -27622,15 +27627,15 @@ window.auditNationalRadarDistribution=auditNationalRadarDistribution;
 
 
 // =========================================================================================
-// v181 — FULL SPECIES COMPARISON / SYNTHETIC CONDITIONS + NO-FLOOR AUDIT
+// v182 — FULL SPECIES COMPARISON / SYNTHETIC CONDITIONS + NO-FLOOR AUDIT
 // Automatycznie porównuje WSZYSTKIE gatunki bez zmiany aktualnego UI.
 // Raport jest tekstowy, aby można go było w całości skopiować z konsoli.
 // =========================================================================================
-let speciesAuditV181Timer=0;
-let speciesAuditV181RunToken=0;
-let speciesAuditV181LastKey='';
+let speciesAuditV182Timer=0;
+let speciesAuditV182RunToken=0;
+let speciesAuditV182LastKey='';
 
-function v181AuditQuantiles(values){
+function v182AuditQuantiles(values){
  const a=values.filter(Number.isFinite).sort((x,y)=>x-y);
  if(!a.length)return {n:0,min:NaN,q20:NaN,q50:NaN,q70:NaN,q88:NaN,q95:NaN,max:NaN,mean:NaN};
  return {
@@ -27638,11 +27643,11 @@ function v181AuditQuantiles(values){
    q88:quantileSorted(a,.88),q95:quantileSorted(a,.95),max:a.at(-1),mean:a.reduce((x,y)=>x+y,0)/a.length
  };
 }
-function v181AuditScale(values){
- const q=v181AuditQuantiles(values);
+function v182AuditScale(values){
+ const q=v182AuditQuantiles(values);
  return q.n?q:{q20:0,q50:0,q70:0,q88:0,min:0,max:0};
 }
-function v181AuditClassScale(values,potential=false){
+function v182AuditClassScale(values,potential=false){
  const a=values.filter(Number.isFinite).sort((x,y)=>x-y);
  if(!a.length)return potential?{q20:5.55,q45:6.35,q70:7.05,q88:7.65}:{q20:5.2,q45:6.0,q70:6.8,q88:7.5};
  return {q20:quantileSorted(a,.20),q45:quantileSorted(a,.45),q70:quantileSorted(a,.70),q88:quantileSorted(a,.88)};
@@ -27696,26 +27701,26 @@ function v181HostMatchBucket(type,f){
  return 'none';
 }
 
-async function runSpeciesAuditV181({reason='manual',force=false}={}){
+async function runSpeciesAuditV182({reason='manual',force=false}={}){
  if(!analysisScoringReady||!allFeatures.length||!ANALYSIS_CENTERS.length){
-   console.info('SPECIES AUDIT v181: czekam na gotową analizę.');
+   console.info('SPECIES AUDIT v182: czekam na gotową analizę.');
    return null;
  }
  const day=doy(new Date());
  const key=[ANALYSIS_CENTERS.map(a=>a.name).join('||'),allFeatures.length,openFeatures.length,weatherScoringRevisionV176,day].join('|');
- if(!force&&speciesAuditV181LastKey===key)return window.__speciesAuditV181||null;
- const run=++speciesAuditV181RunToken;
+ if(!force&&speciesAuditV182LastKey===key)return window.__speciesAuditV182||null;
+ const run=++speciesAuditV182RunToken;
  const t0=performance.now();
  const types=TYPE_LIST.filter(t=>SPECIES_META[t]);
  const scenarioKeys=Object.keys(SPECIES_WEATHER_STRESS_SCENARIOS);
  const seasonDays=[120,150,180,210,240,270,300,330,355];
- const report={version:'v181',reason,key,day,areas:ANALYSIS_CENTERS.map(a=>a.name),weatherReady,features:allFeatures.length,open:openFeatures.length,species:[]};
+ const report={version:'v182',reason,key,day,areas:ANALYSIS_CENTERS.map(a=>a.name),weatherReady,features:allFeatures.length,open:openFeatures.length,species:[]};
  const lines=[];
- lines.push('===== SPECIES AUDIT v181 START =====');
+ lines.push('===== SPECIES AUDIT v182 START =====');
  lines.push(`CTX|reason=${reason}|day=${day}|areas=${ANALYSIS_CENTERS.length}|features=${allFeatures.length}|open=${openFeatures.length}|weather=${weatherReady?'ready':'no'}`);
 
  for(const type of types){
-   if(run!==speciesAuditV181RunToken)return null;
+   if(run!==speciesAuditV182RunToken)return null;
    const m=SPECIES_META[type]||{};
    const potentials=[],todays=[],fruits=[],trees=[],gates=[],habitats=[];
    const hostBuckets={directStrong:0,directSecondary:0,nearStrong:0,nearSecondary:0,none:0,na:0};
@@ -27738,10 +27743,10 @@ async function runSpeciesAuditV181({reason='manual',force=false}={}){
        const hostBucket=v181HostMatchBucket(type,f);hostBuckets[hostBucket]=(hostBuckets[hostBucket]||0)+1;
        rows.push({f,potential,today,fruit,tree,gate,hab});
        potentials.push(potential);todays.push(today);fruits.push(fruit);trees.push(tree);gates.push(gate);habitats.push(hab);
-       if(performance.now()-slice>=7){await hotspotYield();slice=performance.now();if(run!==speciesAuditV181RunToken)return null;}
+       if(performance.now()-slice>=7){await hotspotYield();slice=performance.now();if(run!==speciesAuditV182RunToken)return null;}
      }
      const pvals=rows.map(r=>r.potential),tvals=rows.map(r=>r.today);
-     const pScale=v181AuditClassScale(pvals,true),tScale=v181AuditClassScale(tvals,false);
+     const pScale=v182AuditClassScale(pvals,true),tScale=v182AuditClassScale(tvals,false);
      for(const r of rows){
        const pp=v181PotentialClassParts(r.potential,pScale);
        const tp=v181TodayClassParts(r.today,r.fruit,pp.final,tScale);
@@ -27755,11 +27760,11 @@ async function runSpeciesAuditV181({reason='manual',force=false}={}){
        if(pp.final>=3&&potNoFloor<3)potFloorGreenAdded++;
        if(tp.final>=3&&todayNoFloor<3)todayFloorGreenAdded++;
      }
-     byArea.push({area:area.name,n:rows.length,potential:v181AuditQuantiles(pvals),today:v181AuditQuantiles(tvals)});
+     byArea.push({area:area.name,n:rows.length,potential:v182AuditQuantiles(pvals),today:v182AuditQuantiles(tvals)});
      await hotspotYield();
    }
 
-   const pot=v181AuditQuantiles(potentials),today=v181AuditQuantiles(todays);
+   const pot=v182AuditQuantiles(potentials),today=v182AuditQuantiles(todays);
    const fallback=fallbackSeason(type,day),season=seasonScore(type);
    const obsActive=observationEvidenceActive(type),obsN=(observationData[type]||[]).length;
    const weatherRows=ANALYSIS_CENTERS.map(a=>speciesWeatherProductionInfo(type,a.point));
@@ -27832,10 +27837,10 @@ async function runSpeciesAuditV181({reason='manual',force=false}={}){
  lines.push('RANK|todayFloorGreenAdded|'+report.ranking.todayFloorGreenAdded.map(x=>`${x[0]}=+${x[1]}%`).join('|'));
  lines.push('RANK|narrowPotentialSpread|'+report.ranking.narrowPotential.map(x=>`${x[0]}=${x[1]}`).join('|'));
  lines.push(`DONE|elapsed=${report.elapsedMs.toFixed(1)}ms`);
- lines.push('===== SPECIES AUDIT v181 END =====');
- speciesAuditV181LastKey=key;
- window.__speciesAuditV181=report;
- window.__speciesAuditV181Text=lines.join('\n');
+ lines.push('===== SPECIES AUDIT v182 END =====');
+ speciesAuditV182LastKey=key;
+ window.__speciesAuditV182=report;
+ window.__speciesAuditV182Text=lines.join('\n');
  // Nie drukuj jednego gigantycznego stringa: Chromium potrafi go skrócić.
  // Każdy rekord osobno = komplet danych łatwy do zaznaczenia/skopiowania.
  for(const line of lines)console.log(line);
@@ -27844,27 +27849,27 @@ async function runSpeciesAuditV181({reason='manual',force=false}={}){
    T_green:+x.todayGreenPct.toFixed(1),T_noFloor:+x.todayNoFloorGreenPct.toFixed(1),T_floorAdd:+x.todayFloorGreenAddedPct.toFixed(1),
    P_q50:+Number(x.potential.q50||0).toFixed(2),T_q50:+Number(x.today.q50||0).toFixed(2),fruit:+Number(x.fruitMean||0).toFixed(1),tree:+Number(x.treeMean||0).toFixed(2),gate:+Number(x.hostGateMean||0).toFixed(2),directStrong:+Number(x.hostDirectStrongPct||0).toFixed(1),hostNone:+Number(x.hostNonePct||0).toFixed(1)
  })));
- console.info('SPECIES AUDIT v181 JSON',report);
+ console.info('SPECIES AUDIT v182 JSON',report);
  return report;
 }
-function scheduleSpeciesAuditV181(reason='analysis-complete'){
+function scheduleSpeciesAuditV182(reason='analysis-complete'){
  if(analysisHeadlessBatchMode)return;
- clearTimeout(speciesAuditV181Timer);
- speciesAuditV181Timer=setTimeout(()=>{
-   runSpeciesAuditV181({reason}).catch(e=>console.warn('SPECIES AUDIT v181 failed',e));
+ clearTimeout(speciesAuditV182Timer);
+ speciesAuditV182Timer=setTimeout(()=>{
+   runSpeciesAuditV182({reason}).catch(e=>console.warn('SPECIES AUDIT v182 failed',e));
  },1200);
 }
-window.runSpeciesAuditV181=runSpeciesAuditV181;
-window.copySpeciesAuditV181=async function(){
- const text=window.__speciesAuditV181Text||'';
+window.runSpeciesAuditV182=runSpeciesAuditV182;
+window.copySpeciesAuditV182=async function(){
+ const text=window.__speciesAuditV182Text||'';
  if(!text)return false;
- try{await navigator.clipboard.writeText(text);console.info('SPECIES AUDIT v181: skopiowano raport do schowka');return true;}catch(_){console.log(text);return false;}
+ try{await navigator.clipboard.writeText(text);console.info('SPECIES AUDIT v182: skopiowano raport do schowka');return true;}catch(_){console.log(text);return false;}
 };
-window.copySpeciesAuditJsonV181=async function(){
- const report=window.__speciesAuditV181;
+window.copySpeciesAuditJsonV182=async function(){
+ const report=window.__speciesAuditV182;
  if(!report)return false;
  const text=JSON.stringify(report);
- try{await navigator.clipboard.writeText(text);console.info('SPECIES AUDIT v181 JSON: skopiowano pełny JSON do schowka');return true;}catch(_){console.log(text);return false;}
+ try{await navigator.clipboard.writeText(text);console.info('SPECIES AUDIT v182 JSON: skopiowano pełny JSON do schowka');return true;}catch(_){console.log(text);return false;}
 };
 // =========================================================================================
 
@@ -27874,7 +27879,7 @@ function render(reason='legacy'){
  if(perfRenderRAF){renderCoalescedV176++;cancelAnimationFrame(perfRenderRAF);}
  perfRenderRAF=requestAnimationFrame(()=>{
    const reasons=[...renderReasonsV176];renderReasonsV176.clear();
-   perfRenderNow._v181Reasons=reasons;
+   perfRenderNow._v182Reasons=reasons;
    perfRenderNow();
  });
  scheduleNationalRadarRefresh();
@@ -29214,7 +29219,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v181: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v182: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -29223,7 +29228,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v181',{
+   console.info('HOTSPOT ACCESS NETWORK v182',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -29237,7 +29242,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v181',{
+   console.info('HOTSPOT ACCESS v182',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -29262,7 +29267,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v181: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v182: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -29284,15 +29289,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v181',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v182',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v181',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v182',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v181: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v182: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }
@@ -30759,7 +30764,7 @@ scheduleNationalBenchmarkAuto();
 // v180 runtime architecture audit helper.
 window.auditV176Architecture=function(){
  const report={
-   version:'v181',
+   version:'v182',
    dirtyWeatherRevision:typeof weatherScoringRevisionV176==='number'?weatherScoringRevisionV176:null,
    finalScoreCaches:typeof opportunityFinalScoreCacheV176!=='undefined'?opportunityFinalScoreCacheV176.size:null,
    visualStateKey:typeof visualStateKeyV176==='function'?visualStateKeyV176():null,

@@ -4746,6 +4746,21 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   }
 }
 </style>
+
+<style id="v193-mega-debug-style">
+.mega-debug-btn{font-weight:800!important;border-color:#7aa88a!important;background:#edf8ef!important;color:#17331f!important}
+.mega-debug-btn:disabled{opacity:.65;cursor:wait}
+.mega-debug-status{font-size:11px;color:#64736b;min-width:120px}
+.mega-debug-status.ok{color:#1f7a42;font-weight:800}
+.mega-debug-status.fail{color:#a83a32;font-weight:800}
+#megaDebugReportOverlay{position:fixed;inset:0;z-index:12000;background:rgba(10,18,14,.66);display:none;align-items:center;justify-content:center;padding:16px}
+#megaDebugReportOverlay.open{display:flex}
+.mega-debug-report-shell{width:min(920px,96vw);max-height:88vh;background:#fff;border-radius:14px;box-shadow:0 20px 80px rgba(0,0,0,.35);padding:14px;display:flex;flex-direction:column;gap:10px}
+.mega-debug-report-head{display:flex;gap:10px;align-items:center;justify-content:space-between;font-weight:900}
+#megaDebugReportText{width:100%;height:min(58vh,560px);resize:vertical;font:12px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre;padding:10px;border:1px solid #ccd7d0;border-radius:9px}
+.mega-debug-report-actions{display:flex;gap:8px;flex-wrap:wrap}
+.mega-debug-report-actions button{padding:8px 11px}
+</style>
 </head>
 
 <style>
@@ -4987,6 +5002,8 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
     <div class="prod-net-actions">
       <button id="retryAnalysisBtn" type="button">↻ Ponów analizę</button>
       <button id="clearApiCacheBtn" type="button">Wyczyść cache API</button>
+      <button id="megaDebugBtn" class="mega-debug-btn" type="button" title="Uruchom pełną diagnostykę i przygotuj jeden raport dla ChatGPT">📋 Mega debug</button>
+      <span id="megaDebugStatus" class="mega-debug-status" aria-live="polite"></span>
       <span id="cacheInfo">Cache: 0 trafień</span>
     </div>
     <div class="weather-source">
@@ -9000,12 +9017,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v191',
+     mode:'sync-batched-v193',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v191',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v193',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -13102,7 +13119,7 @@ function ensureForestContextWorkerV174(){
    URL.revokeObjectURL(url);
    return forestContextWorker;
  }catch(e){
-   console.warn('FOREST CONTEXT WORKER v191 unavailable',e);
+   console.warn('FOREST CONTEXT WORKER v193 unavailable',e);
    return null;
  }
 }
@@ -13141,10 +13158,10 @@ async function prewarmForestContextWorkerV174(key){
    }
    forestContextWorkerRevision=revision;
    forestContextWorkerLast={state:'ready',revision,features:msg.rows.length,prepMs,workerMs:msg.workerMs,applyMs:performance.now()-ta,totalMs:performance.now()-t0};
-   console.info('FOREST CONTEXT WORKER v191',forestContextWorkerLast);
+   console.info('FOREST CONTEXT WORKER v193',forestContextWorkerLast);
    return forestContextWorkerLast;
  })().catch(e=>{
-   console.warn('FOREST CONTEXT WORKER v191 fallback',e);
+   console.warn('FOREST CONTEXT WORKER v193 fallback',e);
    return {state:'error',error:String(e?.message||e)};
  }).finally(()=>{forestContextWorkerPromise=null;});
  return forestContextWorkerPromise;
@@ -25751,7 +25768,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v191',{
+   console.info('UI ACTION v193',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -26750,11 +26767,12 @@ async function auditV191PerformanceEquivalence(limit=180){
    if(mapMode==='today')upd('pairDynamicMax',Math.abs(fast.dynamicScore-ref.dynamicScore),f,'ALL');
  }
  const maxDelta=Math.max(...Object.values(maxima));
- const report={version:'v191',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-10,worst,elapsedMs:performance.now()-t0};
+ const report={version:'v193',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-10,worst,elapsedMs:performance.now()-t0};
  window.__v190PerformanceEquivalence=report;
- console.info('V191 TRUE PERFORMANCE EQUIVALENCE',report);
+ console.info('V193 TRUE PERFORMANCE EQUIVALENCE',report);
  return report;
 }
+window.auditV192PerformanceEquivalence=auditV191PerformanceEquivalence;
 window.auditV191PerformanceEquivalence=auditV191PerformanceEquivalence;
 window.auditV190PerformanceEquivalence=auditV191PerformanceEquivalence;
 // Alias celowo wskazuje nowy, poprawny audyt — stare polecenie użytkownika nadal działa,
@@ -27623,7 +27641,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v191',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v193',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -27713,7 +27731,7 @@ function areaWeatherSignatureV191(area){
  return commutativeSigV191(parts);
 }
 function areaScoreSessionKeyV191(area,types){
- return `v191|${analysisAreaGeometrySigV191(area)}|${opportunityTypeSetKey(types)}`;
+ return `v193|${analysisAreaGeometrySigV191(area)}|${opportunityTypeSetKey(types)}`;
 }
 function currentDistributionKeyV191(types,areaName,kind){
  return `v105|${scoringRevision}|${opportunityTypeSetKey(types)}|${areaName}|${RADIUS_KM}|${kind}|${allFeatures.length}|${openFeatures.length}`;
@@ -27788,7 +27806,7 @@ function restoreAreaScoreSessionV191(types){
    entry.ts=Date.now();areaScoreSessionCacheV191.delete(key);areaScoreSessionCacheV191.set(key,entry);
  }
  areaScoreSessionLastV191={restoredAreas,staticAreas,dynamicAreas,reusedFeatures,misses,elapsedMs:performance.now()-t0};
- console.info('AREA SCORE CACHE RESTORE v191',areaScoreSessionLastV191);
+ console.info('AREA SCORE CACHE RESTORE v193',areaScoreSessionLastV191);
  return areaScoreSessionLastV191;
 }
 function saveAreaScoreSessionV191(types){
@@ -27820,8 +27838,8 @@ function saveAreaScoreSessionV191(types){
 window.auditV191SessionCache=function(){
  pruneAreaScoreSessionCacheV191();
  const entries=[...areaScoreSessionCacheV191.entries()].map(([key,v])=>({key,ageSec:+((Date.now()-v.ts)/1000).toFixed(1),staticScores:v.staticRaw?.size||0,dynamicScores:v.dynamicRaw?.size||0,forestRows:v.forestRows?.length||0,openRows:v.openRows?.length||0}));
- const report={version:'v191',entries:entries.length,last:{...areaScoreSessionLastV191},rows:entries};
- console.table(entries);console.info('V191 SESSION AREA CACHE',report);return report;
+ const report={version:'v193',entries:entries.length,last:{...areaScoreSessionLastV191},rows:entries};
+ console.table(entries);console.info('V193 SESSION AREA CACHE',report);return report;
 };
 window.clearV191SessionCache=function(){areaScoreSessionCacheV191.clear();areaScoreSessionLastV191={restoredAreas:0,staticAreas:0,dynamicAreas:0,reusedFeatures:0,misses:0,elapsedMs:0};return true;};
 window.auditV191AreaIsolation=function(){
@@ -27833,9 +27851,263 @@ window.auditV191AreaIsolation=function(){
    return {area:area.name,sig,weatherSamples:localWeather.length,clusterSize:cluster.length,sessionEntries:cacheKeys.length};
  });
  const weatherOk=!weatherReady||rows.every(r=>r.weatherSamples>=5);
- const report={version:'v191',areas:rows.length,weatherReady,weatherIsolationOk:weatherOk,rows,lastCache:{...areaScoreSessionLastV191}};
- console.table(rows);console.info('V191 AREA ISOLATION',report);return report;
+ const report={version:'v193',areas:rows.length,weatherReady,weatherIsolationOk:weatherOk,rows,lastCache:{...areaScoreSessionLastV191}};
+ console.table(rows);console.info('V193 AREA ISOLATION',report);return report;
 };
+
+
+// ========================= v192: AUTOMATIC RUNTIME QA =========================
+// Użytkownik nie musi wpisywać żadnych poleceń. Po każdym zakończonym pipeline
+// audyt uruchamia się z opóźnieniem, już PO pomiarze wydajności, więc nie zawyża
+// HOTSPOT PHASE. Sprawdza: niezależną równoważność v190/v192, round-trip cache,
+// izolację pogody oraz rzeczywisty reuse przy ponownym/dodatkowym rejonie.
+const autoQAV192={runs:[],busy:false,timer:0,last:null};
+function autoQAAreaRowsV192(){
+ return ANALYSIS_CENTERS.map(area=>{
+   const sig=analysisAreaGeometrySigV191(area);
+   const localWeather=weatherSamples.filter(x=>x?._areaSig===sig);
+   const cluster=overlapClusterForArea(area.name,ANALYSIS_CENTERS);
+   return {name:area.name,sig,weatherSamples:localWeather.length,clusterSize:cluster.length};
+ }).sort((a,b)=>a.sig.localeCompare(b.sig));
+}
+function autoQAScenarioV192(rows){
+ const sigs=rows.map(r=>r.sig),set=new Set(sigs),prev=autoQAV192.runs.at(-1);
+ if(!prev)return {kind:'BASELINE',expectedReuse:0,overlap:false};
+ const prevSet=new Set(prev.areaSigs);
+ const same=sigs.length===prev.areaSigs.length&&sigs.every(x=>prevSet.has(x));
+ if(same)return {kind:'REPEAT_SET',expectedReuse:sigs.length,overlap:rows.some(r=>r.clusterSize>1)};
+ const prevInside=prev.areaSigs.every(x=>set.has(x));
+ if(prevInside&&sigs.length>prev.areaSigs.length)return {kind:'ADD_AREA',expectedReuse:prev.areaSigs.length,overlap:rows.some(r=>r.clusterSize>1)};
+ const currentInsidePrev=sigs.every(x=>prevSet.has(x));
+ if(currentInsidePrev&&sigs.length<prev.areaSigs.length)return {kind:'REMOVE_AREA',expectedReuse:sigs.length,overlap:rows.some(r=>r.clusterSize>1)};
+ const seen=autoQAV192.runs.some(r=>r.areaSigs.length===sigs.length&&sigs.every(x=>new Set(r.areaSigs).has(x)));
+ if(seen)return {kind:'READD_SET',expectedReuse:sigs.length,overlap:rows.some(r=>r.clusterSize>1)};
+ return {kind:'CHANGED_SET',expectedReuse:0,overlap:rows.some(r=>r.clusterSize>1)};
+}
+function autoQASnapshotFinalV192(types,limit=220){
+ const out=[];
+ for(const f of allFeatures){
+   if(f._blocked)continue;
+   const s=getOpportunityFinalScoreV176(types,f,false),d=getOpportunityFinalScoreV176(types,f,true);
+   if(Number.isFinite(s)||Number.isFinite(d))out.push([f,s,d]);
+   if(out.length>=limit)break;
+ }
+ return out;
+}
+function autoQAFinalDeltaV192(before,types){
+ let max=0,checks=0;
+ for(const [f,s,d] of before){
+   const s2=getOpportunityFinalScoreV176(types,f,false),d2=getOpportunityFinalScoreV176(types,f,true);
+   if(Number.isFinite(s)&&Number.isFinite(s2)){max=Math.max(max,Math.abs(s-s2));checks++;}
+   if(Number.isFinite(d)&&Number.isFinite(d2)){max=Math.max(max,Math.abs(d-d2));checks++;}
+ }
+ return {maxDelta:max,checks};
+}
+async function runAutoQAV192(){
+ if(autoQAV192.busy||!analysisScoringReady||!allFeatures.length||!ANALYSIS_CENTERS.length)return null;
+ autoQAV192.busy=true;
+ try{
+   const started=performance.now();
+   const phase={...(hotspotPipelineWarmLast||{})};
+   const rows=autoQAAreaRowsV192();
+   const scenario=autoQAScenarioV192(rows);
+   const types=activeOpportunityTypesForHotspotWarm();
+
+   // 1. Niezależny test matematyczny. Uruchamiany po pomiarze pipeline.
+   const equivalence=await auditV191PerformanceEquivalence(Math.min(180,Math.max(90,Math.round(allFeatures.length/24))));
+
+   // 2. Test prawdziwego round-trip cache bez zmiany UI. Restore zapisuje dokładnie
+   // te same wartości, więc możemy porównać finalne score przed/po.
+   let roundTrip={applicable:false,ok:true,maxDelta:0,checks:0,staticAreas:0,dynamicAreas:0,reusedFeatures:0};
+   if(types&&types.length>1){
+     const before=autoQASnapshotFinalV192(types);
+     const restored=restoreAreaScoreSessionV191(types);
+     const cmp=autoQAFinalDeltaV192(before,types);
+     roundTrip={applicable:true,ok:cmp.maxDelta<=1e-10&&restored.staticAreas>=ANALYSIS_CENTERS.length,
+       maxDelta:cmp.maxDelta,checks:cmp.checks,staticAreas:restored.staticAreas||0,dynamicAreas:restored.dynamicAreas||0,reusedFeatures:restored.reusedFeatures||0};
+   }
+
+   // 3. Izolacja pogody bez console.table.
+   const weatherIsolationOk=!weatherReady||rows.every(r=>r.weatherSamples>=5);
+   const weatherStatus=weatherReady?(weatherIsolationOk?'PASS':'FAIL'):'WAIT';
+
+   // 4. Rzeczywisty reuse w pipeline (przed auto round-tripem).
+   const phaseStatic=Number(phase.sessionStaticAreas||0),phaseDynamic=Number(phase.sessionDynamicAreas||0),phaseFinal=Number(phase.sessionReusedFeatures||0);
+   const reuseApplicable=scenario.expectedReuse>0;
+   const phaseReuseOk=!reuseApplicable||phaseStatic>=scenario.expectedReuse;
+   const expectedDynamicOk=mapMode!=='today'||!weatherReady||phaseDynamic>=scenario.expectedReuse;
+   const reuseOk=phaseReuseOk&&expectedDynamicOk;
+
+   const overall=!!equivalence?.ok&&roundTrip.ok&&weatherIsolationOk&&reuseOk;
+   const report={
+     version:'v193',scenario:scenario.kind,areas:rows.length,areaSigs:rows.map(r=>r.sig),overlap:scenario.overlap,
+     overall:overall?'PASS':'FAIL',equivalenceOk:!!equivalence?.ok,maxDelta:Number(equivalence?.maxDelta??NaN),
+     roundTripOk:roundTrip.ok,roundTripMaxDelta:roundTrip.maxDelta,roundTripStaticAreas:roundTrip.staticAreas,roundTripDynamicAreas:roundTrip.dynamicAreas,
+     weatherStatus,weatherSamples:rows.map(r=>r.weatherSamples),expectedReuse:scenario.expectedReuse,
+     phaseReuseOk:reuseOk,phaseStaticAreas:phaseStatic,phaseDynamicAreas:phaseDynamic,phaseReusedFeatures:phaseFinal,
+     priorMs:Number(phase.priorMs||0),distributionMs:Number(phase.distributionMs||0),distributionPairs:Number(phase.distributionPairs||0),
+     totalMs:Number(phase.elapsedMs||phase.totalMs||0),qaMs:performance.now()-started
+   };
+   autoQAV192.last=report;
+   autoQAV192.runs.push({ts:Date.now(),areaSigs:report.areaSigs,scenario:report.scenario,overall:report.overall});
+   if(autoQAV192.runs.length>24)autoQAV192.runs.shift();
+   window.__v192AutoQA=report;window.__v193AutoQA=report;
+   console.info('V193 AUTO QA',report);
+   console.info(`V193 AUTO QA FLAT | scenario=${report.scenario} | areas=${report.areas} | equivalence=${report.equivalenceOk?'PASS':'FAIL'}(delta ${Number.isFinite(report.maxDelta)?report.maxDelta:'?'}) | cacheRoundTrip=${report.roundTripOk?'PASS':'FAIL'}(delta ${report.roundTripMaxDelta}, static ${report.roundTripStaticAreas}, dynamic ${report.roundTripDynamicAreas}) | phaseReuse=${reuseApplicable?(report.phaseReuseOk?'PASS':'FAIL'):'N/A'}(${report.phaseStaticAreas}/${report.expectedReuse}, dyn ${report.phaseDynamicAreas}, final ${report.phaseReusedFeatures}) | weather=${report.weatherStatus}[${report.weatherSamples.join(',')}] | prior=${report.priorMs.toFixed(1)} | distribution=${report.distributionMs.toFixed(1)} pairs=${report.distributionPairs} | overall=${report.overall}`);
+   return report;
+ }catch(err){
+   const report={version:'v193',overall:'FAIL',error:String(err?.stack||err)};
+   autoQAV192.last=report;window.__v192AutoQA=report;window.__v193AutoQA=report;console.error('V193 AUTO QA FAIL',report);return report;
+ }finally{autoQAV192.busy=false;}
+}
+function scheduleAutoQAV192(delay=650){
+ clearTimeout(autoQAV192.timer);
+ autoQAV192.timer=setTimeout(()=>{runAutoQAV192();},delay);
+}
+window.auditV192AutoQA=runAutoQAV192;window.auditV193AutoQA=runAutoQAV192;
+window.__v192AutoQAState=autoQAV192;window.__v193AutoQAState=autoQAV192;
+
+
+// ========================= v193: SESSION MEGA DEBUG / ONE-CLICK REPORT =========================
+// Capture starts during script initialization, before normal UI/network work begins. The report is
+// intentionally bounded and serializable: it keeps only diagnostic console families + warnings/errors.
+const megaDebugV193={
+  startedAt:Date.now(),events:[],errors:[],maxEvents:260,maxErrors:80,lastReport:'',lastObject:null,running:false
+};
+function megaDebugSafeV193(v,depth=0,seen=new WeakSet()){
+  if(v==null||typeof v==='boolean'||typeof v==='number')return v;
+  if(typeof v==='string')return v.length>2500?v.slice(0,2500)+'…':v;
+  if(typeof v==='function')return `[Function ${v.name||'anonymous'}]`;
+  if(typeof v!=='object')return String(v);
+  if(depth>4)return '[depth-limit]';
+  if(seen.has(v))return '[circular]';seen.add(v);
+  if(v instanceof Error)return {name:v.name,message:v.message,stack:String(v.stack||'').slice(0,5000)};
+  if(Array.isArray(v))return v.slice(0,80).map(x=>megaDebugSafeV193(x,depth+1,seen));
+  const out={};let n=0;
+  for(const k of Object.keys(v)){
+    if(n++>=80){out.__truncated=true;break;}
+    try{out[k]=megaDebugSafeV193(v[k],depth+1,seen);}catch(_){out[k]='[unreadable]';}
+  }
+  return out;
+}
+function megaDebugEventWantedV193(level,args){
+  if(level==='warn'||level==='error')return true;
+  const s=args.map(x=>typeof x==='string'?x:'').join(' ');
+  return /UI ACTION|LAYER BUILD PERFORMANCE|OSM PERFORMANCE|FOREST CONTEXT WORKER|HOTSPOT|AREA SCORE CACHE|AUTO QA|National benchmark|Benchmark krajowy|cache invalidated|PERFORMANCE EQUIVALENCE|SESSION AREA CACHE|AREA ISOLATION/i.test(s);
+}
+function megaDebugPushV193(level,args){
+  if(!megaDebugEventWantedV193(level,args))return;
+  const rec={t:+((performance.now?.()||0)/1000).toFixed(3),level,args:args.map(x=>megaDebugSafeV193(x))};
+  megaDebugV193.events.push(rec);if(megaDebugV193.events.length>megaDebugV193.maxEvents)megaDebugV193.events.shift();
+  if(level==='warn'||level==='error'){megaDebugV193.errors.push(rec);if(megaDebugV193.errors.length>megaDebugV193.maxErrors)megaDebugV193.errors.shift();}
+}
+(function installMegaDebugConsoleCaptureV193(){
+  if(window.__megaDebugConsoleCaptureV193)return;window.__megaDebugConsoleCaptureV193=true;
+  for(const level of ['log','info','warn','error','debug']){
+    const orig=console[level]?.bind(console);if(!orig)continue;
+    console[level]=(...args)=>{try{megaDebugPushV193(level,args);}catch(_){}return orig(...args);};
+  }
+  window.addEventListener('error',e=>megaDebugPushV193('error',['WINDOW ERROR',{message:e.message,filename:e.filename,lineno:e.lineno,colno:e.colno,error:e.error}]));
+  window.addEventListener('unhandledrejection',e=>megaDebugPushV193('error',['UNHANDLED REJECTION',e.reason]));
+})();
+function megaDebugDomStatusV193(){
+  const ids=['dsNet','dsBDL','dsWeather','dsTerrain','dsSoil','dsOpen','dsObs','cacheInfo','status'];
+  const out={};for(const id of ids){const el=document.getElementById(id);out[id]=el?String(el.textContent||'').trim():null;}return out;
+}
+function megaDebugAreaStateV193(){
+  try{return autoQAAreaRowsV192().map(r=>({...r,name:String(r.name||'').slice(0,120)}));}catch(_){
+    return ANALYSIS_CENTERS.map(a=>({name:a.name,sig:typeof analysisAreaGeometrySigV191==='function'?analysisAreaGeometrySigV191(a):null}));
+  }
+}
+function megaDebugCacheStateV193(){
+  try{
+    pruneAreaScoreSessionCacheV191();
+    return {
+      ttlMin:AREA_SCORE_SESSION_TTL_V191/60000,maxEntries:AREA_SCORE_SESSION_MAX_V191,
+      entries:[...areaScoreSessionCacheV191.entries()].map(([key,v])=>({key,ageSec:+((Date.now()-v.ts)/1000).toFixed(1),staticScores:v.staticRaw?.size||0,dynamicScores:v.dynamicRaw?.size||0,forestRows:v.forestRows?.length||0,openRows:v.openRows?.length||0})),
+      last:megaDebugSafeV193(areaScoreSessionLastV191)
+    };
+  }catch(e){return {error:String(e?.message||e)};}
+}
+function megaDebugResourcesV193(){
+  try{return performance.getEntriesByType('resource').filter(x=>/open-meteo|overpass|bdl|soil|gbif|inaturalist|arcgis|wms|wfs/i.test(x.name||'')).slice(-60).map(x=>({name:String(x.name||'').replace(/([?&](?:key|token|access_token|api_key)=)[^&]+/ig,'$1REDACTED').slice(0,420),duration:+x.duration.toFixed(1),transferSize:x.transferSize||0,decodedBodySize:x.decodedBodySize||0}));}catch(_){return [];}
+}
+function megaDebugDeviceV193(){
+  const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
+  return {userAgent:navigator.userAgent,language:navigator.language,online:navigator.onLine,viewport:[innerWidth,innerHeight],dpr:devicePixelRatio,hardwareConcurrency:navigator.hardwareConcurrency??null,deviceMemory:navigator.deviceMemory??null,connection:c?{effectiveType:c.effectiveType,downlink:c.downlink,rtt:c.rtt,saveData:c.saveData}:null,jsHeap:performance.memory?{used:performance.memory.usedJSHeapSize,total:performance.memory.totalJSHeapSize,limit:performance.memory.jsHeapSizeLimit}:null};
+}
+function megaDebugCoreStateV193(){
+  return {
+    mode:mapMode,filter:currentFilter,atlas:[...atlasSelected],analysisRunning:!!analysisRunning,analysisScoringReady:!!analysisScoringReady,
+    areas:megaDebugAreaStateV193(),features:{all:allFeatures.length,open:openFeatures.length,layers:analysisLayers.length},
+    readiness:{weather:!!weatherReady,soil:!!soilReady,terrain:!!terrainReady,open:!!openReady},
+    revisions:{scoring:scoringRevision,weather:weatherScoringRevisionV176},
+    weatherSamples:weatherSamples.length,soilSamples:soilSamples.length,
+    hotspotPipeline:megaDebugSafeV193(hotspotPipelineWarmLast),layerBuild:megaDebugSafeV193(analysisLayerBuildLast),forestWorker:megaDebugSafeV193(forestContextWorkerLast),
+    autoQA:megaDebugSafeV193(autoQAV192.last),dom:megaDebugDomStatusV193(),cache:megaDebugCacheStateV193()
+  };
+}
+async function buildMegaDebugReportV193(){
+  if(megaDebugV193.running)return megaDebugV193.lastReport||'';megaDebugV193.running=true;
+  try{
+    const started=performance.now();
+    let qa=null,equivalence=null,areaIsolation=null;
+    // Nie uruchamiaj Auto QA drugi raz dla tego samego pipeline: ponowne wywołanie
+    // zmieniłoby klasyfikację scenariusza BASELINE -> REPEAT_SET bez nowego pipeline
+    // i mogłoby fałszywie oznaczyć phaseReuse jako FAIL. Użyj wyniku, który został
+    // automatycznie policzony po ostatnim pipeline; uruchom tylko gdy go jeszcze nie ma.
+    if(autoQAV192.busy){for(let i=0;i<40&&autoQAV192.busy;i++)await new Promise(r=>setTimeout(r,50));}
+    try{qa=autoQAV192.last||await runAutoQAV192();}catch(e){qa={error:String(e?.stack||e)};}
+    try{equivalence=await auditV191PerformanceEquivalence(Math.min(220,Math.max(120,Math.round(allFeatures.length/18))));}catch(e){equivalence={error:String(e?.stack||e)};}
+    try{
+      const rows=megaDebugAreaStateV193();
+      areaIsolation={weatherReady,weatherIsolationOk:!weatherReady||rows.every(r=>r.weatherSamples>=5),rows};
+    }catch(e){areaIsolation={error:String(e?.stack||e)};}
+    const payload={
+      schema:'mushroom-map-mega-debug/1',version:'v193',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV193.startedAt)/1000).toFixed(1),
+      verdict:{autoQA:qa?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
+      state:megaDebugCoreStateV193(),equivalence:megaDebugSafeV193(equivalence),areaIsolation:megaDebugSafeV193(areaIsolation),
+      autoQAHistory:megaDebugSafeV193(autoQAV192.runs.slice(-24)),
+      device:megaDebugDeviceV193(),resources:megaDebugResourcesV193(),errors:megaDebugV193.errors.slice(-40),events:megaDebugV193.events.slice(-180),
+      reportBuildMs:+(performance.now()-started).toFixed(1)
+    };
+    megaDebugV193.lastObject=payload;
+    megaDebugV193.lastReport=`===== MAPA GRZYBÓW MEGA DEBUG v193 =====\n${JSON.stringify(payload,null,2)}\n===== END MEGA DEBUG v193 =====`;
+    window.__megaDebugV193=payload;
+    console.info('V193 MEGA DEBUG READY',{chars:megaDebugV193.lastReport.length,verdict:payload.verdict,reportBuildMs:payload.reportBuildMs});
+    return megaDebugV193.lastReport;
+  }finally{megaDebugV193.running=false;}
+}
+async function copyTextMegaDebugV193(text){
+  try{if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);return true;}}catch(_){}
+  try{const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');ta.remove();return !!ok;}catch(_){return false;}
+}
+function downloadMegaDebugV193(text){
+  const blob=new Blob([text],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=`mapa-grzybow-mega-debug-v193-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+function showMegaDebugOverlayV193(text){
+  const ov=document.getElementById('megaDebugReportOverlay'),ta=document.getElementById('megaDebugReportText');if(!ov||!ta)return;
+  ta.value=text;ov.classList.add('open');ov.setAttribute('aria-hidden','false');
+}
+function hideMegaDebugOverlayV193(){const ov=document.getElementById('megaDebugReportOverlay');if(ov){ov.classList.remove('open');ov.setAttribute('aria-hidden','true');}}
+async function runMegaDebugFromUiV193(){
+  const btn=document.getElementById('megaDebugBtn'),st=document.getElementById('megaDebugStatus');
+  if(btn)btn.disabled=true;if(st){st.className='mega-debug-status';st.textContent='zbieram…';}
+  try{
+    const text=await buildMegaDebugReportV193();
+    const copied=await copyTextMegaDebugV193(text);
+    if(st){st.className='mega-debug-status '+(copied?'ok':'fail');st.textContent=copied?'✅ skopiowano — wklej do ChatGPT':'raport gotowy';}
+    showMegaDebugOverlayV193(text);
+    return text;
+  }catch(e){
+    megaDebugPushV193('error',['MEGA DEBUG UI FAIL',e]);if(st){st.className='mega-debug-status fail';st.textContent='❌ błąd debug';}throw e;
+  }finally{if(btn)btn.disabled=false;}
+}
+window.runMegaDebugV193=buildMegaDebugReportV193;
+window.copyMegaDebugV193=async()=>{const t=await buildMegaDebugReportV193();return copyTextMegaDebugV193(t);};
+window.downloadMegaDebugV193=async()=>{const t=await buildMegaDebugReportV193();downloadMegaDebugV193(t);return true;};
+window.__megaDebugStateV193=megaDebugV193;
 
 function multiAreaWarmSignature(){
  return [
@@ -27932,7 +28204,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v191-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
+   'v193-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -28229,9 +28501,9 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v191',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v193',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v191',{
+   console.info('HOTSPOT PHASE v193',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      forestWorkerWallMs:+phase.forestWorkerWallMs.toFixed(1),forestWorkerMs:+phase.forestWorkerMs.toFixed(1),
      sessionCacheMs:+phase.sessionCacheMs.toFixed(1),sessionStaticAreas:phase.sessionStaticAreas||0,sessionDynamicAreas:phase.sessionDynamicAreas||0,sessionReusedFeatures:phase.sessionReusedFeatures||0,
@@ -28241,7 +28513,8 @@ async function prewarmHotspotPipeline(){
      distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
-   console.info(`HOTSPOT PHASE v191 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | sessionCache=${phase.sessionCacheMs.toFixed(1)}ms(static ${phase.sessionStaticAreas||0}, dynamic ${phase.sessionDynamicAreas||0}, final ${phase.sessionReusedFeatures||0}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   console.info(`HOTSPOT PHASE v193 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | sessionCache=${phase.sessionCacheMs.toFixed(1)}ms(static ${phase.sessionStaticAreas||0}, dynamic ${phase.sessionDynamicAreas||0}, final ${phase.sessionReusedFeatures||0}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   scheduleAutoQAV192();
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -28416,7 +28689,7 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v191',{
+   console.info('HOTSPOT RENDER v193',{
      features:rows.length,
      visibleRows,
      reasons:perfRenderNow._v182Reasons||[],
@@ -30538,7 +30811,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v191: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v193: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -30547,7 +30820,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v191',{
+   console.info('HOTSPOT ACCESS NETWORK v193',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -30561,7 +30834,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v191',{
+   console.info('HOTSPOT ACCESS v193',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -30586,7 +30859,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v191: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v193: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -30608,15 +30881,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v191',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v193',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v191',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v193',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v191: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v193: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }
@@ -32020,6 +32293,15 @@ if(clearApiCacheBtn)clearApiCacheBtn.onclick=async()=>{
  await prodCacheClear();
  clearApiCacheBtn.disabled=false;
 };
+const megaDebugBtn=document.getElementById('megaDebugBtn');
+if(megaDebugBtn)megaDebugBtn.onclick=()=>{runMegaDebugFromUiV193().catch(e=>console.error('V193 MEGA DEBUG button',e));};
+const megaDebugCopy=document.getElementById('megaDebugCopy');
+if(megaDebugCopy)megaDebugCopy.onclick=async()=>{const t=document.getElementById('megaDebugReportText')?.value||megaDebugV193.lastReport;const ok=await copyTextMegaDebugV193(t);megaDebugCopy.textContent=ok?'✅ Skopiowano':'❌ Kopiowanie zablokowane';};
+const megaDebugDownload=document.getElementById('megaDebugDownload');
+if(megaDebugDownload)megaDebugDownload.onclick=()=>downloadMegaDebugV193(document.getElementById('megaDebugReportText')?.value||megaDebugV193.lastReport);
+for(const id of ['megaDebugClose','megaDebugClose2']){const x=document.getElementById(id);if(x)x.onclick=hideMegaDebugOverlayV193;}
+const megaDebugOverlay=document.getElementById('megaDebugReportOverlay');if(megaDebugOverlay)megaDebugOverlay.addEventListener('click',e=>{if(e.target===megaDebugOverlay)hideMegaDebugOverlayV193();});
+
 window.addEventListener('online',()=>prodUpdateNetUi('online'));
 window.addEventListener('offline',()=>prodUpdateNetUi('offline • użyję cache'));
 prodUpdateNetUi(navigator.onLine?'online':'offline • cache');
@@ -32096,6 +32378,19 @@ window.auditV176Architecture=function(){
  console.info('V176 ARCHITECTURE AUDIT',report);return report;
 };
 </script>
+
+<div id="megaDebugReportOverlay" aria-hidden="true">
+  <div class="mega-debug-report-shell" role="dialog" aria-modal="true" aria-labelledby="megaDebugReportTitle">
+    <div class="mega-debug-report-head"><span id="megaDebugReportTitle">📋 Raport Mega Debug v193</span><button id="megaDebugClose" type="button">×</button></div>
+    <div style="font-size:12px;color:#5e6d65">Jeśli automatyczne kopiowanie nie zadziałało, kliknij „Kopiuj” albo pobierz TXT i wyślij go do ChatGPT.</div>
+    <textarea id="megaDebugReportText" readonly spellcheck="false"></textarea>
+    <div class="mega-debug-report-actions">
+      <button id="megaDebugCopy" type="button">📋 Kopiuj</button>
+      <button id="megaDebugDownload" type="button">⬇ Pobierz TXT</button>
+      <button id="megaDebugClose2" type="button">Zamknij</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
 

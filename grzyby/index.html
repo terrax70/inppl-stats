@@ -4747,7 +4747,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
-<style id="v194-mega-debug-style">
+<style id="v195-mega-debug-style">
 .mega-debug-btn{font-weight:800!important;border-color:#7aa88a!important;background:#edf8ef!important;color:#17331f!important}
 .mega-debug-btn:disabled{opacity:.65;cursor:wait}
 .mega-debug-status{font-size:11px;color:#64736b;min-width:120px}
@@ -4755,6 +4755,11 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 .mega-debug-status.fail{color:#a83a32;font-weight:800}
 #megaDebugReportOverlay{position:fixed;inset:0;z-index:12000;background:rgba(10,18,14,.66);display:none;align-items:center;justify-content:center;padding:16px}
 #megaDebugReportOverlay.open{display:flex}
+#megaDebugQuickBtn{position:fixed;right:12px;bottom:74px;z-index:11950;border:1px solid #5f8e6e;background:#f4fff6;color:#17331f;border-radius:999px;padding:9px 12px;font-weight:900;box-shadow:0 5px 20px rgba(0,0,0,.22);cursor:pointer}
+#megaDebugQuickBtn.pass{border-color:#2f8b4f;background:#eaf8ee}
+#megaDebugQuickBtn.fail{border-color:#b95045;background:#fff0ed;color:#6b1f18}
+#megaDebugQuickBtn.busy{opacity:.72;cursor:wait}
+@media(max-width:700px){#megaDebugQuickBtn{right:10px;bottom:86px;padding:8px 10px;font-size:12px}}
 .mega-debug-report-shell{width:min(920px,96vw);max-height:88vh;background:#fff;border-radius:14px;box-shadow:0 20px 80px rgba(0,0,0,.35);padding:14px;display:flex;flex-direction:column;gap:10px}
 .mega-debug-report-head{display:flex;gap:10px;align-items:center;justify-content:space-between;font-weight:900}
 #megaDebugReportText{width:100%;height:min(58vh,560px);resize:vertical;font:12px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre;padding:10px;border:1px solid #ccd7d0;border-radius:9px}
@@ -4798,6 +4803,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 </style>
 
 <body>
+<button id="megaDebugQuickBtn" type="button" title="Raport jest budowany automatycznie. Kliknij, aby skopiować pełny debug.">📋 Debug…</button>
 <div id="map"></div>
 
 <div id="scoreLegend" class="score-legend" aria-hidden="true">
@@ -9017,12 +9023,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v194',
+     mode:'sync-batched-v195',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v194',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v195',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -13119,7 +13125,7 @@ function ensureForestContextWorkerV174(){
    URL.revokeObjectURL(url);
    return forestContextWorker;
  }catch(e){
-   console.warn('FOREST CONTEXT WORKER v194 unavailable',e);
+   console.warn('FOREST CONTEXT WORKER v195 unavailable',e);
    return null;
  }
 }
@@ -13158,10 +13164,10 @@ async function prewarmForestContextWorkerV174(key){
    }
    forestContextWorkerRevision=revision;
    forestContextWorkerLast={state:'ready',revision,features:msg.rows.length,prepMs,workerMs:msg.workerMs,applyMs:performance.now()-ta,totalMs:performance.now()-t0};
-   console.info('FOREST CONTEXT WORKER v194',forestContextWorkerLast);
+   console.info('FOREST CONTEXT WORKER v195',forestContextWorkerLast);
    return forestContextWorkerLast;
  })().catch(e=>{
-   console.warn('FOREST CONTEXT WORKER v194 fallback',e);
+   console.warn('FOREST CONTEXT WORKER v195 fallback',e);
    return {state:'error',error:String(e?.message||e)};
  }).finally(()=>{forestContextWorkerPromise=null;});
  return forestContextWorkerPromise;
@@ -25768,7 +25774,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v194',{
+   console.info('UI ACTION v195',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -26767,9 +26773,9 @@ async function auditV191PerformanceEquivalence(limit=180){
    if(mapMode==='today')upd('pairDynamicMax',Math.abs(fast.dynamicScore-ref.dynamicScore),f,'ALL');
  }
  const maxDelta=Math.max(...Object.values(maxima));
- const report={version:'v194',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-10,worst,elapsedMs:performance.now()-t0};
+ const report={version:'v195',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-10,worst,elapsedMs:performance.now()-t0};
  window.__v190PerformanceEquivalence=report;
- console.info('V194 TRUE PERFORMANCE EQUIVALENCE',report);
+ console.info('V195 TRUE PERFORMANCE EQUIVALENCE',report);
  return report;
 }
 window.auditV192PerformanceEquivalence=auditV191PerformanceEquivalence;
@@ -27641,7 +27647,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v194',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v195',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -27731,7 +27737,7 @@ function areaWeatherSignatureV191(area){
  return commutativeSigV191(parts);
 }
 function areaScoreSessionKeyV191(area,types){
- return `v194|${analysisAreaGeometrySigV191(area)}|${opportunityTypeSetKey(types)}`;
+ return `v195|${analysisAreaGeometrySigV191(area)}|${opportunityTypeSetKey(types)}`;
 }
 function currentDistributionKeyV191(types,areaName,kind){
  return `v105|${scoringRevision}|${opportunityTypeSetKey(types)}|${areaName}|${RADIUS_KM}|${kind}|${allFeatures.length}|${openFeatures.length}`;
@@ -27806,7 +27812,7 @@ function restoreAreaScoreSessionV191(types){
    entry.ts=Date.now();areaScoreSessionCacheV191.delete(key);areaScoreSessionCacheV191.set(key,entry);
  }
  areaScoreSessionLastV191={restoredAreas,staticAreas,dynamicAreas,reusedFeatures,misses,elapsedMs:performance.now()-t0};
- console.info('AREA SCORE CACHE RESTORE v194',areaScoreSessionLastV191);
+ console.info('AREA SCORE CACHE RESTORE v195',areaScoreSessionLastV191);
  return areaScoreSessionLastV191;
 }
 function saveAreaScoreSessionV191(types){
@@ -27838,8 +27844,8 @@ function saveAreaScoreSessionV191(types){
 window.auditV191SessionCache=function(){
  pruneAreaScoreSessionCacheV191();
  const entries=[...areaScoreSessionCacheV191.entries()].map(([key,v])=>({key,ageSec:+((Date.now()-v.ts)/1000).toFixed(1),staticScores:v.staticRaw?.size||0,dynamicScores:v.dynamicRaw?.size||0,forestRows:v.forestRows?.length||0,openRows:v.openRows?.length||0}));
- const report={version:'v194',entries:entries.length,last:{...areaScoreSessionLastV191},rows:entries};
- console.table(entries);console.info('V194 SESSION AREA CACHE',report);return report;
+ const report={version:'v195',entries:entries.length,last:{...areaScoreSessionLastV191},rows:entries};
+ console.table(entries);console.info('V195 SESSION AREA CACHE',report);return report;
 };
 window.clearV191SessionCache=function(){areaScoreSessionCacheV191.clear();areaScoreSessionLastV191={restoredAreas:0,staticAreas:0,dynamicAreas:0,reusedFeatures:0,misses:0,elapsedMs:0};return true;};
 window.auditV191AreaIsolation=function(){
@@ -27851,8 +27857,8 @@ window.auditV191AreaIsolation=function(){
    return {area:area.name,sig,weatherSamples:localWeather.length,clusterSize:cluster.length,sessionEntries:cacheKeys.length};
  });
  const weatherOk=!weatherReady||rows.every(r=>r.weatherSamples>=5);
- const report={version:'v194',areas:rows.length,weatherReady,weatherIsolationOk:weatherOk,rows,lastCache:{...areaScoreSessionLastV191}};
- console.table(rows);console.info('V194 AREA ISOLATION',report);return report;
+ const report={version:'v195',areas:rows.length,weatherReady,weatherIsolationOk:weatherOk,rows,lastCache:{...areaScoreSessionLastV191}};
+ console.table(rows);console.info('V195 AREA ISOLATION',report);return report;
 };
 
 
@@ -27940,7 +27946,7 @@ async function runAutoQAV192(){
 
    const overall=!!equivalence?.ok&&roundTrip.ok&&weatherIsolationOk&&reuseOk;
    const report={
-     version:'v194',scenario:scenario.kind,areas:rows.length,areaSigs:rows.map(r=>r.sig),overlap:scenario.overlap,
+     version:'v195',scenario:scenario.kind,areas:rows.length,areaSigs:rows.map(r=>r.sig),overlap:scenario.overlap,
      overall:overall?'PASS':'FAIL',equivalenceOk:!!equivalence?.ok,maxDelta:Number(equivalence?.maxDelta??NaN),
      roundTripOk:roundTrip.ok,roundTripMaxDelta:roundTrip.maxDelta,roundTripStaticAreas:roundTrip.staticAreas,roundTripDynamicAreas:roundTrip.dynamicAreas,
      weatherStatus,weatherSamples:rows.map(r=>r.weatherSamples),expectedReuse:scenario.expectedReuse,
@@ -27951,43 +27957,47 @@ async function runAutoQAV192(){
    autoQAV192.last=report;
    autoQAV192.runs.push({ts:Date.now(),areaSigs:report.areaSigs,scenario:report.scenario,overall:report.overall});
    if(autoQAV192.runs.length>24)autoQAV192.runs.shift();
-   window.__v192AutoQA=report;window.__v194AutoQA=report;
-   console.info('V194 AUTO QA',report);
-   console.info(`V194 AUTO QA FLAT | scenario=${report.scenario} | areas=${report.areas} | equivalence=${report.equivalenceOk?'PASS':'FAIL'}(delta ${Number.isFinite(report.maxDelta)?report.maxDelta:'?'}) | cacheRoundTrip=${report.roundTripOk?'PASS':'FAIL'}(delta ${report.roundTripMaxDelta}, static ${report.roundTripStaticAreas}, dynamic ${report.roundTripDynamicAreas}) | phaseReuse=${reuseApplicable?(report.phaseReuseOk?'PASS':'FAIL'):'N/A'}(${report.phaseStaticAreas}/${report.expectedReuse}, dyn ${report.phaseDynamicAreas}, final ${report.phaseReusedFeatures}) | weather=${report.weatherStatus}[${report.weatherSamples.join(',')}] | prior=${report.priorMs.toFixed(1)} | distribution=${report.distributionMs.toFixed(1)} pairs=${report.distributionPairs} | overall=${report.overall}`);
+   window.__v192AutoQA=report;window.__v195AutoQA=report;
+   console.info('V195 AUTO QA',report);
+   console.info(`V195 AUTO QA FLAT | scenario=${report.scenario} | areas=${report.areas} | equivalence=${report.equivalenceOk?'PASS':'FAIL'}(delta ${Number.isFinite(report.maxDelta)?report.maxDelta:'?'}) | cacheRoundTrip=${report.roundTripOk?'PASS':'FAIL'}(delta ${report.roundTripMaxDelta}, static ${report.roundTripStaticAreas}, dynamic ${report.roundTripDynamicAreas}) | phaseReuse=${reuseApplicable?(report.phaseReuseOk?'PASS':'FAIL'):'N/A'}(${report.phaseStaticAreas}/${report.expectedReuse}, dyn ${report.phaseDynamicAreas}, final ${report.phaseReusedFeatures}) | weather=${report.weatherStatus}[${report.weatherSamples.join(',')}] | prior=${report.priorMs.toFixed(1)} | distribution=${report.distributionMs.toFixed(1)} pairs=${report.distributionPairs} | overall=${report.overall}`);
    return report;
  }catch(err){
-   const report={version:'v194',overall:'FAIL',error:String(err?.stack||err)};
-   autoQAV192.last=report;window.__v192AutoQA=report;window.__v194AutoQA=report;console.error('V194 AUTO QA FAIL',report);return report;
+   const report={version:'v195',overall:'FAIL',error:String(err?.stack||err)};
+   autoQAV192.last=report;window.__v192AutoQA=report;window.__v195AutoQA=report;console.error('V195 AUTO QA FAIL',report);return report;
  }finally{autoQAV192.busy=false;}
 }
 function scheduleAutoQAV192(delay=650){
  clearTimeout(autoQAV192.timer);
  autoQAV192.timer=setTimeout(()=>{runAutoQAV192();},delay);
 }
-window.auditV192AutoQA=runAutoQAV192;window.auditV194AutoQA=runAutoQAV192;
-window.__v192AutoQAState=autoQAV192;window.__v194AutoQAState=autoQAV192;
+window.auditV192AutoQA=runAutoQAV192;window.auditV195AutoQA=runAutoQAV192;
+window.__v192AutoQAState=autoQAV192;window.__v195AutoQAState=autoQAV192;
 
 
-// ========================= v194: AUTOMATIC SESSION CACHE STRESS TEST =========================
+// ========================= v195: AUTOMATIC SESSION CACHE STRESS TEST =========================
 // Pełny test działa w tle po pierwszym stabilnym pipeline DZIŚ / wszystkie.
 // Nie klika UI i nie pobiera dodatkowych danych z sieci. Na chwilę symuluje drugi
 // rejon / zmianę pogody / zmianę BDL, po czym zawsze przywraca stan produkcyjny.
-const cacheStressV194={busy:false,done:false,timer:0,last:null,runs:[]};
-function cacheStressAreaSetSigV194(){return ANALYSIS_CENTERS.map(a=>analysisAreaGeometrySigV191(a)).sort().join('~');}
-function cacheStressSyntheticAreaV194(base,overlap=false){
+const cacheStressV195={busy:false,done:false,timer:0,last:null,runs:[]};
+function cacheStressAreaSetSigV195(){return ANALYSIS_CENTERS.map(a=>analysisAreaGeometrySigV191(a)).sort().join('~');}
+function cacheStressSyntheticAreaV195(base,overlap=false){
  const lat=Number(base?.point?.[0]||0),lon=Number(base?.point?.[1]||0);
- const d=Math.max(.35,(RADIUS_KM*4+12)/111);
- return {name:`__V194_STRESS_${overlap?'OVERLAP':'FAR'}__`,point:overlap?[lat,lon]:[Math.max(-80,Math.min(80,lat+d)),lon],source:'v194-stress'};
+ const farD=Math.max(.35,(RADIUS_KM*4+12)/111);
+ // v195: overlap ma być INNYM rejonem, nie duplikatem A z identycznym signature.
+ // Przesunięcie o ~45% promienia gwarantuje nakładanie kół, ale osobny cache key.
+ const overlapD=Math.max(.0002,(RADIUS_KM*.45)/111);
+ const p=overlap?[Math.max(-80,Math.min(80,lat+overlapD)),lon]:[Math.max(-80,Math.min(80,lat+farD)),lon];
+ return {name:`__V195_STRESS_${overlap?'OVERLAP':'FAR'}__`,point:p,source:'v195-stress'};
 }
-function cacheStressResultV194(ok,extra={}){return {ok:!!ok,...extra};}
-async function runCacheStressV194(){
- if(cacheStressV194.busy)return cacheStressV194.last;
- if(cacheStressV194.done)return cacheStressV194.last;
+function cacheStressResultV195(ok,extra={}){return {ok:!!ok,...extra};}
+async function runCacheStressV195(){
+ if(cacheStressV195.busy)return cacheStressV195.last;
+ if(cacheStressV195.done)return cacheStressV195.last;
  if(analysisRunning||!analysisScoringReady||!allFeatures.length||ANALYSIS_CENTERS.length!==1||mapMode!=='today'||currentFilter!=='all'||atlasSelected.size)return null;
  const types=activeOpportunityTypesForHotspotWarm();
  if(!types||types.length<=1)return null;
- cacheStressV194.busy=true;
- const started=performance.now(),area=ANALYSIS_CENTERS[0],setSig=cacheStressAreaSetSigV194();
+ cacheStressV195.busy=true;
+ const started=performance.now(),area=ANALYSIS_CENTERS[0],setSig=cacheStressAreaSetSigV195();
  const lastRestoreBefore={...areaScoreSessionLastV191};
  let changedWeather=null,changedFeature=null;
  const tests={};
@@ -27996,7 +28006,7 @@ async function runCacheStressV194(){
    saveAreaScoreSessionV191(types);
    const key=areaScoreSessionKeyV191(area,types);
    const entry=areaScoreSessionCacheV191.get(key);
-   tests.entry=cacheStressResultV194(!!entry,{staticScores:entry?.staticRaw?.size||0,dynamicScores:entry?.dynamicRaw?.size||0,forestRows:entry?.forestRows?.length||0,openRows:entry?.openRows?.length||0});
+   tests.entry=cacheStressResultV195(!!entry,{staticScores:entry?.staticRaw?.size||0,dynamicScores:entry?.dynamicRaw?.size||0,forestRows:entry?.forestRows?.length||0,openRows:entry?.openRows?.length||0});
    if(!entry)throw new Error('Brak wpisu cache A po saveAreaScoreSessionV191');
 
    const before=autoQASnapshotFinalV192(types,Math.min(420,Math.max(180,Math.round(allFeatures.length/10))));
@@ -28004,21 +28014,21 @@ async function runCacheStressV194(){
    // 1) Prawdziwy A -> A restore z aktualnego cache.
    const direct=restoreAreaScoreSessionV191(types),directDelta=autoQAFinalDeltaV192(before,types);
    const directDynamicOk=!weatherReady||direct.dynamicAreas>=1;
-   tests.restoreA=cacheStressResultV194(direct.staticAreas>=1&&directDynamicOk&&direct.reusedFeatures>0&&directDelta.maxDelta<=1e-10,{...direct,maxDelta:directDelta.maxDelta,checks:directDelta.checks});
+   tests.restoreA=cacheStressResultV195(direct.staticAreas>=1&&directDynamicOk&&direct.reusedFeatures>0&&directDelta.maxDelta<=1e-10,{...direct,maxDelta:directDelta.maxDelta,checks:directDelta.checks});
 
    // 2) Symulowane A+B, B daleko i bez cache. A powinno zostać wykorzystane,
    // B ma być miss. Nie dokładamy żadnych feature'ów B — sprawdzamy decyzję cache.
-   const far=cacheStressSyntheticAreaV194(area,false);ANALYSIS_CENTERS.push(far);
+   const far=cacheStressSyntheticAreaV195(area,false);ANALYSIS_CENTERS.push(far);
    let addFar;
    try{addFar=restoreAreaScoreSessionV191(types);}finally{ANALYSIS_CENTERS.pop();}
-   tests.addFarArea=cacheStressResultV194(addFar.staticAreas>=1&&addFar.misses>=1&&addFar.reusedFeatures>0,{...addFar});
+   tests.addFarArea=cacheStressResultV195(addFar.staticAreas>=1&&addFar.misses>=1&&addFar.reusedFeatures>0,{...addFar});
 
    // 3) Rejon nachodzący: static/dynamic A można odzyskać, ale FINAL nie wolno
    // reuse'ować, bo rozkład klas dla klastra nakładających się kół jest wspólny.
-   const overlap=cacheStressSyntheticAreaV194(area,true);ANALYSIS_CENTERS.push(overlap);
+   const overlap=cacheStressSyntheticAreaV195(area,true);ANALYSIS_CENTERS.push(overlap);
    let addOverlap;
    try{addOverlap=restoreAreaScoreSessionV191(types);}finally{ANALYSIS_CENTERS.pop();}
-   tests.overlapGuard=cacheStressResultV194(addOverlap.staticAreas>=1&&addOverlap.misses>=1&&addOverlap.reusedFeatures===0,{...addOverlap});
+   tests.overlapGuard=cacheStressResultV195(addOverlap.staticAreas>=1&&addOverlap.misses>=1&&addOverlap.reusedFeatures===0,{...addOverlap});
 
    // 4) Zmiana lokalnej pogody ma unieważnić TYLKO część dynamiczną.
    if(weatherReady){
@@ -28027,17 +28037,17 @@ async function runCacheStressV194(){
      if(sample){
        const old=sample.index;changedWeather={sample,old};sample.index=Number(old||0)+0.4321;
        const r=restoreAreaScoreSessionV191(types);
-       tests.weatherInvalidation=cacheStressResultV194(r.staticAreas>=1&&r.dynamicAreas===0,{...r});
+       tests.weatherInvalidation=cacheStressResultV195(r.staticAreas>=1&&r.dynamicAreas===0,{...r});
        sample.index=old;changedWeather=null;
        const rr=restoreAreaScoreSessionV191(types);
-       tests.weatherRecovery=cacheStressResultV194(rr.staticAreas>=1&&rr.dynamicAreas>=1&&rr.reusedFeatures>0,{...rr});
+       tests.weatherRecovery=cacheStressResultV195(rr.staticAreas>=1&&rr.dynamicAreas>=1&&rr.reusedFeatures>0,{...rr});
      }else{
-       tests.weatherInvalidation=cacheStressResultV194(true,{skipped:'no-local-weather-sample'});
-       tests.weatherRecovery=cacheStressResultV194(true,{skipped:'no-local-weather-sample'});
+       tests.weatherInvalidation=cacheStressResultV195(true,{skipped:'no-local-weather-sample'});
+       tests.weatherRecovery=cacheStressResultV195(true,{skipped:'no-local-weather-sample'});
      }
    }else{
-     tests.weatherInvalidation=cacheStressResultV194(true,{skipped:'weather-not-ready'});
-     tests.weatherRecovery=cacheStressResultV194(true,{skipped:'weather-not-ready'});
+     tests.weatherInvalidation=cacheStressResultV195(true,{skipped:'weather-not-ready'});
+     tests.weatherRecovery=cacheStressResultV195(true,{skipped:'weather-not-ready'});
    }
 
    // 5) Zmiana BDL/site_type_cd musi unieważnić cały statyczny wpis A.
@@ -28045,74 +28055,75 @@ async function runCacheStressV194(){
    if(ff){
      const p=ff.properties,had=Object.prototype.hasOwnProperty.call(p,'site_type_cd'),old=p.site_type_cd;
      changedFeature={p,had,old,f:ff};
-     p.site_type_cd=`${old??''}__V194_STRESS__`;
+     p.site_type_cd=`${old??''}__V195_STRESS__`;
      const r=restoreAreaScoreSessionV191(types);
-     tests.staticFingerprintInvalidation=cacheStressResultV194(r.staticAreas===0&&r.misses>=1,{...r});
+     tests.staticFingerprintInvalidation=cacheStressResultV195(r.staticAreas===0&&r.misses>=1,{...r});
      if(had)p.site_type_cd=old;else delete p.site_type_cd;
      featureHabitatCodeV189(ff);changedFeature=null;
      const rr=restoreAreaScoreSessionV191(types);
-     tests.staticFingerprintRecovery=cacheStressResultV194(rr.staticAreas>=1&&(!weatherReady||rr.dynamicAreas>=1)&&rr.reusedFeatures>0,{...rr});
+     tests.staticFingerprintRecovery=cacheStressResultV195(rr.staticAreas>=1&&(!weatherReady||rr.dynamicAreas>=1)&&rr.reusedFeatures>0,{...rr});
    }else{
-     tests.staticFingerprintInvalidation=cacheStressResultV194(true,{skipped:'no-forest-feature'});
-     tests.staticFingerprintRecovery=cacheStressResultV194(true,{skipped:'no-forest-feature'});
+     tests.staticFingerprintInvalidation=cacheStressResultV195(true,{skipped:'no-forest-feature'});
+     tests.staticFingerprintRecovery=cacheStressResultV195(true,{skipped:'no-forest-feature'});
    }
 
    // 6) TTL na sztucznym wpisie: testuje prawdziwy prune bez starzenia wpisu A.
-   const ttlKey=`__V194_TTL_TEST__${Date.now()}`;
+   const ttlKey=`__V195_TTL_TEST__${Date.now()}`;
    areaScoreSessionCacheV191.set(ttlKey,{ts:Date.now()-AREA_SCORE_SESSION_TTL_V191-2000});
    pruneAreaScoreSessionCacheV191();
-   tests.ttlExpiry=cacheStressResultV194(!areaScoreSessionCacheV191.has(ttlKey),{ttlMs:AREA_SCORE_SESSION_TTL_V191});
+   tests.ttlExpiry=cacheStressResultV195(!areaScoreSessionCacheV191.has(ttlKey),{ttlMs:AREA_SCORE_SESSION_TTL_V191});
 
    // 7) Po całym stresie A ma wrócić 1:1, a niezależna referencja scoringu
    // nadal musi mieć absolutne delta=0.
    const finalRestore=restoreAreaScoreSessionV191(types),afterDelta=autoQAFinalDeltaV192(before,types);
    const eq=await auditV191PerformanceEquivalence(Math.min(180,Math.max(90,Math.round(allFeatures.length/24))));
-   tests.finalRecovery=cacheStressResultV194(finalRestore.staticAreas>=1&&(!weatherReady||finalRestore.dynamicAreas>=1)&&afterDelta.maxDelta<=1e-10,{...finalRestore,maxDelta:afterDelta.maxDelta,checks:afterDelta.checks});
-   tests.equivalence=cacheStressResultV194(!!eq?.ok&&Number(eq?.maxDelta||0)<=1e-10,{maxDelta:eq?.maxDelta,checks:eq?.checks,features:eq?.features});
+   tests.finalRecovery=cacheStressResultV195(finalRestore.staticAreas>=1&&(!weatherReady||finalRestore.dynamicAreas>=1)&&afterDelta.maxDelta<=1e-10,{...finalRestore,maxDelta:afterDelta.maxDelta,checks:afterDelta.checks});
+   tests.equivalence=cacheStressResultV195(!!eq?.ok&&Number(eq?.maxDelta||0)<=1e-10,{maxDelta:eq?.maxDelta,checks:eq?.checks,features:eq?.features});
 
-   const stateUnchanged=setSig===cacheStressAreaSetSigV194()&&ANALYSIS_CENTERS.length===1;
-   tests.stateRestored=cacheStressResultV194(stateUnchanged,{before:setSig,after:cacheStressAreaSetSigV194(),areas:ANALYSIS_CENTERS.length});
+   const stateUnchanged=setSig===cacheStressAreaSetSigV195()&&ANALYSIS_CENTERS.length===1;
+   tests.stateRestored=cacheStressResultV195(stateUnchanged,{before:setSig,after:cacheStressAreaSetSigV195(),areas:ANALYSIS_CENTERS.length});
    const failed=Object.entries(tests).filter(([,v])=>v&&v.ok===false).map(([k])=>k);
-   const report={version:'v194',overall:failed.length?'FAIL':'PASS',area:analysisAreaGeometrySigV191(area),tests,failed,elapsedMs:+(performance.now()-started).toFixed(1),baselinePhase:{sessionStaticAreas:Number(hotspotPipelineWarmLast?.sessionStaticAreas||0),sessionDynamicAreas:Number(hotspotPipelineWarmLast?.sessionDynamicAreas||0),sessionReusedFeatures:Number(hotspotPipelineWarmLast?.sessionReusedFeatures||0),priorMs:Number(hotspotPipelineWarmLast?.priorMs||0),distributionMs:Number(hotspotPipelineWarmLast?.distributionMs||0),distributionPairs:Number(hotspotPipelineWarmLast?.distributionPairs||0)}};
-   cacheStressV194.last=report;cacheStressV194.runs.push(report);if(cacheStressV194.runs.length>8)cacheStressV194.runs.shift();cacheStressV194.done=true;window.__v194CacheStress=report;
-   console.info('V194 CACHE STRESS',report);
-   console.info(`V194 CACHE STRESS FLAT | restoreA=${tests.restoreA.ok?'PASS':'FAIL'} | addFar=${tests.addFarArea.ok?'PASS':'FAIL'}(reuse ${tests.addFarArea.reusedFeatures||0}, miss ${tests.addFarArea.misses||0}) | overlap=${tests.overlapGuard.ok?'PASS':'FAIL'}(final ${tests.overlapGuard.reusedFeatures||0}) | weather=${tests.weatherInvalidation.ok&&tests.weatherRecovery.ok?'PASS':'FAIL'} | staticFingerprint=${tests.staticFingerprintInvalidation.ok&&tests.staticFingerprintRecovery.ok?'PASS':'FAIL'} | ttl=${tests.ttlExpiry.ok?'PASS':'FAIL'} | finalDelta=${tests.finalRecovery.maxDelta??'?'} | equivalence=${tests.equivalence.ok?'PASS':'FAIL'}(delta ${tests.equivalence.maxDelta??'?'}) | elapsed=${report.elapsedMs.toFixed(1)}ms | overall=${report.overall}`);
+   const report={version:'v195',overall:failed.length?'FAIL':'PASS',area:analysisAreaGeometrySigV191(area),tests,failed,elapsedMs:+(performance.now()-started).toFixed(1),baselinePhase:{sessionStaticAreas:Number(hotspotPipelineWarmLast?.sessionStaticAreas||0),sessionDynamicAreas:Number(hotspotPipelineWarmLast?.sessionDynamicAreas||0),sessionReusedFeatures:Number(hotspotPipelineWarmLast?.sessionReusedFeatures||0),priorMs:Number(hotspotPipelineWarmLast?.priorMs||0),distributionMs:Number(hotspotPipelineWarmLast?.distributionMs||0),distributionPairs:Number(hotspotPipelineWarmLast?.distributionPairs||0)}};
+   cacheStressV195.last=report;cacheStressV195.runs.push(report);if(cacheStressV195.runs.length>8)cacheStressV195.runs.shift();cacheStressV195.done=true;window.__v195CacheStress=report;
+   console.info('V195 CACHE STRESS',report);
+   console.info(`V195 CACHE STRESS FLAT | restoreA=${tests.restoreA.ok?'PASS':'FAIL'} | addFar=${tests.addFarArea.ok?'PASS':'FAIL'}(reuse ${tests.addFarArea.reusedFeatures||0}, miss ${tests.addFarArea.misses||0}) | overlap=${tests.overlapGuard.ok?'PASS':'FAIL'}(final ${tests.overlapGuard.reusedFeatures||0}, miss ${tests.overlapGuard.misses||0}) | weather=${tests.weatherInvalidation.ok&&tests.weatherRecovery.ok?'PASS':'FAIL'} | staticFingerprint=${tests.staticFingerprintInvalidation.ok&&tests.staticFingerprintRecovery.ok?'PASS':'FAIL'} | ttl=${tests.ttlExpiry.ok?'PASS':'FAIL'} | finalDelta=${tests.finalRecovery.maxDelta??'?'} | equivalence=${tests.equivalence.ok?'PASS':'FAIL'}(delta ${tests.equivalence.maxDelta??'?'}) | elapsed=${report.elapsedMs.toFixed(1)}ms | overall=${report.overall}`);
+   setTimeout(()=>{prepareAutoMegaDebugV195();},80);
    return report;
  }catch(err){
-   const report={version:'v194',overall:'FAIL',error:String(err?.stack||err),tests,elapsedMs:+(performance.now()-started).toFixed(1)};
-   cacheStressV194.last=report;cacheStressV194.runs.push(report);cacheStressV194.done=true;window.__v194CacheStress=report;console.error('V194 CACHE STRESS FAIL',report);return report;
+   const report={version:'v195',overall:'FAIL',error:String(err?.stack||err),tests,elapsedMs:+(performance.now()-started).toFixed(1)};
+   cacheStressV195.last=report;cacheStressV195.runs.push(report);cacheStressV195.done=true;window.__v195CacheStress=report;console.error('V195 CACHE STRESS FAIL',report);return report;
  }finally{
    // Bezwarunkowo przywróć ewentualne mutacje wejść diagnostycznych.
    if(changedWeather){changedWeather.sample.index=changedWeather.old;}
    if(changedFeature){if(changedFeature.had)changedFeature.p.site_type_cd=changedFeature.old;else delete changedFeature.p.site_type_cd;try{featureHabitatCodeV189(changedFeature.f);}catch(_){}}
-   while(ANALYSIS_CENTERS.length>1&&String(ANALYSIS_CENTERS.at(-1)?.name||'').startsWith('__V194_STRESS_'))ANALYSIS_CENTERS.pop();
+   while(ANALYSIS_CENTERS.length>1&&String(ANALYSIS_CENTERS.at(-1)?.name||'').startsWith('__V195_STRESS_'))ANALYSIS_CENTERS.pop();
    areaScoreSessionLastV191=lastRestoreBefore;
-   cacheStressV194.busy=false;
+   cacheStressV195.busy=false;
  }
 }
-function scheduleCacheStressV194(delay=1450){
- if(cacheStressV194.done||cacheStressV194.busy)return;
- clearTimeout(cacheStressV194.timer);
- cacheStressV194.timer=setTimeout(async()=>{
+function scheduleCacheStressV195(delay=1450){
+ if(cacheStressV195.done||cacheStressV195.busy)return;
+ clearTimeout(cacheStressV195.timer);
+ cacheStressV195.timer=setTimeout(async()=>{
    // Auto QA ma pierwszeństwo. Stress zaczyna się dopiero po jego zakończeniu.
    for(let i=0;i<60&&autoQAV192.busy;i++)await new Promise(r=>setTimeout(r,50));
-   if(cacheStressV194.done||cacheStressV194.busy)return;
-   const r=await runCacheStressV194();
+   if(cacheStressV195.done||cacheStressV195.busy)return;
+   const r=await runCacheStressV195();
    // Jeżeli warunki nie były jeszcze odpowiednie (np. użytkownik zmienił tryb),
    // spróbujemy po następnym zakończonym pipeline.
    return r;
  },delay);
 }
-window.auditV194CacheStress=runCacheStressV194;
-window.__v194CacheStressState=cacheStressV194;
+window.auditV195CacheStress=runCacheStressV195;
+window.__v195CacheStressState=cacheStressV195;
 
-// ========================= v194: SESSION MEGA DEBUG / ONE-CLICK REPORT =========================
+// ========================= v195: SESSION MEGA DEBUG / ONE-CLICK REPORT =========================
 // Capture starts during script initialization, before normal UI/network work begins. The report is
 // intentionally bounded and serializable: it keeps only diagnostic console families + warnings/errors.
-const megaDebugV194={
+const megaDebugV195={
   startedAt:Date.now(),events:[],errors:[],maxEvents:260,maxErrors:80,lastReport:'',lastObject:null,running:false
 };
-function megaDebugSafeV194(v,depth=0,seen=new WeakSet()){
+function megaDebugSafeV195(v,depth=0,seen=new WeakSet()){
   if(v==null||typeof v==='boolean'||typeof v==='number')return v;
   if(typeof v==='string')return v.length>2500?v.slice(0,2500)+'…':v;
   if(typeof v==='function')return `[Function ${v.name||'anonymous'}]`;
@@ -28120,73 +28131,73 @@ function megaDebugSafeV194(v,depth=0,seen=new WeakSet()){
   if(depth>4)return '[depth-limit]';
   if(seen.has(v))return '[circular]';seen.add(v);
   if(v instanceof Error)return {name:v.name,message:v.message,stack:String(v.stack||'').slice(0,5000)};
-  if(Array.isArray(v))return v.slice(0,80).map(x=>megaDebugSafeV194(x,depth+1,seen));
+  if(Array.isArray(v))return v.slice(0,80).map(x=>megaDebugSafeV195(x,depth+1,seen));
   const out={};let n=0;
   for(const k of Object.keys(v)){
     if(n++>=80){out.__truncated=true;break;}
-    try{out[k]=megaDebugSafeV194(v[k],depth+1,seen);}catch(_){out[k]='[unreadable]';}
+    try{out[k]=megaDebugSafeV195(v[k],depth+1,seen);}catch(_){out[k]='[unreadable]';}
   }
   return out;
 }
-function megaDebugEventWantedV194(level,args){
+function megaDebugEventWantedV195(level,args){
   if(level==='warn'||level==='error')return true;
   const s=args.map(x=>typeof x==='string'?x:'').join(' ');
   return /UI ACTION|LAYER BUILD PERFORMANCE|OSM PERFORMANCE|FOREST CONTEXT WORKER|HOTSPOT|AREA SCORE CACHE|AUTO QA|National benchmark|Benchmark krajowy|cache invalidated|PERFORMANCE EQUIVALENCE|SESSION AREA CACHE|AREA ISOLATION|CACHE STRESS/i.test(s);
 }
-function megaDebugPushV194(level,args){
-  if(!megaDebugEventWantedV194(level,args))return;
-  const rec={t:+((performance.now?.()||0)/1000).toFixed(3),level,args:args.map(x=>megaDebugSafeV194(x))};
-  megaDebugV194.events.push(rec);if(megaDebugV194.events.length>megaDebugV194.maxEvents)megaDebugV194.events.shift();
-  if(level==='warn'||level==='error'){megaDebugV194.errors.push(rec);if(megaDebugV194.errors.length>megaDebugV194.maxErrors)megaDebugV194.errors.shift();}
+function megaDebugPushV195(level,args){
+  if(!megaDebugEventWantedV195(level,args))return;
+  const rec={t:+((performance.now?.()||0)/1000).toFixed(3),level,args:args.map(x=>megaDebugSafeV195(x))};
+  megaDebugV195.events.push(rec);if(megaDebugV195.events.length>megaDebugV195.maxEvents)megaDebugV195.events.shift();
+  if(level==='warn'||level==='error'){megaDebugV195.errors.push(rec);if(megaDebugV195.errors.length>megaDebugV195.maxErrors)megaDebugV195.errors.shift();}
 }
-(function installMegaDebugConsoleCaptureV194(){
-  if(window.__megaDebugConsoleCaptureV194)return;window.__megaDebugConsoleCaptureV194=true;
+(function installMegaDebugConsoleCaptureV195(){
+  if(window.__megaDebugConsoleCaptureV195)return;window.__megaDebugConsoleCaptureV195=true;
   for(const level of ['log','info','warn','error','debug']){
     const orig=console[level]?.bind(console);if(!orig)continue;
-    console[level]=(...args)=>{try{megaDebugPushV194(level,args);}catch(_){}return orig(...args);};
+    console[level]=(...args)=>{try{megaDebugPushV195(level,args);}catch(_){}return orig(...args);};
   }
-  window.addEventListener('error',e=>megaDebugPushV194('error',['WINDOW ERROR',{message:e.message,filename:e.filename,lineno:e.lineno,colno:e.colno,error:e.error}]));
-  window.addEventListener('unhandledrejection',e=>megaDebugPushV194('error',['UNHANDLED REJECTION',e.reason]));
+  window.addEventListener('error',e=>megaDebugPushV195('error',['WINDOW ERROR',{message:e.message,filename:e.filename,lineno:e.lineno,colno:e.colno,error:e.error}]));
+  window.addEventListener('unhandledrejection',e=>megaDebugPushV195('error',['UNHANDLED REJECTION',e.reason]));
 })();
-function megaDebugDomStatusV194(){
+function megaDebugDomStatusV195(){
   const ids=['dsNet','dsBDL','dsWeather','dsTerrain','dsSoil','dsOpen','dsObs','cacheInfo','status'];
   const out={};for(const id of ids){const el=document.getElementById(id);out[id]=el?String(el.textContent||'').trim():null;}return out;
 }
-function megaDebugAreaStateV194(){
+function megaDebugAreaStateV195(){
   try{return autoQAAreaRowsV192().map(r=>({...r,name:String(r.name||'').slice(0,120)}));}catch(_){
     return ANALYSIS_CENTERS.map(a=>({name:a.name,sig:typeof analysisAreaGeometrySigV191==='function'?analysisAreaGeometrySigV191(a):null}));
   }
 }
-function megaDebugCacheStateV194(){
+function megaDebugCacheStateV195(){
   try{
     pruneAreaScoreSessionCacheV191();
     return {
       ttlMin:AREA_SCORE_SESSION_TTL_V191/60000,maxEntries:AREA_SCORE_SESSION_MAX_V191,
       entries:[...areaScoreSessionCacheV191.entries()].map(([key,v])=>({key,ageSec:+((Date.now()-v.ts)/1000).toFixed(1),staticScores:v.staticRaw?.size||0,dynamicScores:v.dynamicRaw?.size||0,forestRows:v.forestRows?.length||0,openRows:v.openRows?.length||0})),
-      last:megaDebugSafeV194(areaScoreSessionLastV191)
+      last:megaDebugSafeV195(areaScoreSessionLastV191)
     };
   }catch(e){return {error:String(e?.message||e)};}
 }
-function megaDebugResourcesV194(){
+function megaDebugResourcesV195(){
   try{return performance.getEntriesByType('resource').filter(x=>/open-meteo|overpass|bdl|soil|gbif|inaturalist|arcgis|wms|wfs/i.test(x.name||'')).slice(-60).map(x=>({name:String(x.name||'').replace(/([?&](?:key|token|access_token|api_key)=)[^&]+/ig,'$1REDACTED').slice(0,420),duration:+x.duration.toFixed(1),transferSize:x.transferSize||0,decodedBodySize:x.decodedBodySize||0}));}catch(_){return [];}
 }
-function megaDebugDeviceV194(){
+function megaDebugDeviceV195(){
   const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
   return {userAgent:navigator.userAgent,language:navigator.language,online:navigator.onLine,viewport:[innerWidth,innerHeight],dpr:devicePixelRatio,hardwareConcurrency:navigator.hardwareConcurrency??null,deviceMemory:navigator.deviceMemory??null,connection:c?{effectiveType:c.effectiveType,downlink:c.downlink,rtt:c.rtt,saveData:c.saveData}:null,jsHeap:performance.memory?{used:performance.memory.usedJSHeapSize,total:performance.memory.totalJSHeapSize,limit:performance.memory.jsHeapSizeLimit}:null};
 }
-function megaDebugCoreStateV194(){
+function megaDebugCoreStateV195(){
   return {
     mode:mapMode,filter:currentFilter,atlas:[...atlasSelected],analysisRunning:!!analysisRunning,analysisScoringReady:!!analysisScoringReady,
-    areas:megaDebugAreaStateV194(),features:{all:allFeatures.length,open:openFeatures.length,layers:analysisLayers.length},
+    areas:megaDebugAreaStateV195(),features:{all:allFeatures.length,open:openFeatures.length,layers:analysisLayers.length},
     readiness:{weather:!!weatherReady,soil:!!soilReady,terrain:!!terrainReady,open:!!openReady},
     revisions:{scoring:scoringRevision,weather:weatherScoringRevisionV176},
     weatherSamples:weatherSamples.length,soilSamples:soilSamples.length,
-    hotspotPipeline:megaDebugSafeV194(hotspotPipelineWarmLast),layerBuild:megaDebugSafeV194(analysisLayerBuildLast),forestWorker:megaDebugSafeV194(forestContextWorkerLast),
-    autoQA:megaDebugSafeV194(autoQAV192.last),cacheStress:megaDebugSafeV194(cacheStressV194.last),dom:megaDebugDomStatusV194(),cache:megaDebugCacheStateV194()
+    hotspotPipeline:megaDebugSafeV195(hotspotPipelineWarmLast),layerBuild:megaDebugSafeV195(analysisLayerBuildLast),forestWorker:megaDebugSafeV195(forestContextWorkerLast),
+    autoQA:megaDebugSafeV195(autoQAV192.last),cacheStress:megaDebugSafeV195(cacheStressV195.last),dom:megaDebugDomStatusV195(),cache:megaDebugCacheStateV195()
   };
 }
-async function buildMegaDebugReportV194(){
-  if(megaDebugV194.running)return megaDebugV194.lastReport||'';megaDebugV194.running=true;
+async function buildMegaDebugReportV195(){
+  if(megaDebugV195.running)return megaDebugV195.lastReport||'';megaDebugV195.running=true;
   try{
     const started=performance.now();
     let qa=null,equivalence=null,areaIsolation=null;
@@ -28196,59 +28207,90 @@ async function buildMegaDebugReportV194(){
     // automatycznie policzony po ostatnim pipeline; uruchom tylko gdy go jeszcze nie ma.
     if(autoQAV192.busy){for(let i=0;i<40&&autoQAV192.busy;i++)await new Promise(r=>setTimeout(r,50));}
     try{qa=autoQAV192.last||await runAutoQAV192();}catch(e){qa={error:String(e?.stack||e)};}
-    if(cacheStressV194.busy){for(let i=0;i<80&&cacheStressV194.busy;i++)await new Promise(r=>setTimeout(r,50));}
-    if(!cacheStressV194.done){try{await runCacheStressV194();}catch(e){megaDebugPushV194('error',['CACHE STRESS ON REPORT FAIL',e]);}}
+    if(cacheStressV195.busy){for(let i=0;i<80&&cacheStressV195.busy;i++)await new Promise(r=>setTimeout(r,50));}
+    if(!cacheStressV195.done){try{await runCacheStressV195();}catch(e){megaDebugPushV195('error',['CACHE STRESS ON REPORT FAIL',e]);}}
     try{equivalence=await auditV191PerformanceEquivalence(Math.min(220,Math.max(120,Math.round(allFeatures.length/18))));}catch(e){equivalence={error:String(e?.stack||e)};}
     try{
-      const rows=megaDebugAreaStateV194();
+      const rows=megaDebugAreaStateV195();
       areaIsolation={weatherReady,weatherIsolationOk:!weatherReady||rows.every(r=>r.weatherSamples>=5),rows};
     }catch(e){areaIsolation={error:String(e?.stack||e)};}
     const payload={
-      schema:'mushroom-map-mega-debug/1',version:'v194',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV194.startedAt)/1000).toFixed(1),
-      verdict:{overall:(qa?.overall==='PASS'&&cacheStressV194.last?.overall==='PASS'&&equivalence?.ok&&areaIsolation?.weatherIsolationOk!==false)?'PASS':'FAIL',autoQA:qa?.overall||null,cacheStress:cacheStressV194.last?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
-      state:megaDebugCoreStateV194(),equivalence:megaDebugSafeV194(equivalence),areaIsolation:megaDebugSafeV194(areaIsolation),
-      autoQAHistory:megaDebugSafeV194(autoQAV192.runs.slice(-24)),cacheStressHistory:megaDebugSafeV194(cacheStressV194.runs.slice(-8)),
-      device:megaDebugDeviceV194(),resources:megaDebugResourcesV194(),errors:megaDebugV194.errors.slice(-40),events:megaDebugV194.events.slice(-180),
+      schema:'mushroom-map-mega-debug/1',version:'v195',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
+      verdict:{overall:(qa?.overall==='PASS'&&cacheStressV195.last?.overall==='PASS'&&equivalence?.ok&&areaIsolation?.weatherIsolationOk!==false)?'PASS':'FAIL',autoQA:qa?.overall||null,cacheStress:cacheStressV195.last?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
+      state:megaDebugCoreStateV195(),equivalence:megaDebugSafeV195(equivalence),areaIsolation:megaDebugSafeV195(areaIsolation),
+      autoQAHistory:megaDebugSafeV195(autoQAV192.runs.slice(-24)),cacheStressHistory:megaDebugSafeV195(cacheStressV195.runs.slice(-8)),
+      device:megaDebugDeviceV195(),resources:megaDebugResourcesV195(),errors:megaDebugV195.errors.slice(-40),events:megaDebugV195.events.slice(-180),
       reportBuildMs:+(performance.now()-started).toFixed(1)
     };
-    megaDebugV194.lastObject=payload;
-    megaDebugV194.lastReport=`===== MAPA GRZYBÓW MEGA DEBUG v194 =====\n${JSON.stringify(payload,null,2)}\n===== END MEGA DEBUG v194 =====`;
-    window.__megaDebugV194=payload;
-    console.info('V194 MEGA DEBUG READY',{chars:megaDebugV194.lastReport.length,verdict:payload.verdict,reportBuildMs:payload.reportBuildMs});
-    return megaDebugV194.lastReport;
-  }finally{megaDebugV194.running=false;}
+    megaDebugV195.lastObject=payload;
+    megaDebugV195.lastReport=`===== MAPA GRZYBÓW MEGA DEBUG v195 =====\n${JSON.stringify(payload,null,2)}\n===== END MEGA DEBUG v195 =====`;
+    window.__megaDebugV195=payload;
+    console.info('V195 MEGA DEBUG READY',{chars:megaDebugV195.lastReport.length,verdict:payload.verdict,reportBuildMs:payload.reportBuildMs});
+    return megaDebugV195.lastReport;
+  }finally{megaDebugV195.running=false;}
 }
-async function copyTextMegaDebugV194(text){
+async function copyTextMegaDebugV195(text){
   try{if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);return true;}}catch(_){}
   try{const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');ta.remove();return !!ok;}catch(_){return false;}
 }
-function downloadMegaDebugV194(text){
+function downloadMegaDebugV195(text){
   const blob=new Blob([text],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=url;a.download=`mapa-grzybow-mega-debug-v194-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  a.href=url;a.download=`mapa-grzybow-mega-debug-v195-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
-function showMegaDebugOverlayV194(text){
+function showMegaDebugOverlayV195(text){
   const ov=document.getElementById('megaDebugReportOverlay'),ta=document.getElementById('megaDebugReportText');if(!ov||!ta)return;
   ta.value=text;ov.classList.add('open');ov.setAttribute('aria-hidden','false');
 }
-function hideMegaDebugOverlayV194(){const ov=document.getElementById('megaDebugReportOverlay');if(ov){ov.classList.remove('open');ov.setAttribute('aria-hidden','true');}}
-async function runMegaDebugFromUiV194(){
+function hideMegaDebugOverlayV195(){const ov=document.getElementById('megaDebugReportOverlay');if(ov){ov.classList.remove('open');ov.setAttribute('aria-hidden','true');}}
+async function runMegaDebugFromUiV195(){
   const btn=document.getElementById('megaDebugBtn'),st=document.getElementById('megaDebugStatus');
   if(btn)btn.disabled=true;if(st){st.className='mega-debug-status';st.textContent='zbieram…';}
   try{
-    const text=await buildMegaDebugReportV194();
-    const copied=await copyTextMegaDebugV194(text);
+    const text=await buildMegaDebugReportV195();
+    const copied=await copyTextMegaDebugV195(text);
     if(st){st.className='mega-debug-status '+(copied?'ok':'fail');st.textContent=copied?'✅ skopiowano — wklej do ChatGPT':'raport gotowy';}
-    showMegaDebugOverlayV194(text);
+    showMegaDebugOverlayV195(text);
     return text;
   }catch(e){
-    megaDebugPushV194('error',['MEGA DEBUG UI FAIL',e]);if(st){st.className='mega-debug-status fail';st.textContent='❌ błąd debug';}throw e;
+    megaDebugPushV195('error',['MEGA DEBUG UI FAIL',e]);if(st){st.className='mega-debug-status fail';st.textContent='❌ błąd debug';}throw e;
   }finally{if(btn)btn.disabled=false;}
 }
-window.runMegaDebugV194=buildMegaDebugReportV194;
-window.copyMegaDebugV194=async()=>{const t=await buildMegaDebugReportV194();return copyTextMegaDebugV194(t);};
-window.downloadMegaDebugV194=async()=>{const t=await buildMegaDebugReportV194();downloadMegaDebugV194(t);return true;};
-window.__megaDebugStateV194=megaDebugV194;
+window.runMegaDebugV195=buildMegaDebugReportV195;
+window.copyMegaDebugV195=async()=>{const t=await buildMegaDebugReportV195();return copyTextMegaDebugV195(t);};
+window.downloadMegaDebugV195=async()=>{const t=await buildMegaDebugReportV195();downloadMegaDebugV195(t);return true;};
+window.__megaDebugStateV195=megaDebugV195;
 
+async function prepareAutoMegaDebugV195(){
+ const q=document.getElementById('megaDebugQuickBtn');
+ try{
+   if(q){q.className='busy';q.textContent='📋 Debug…';}
+   const text=await buildMegaDebugReportV195();
+   const verdict=megaDebugV195.lastObject?.verdict?.overall||'FAIL';
+   if(q){q.className=verdict==='PASS'?'pass':'fail';q.textContent=`📋 Debug ${verdict}`;}
+   const phase=hotspotPipelineWarmLast||{},stress=cacheStressV195.last||{},qa=autoQAV192.last||{};
+   const flat=[
+     `overall=${verdict}`,
+     `autoQA=${qa.overall||'?'}`,
+     `stress=${stress.overall||'?'}`,
+     `equivalence=${megaDebugV195.lastObject?.verdict?.equivalenceOk?'PASS':'FAIL'}`,
+     `delta=${megaDebugV195.lastObject?.verdict?.maxDelta??'?'}`,
+     `cacheStatic=${phase.sessionStaticAreas||0}`,
+     `cacheDynamic=${phase.sessionDynamicAreas||0}`,
+     `cacheFinal=${phase.sessionReusedFeatures||0}`,
+     `prior=${Number(phase.priorMs||0).toFixed(1)}`,
+     `distribution=${Number(phase.distributionMs||0).toFixed(1)}`,
+     `pairs=${phase.distributionPairs||0}`,
+     `total=${Number(phase.elapsedMs||0).toFixed(1)}`,
+     `reportChars=${text.length}`
+   ].join(' | ');
+   console.info(`V195 AUTO MEGA DEBUG FLAT | ${flat}`);
+   window.__v195AutoMegaDebugText=text;
+   return text;
+ }catch(e){
+   if(q){q.className='fail';q.textContent='📋 Debug FAIL';}
+   console.error('V195 AUTO MEGA DEBUG FAIL',e);return '';
+ }
+}
 function multiAreaWarmSignature(){
  return [
    perfKey(),
@@ -28344,7 +28386,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v194-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
+   'v195-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -28641,9 +28683,9 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v194',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v195',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v194',{
+   console.info('HOTSPOT PHASE v195',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      forestWorkerWallMs:+phase.forestWorkerWallMs.toFixed(1),forestWorkerMs:+phase.forestWorkerMs.toFixed(1),
      sessionCacheMs:+phase.sessionCacheMs.toFixed(1),sessionStaticAreas:phase.sessionStaticAreas||0,sessionDynamicAreas:phase.sessionDynamicAreas||0,sessionReusedFeatures:phase.sessionReusedFeatures||0,
@@ -28653,9 +28695,9 @@ async function prewarmHotspotPipeline(){
      distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
-   console.info(`HOTSPOT PHASE v194 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | sessionCache=${phase.sessionCacheMs.toFixed(1)}ms(static ${phase.sessionStaticAreas||0}, dynamic ${phase.sessionDynamicAreas||0}, final ${phase.sessionReusedFeatures||0}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   console.info(`HOTSPOT PHASE v195 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | sessionCache=${phase.sessionCacheMs.toFixed(1)}ms(static ${phase.sessionStaticAreas||0}, dynamic ${phase.sessionDynamicAreas||0}, final ${phase.sessionReusedFeatures||0}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
    scheduleAutoQAV192();
-   scheduleCacheStressV194();
+   scheduleCacheStressV195();
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -28830,7 +28872,7 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v194',{
+   console.info('HOTSPOT RENDER v195',{
      features:rows.length,
      visibleRows,
      reasons:perfRenderNow._v182Reasons||[],
@@ -30952,7 +30994,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v194: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v195: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -30961,7 +31003,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v194',{
+   console.info('HOTSPOT ACCESS NETWORK v195',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -30975,7 +31017,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v194',{
+   console.info('HOTSPOT ACCESS v195',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -31000,7 +31042,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v194: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v195: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -31022,15 +31064,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v194',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v195',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v194',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v195',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v194: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v195: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }
@@ -32435,13 +32477,24 @@ if(clearApiCacheBtn)clearApiCacheBtn.onclick=async()=>{
  clearApiCacheBtn.disabled=false;
 };
 const megaDebugBtn=document.getElementById('megaDebugBtn');
-if(megaDebugBtn)megaDebugBtn.onclick=()=>{runMegaDebugFromUiV194().catch(e=>console.error('V194 MEGA DEBUG button',e));};
+if(megaDebugBtn)megaDebugBtn.onclick=()=>{runMegaDebugFromUiV195().catch(e=>console.error('V195 MEGA DEBUG button',e));};
+const megaDebugQuickBtn=document.getElementById('megaDebugQuickBtn');
+if(megaDebugQuickBtn)megaDebugQuickBtn.onclick=async()=>{
+ megaDebugQuickBtn.disabled=true;
+ try{
+   const t=megaDebugV195.lastReport||await prepareAutoMegaDebugV195()||await buildMegaDebugReportV195();
+   const ok=await copyTextMegaDebugV195(t);
+   megaDebugQuickBtn.className=ok?(megaDebugV195.lastObject?.verdict?.overall==='PASS'?'pass':'fail'):'fail';
+   megaDebugQuickBtn.textContent=ok?'✅ Debug skopiowany':'📋 Otwórz raport';
+   if(!ok)showMegaDebugOverlayV195(t);
+ }finally{setTimeout(()=>{megaDebugQuickBtn.disabled=false;const v=megaDebugV195.lastObject?.verdict?.overall;megaDebugQuickBtn.textContent=v?`📋 Debug ${v}`:'📋 Debug';},1600);}
+};
 const megaDebugCopy=document.getElementById('megaDebugCopy');
-if(megaDebugCopy)megaDebugCopy.onclick=async()=>{const t=document.getElementById('megaDebugReportText')?.value||megaDebugV194.lastReport;const ok=await copyTextMegaDebugV194(t);megaDebugCopy.textContent=ok?'✅ Skopiowano':'❌ Kopiowanie zablokowane';};
+if(megaDebugCopy)megaDebugCopy.onclick=async()=>{const t=document.getElementById('megaDebugReportText')?.value||megaDebugV195.lastReport;const ok=await copyTextMegaDebugV195(t);megaDebugCopy.textContent=ok?'✅ Skopiowano':'❌ Kopiowanie zablokowane';};
 const megaDebugDownload=document.getElementById('megaDebugDownload');
-if(megaDebugDownload)megaDebugDownload.onclick=()=>downloadMegaDebugV194(document.getElementById('megaDebugReportText')?.value||megaDebugV194.lastReport);
-for(const id of ['megaDebugClose','megaDebugClose2']){const x=document.getElementById(id);if(x)x.onclick=hideMegaDebugOverlayV194;}
-const megaDebugOverlay=document.getElementById('megaDebugReportOverlay');if(megaDebugOverlay)megaDebugOverlay.addEventListener('click',e=>{if(e.target===megaDebugOverlay)hideMegaDebugOverlayV194();});
+if(megaDebugDownload)megaDebugDownload.onclick=()=>downloadMegaDebugV195(document.getElementById('megaDebugReportText')?.value||megaDebugV195.lastReport);
+for(const id of ['megaDebugClose','megaDebugClose2']){const x=document.getElementById(id);if(x)x.onclick=hideMegaDebugOverlayV195;}
+const megaDebugOverlay=document.getElementById('megaDebugReportOverlay');if(megaDebugOverlay)megaDebugOverlay.addEventListener('click',e=>{if(e.target===megaDebugOverlay)hideMegaDebugOverlayV195();});
 
 window.addEventListener('online',()=>prodUpdateNetUi('online'));
 window.addEventListener('offline',()=>prodUpdateNetUi('offline • użyję cache'));
@@ -32522,7 +32575,7 @@ window.auditV176Architecture=function(){
 
 <div id="megaDebugReportOverlay" aria-hidden="true">
   <div class="mega-debug-report-shell" role="dialog" aria-modal="true" aria-labelledby="megaDebugReportTitle">
-    <div class="mega-debug-report-head"><span id="megaDebugReportTitle">📋 Raport Mega Debug v194</span><button id="megaDebugClose" type="button">×</button></div>
+    <div class="mega-debug-report-head"><span id="megaDebugReportTitle">📋 Raport Mega Debug v195</span><button id="megaDebugClose" type="button">×</button></div>
     <div style="font-size:12px;color:#5e6d65">Jeśli automatyczne kopiowanie nie zadziałało, kliknij „Kopiuj” albo pobierz TXT i wyślij go do ChatGPT.</div>
     <textarea id="megaDebugReportText" readonly spellcheck="false"></textarea>
     <div class="mega-debug-report-actions">

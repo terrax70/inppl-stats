@@ -3611,20 +3611,34 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 
 
-/* ===== v177 MOBILE QUICK MODE + FAST SETTINGS ===== */
+/* ===== v178 iOS-STYLE QUICK MODE + FAST SETTINGS ===== */
 .panel .modebar,.panel .ui-mode-help{display:none!important}
 .mobile-search-dock{display:contents}
 .quick-mode-toggle{
-  display:flex;position:fixed;z-index:5150;top:12px;right:12px;align-items:center;justify-content:center;gap:6px;
-  width:106px;height:44px;padding:5px 8px!important;border-radius:12px!important;
-  background:#eaf6ed!important;color:#162319!important;border:1px solid #a7d8b1!important;
-  box-shadow:0 6px 20px rgba(0,0,0,.22)!important;touch-action:manipulation
+  --mode-pad:3px;
+  display:grid;grid-template-columns:1fr 1fr;position:fixed;z-index:5150;top:12px;left:12px;
+  width:154px;height:42px;padding:var(--mode-pad)!important;border:0!important;border-radius:999px!important;
+  background:rgba(32,35,39,.92)!important;color:#eef2f5!important;
+  box-shadow:0 6px 22px rgba(0,0,0,.28),inset 0 0 0 1px rgba(255,255,255,.10)!important;
+  overflow:hidden;isolation:isolate;touch-action:manipulation;-webkit-tap-highlight-color:transparent
 }
-.quick-mode-toggle[data-mode="habitat"]{background:#e8eef6!important;border-color:#a9bed7!important;color:#172334!important}
-.quick-mode-icon{font-size:16px;line-height:1}
-.quick-mode-copy{display:flex;min-width:0;flex-direction:column;align-items:flex-start;gap:2px}
-.quick-mode-copy b{font-size:10px;line-height:1;font-weight:950;letter-spacing:.03em}
-.quick-mode-copy small{font-size:7.2px;line-height:1;color:inherit;opacity:.66;font-weight:900;white-space:nowrap}
+.quick-mode-toggle::before{
+  content:"";position:absolute;z-index:0;top:var(--mode-pad);bottom:var(--mode-pad);left:var(--mode-pad);
+  width:calc(50% - var(--mode-pad));border-radius:999px;background:#f8fafb;
+  box-shadow:0 1px 2px rgba(0,0,0,.28),0 3px 9px rgba(0,0,0,.20);
+  transform:translateX(0);transition:transform .22s cubic-bezier(.22,.8,.25,1),background-color .18s ease
+}
+.quick-mode-toggle[data-mode="habitat"]::before{transform:translateX(100%)}
+.quick-mode-option{
+  position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:4px;
+  min-width:0;padding:0 5px;border-radius:999px;font-size:10.5px;line-height:1;font-weight:900;
+  letter-spacing:.01em;white-space:nowrap;color:rgba(255,255,255,.68);transition:color .16s ease
+}
+.quick-mode-option .quick-mode-icon{font-size:12px;line-height:1}
+.quick-mode-toggle[data-mode="today"] .quick-mode-option[data-mode-option="today"],
+.quick-mode-toggle[data-mode="habitat"] .quick-mode-option[data-mode-option="habitat"]{color:#11181d}
+.quick-mode-toggle:active::before{filter:brightness(.94)}
+.quick-mode-toggle:focus-visible{outline:3px solid rgba(83,161,255,.45)!important;outline-offset:2px}
 
 /* ===== v4 MOBILE SEARCH / TOUCH / PERFORMANCE ===== */
 @media(max-width:700px){
@@ -3636,16 +3650,17 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   }
   .mobile-search-dock .locator-search-row{display:flex!important;flex:1 1 auto;min-width:0;width:auto!important;gap:5px!important;margin:0!important;order:1}
   .quick-mode-toggle{
-    display:flex!important;align-items:center;justify-content:center;gap:5px;order:2;flex:0 0 88px;
-    width:88px!important;min-width:88px!important;height:42px!important;padding:4px 6px!important;margin:0!important;
-    border-radius:11px!important;background:#eaf6ed!important;color:#162319!important;border:1px solid #a7d8b1!important;
-    box-shadow:none!important;line-height:1!important;touch-action:manipulation
+    --mode-pad:3px;
+    display:grid!important;position:relative!important;inset:auto!important;order:0;flex:0 0 124px;
+    grid-template-columns:1fr 1fr;width:124px!important;min-width:124px!important;height:42px!important;
+    padding:var(--mode-pad)!important;margin:0!important;border:0!important;border-radius:999px!important;
+    background:#25292d!important;color:#f3f5f7!important;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.10)!important;line-height:1!important
   }
-  .quick-mode-toggle[data-mode="habitat"]{background:#e8eef6!important;border-color:#a9bed7!important;color:#172334!important}
-  .quick-mode-icon{font-size:15px;line-height:1}
-  .quick-mode-copy{display:flex;min-width:0;flex-direction:column;align-items:flex-start;gap:2px}
-  .quick-mode-copy b{font-size:9px;line-height:1;font-weight:950;letter-spacing:.03em}
-  .quick-mode-copy small{font-size:6.8px;line-height:1;color:inherit;opacity:.66;font-weight:900;white-space:nowrap}
+  .quick-mode-toggle::before{top:3px;bottom:3px;left:3px;width:calc(50% - 3px)}
+  .quick-mode-option{padding:0 3px;font-size:9.3px;gap:3px}
+  .quick-mode-option .quick-mode-icon{font-size:10.5px}
+  .mobile-search-dock .locator-search-row{order:1}
   .mobile-search-dock .locator-search-wrap{flex:1;min-width:0}
   .mobile-search-dock .locator-search-wrap input{
     height:42px;font-size:14px!important;border-radius:11px!important;padding:0 13px!important
@@ -4725,9 +4740,9 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 </div>
 
 <div id="mobileSearchDock" class="mobile-search-dock" aria-label="Szukaj miejsca">
-  <button id="quickModeToggle" class="quick-mode-toggle" type="button" aria-label="Tryb mapy: Dziś. Dotknij, aby przełączyć na Ogólnie" title="Przełącz Dziś / Ogólnie">
-    <span class="quick-mode-icon" aria-hidden="true">☔</span>
-    <span class="quick-mode-copy"><b>DZIŚ</b><small>→ OGÓLNIE</small></span>
+  <button id="quickModeToggle" class="quick-mode-toggle" type="button" role="switch" aria-checked="true" aria-label="Tryb mapy: Dziś. Dotknij, aby przełączyć na Ogólnie" title="Przełącz Dziś / Ogólnie" data-mode="today">
+    <span class="quick-mode-option" data-mode-option="today"><span class="quick-mode-icon" aria-hidden="true">☔</span><span>Dziś</span></span>
+    <span class="quick-mode-option" data-mode-option="habitat"><span class="quick-mode-icon" aria-hidden="true">🌲</span><span>Ogólnie</span></span>
   </button>
 </div>
 <div id="dataSourceMini" class="data-source-mini">
@@ -30238,12 +30253,7 @@ function syncModeControls(){
  if(!quickModeToggle)return;
  const today=mapMode==='today';
  quickModeToggle.dataset.mode=mapMode;
- const icon=quickModeToggle.querySelector('.quick-mode-icon');
- const main=quickModeToggle.querySelector('.quick-mode-copy b');
- const sub=quickModeToggle.querySelector('.quick-mode-copy small');
- if(icon)icon.textContent=today?'☔':'🌲';
- if(main)main.textContent=today?'DZIŚ':'OGÓLNIE';
- if(sub)sub.textContent=today?'→ OGÓLNIE':'→ DZIŚ';
+ quickModeToggle.setAttribute('aria-checked',String(today));
  const next=today?'Ogólnie':'Dziś';
  quickModeToggle.setAttribute('aria-label',`Tryb mapy: ${today?'Dziś':'Ogólnie'}. Dotknij, aby przełączyć na ${next}`);
  quickModeToggle.title=`Przełącz na ${next}`;

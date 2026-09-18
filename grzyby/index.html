@@ -6958,7 +6958,7 @@ async function loadWeather(){
    if(rows.length!==pts.length)throw new Error('Niepełna odpowiedź forecast');
    weatherSamples=rows.map((x,i)=>parseWeatherPayload(x,pts[i][0],pts[i][1],pts[i][2],true));
    centerWeather=weatherSamples[0];weatherReady=true;
-   invalidateScoringCaches('weather forecast');
+   invalidateWeatherScoringCachesV176('weather forecast');
    ds.textContent='gotowe';ds.className='st-ok';
    updateWeatherCard();
    return;
@@ -6980,7 +6980,7 @@ async function loadWeather(){
    if(rows.length!==pts.length)throw new Error('Niepełna odpowiedź historical forecast');
    weatherSamples=rows.map((x,i)=>parseWeatherPayload(x,pts[i][0],pts[i][1],pts[i][2],false));
    centerWeather=weatherSamples[0];weatherReady=true;
-   invalidateScoringCaches('weather historical fallback');
+   invalidateWeatherScoringCachesV176('weather historical fallback');
    ds.textContent='hist. OK';ds.className='st-ok';
    updateWeatherCard();
    return;
@@ -6989,7 +6989,7 @@ async function loadWeather(){
  }
 
  weatherReady=false;centerWeather=null;
- invalidateScoringCaches('weather unavailable');
+ invalidateWeatherScoringCachesV176('weather unavailable');
  ds.textContent='niedostępne';ds.className='st-warn';
  document.getElementById('weatherScore').textContent='—';
  document.getElementById('weatherVerdict').textContent='Pogoda niedostępna — tryb DZIŚ nie używa wtedy komponentu pogodowego.';
@@ -8438,7 +8438,7 @@ async function loadOpenHabitats(){
    el.className=openReady?'st-ok':'st-warn';
 
    invalidateOpenHabitatScoringCaches('OSM open habitats');
-   if(!deferSecondaryRenders)render();
+   if(!deferSecondaryRenders)render('osm-open');
    console.info('OSM PERFORMANCE v142',overpassLastPerf);
  }catch(e){
    const elapsedMs=performance.now()-t0;
@@ -8765,12 +8765,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v174',
+     mode:'sync-batched-v176',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v173',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v176',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -9619,6 +9619,7 @@ function invalidateScoringCaches(reason=''){
  opportunityRawScalarCache.clear();
  opportunityCompositeDistributionCache.clear();
  opportunityStableScoreSideCache.clear();
+ opportunityFinalScoreCacheV176.clear();
  nationalAreaPriorCache.clear();
  overlapClusterContextCache.clear();
  nationalCompositeFeatureInfoCache.clear();
@@ -9645,7 +9646,39 @@ function invalidateScoringCaches(reason=''){
 
  try{invalidateLinkedContextDynamicCache();}catch(_){}
 
+ try{featureVisualStateV176=new WeakMap();lastVisualStateKeyV176='';}catch(_){}
  if(reason)console.debug('Scoring cache invalidated:',reason,'rev',scoringRevision);
+}
+
+// v176 — DIRTY INVALIDATION: zmiana pogody nie może wyrzucać gleby,
+// drzewostanu, forestContext ani statycznego POTENCJAŁU. Czyścimy wyłącznie
+// warstwę DZIŚ i dynamiczne agregaty. scoringRevision celowo NIE rośnie.
+let weatherScoringRevisionV176=0;
+function invalidateWeatherScoringCachesV176(reason='weather'){
+ weatherScoringRevisionV176++;
+ multiAreaWarmKey='';multiAreaWarmPromise=null;
+ hotspotPipelineWarmKey='';hotspotPipelineWarmPromise=null;
+ perfKeyLast='';
+ perfScoreCache=new WeakMap();
+ perfBestTodayInfoCache=new WeakMap();
+ perfDiversityCache=new WeakMap();
+ perfWeatherPointCache.clear();
+ perfSpeciesWeatherPayloadCache=new WeakMap();
+ perfSpeciesWeatherNeutralCache=new WeakMap();
+ perfSpeciesWeatherProfileCache=new WeakMap();
+ perfTodaySpeciesEffectiveCache.clear();
+ perfBestTodayInvariantCache=new WeakMap();
+ perfHotspotTodayInfoCache=new WeakMap();perfHotspotTodayInfoCacheKey='';
+ todayStyleScoreCacheKey='';todayStyleScoreCache=new WeakMap();
+ // Zachowaj statyczne raw cache, usuń tylko dynamiczne wpisy.
+ for(const k of [...opportunityRawScalarCache.keys()])if(String(k).includes('|1|'))opportunityRawScalarCache.delete(k);
+ for(const k of [...opportunityRawCompositeCache.keys()])if(String(k).includes('|1|'))opportunityRawCompositeCache.delete(k);
+ for(const k of [...opportunityFinalScoreCacheV176.keys()])if(String(k).includes('|1|'))opportunityFinalScoreCacheV176.delete(k);
+ todayHotspotCacheKey='';todayHotspotCache=[];
+ todayScaleCacheKey='';todayScales={};bestTodayConditionScaleCache.clear();
+ hotspotMembershipKey='';
+ try{invalidateLinkedContextDynamicCache();}catch(_){}
+ if(reason)console.debug('Weather cache invalidated v176:',reason,'weatherRev',weatherScoringRevisionV176);
 }
 
 
@@ -9688,6 +9721,7 @@ function invalidateOpenHabitatScoringCaches(reason='OSM open habitats'){
  opportunityRawScalarCache.clear();
  opportunityCompositeDistributionCache.clear();
  opportunityStableScoreSideCache.clear();
+ opportunityFinalScoreCacheV176.clear();
  nationalAreaPriorCache.clear();
  overlapClusterContextCache.clear();
  nationalCompositeFeatureInfoCache.clear();
@@ -9711,7 +9745,7 @@ function invalidateOpenHabitatScoringCaches(reason='OSM open habitats'){
 
 function perfKey(){
  const obs=(currentFilter!=='all'&&currentFilter!=='diversity')?((observationData[currentFilter]||[]).length):0;
- return [scoringRevision,currentFilter,mapMode,weatherReady?1:0,weatherSamples.length,soilReady?1:0,soilSamples.length,
+ return [scoringRevision,weatherScoringRevisionV176,currentFilter,mapMode,weatherReady?1:0,weatherSamples.length,soilReady?1:0,soilSamples.length,
          terrainReady?1:0,openReady?1:0,openFeatures.length,obs,Math.round(radarScores.all||0),allFeatures.length].join('|');
 }
 function ensurePerfCache(){
@@ -11913,6 +11947,25 @@ let opportunityRawScalarCache=new Map();
 let opportunityCompositeDistributionCache=new Map();
 let opportunityTypeSetKeyCache=new WeakMap();
 let opportunityStableScoreSideCache=new Map();
+// v176 — gotowy końcowy score OGÓLNE/DZIŚ. Robloxowy fast-path:
+// jeśli prewarm już policzył wynik, gorąca ścieżka nie odtwarza całego pipeline.
+let opportunityFinalScoreCacheV176=new Map();
+function opportunityFinalScoreKeyV176(dynamic,types){
+ return `v176-final|${scoringRevision}|${dynamic?1:0}|${opportunityTypeSetKey(types)}`;
+}
+function setOpportunityFinalScoreV176(types,f,stableScore,todayScore=NaN){
+ const sk=opportunityFinalScoreKeyV176(false,types);
+ let sw=opportunityFinalScoreCacheV176.get(sk);
+ if(!sw){sw=new WeakMap();opportunityFinalScoreCacheV176.set(sk,sw);} sw.set(f,stableScore);
+ if(Number.isFinite(todayScore)){
+   const dk=opportunityFinalScoreKeyV176(true,types);
+   let dw=opportunityFinalScoreCacheV176.get(dk);
+   if(!dw){dw=new WeakMap();opportunityFinalScoreCacheV176.set(dk,dw);} dw.set(f,todayScore);
+ }
+}
+function getOpportunityFinalScoreV176(types,f,dynamic=false){
+ return opportunityFinalScoreCacheV176.get(opportunityFinalScoreKeyV176(dynamic,types))?.get(f);
+}
 
 function opportunityTypeSetKey(types){
  if(Array.isArray(types)&&opportunityTypeSetKeyCache.has(types))return opportunityTypeSetKeyCache.get(types);
@@ -12031,53 +12084,112 @@ function opportunityRawComposite(f,dynamic=false,typesOverride=null){
 }
 
 
+// ========================= v175: ZERO-ALLOCATION SCALAR PAIR =========================
+// Ten sam wzór rawScore, ale metadane nisz liczymy raz na zestaw gatunków,
+// a POTENCJAŁ + DZIŚ mogą powstać w jednym przebiegu po gatunkach.
+const opportunityScalarMetaCacheV175=new Map();
+function opportunityScalarMetaV175(types){
+ const typeKey=opportunityTypeSetKey(types);
+ let meta=opportunityScalarMetaCacheV175.get(typeKey);
+ if(meta)return meta;
+ const nicheIds=[];
+ const nicheToIndex=new Map();
+ for(const t of types){
+   const niche=opportunityNicheKey(t);
+   let idx=nicheToIndex.get(niche);
+   if(idx===undefined){idx=nicheToIndex.size;nicheToIndex.set(niche,idx);}
+   nicheIds.push(idx);
+ }
+ const targetNiches=nicheToIndex.size;
+ const possibleExtras=Math.min(3,Math.max(0,targetNiches-1));
+ const breadthWeight=possibleExtras<=0?0:(possibleExtras===1?.18:(possibleExtras===2?.24:.30));
+ meta={typeKey,nicheIds,nicheCount:targetNiches,possibleExtras,breadthWeight};
+ opportunityScalarMetaCacheV175.set(typeKey,meta);
+ return meta;
+}
+function opportunityScalarFromNicheArrayV175(vals,meta){
+ const nicheVals=[];
+ for(let i=0;i<meta.nicheCount;i++){
+   const v=vals[i];
+   if(Number.isFinite(v))nicheVals.push(v);
+ }
+ if(!nicheVals.length)return 0;
+ nicheVals.sort((a,b)=>b-a);
+ const best=nicheVals[0];
+ if(meta.possibleExtras===0)return best;
+ const weights=[.50,.30,.20];
+ const extras=nicheVals.slice(1,4);
+ let supportRaw=4.80;
+ if(extras.length){
+   let sum=0,ws=0;
+   for(let i=0;i<extras.length;i++){const w=weights[i];sum+=w*extras[i];ws+=w;}
+   for(let i=extras.length;i<3;i++){const w=weights[i];sum+=w*4.80;ws+=w;}
+   supportRaw=sum/ws;
+ }
+ if(meta.possibleExtras<3){
+   const used=extras.slice(0,meta.possibleExtras);
+   if(used.length){
+     let sum=0,ws=0;
+     for(let i=0;i<meta.possibleExtras;i++){
+       const w=weights[i],val=used[i]??4.80;
+       sum+=w*val;ws+=w;
+     }
+     supportRaw=sum/ws;
+   }else supportRaw=4.80;
+ }
+ return clamp(best*(1-meta.breadthWeight)+supportRaw*meta.breadthWeight);
+}
+function opportunityRawScalarCacheKeyV175(dynamic,types){
+ return `v175-scalar|${scoringRevision}|${dynamic?1:0}|${opportunityTypeSetKey(types)}`;
+}
+function opportunityRawScorePairV175(f,typesOverride=null,needDynamic=true){
+ const types=Array.isArray(typesOverride)?typesOverride:opportunityTargetTypes();
+ const staticKey=opportunityRawScalarCacheKeyV175(false,types);
+ const dynamicKey=opportunityRawScalarCacheKeyV175(true,types);
+ let staticWM=opportunityRawScalarCache.get(staticKey);
+ let dynamicWM=opportunityRawScalarCache.get(dynamicKey);
+ const hasStatic=!!staticWM?.has(f);
+ const hasDynamic=!needDynamic||!!dynamicWM?.has(f);
+ if(hasStatic&&hasDynamic){
+   return {staticScore:staticWM.get(f),dynamicScore:needDynamic?dynamicWM.get(f):NaN,cacheHit:true};
+ }
+ const meta=opportunityScalarMetaV175(types);
+ const stableVals=new Array(meta.nicheCount).fill(-Infinity);
+ const dynamicVals=needDynamic?new Array(meta.nicheCount).fill(-Infinity):null;
+ for(let i=0;i<types.length;i++){
+   const t=types[i];
+   if(!featureRelevant(t,f))continue;
+   const potential=stableScoreForType(t,f);
+   if(Number.isFinite(potential)){
+     const v=clamp(potential),ni=meta.nicheIds[i];
+     if(v>stableVals[ni])stableVals[ni]=v;
+   }
+   if(needDynamic){
+     const effectiveRaw=speciesEffective(t,f);
+     const raw=Math.min(effectiveRaw,potential);
+     if(Number.isFinite(raw)){
+       const v=clamp(raw),ni=meta.nicheIds[i];
+       if(v>dynamicVals[ni])dynamicVals[ni]=v;
+     }
+   }
+ }
+ const staticScore=hasStatic?staticWM.get(f):opportunityScalarFromNicheArrayV175(stableVals,meta);
+ const dynamicScore=needDynamic?(hasDynamic?dynamicWM.get(f):opportunityScalarFromNicheArrayV175(dynamicVals,meta)):NaN;
+ if(!staticWM){staticWM=new WeakMap();opportunityRawScalarCache.set(staticKey,staticWM);}
+ if(!hasStatic)staticWM.set(f,staticScore);
+ if(needDynamic){
+   if(!dynamicWM){dynamicWM=new WeakMap();opportunityRawScalarCache.set(dynamicKey,dynamicWM);}
+   if(!hasDynamic)dynamicWM.set(f,dynamicScore);
+ }
+ return {staticScore,dynamicScore,cacheHit:false};
+}
 function opportunityRawScoreScalar(f,dynamic=false,typesOverride=null){
  const types=Array.isArray(typesOverride)?typesOverride:opportunityTargetTypes();
- const key=`v174-scalar|${scoringRevision}|${dynamic?1:0}|${opportunityTypeSetKey(types)}`;
- return perfTypeFeatureCache(opportunityRawScalarCache,key,f,()=>{
-   let any=false;
-   const byNiche=new Map();
-   for(const t of types){
-     if(!featureRelevant(t,f))continue;
-     const potential=stableScoreForType(t,f);
-     const effectiveRaw=dynamic?speciesEffective(t,f):potential;
-     const raw=dynamic?Math.min(effectiveRaw,potential):potential;
-     if(!Number.isFinite(raw))continue;
-     any=true;
-     const v=clamp(raw), niche=opportunityNicheKey(t);
-     const prev=byNiche.get(niche);
-     if(prev===undefined||v>prev)byNiche.set(niche,v);
-   }
-   if(!any||!byNiche.size)return 0;
-   const nicheVals=[...byNiche.values()].sort((a,b)=>b-a);
-   const best=nicheVals[0];
-   if(types.length===1)return best;
-
-   const extras=nicheVals.slice(1,4);
-   const weights=[.50,.30,.20];
-   let supportRaw=4.80;
-   if(extras.length){
-     let sum=0,ws=0;
-     for(let i=0;i<extras.length;i++){const w=weights[i];sum+=w*extras[i];ws+=w;}
-     for(let i=extras.length;i<3;i++){const w=weights[i];sum+=w*4.80;ws+=w;}
-     supportRaw=sum/ws;
-   }
-   const targetNiches=new Set(types.map(opportunityNicheKey)).size;
-   const possibleExtras=Math.min(3,Math.max(0,targetNiches-1));
-   const breadthWeight=possibleExtras<=0?0:(possibleExtras===1?.18:(possibleExtras===2?.24:.30));
-   if(possibleExtras<3&&possibleExtras>0){
-     const used=extras.slice(0,possibleExtras);
-     if(used.length){
-       let sum=0,ws=0;
-       for(let i=0;i<possibleExtras;i++){
-         const w=weights[i], val=used[i]??4.80;
-         sum+=w*val;ws+=w;
-       }
-       supportRaw=sum/ws;
-     }else supportRaw=4.80;
-   }
-   return clamp(best*(1-breadthWeight)+supportRaw*breadthWeight);
- });
+ const key=opportunityRawScalarCacheKeyV175(dynamic,types);
+ const wm=opportunityRawScalarCache.get(key);
+ if(wm?.has(f))return wm.get(f);
+ const pair=opportunityRawScorePairV175(f,types,dynamic);
+ return dynamic?pair.dynamicScore:pair.staticScore;
 }
 
 function opportunityCompositeDistribution(types,areaName,kind='forest'){
@@ -12310,6 +12422,10 @@ function opportunityAggregateInfo(f,dynamic=false,typesOverride=null){
 // liczymy per-feature benchmarku Polski, który NIE uczestniczy w samym score.
 function opportunityAggregateScoreOnly(f,dynamic=false,typesOverride=null){
  const types=Array.isArray(typesOverride)?typesOverride:opportunityTargetTypes();
+ if(types.length>1){
+   const ready=getOpportunityFinalScoreV176(types,f,dynamic);
+   if(Number.isFinite(ready))return ready;
+ }
  if(types.length===1){
    const t=types[0];
    if(!featureRelevant(t,f))return 0;
@@ -12343,12 +12459,17 @@ function opportunityAggregateScoreOnly(f,dynamic=false,typesOverride=null){
  const localIndex=clamp(10*relative*qualityGate);
  const overallIndex=clamp(localIndex+(prior?.active?prior.adjustment:0));
  setOpportunityStableSideScore(types,f,overallIndex);
- if(!dynamic)return overallIndex;
+ if(!dynamic){
+   setOpportunityFinalScoreV176(types,f,overallIndex);
+   return overallIndex;
+ }
 
  const todayRaw=opportunityRawScoreScalar(f,true,types);
  const retention=Math.max(0,Math.min(1,todayRaw/Math.max(.001,overallRaw)));
  const weatherFactor=.15+.85*Math.pow(retention,1.25);
- return clamp(Math.min(overallIndex,overallIndex*weatherFactor));
+ const todayIndex=clamp(Math.min(overallIndex,overallIndex*weatherFactor));
+ setOpportunityFinalScoreV176(types,f,overallIndex,todayIndex);
+ return todayIndex;
 }
 
 function atlasAggregateScore(f,dynamic=false){
@@ -12393,7 +12514,7 @@ function resetStaticCachesIfNeeded(){
  hotspotCacheKey='';hotspotCache=[];
  todayHotspotCacheKey='';todayHotspotCache=[];
  stableCandidateCacheKey='';stableCandidateCache=new Map();hotspotPipelineWarmKey='';
- balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();opportunityRawCompositeCache.clear();opportunityRawScalarCache.clear();opportunityCompositeDistributionCache.clear();opportunityStableScoreSideCache.clear();nationalAreaPriorCache.clear();hotspotMembershipKey='';
+ balancedScaleKey='';balancedScales={};atlasSpeciesScaleCache.clear();opportunityRawCompositeCache.clear();opportunityRawScalarCache.clear();opportunityCompositeDistributionCache.clear();opportunityStableScoreSideCache.clear();opportunityFinalScoreCacheV176.clear();nationalAreaPriorCache.clear();hotspotMembershipKey='';
  todayScaleCacheKey='';todayScales={};bestTodayConditionScaleCache.clear();
  todayStyleScoreCacheKey='';todayStyleScoreCache=new WeakMap();
  perfKeyLast='';
@@ -12564,7 +12685,7 @@ function ensureForestContextWorkerV174(){
    URL.revokeObjectURL(url);
    return forestContextWorker;
  }catch(e){
-   console.warn('FOREST CONTEXT WORKER v174 unavailable',e);
+   console.warn('FOREST CONTEXT WORKER v176 unavailable',e);
    return null;
  }
 }
@@ -12603,10 +12724,10 @@ async function prewarmForestContextWorkerV174(key){
    }
    forestContextWorkerRevision=revision;
    forestContextWorkerLast={state:'ready',revision,features:msg.rows.length,prepMs,workerMs:msg.workerMs,applyMs:performance.now()-ta,totalMs:performance.now()-t0};
-   console.info('FOREST CONTEXT WORKER v174',forestContextWorkerLast);
+   console.info('FOREST CONTEXT WORKER v176',forestContextWorkerLast);
    return forestContextWorkerLast;
  })().catch(e=>{
-   console.warn('FOREST CONTEXT WORKER v174 fallback',e);
+   console.warn('FOREST CONTEXT WORKER v176 fallback',e);
    return {state:'error',error:String(e?.message||e)};
  }).finally(()=>{forestContextWorkerPromise=null;});
  return forestContextWorkerPromise;
@@ -22876,6 +22997,7 @@ function buildTodayHotspots(){
  const key=[
    'today-hotspots',
    scoringRevision,
+   weatherScoringRevisionV176,
    currentFilter,
    atlasSelectionKey(),
    allFeatures.length,
@@ -23704,7 +23826,7 @@ let todayStyleScoreCacheKey='';
 let todayStyleScoreCache=new WeakMap();
 
 function currentTodayStyleScoreCacheKey(){
- return [scoringRevision,currentFilter,atlasSelectionKey(),allFeatures.length,openFeatures.length,
+ return [scoringRevision,weatherScoringRevisionV176,currentFilter,atlasSelectionKey(),allFeatures.length,openFeatures.length,
    weatherReady?1:0,weatherSamples.length,soilReady?1:0,soilSamples.length,
    terrainReady?1:0,openReady?1:0,Math.round(radarScores.all||0)].join('|');
 }
@@ -25207,7 +25329,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v174',{
+   console.info('UI ACTION v176',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -25227,7 +25349,7 @@ function toggleAtlasType(t){
    ensureActiveSingleSpeciesObservations().catch(e=>console.warn('Observation preload',e));
  }
  syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();
- if(allFeatures.length)render();else{const hint=document.getElementById('locatorHint');if(hint)hint.textContent=atlasSelected.size?'🍄 Wybrane gatunki zapisane. Wybierz lokalizację — mapa użyje tego zestawu.':'📍 Wybierz lokalizację — analiza ruszy automatycznie.';}
+ if(allFeatures.length)render('species-toggle');else{const hint=document.getElementById('locatorHint');if(hint)hint.textContent=atlasSelected.size?'🍄 Wybrane gatunki zapisane. Wybierz lokalizację — mapa użyje tego zestawu.':'📍 Wybierz lokalizację — analiza ruszy automatycznie.';}
 }
 function toggleAtlasGroup(groupId){
  const g=ATLAS_GROUPS.find(x=>x.id===groupId);if(!g)return;
@@ -25239,7 +25361,7 @@ function toggleAtlasGroup(groupId){
  logUiActionV167('species-group-toggle',{group:groupId,selected:!allSelected});
  clearAtlasHover();syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();
  ensureActiveSingleSpeciesObservations().catch(e=>console.warn('Observation preload',e));
- if(allFeatures.length)render();
+ if(allFeatures.length)render('species-group-toggle');
 }
 function syncAtlasSelectionUI(){
  const root=document.getElementById('atlasStrip');if(!root)return;
@@ -26266,7 +26388,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v173',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v176',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -26362,7 +26484,7 @@ async function prewarmMultiAreaScoring(){
 function activeHotspotCacheKeyExpected(){
  if(mapMode==='today'){
    return [
-     'today-hotspots',scoringRevision,currentFilter,atlasSelectionKey(),
+     'today-hotspots',scoringRevision,weatherScoringRevisionV176,currentFilter,atlasSelectionKey(),
      allFeatures.length,openFeatures.length,
      weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
      window.innerWidth<=700?'m':'d'
@@ -26378,7 +26500,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v174-hotspot-pipeline',scoringRevision,mapMode,currentFilter,atlasSelectionKey(),
+   'v176-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -26410,35 +26532,88 @@ function activeOpportunityTypesForHotspotWarm(){
 // Ta sama zawartość cache co opportunityCompositeDistribution(), tylko budowana
 // w krótkich taskach. To usuwa największy pojedynczy synchroniczny skan z
 // pierwszego stableAnchorScore(), bez dokładania osobnego pełnego przebiegu później.
-async function prewarmOpportunityCompositeDistributionsV162(types,key){
- if(!Array.isArray(types)||types.length<=1)return {targets:0,rows:0,aborted:false};
- let targets=0,rowCount=0;
+async function prewarmOpportunityCompositeDistributionsV176(types,key){
+ if(!Array.isArray(types)||types.length<=1)return {targets:0,rows:0,pairs:0,finalized:0,aborted:false};
+ let targets=0,rowCount=0,pairs=0,finalized=0;
  const typeKey=opportunityTypeSetKey(types);
+ const warmDynamic=mapMode==='today';
+ const singleAreaFastPath=ANALYSIS_CENTERS.length===1;
  for(const area of ANALYSIS_CENTERS){
-   for(const kind of ['forest','open']){
-     const cacheKey=`v105|${scoringRevision}|${typeKey}|${area.name}|${RADIUS_KM}|${kind}|${allFeatures.length}|${openFeatures.length}`;
-     if(opportunityCompositeDistributionCache.has(cacheKey))continue;
-     const rows=[];
-     let sliceStarted=performance.now();
-     for(const f of allFeatures){
-       if(f._blocked||!featureInAnalysisAreaName(f,area.name))continue;
-       if(kind==='open' ? f._kind!=='open' : f._kind==='open')continue;
-       const raw=opportunityRawComposite(f,false,types).rawScore;
-       if(Number.isFinite(raw)){rows.push(raw);rowCount++;}
-       if(performance.now()-sliceStarted>=8){
-         await hotspotYield();
-         if(!hotspotWarmStillCurrent(key))return {targets,rows:rowCount,aborted:true};
-         sliceStarted=performance.now();
-       }
+   const forestKey=`v105|${scoringRevision}|${typeKey}|${area.name}|${RADIUS_KM}|forest|${allFeatures.length}|${openFeatures.length}`;
+   const openKey=`v105|${scoringRevision}|${typeKey}|${area.name}|${RADIUS_KM}|open|${allFeatures.length}|${openFeatures.length}`;
+   const needForest=!opportunityCompositeDistributionCache.has(forestKey);
+   const needOpen=!opportunityCompositeDistributionCache.has(openKey);
+   if(!needForest&&!needOpen)continue;
+   const forestRows=[],openRows=[];
+   // Parallel arrays zamiast tysięcy obiektów diagnostycznych.
+   const forestFeatures=[],openFeaturesLocal=[],forestDynamic=[],openDynamic=[];
+   let sliceStarted=performance.now();
+   for(const f of allFeatures){
+     if(f._blocked||!featureInAnalysisAreaName(f,area.name))continue;
+     const isOpen=f._kind==='open';
+     if((isOpen&&!needOpen)||(!isOpen&&!needForest))continue;
+     const pair=opportunityRawScorePairV175(f,types,warmDynamic);
+     const raw=pair.staticScore;
+     if(Number.isFinite(raw)){
+       if(isOpen){openRows.push(raw);openFeaturesLocal.push(f);if(warmDynamic)openDynamic.push(pair.dynamicScore);}
+       else{forestRows.push(raw);forestFeatures.push(f);if(warmDynamic)forestDynamic.push(pair.dynamicScore);}
+       rowCount++;
      }
-     rows.sort((a,b)=>a-b);
-     opportunityCompositeDistributionCache.set(cacheKey,{rows,min:rows[0]??0,max:rows.at(-1)??10});
-     targets++;
-     await hotspotYield();
-     if(!hotspotWarmStillCurrent(key))return {targets,rows:rowCount,aborted:true};
+     if(!pair.cacheHit)pairs++;
+     if(performance.now()-sliceStarted>=8){
+       await hotspotYield();
+       if(!hotspotWarmStillCurrent(key))return {targets,rows:rowCount,pairs,finalized,aborted:true};
+       sliceStarted=performance.now();
+     }
    }
+   if(needForest){
+     forestRows.sort((a,b)=>a-b);
+     opportunityCompositeDistributionCache.set(forestKey,{rows:forestRows,min:forestRows[0]??0,max:forestRows.at(-1)??10});
+     targets++;
+   }
+   if(needOpen){
+     openRows.sort((a,b)=>a-b);
+     opportunityCompositeDistributionCache.set(openKey,{rows:openRows,min:openRows[0]??0,max:openRows.at(-1)??10});
+     targets++;
+   }
+
+   // Robloxowy fast-path: w typowym jednym rejonie rozkład ma już wszystkie
+   // dane potrzebne do końcowej punktacji. Seedujemy final cache tutaj, aby
+   // późniejszy main pass był praktycznie samym odczytem WeakMap.
+   if(singleAreaFastPath){
+     const prior=nationalAreaPrior(types,area.name);
+     const seedFinal=(features,staticVals,dynamicVals,sorted)=>{
+       for(let i=0;i<features.length;i++){
+         const f=features[i],overallRaw=staticVals[i];
+         if(!(overallRaw>0)){setOpportunityFinalScoreV176(types,f,0,warmDynamic?0:NaN);continue;}
+         const percentile=opportunityPercentileFromSorted(sorted,overallRaw);
+         const relative=Math.pow(percentile,.78);
+         const qualityGate=opportunityCompositeQualityGate(overallRaw);
+         const localIndex=clamp(10*relative*qualityGate);
+         const overallIndex=clamp(localIndex+(prior?.active?prior.adjustment:0));
+         setOpportunityStableSideScore(types,f,overallIndex);
+         if(warmDynamic){
+           const todayRaw=dynamicVals[i];
+           const retention=Math.max(0,Math.min(1,todayRaw/Math.max(.001,overallRaw)));
+           const weatherFactor=.15+.85*Math.pow(retention,1.25);
+           const todayIndex=clamp(Math.min(overallIndex,overallIndex*weatherFactor));
+           setOpportunityFinalScoreV176(types,f,overallIndex,todayIndex);
+         }else setOpportunityFinalScoreV176(types,f,overallIndex);
+         finalized++;
+       }
+     };
+     // Uwaga: staticVals w tablicach features muszą zachować kolejność sprzed sortowania.
+     // Dlatego odczytujemy raw z istniejącego scalar cache — to O(1), bez ponownego modelu.
+     const forestStatic=forestFeatures.map(f=>opportunityRawScoreScalar(f,false,types));
+     const openStatic=openFeaturesLocal.map(f=>opportunityRawScoreScalar(f,false,types));
+     seedFinal(forestFeatures,forestStatic,forestDynamic,forestRows);
+     seedFinal(openFeaturesLocal,openStatic,openDynamic,openRows);
+   }
+
+   await hotspotYield();
+   if(!hotspotWarmStillCurrent(key))return {targets,rows:rowCount,pairs,finalized,aborted:true};
  }
- return {targets,rows:rowCount,aborted:false};
+ return {targets,rows:rowCount,pairs,finalized,aborted:false};
 }
 
 // nationalAreaPrior() także ma pełny skan allFeatures. Wypełniamy dokładnie ten
@@ -26521,7 +26696,7 @@ async function prewarmHotspotPipeline(){
    if(forestWorker?.state==='aborted'||forestWorker?.state==='stale'||forestWorker?.state==='aborted-apply')return false;
    for(const a of ANALYSIS_CENTERS)stableCandidateFeatures(a.name);
 
-   const phase={forestWorkerMs:Number(forestWorker?.workerMs||0),forestWorkerWallMs:Number(forestWorker?.totalMs||0),priorMs:0,distributionMs:0,mainScoreMs:0};
+   const phase={forestWorkerMs:Number(forestWorker?.workerMs||0),forestWorkerWallMs:Number(forestWorker?.totalMs||0),priorMs:0,distributionMs:0,distributionPairs:0,finalizedScores:0,mainScoreMs:0};
    const opportunityTypes=activeOpportunityTypesForHotspotWarm();
 
    // Rozbrajamy tylko DWA ukryte pełne skany. Nie dokładamy osobnych przebiegów
@@ -26533,7 +26708,9 @@ async function prewarmHotspotPipeline(){
      if(prior.aborted)return false;
 
      t=performance.now();
-     const dist=await prewarmOpportunityCompositeDistributionsV162(opportunityTypes,key);
+     const dist=await prewarmOpportunityCompositeDistributionsV176(opportunityTypes,key);
+     phase.distributionPairs=Number(dist.pairs||0);
+     phase.finalizedScores=Number(dist.finalized||0);
      phase.distributionMs=performance.now()-t;
      if(dist.aborted)return false;
    }
@@ -26546,6 +26723,12 @@ async function prewarmHotspotPipeline(){
    for(let i=0;i<allFeatures.length;i++){
      const f=allFeatures[i];
      if(f._blocked)continue;
+     // v176 candidate culling: dla ręcznie wybranego gatunku/zestawu nie licz
+     // feature'ów, których UI i tak nigdy nie pokaże. BEST/diversity zachowują pełny zbiór.
+     if(atlasSelected.size){
+       let any=false;for(const t of atlasSelected){if(featureRelevant(t,f)){any=true;break;}}
+       if(!any)continue;
+     }else if(currentFilter!=='all'&&currentFilter!=='diversity'&&!featureRelevant(currentFilter,f))continue;
      if(mapMode==='today'){
        // v173: dynamiczny aggregate wylicza jednocześnie część OGÓLNEGO indeksu
        // i zapisuje ją do staticScoreCache. Nie liczymy stableAnchorScore() drugi raz.
@@ -26589,7 +26772,7 @@ async function prewarmHotspotPipeline(){
      multiAreaWarmKey=multiAreaWarmSignature();
      multiAreaWarmLast={
        key:multiAreaWarmKey,features:allFeatures.length,elapsedMs:0,rawMs:0,scoreMs:0,todayMs:0,
-       coveredBy:'hotspot-pipeline-v174'
+       coveredBy:'hotspot-pipeline-v176'
      };
    }
    const forestPerfDelta={
@@ -26603,27 +26786,63 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v174',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v176',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v174',{
+   console.info('HOTSPOT PHASE v176',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      forestWorkerWallMs:+phase.forestWorkerWallMs.toFixed(1),forestWorkerMs:+phase.forestWorkerMs.toFixed(1),
-     priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),
+     priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),distributionPairs:phase.distributionPairs||0,finalizedScores:phase.finalizedScores||0,
      mainScoreMs:+phase.mainScoreMs.toFixed(1),buildMs:+buildMs.toFixed(1),anchorMs:+anchorMs.toFixed(1),
      contextHits:forestPerfDelta.contextHits,contextMisses:forestPerfDelta.contextMisses,
      distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
-   console.info(`HOTSPOT PHASE v174 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)} | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   console.info(`HOTSPOT PHASE v176 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
  return hotspotPipelineWarmPromise;
 }
 
+// ========================= v176: FEATURE DIRTY STATE + DELTA STYLE =========================
+let featureVisualStateV176=new WeakMap();
+let lastVisualStateKeyV176='';
+let renderReasonsV176=new Set();
+let renderCoalescedV176=0;
+function visualStateKeyV176(){
+ return [analysisScoringReady?1:0,mapMode,currentFilter,atlasSelectionKey(),scoringRevision,weatherScoringRevisionV176,
+   hotspotMembershipKey,topOnly?1:0,analysisLayers.length,allFeatures.length,openFeatures.length].join('|');
+}
+function styleSignatureV176(st){
+ if(!st)return 'null';
+ return [st.color??'',Number(st.weight||0).toFixed(3),st.fillColor??'',Number(st.fillOpacity||0).toFixed(4),
+   Number(st.opacity||0).toFixed(4),st.dashArray??'',st.lineCap??''].join('|');
+}
+function applyLayerStyleV176(ly,f,st){
+ if(!ly||!f)return false;
+ const sig=styleSignatureV176(st);
+ let state=featureVisualStateV176.get(f);
+ if(state&&state.layer===ly&&state.sig===sig)return false;
+ ly.setStyle(st);
+ featureVisualStateV176.set(f,{layer:ly,sig});
+ return true;
+}
+function rowVisibleV176(row,bounds){
+ const c=row?.f?._center;
+ return !!(c&&bounds&&bounds.contains(L.latLng(c[0],c[1])));
+}
+function prioritizedRenderRowsV176(rows){
+ try{
+   const bounds=map.getBounds().pad(.30);
+   const visible=[],background=[];
+   for(const row of rows)(rowVisibleV176(row,bounds)?visible:background).push(row);
+   return {rows:visible.concat(background),visibleCount:visible.length,backgroundCount:background.length};
+ }catch(_){return {rows,visibleCount:rows.length,backgroundCount:0};}
+}
+
 function renderSingle(ly,f){
  const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
- ly.setStyle(currentForestStyle(f,show));
+ applyLayerStyleV176(ly,f,currentForestStyle(f,show));
 }
 function perfRenderNow(){
  const t0=performance.now();
@@ -26672,7 +26891,7 @@ function perfRenderNow(){
    if(!progressive){
      for(const {f,layer:ly} of rows){
        const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
-       ly.setStyle(loadingForestStyle(f,show));
+       applyLayerStyleV176(ly,f,loadingForestStyle(f,show));
      }
      doneLoadingStyles();
      return;
@@ -26686,7 +26905,7 @@ function perfRenderNow(){
      while(i<rows.length&&n<130&&performance.now()-started<9){
        const {f,layer:ly}=rows[i++];
        const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
-       ly.setStyle(loadingForestStyle(f,show));
+       applyLayerStyleV176(ly,f,loadingForestStyle(f,show));
        n++;
      }
      if(i<rows.length)scheduleBrowserSlice(step);
@@ -26728,9 +26947,14 @@ function perfRenderNow(){
  applyHotspotMembership();
  const tp1=performance.now();
 
- const rows=[...analysisLayers];
+ const rowPlan=prioritizedRenderRowsV176([...analysisLayers]);
+ const rows=rowPlan.rows;
+ const visibleRows=rowPlan.visibleCount;
  const progressive=perfForceProgressiveRender||rows.length>950||(ANALYSIS_CENTERS.length>1&&rows.length>650);
  perfForceProgressiveRender=false;
+ const visualStateKey=visualStateKeyV176();
+ const wholeStyleCacheHit=lastVisualStateKeyV176===visualStateKey;
+
 
  const finish=(ts1,styleCpuMs=0,styleBatches=0,stylePlan=null)=>{
    if(workToken!==perfRenderWorkToken)return;
@@ -26748,13 +26972,18 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v174',{
+   console.info('HOTSPOT RENDER v176',{
      features:rows.length,
+     visibleRows,
+     reasons:perfRenderNow._v176Reasons||[],
+     coalesced:renderCoalescedV176,
+     styleCacheHit:!!stylePlan?.cacheHit,
+     stylesChanged:Number(stylePlan?.changed||0),
      progressive,
      stylesWallMs:+(ts1-tp1).toFixed(1),
      stylesCpuMs:+styleCpuMs.toFixed(1),
      styleBatches,
-     maxBatchCpuMs:stylePlan?+stylePlan.maxBatchCpuMs.toFixed(1):null,
+     maxBatchCpuMs:Number.isFinite(stylePlan?.maxBatchCpuMs)?+stylePlan.maxBatchCpuMs.toFixed(1):null,
      rowBudget:stylePlan?.rowBudget||null,
      timeBudgetMs:stylePlan?.timeBudgetMs||null,
      targetBatches:stylePlan?.targetBatches||null,
@@ -26828,16 +27057,24 @@ function perfRenderNow(){
    };
  };
 
- if(!progressive){
-   for(const {f,layer:ly} of rows){
-     const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
-     ly.setStyle(currentForestStyle(f,show));
-   }
-   finish(performance.now(),performance.now()-tp1,1);
+ if(wholeStyleCacheHit){
+   lastVisualStateKeyV176=visualStateKey;
+   finish(performance.now(),0,0,{maxBatchCpuMs:0,rowBudget:0,timeBudgetMs:0,targetBatches:0,cacheHit:true});
    return;
  }
 
- let i=0,styleCpuMs=0,styleBatches=0,styleMaxBatchCpuMs=0;
+ if(!progressive){
+   let changed=0;
+   for(const {f,layer:ly} of rows){
+     const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
+     if(applyLayerStyleV176(ly,f,currentForestStyle(f,show)))changed++;
+   }
+   lastVisualStateKeyV176=visualStateKey;
+   finish(performance.now(),performance.now()-tp1,1,{changed,visibleRows});
+   return;
+ }
+
+ let i=0,styleCpuMs=0,styleBatches=0,styleMaxBatchCpuMs=0,styleChanged=0;
  // v171: v170 było ZA delikatne. Limit 180 wierszy oznaczał 23–50 pełnych
  // requestAnimationFrame, choć rzeczywista praca JS zajmowała 10–100 ms.
  // Rozciągało to płynne przejście do 0.4–0.8 s i było odbierane jak lag.
@@ -26852,7 +27089,7 @@ function perfRenderNow(){
    while(i<rows.length&&n<styleRowBudget&&performance.now()-started<styleTimeBudgetMs){
      const {f,layer:ly}=rows[i++];
      const show=!f._blocked&&(atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f));
-     ly.setStyle(currentForestStyle(f,show));
+     if(applyLayerStyleV176(ly,f,currentForestStyle(f,show)))styleChanged++;
      n++;
    }
    const batchCpu=performance.now()-started;
@@ -26860,10 +27097,14 @@ function perfRenderNow(){
    styleMaxBatchCpuMs=Math.max(styleMaxBatchCpuMs,batchCpu);
    styleBatches++;
    if(i<rows.length)scheduleVisualSlice(step);
-   else finish(performance.now(),styleCpuMs,styleBatches,{
-     maxBatchCpuMs:styleMaxBatchCpuMs,rowBudget:styleRowBudget,
-     timeBudgetMs:styleTimeBudgetMs,targetBatches:styleTargetBatches
-   });
+   else{
+     lastVisualStateKeyV176=visualStateKey;
+     finish(performance.now(),styleCpuMs,styleBatches,{
+       maxBatchCpuMs:styleMaxBatchCpuMs,rowBudget:styleRowBudget,
+       timeBudgetMs:styleTimeBudgetMs,targetBatches:styleTargetBatches,
+       changed:styleChanged,visibleRows
+     });
+   }
  };
  scheduleVisualSlice(step);
 }
@@ -27259,10 +27500,15 @@ async function auditNationalRadarDistribution(type=null){
 window.auditNationalRadarDistribution=auditNationalRadarDistribution;
 // =========================================================================================
 
-function render(){
+function render(reason='legacy'){
  if(analysisHeadlessBatchMode)return;
- if(perfRenderRAF)cancelAnimationFrame(perfRenderRAF);
- perfRenderRAF=requestAnimationFrame(perfRenderNow);
+ renderReasonsV176.add(String(reason||'legacy'));
+ if(perfRenderRAF){renderCoalescedV176++;cancelAnimationFrame(perfRenderRAF);}
+ perfRenderRAF=requestAnimationFrame(()=>{
+   const reasons=[...renderReasonsV176];renderReasonsV176.clear();
+   perfRenderNow._v176Reasons=reasons;
+   perfRenderNow();
+ });
  scheduleNationalRadarRefresh();
 }
 
@@ -28600,7 +28846,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v174: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v176: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -28609,7 +28855,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v174',{
+   console.info('HOTSPOT ACCESS NETWORK v176',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -28623,7 +28869,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v174',{
+   console.info('HOTSPOT ACCESS v176',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -28648,7 +28894,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v174: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v176: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -28670,15 +28916,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v174',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v176',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v174',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v176',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v174: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v176: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }
@@ -29934,7 +30180,7 @@ document.getElementById('speciesSelect').onchange=async e=>{
  if(value&&value!=='all'&&SPECIES_META[value])atlasSelected.add(value);
  renderAtlasCards();updateAtlasHead();resetStaticCachesIfNeeded();
  syncSpeciesModeButtons();updateSpeciesMeta();updateRadarCard();if(centerWeather)updateWeatherCard();
- render();
+ render('species-select');
 };
 
 document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{
@@ -29952,7 +30198,7 @@ document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{
  perfForceProgressiveRender=true;
 
  ensurePerfCache();
- render();
+ render('mode-change');
  if(centerWeather)updateWeatherCard();
 });
 document.getElementById('fit').onclick=()=>{
@@ -29961,7 +30207,7 @@ document.getElementById('fit').onclick=()=>{
  else map.setView(CENTER,6);
 };
 document.getElementById('top20').onclick=()=>{
- topOnly=!topOnly;const b=document.getElementById('top20');b.textContent=topOnly?'👁️ Pokaż wszystkie':'Tylko dobre';b.classList.toggle('active',topOnly);render();
+ topOnly=!topOnly;const b=document.getElementById('top20');b.textContent=topOnly?'👁️ Pokaż wszystkie':'Tylko dobre';b.classList.toggle('active',topOnly);render('top-only');
 };
 document.getElementById('best').onclick=()=>{
  if(topSpots.length){const b=L.latLngBounds([]);topSpots.forEach(h=>b.extend(h._bounds||h._center));map.fitBounds(b,{padding:[55,55],maxZoom:14.8});}
@@ -30107,6 +30353,22 @@ scheduleNationalBenchmarkAuto();
 
 </script>
 
+
+<script>
+// v176 runtime architecture audit helper.
+window.auditV176Architecture=function(){
+ const report={
+   version:'v176',
+   dirtyWeatherRevision:typeof weatherScoringRevisionV176==='number'?weatherScoringRevisionV176:null,
+   finalScoreCaches:typeof opportunityFinalScoreCacheV176!=='undefined'?opportunityFinalScoreCacheV176.size:null,
+   visualStateKey:typeof visualStateKeyV176==='function'?visualStateKeyV176():null,
+   renderCoalesced:typeof renderCoalescedV176==='number'?renderCoalescedV176:null,
+   lastHotspot:typeof hotspotPipelineWarmLast==='object'?hotspotPipelineWarmLast:null,
+   lastRender:typeof perfAuditLast==='object'?perfAuditLast:null
+ };
+ console.info('V176 ARCHITECTURE AUDIT',report);return report;
+};
+</script>
 </body>
 </html>
 

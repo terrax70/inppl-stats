@@ -1818,9 +1818,11 @@ input[type=range]{width:100%}
 .atlas-strip{
  display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;padding:1px 1px 7px;
  scroll-snap-type:x proximity;scrollbar-width:thin;scrollbar-color:#718177 #1a211c;
- overscroll-behavior-x:contain;touch-action:pan-x;cursor:grab;-webkit-overflow-scrolling:touch
+ overscroll-behavior-x:contain;touch-action:pan-x;cursor:grab;-webkit-overflow-scrolling:touch;
+ overflow-anchor:none
 }
 .atlas-strip.dragging{cursor:grabbing;scroll-snap-type:none;user-select:none}
+.atlas-strip.atlas-scroll-preserving{scroll-snap-type:none!important;scroll-behavior:auto!important}
 .atlas-strip::-webkit-scrollbar{height:9px}
 .atlas-strip::-webkit-scrollbar-track{background:#1a211c;border-radius:99px}
 .atlas-strip::-webkit-scrollbar-thumb{background:#627168;border-radius:99px;border:2px solid #1a211c}
@@ -8884,12 +8886,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v182',
+     mode:'sync-batched-v183',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v182',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v183',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -12805,7 +12807,7 @@ function ensureForestContextWorkerV174(){
    URL.revokeObjectURL(url);
    return forestContextWorker;
  }catch(e){
-   console.warn('FOREST CONTEXT WORKER v182 unavailable',e);
+   console.warn('FOREST CONTEXT WORKER v183 unavailable',e);
    return null;
  }
 }
@@ -12844,10 +12846,10 @@ async function prewarmForestContextWorkerV174(key){
    }
    forestContextWorkerRevision=revision;
    forestContextWorkerLast={state:'ready',revision,features:msg.rows.length,prepMs,workerMs:msg.workerMs,applyMs:performance.now()-ta,totalMs:performance.now()-t0};
-   console.info('FOREST CONTEXT WORKER v182',forestContextWorkerLast);
+   console.info('FOREST CONTEXT WORKER v183',forestContextWorkerLast);
    return forestContextWorkerLast;
  })().catch(e=>{
-   console.warn('FOREST CONTEXT WORKER v182 fallback',e);
+   console.warn('FOREST CONTEXT WORKER v183 fallback',e);
    return {state:'error',error:String(e?.message||e)};
  }).finally(()=>{forestContextWorkerPromise=null;});
  return forestContextWorkerPromise;
@@ -25454,7 +25456,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v182',{
+   console.info('UI ACTION v183',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -26133,9 +26135,61 @@ function clearAtlasSelection(){
  if(allFeatures.length)render();
 }
 
+// v183 — poziomy scroll atlasu jest stanem UI. Reflow mapy / scroll-snap nie może
+// sam przenosić użytkownika na koniec paska przy zmianie trybu.
+let atlasScrollPreserveToken=0;
+let atlasScrollUserEpoch=0;
+let atlasScrollProgrammatic=false;
+
+function atlasScrollSnapshot(){
+ const strip=document.getElementById('atlasStrip');
+ if(!strip)return null;
+ const max=Math.max(0,strip.scrollWidth-strip.clientWidth);
+ return {left:Math.max(0,Math.min(max,strip.scrollLeft)),max,userEpoch:atlasScrollUserEpoch};
+}
+function atlasRestoreScroll(snapshot,token){
+ const strip=document.getElementById('atlasStrip');
+ if(!strip||!snapshot||token!==atlasScrollPreserveToken)return false;
+ if(snapshot.userEpoch!==atlasScrollUserEpoch)return false; // użytkownik sam przewinął — nie walczymy z nim
+ const max=Math.max(0,strip.scrollWidth-strip.clientWidth);
+ const left=Math.max(0,Math.min(max,snapshot.left));
+ atlasScrollProgrammatic=true;
+ strip.scrollLeft=left;
+ atlasScrollProgrammatic=false;
+ return true;
+}
+function preserveAtlasScrollForRender(reason='render'){
+ const snap=atlasScrollSnapshot();
+ if(!snap)return null;
+ const token=++atlasScrollPreserveToken;
+ const strip=document.getElementById('atlasStrip');
+ strip?.classList.add('atlas-scroll-preserving');
+ // Reflow może wystąpić w kilku kolejnych klatkach (Leaflet + atlas + lazy images).
+ // Przywracamy tylko dopóki użytkownik sam nie dotknął/przewinął atlasu.
+ requestAnimationFrame(()=>atlasRestoreScroll(snap,token));
+ setTimeout(()=>atlasRestoreScroll(snap,token),60);
+ setTimeout(()=>atlasRestoreScroll(snap,token),180);
+ setTimeout(()=>{
+   atlasRestoreScroll(snap,token);
+   if(token===atlasScrollPreserveToken)strip?.classList.remove('atlas-scroll-preserving');
+ },420);
+ return {snap,token,reason};
+}
+function restoreAtlasScrollAfterRender(state){
+ if(!state)return;
+ atlasRestoreScroll(state.snap,state.token);
+ requestAnimationFrame(()=>atlasRestoreScroll(state.snap,state.token));
+}
+
 function setupAtlasScrolling(){
  const strip=document.getElementById('atlasStrip');if(!strip||strip.dataset.scrollReady==='1')return;
  strip.dataset.scrollReady='1';
+
+ // Każdy rzeczywisty gest użytkownika anuluje oczekujące przywracanie pozycji.
+ const markAtlasUserScroll=()=>{if(!atlasScrollProgrammatic){atlasScrollUserEpoch++;strip.classList.remove('atlas-scroll-preserving');}};
+ strip.addEventListener('pointerdown',markAtlasUserScroll,{passive:true});
+ strip.addEventListener('touchstart',markAtlasUserScroll,{passive:true});
+ strip.addEventListener('wheel',markAtlasUserScroll,{passive:true});
 
  const atlasShell=document.getElementById('mushroomAtlas');
  if(atlasShell&&atlasShell.dataset.hoverResetReady!=='1'){
@@ -26513,7 +26567,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v182',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v183',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -26625,7 +26679,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v182-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
+   'v183-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -26911,9 +26965,9 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v182',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v183',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v182',{
+   console.info('HOTSPOT PHASE v183',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      forestWorkerWallMs:+phase.forestWorkerWallMs.toFixed(1),forestWorkerMs:+phase.forestWorkerMs.toFixed(1),
      priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),distributionPairs:phase.distributionPairs||0,finalizedScores:phase.finalizedScores||0,
@@ -26922,7 +26976,7 @@ async function prewarmHotspotPipeline(){
      distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
-   console.info(`HOTSPOT PHASE v182 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   console.info(`HOTSPOT PHASE v183 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -27097,7 +27151,7 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v182',{
+   console.info('HOTSPOT RENDER v183',{
      features:rows.length,
      visibleRows,
      reasons:perfRenderNow._v182Reasons||[],
@@ -27701,9 +27755,9 @@ function v181HostMatchBucket(type,f){
  return 'none';
 }
 
-async function runSpeciesAuditV182({reason='manual',force=false}={}){
+async function runSpeciesAuditV183({reason='manual',force=false}={}){
  if(!analysisScoringReady||!allFeatures.length||!ANALYSIS_CENTERS.length){
-   console.info('SPECIES AUDIT v182: czekam na gotową analizę.');
+   console.info('SPECIES AUDIT v183: czekam na gotową analizę.');
    return null;
  }
  const day=doy(new Date());
@@ -27714,9 +27768,9 @@ async function runSpeciesAuditV182({reason='manual',force=false}={}){
  const types=TYPE_LIST.filter(t=>SPECIES_META[t]);
  const scenarioKeys=Object.keys(SPECIES_WEATHER_STRESS_SCENARIOS);
  const seasonDays=[120,150,180,210,240,270,300,330,355];
- const report={version:'v182',reason,key,day,areas:ANALYSIS_CENTERS.map(a=>a.name),weatherReady,features:allFeatures.length,open:openFeatures.length,species:[]};
+ const report={version:'v183',reason,key,day,areas:ANALYSIS_CENTERS.map(a=>a.name),weatherReady,features:allFeatures.length,open:openFeatures.length,species:[]};
  const lines=[];
- lines.push('===== SPECIES AUDIT v182 START =====');
+ lines.push('===== SPECIES AUDIT v183 START =====');
  lines.push(`CTX|reason=${reason}|day=${day}|areas=${ANALYSIS_CENTERS.length}|features=${allFeatures.length}|open=${openFeatures.length}|weather=${weatherReady?'ready':'no'}`);
 
  for(const type of types){
@@ -27837,7 +27891,7 @@ async function runSpeciesAuditV182({reason='manual',force=false}={}){
  lines.push('RANK|todayFloorGreenAdded|'+report.ranking.todayFloorGreenAdded.map(x=>`${x[0]}=+${x[1]}%`).join('|'));
  lines.push('RANK|narrowPotentialSpread|'+report.ranking.narrowPotential.map(x=>`${x[0]}=${x[1]}`).join('|'));
  lines.push(`DONE|elapsed=${report.elapsedMs.toFixed(1)}ms`);
- lines.push('===== SPECIES AUDIT v182 END =====');
+ lines.push('===== SPECIES AUDIT v183 END =====');
  speciesAuditV182LastKey=key;
  window.__speciesAuditV182=report;
  window.__speciesAuditV182Text=lines.join('\n');
@@ -27849,27 +27903,27 @@ async function runSpeciesAuditV182({reason='manual',force=false}={}){
    T_green:+x.todayGreenPct.toFixed(1),T_noFloor:+x.todayNoFloorGreenPct.toFixed(1),T_floorAdd:+x.todayFloorGreenAddedPct.toFixed(1),
    P_q50:+Number(x.potential.q50||0).toFixed(2),T_q50:+Number(x.today.q50||0).toFixed(2),fruit:+Number(x.fruitMean||0).toFixed(1),tree:+Number(x.treeMean||0).toFixed(2),gate:+Number(x.hostGateMean||0).toFixed(2),directStrong:+Number(x.hostDirectStrongPct||0).toFixed(1),hostNone:+Number(x.hostNonePct||0).toFixed(1)
  })));
- console.info('SPECIES AUDIT v182 JSON',report);
+ console.info('SPECIES AUDIT v183 JSON',report);
  return report;
 }
 function scheduleSpeciesAuditV182(reason='analysis-complete'){
  if(analysisHeadlessBatchMode)return;
  clearTimeout(speciesAuditV182Timer);
  speciesAuditV182Timer=setTimeout(()=>{
-   runSpeciesAuditV182({reason}).catch(e=>console.warn('SPECIES AUDIT v182 failed',e));
+   runSpeciesAuditV183({reason}).catch(e=>console.warn('SPECIES AUDIT v183 failed',e));
  },1200);
 }
-window.runSpeciesAuditV182=runSpeciesAuditV182;
-window.copySpeciesAuditV182=async function(){
+window.runSpeciesAuditV183=runSpeciesAuditV183;
+window.copySpeciesAuditV183=async function(){
  const text=window.__speciesAuditV182Text||'';
  if(!text)return false;
- try{await navigator.clipboard.writeText(text);console.info('SPECIES AUDIT v182: skopiowano raport do schowka');return true;}catch(_){console.log(text);return false;}
+ try{await navigator.clipboard.writeText(text);console.info('SPECIES AUDIT v183: skopiowano raport do schowka');return true;}catch(_){console.log(text);return false;}
 };
 window.copySpeciesAuditJsonV182=async function(){
  const report=window.__speciesAuditV182;
  if(!report)return false;
  const text=JSON.stringify(report);
- try{await navigator.clipboard.writeText(text);console.info('SPECIES AUDIT v182 JSON: skopiowano pełny JSON do schowka');return true;}catch(_){console.log(text);return false;}
+ try{await navigator.clipboard.writeText(text);console.info('SPECIES AUDIT v183 JSON: skopiowano pełny JSON do schowka');return true;}catch(_){console.log(text);return false;}
 };
 // =========================================================================================
 
@@ -29219,7 +29273,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v182: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v183: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -29228,7 +29282,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v182',{
+   console.info('HOTSPOT ACCESS NETWORK v183',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -29242,7 +29296,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v182',{
+   console.info('HOTSPOT ACCESS v183',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -29267,7 +29321,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v182: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v183: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -29289,15 +29343,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v182',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v183',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v182',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v183',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v182: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v183: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }
@@ -30592,6 +30646,7 @@ function syncModeControls(){
 }
 function setMapMode(nextMode,source='mode-button'){
  if(!nextMode||!['today','habitat'].includes(nextMode)||nextMode===mapMode){syncModeControls();return;}
+ const atlasScrollState=preserveAtlasScrollForRender('mode-change');
  mapMode=nextMode;
  syncModeControls();
  logUiActionV167('mode-change',{to:nextMode,source});
@@ -30601,6 +30656,7 @@ function setMapMode(nextMode,source='mode-button'){
  perfForceProgressiveRender=true;
  ensurePerfCache();
  render(source==='quick-mode'?'quick-mode-change':'mode-change');
+ restoreAtlasScrollAfterRender(atlasScrollState);
  if(centerWeather)updateWeatherCard();
 }
 document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>setMapMode(b.dataset.mode,'settings-mode'));
@@ -30764,7 +30820,7 @@ scheduleNationalBenchmarkAuto();
 // v180 runtime architecture audit helper.
 window.auditV176Architecture=function(){
  const report={
-   version:'v182',
+   version:'v183',
    dirtyWeatherRevision:typeof weatherScoringRevisionV176==='number'?weatherScoringRevisionV176:null,
    finalScoreCaches:typeof opportunityFinalScoreCacheV176!=='undefined'?opportunityFinalScoreCacheV176.size:null,
    visualStateKey:typeof visualStateKeyV176==='function'?visualStateKeyV176():null,

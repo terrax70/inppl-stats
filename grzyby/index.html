@@ -8969,12 +8969,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v189',
+     mode:'sync-batched-v190',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v189',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v190',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -9830,17 +9830,27 @@ function perfCoordKey(c){
 
 function featureTreeCodeV189(f){
  if(!f||typeof f!=='object')return '';
- if(perfFeatureTreeCodeCacheV189.has(f))return perfFeatureTreeCodeCacheV189.get(f);
- const v=speciesCode(f.properties||{});
- perfFeatureTreeCodeCacheV189.set(f,v);
- return v;
+ const p=f.properties||{};
+ // v190: enrichment BDL potrafi podmienić cały obiekt properties po pierwszym renderze.
+ // Cache musi więc zależeć od SUROWYCH pól wejściowych, a nie tylko od referencji feature.
+ const sig=`${p.species_cd??''}|${p.gat_grp??''}|${p.species_cd_d??''}`;
+ const hit=perfFeatureTreeCodeCacheV189.get(f);
+ if(hit&&hit.sig===sig)return hit.value;
+ const value=speciesCode(p);
+ perfFeatureTreeCodeCacheV189.set(f,{sig,value});
+ return value;
 }
 function featureHabitatCodeV189(f){
  if(!f||typeof f!=='object')return '';
- if(perfFeatureHabitatCodeCacheV189.has(f))return perfFeatureHabitatCodeCacheV189.get(f);
- const v=habitatCode(f.properties||{});
- perfFeatureHabitatCodeCacheV189.set(f,v);
- return v;
+ const p=f.properties||{};
+ // v190 FIX: v189 zapamiętywało pusty/stary site_type_cd przed loadHabitatEnrichment().
+ // Po enrichment wynik nie był odświeżany, co zmieniało habitat score nawet o 3.5 pkt.
+ const sig=String(p.site_type_cd??'');
+ const hit=perfFeatureHabitatCodeCacheV189.get(f);
+ if(hit&&hit.sig===sig)return hit.value;
+ const value=habitatCode(p);
+ perfFeatureHabitatCodeCacheV189.set(f,{sig,value});
+ return value;
 }
 function featureNearSpeciesSetV189(f){
  if(!f||typeof f!=='object')return new Set();
@@ -9908,6 +9918,10 @@ function invalidateScoringCaches(reason=''){
  perfSpeciesWeatherNeutralCache=new WeakMap();
  perfSpeciesWeatherProfileCache=new WeakMap();
  perfSpeciesWeatherProductionScalarCacheV189=new WeakMap();
+ // v190: feature-level kody zależą od pól, które mogą zostać wzbogacone asynchronicznie.
+ perfFeatureTreeCodeCacheV189=new WeakMap();
+ perfFeatureHabitatCodeCacheV189=new WeakMap();
+ perfFeatureNearSpeciesCacheV189=new WeakMap();
  perfFeatureSoilSampleCacheV189=new WeakMap();
  perfFeatureTerrainBaseCacheV189=new WeakMap();
  perfFallbackSeasonCacheV189.clear();
@@ -13057,7 +13071,7 @@ function ensureForestContextWorkerV174(){
    URL.revokeObjectURL(url);
    return forestContextWorker;
  }catch(e){
-   console.warn('FOREST CONTEXT WORKER v189 unavailable',e);
+   console.warn('FOREST CONTEXT WORKER v190 unavailable',e);
    return null;
  }
 }
@@ -13096,10 +13110,10 @@ async function prewarmForestContextWorkerV174(key){
    }
    forestContextWorkerRevision=revision;
    forestContextWorkerLast={state:'ready',revision,features:msg.rows.length,prepMs,workerMs:msg.workerMs,applyMs:performance.now()-ta,totalMs:performance.now()-t0};
-   console.info('FOREST CONTEXT WORKER v189',forestContextWorkerLast);
+   console.info('FOREST CONTEXT WORKER v190',forestContextWorkerLast);
    return forestContextWorkerLast;
  })().catch(e=>{
-   console.warn('FOREST CONTEXT WORKER v189 fallback',e);
+   console.warn('FOREST CONTEXT WORKER v190 fallback',e);
    return {state:'error',error:String(e?.message||e)};
  }).finally(()=>{forestContextWorkerPromise=null;});
  return forestContextWorkerPromise;
@@ -25706,7 +25720,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v189',{
+   console.info('UI ACTION v190',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -26470,10 +26484,11 @@ window.copyFullYearPhenologyAuditV188=async function(){
  catch(_){console.log(text);return false;}
 };
 
-// ===== v189 PERFORMANCE EQUIVALENCE AUDIT =====
-// Ręczny audyt regresji po optymalizacji hot-path. Referencje poniżej są
-// dokładną logiką v188, ale nie uczestniczą w produkcyjnym scoringu.
-function v189RefTreePreference(type,f){
+// ===== v190 TRUE PERFORMANCE EQUIVALENCE AUDIT =====
+// Referencja odtwarza logikę v188 dla wszystkich elementów zmienionych w fast-path.
+// W przeciwieństwie do audytu v189 finalne pairStatic/pairDynamic NIE wołają
+// produkcyjnych stableScoreForType()/speciesEffective(), więc nie są tautologią.
+function v190RefTreePreference(type,f){
  const m=SPECIES_META[type];if(!m)return 5;
  if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
  const direct=speciesCode(f.properties||{}),near=new Set(f._nearSpecies||[]);
@@ -26490,7 +26505,7 @@ function v189RefTreePreference(type,f){
  if((m.secondary||[]).some(x=>near.has(x)))return 6.2;
  return m.ecology==='wood'?4.2:2.5;
 }
-function v189RefHostGate(type,f){
+function v190RefHostGate(type,f){
  const m=SPECIES_META[type];if(!m)return 1;
  if(m.ecology==='grassland'||m.ecology==='edge')return 1;
  const cfg=HOSTS[type]||{strong:[],secondary:[]};
@@ -26513,7 +26528,7 @@ function v189RefHostGate(type,f){
  if(strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
  return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
 }
-function v189RefStableHabitatScore(type,f){
+function v190RefStableHabitatScore(type,f){
  const hab=habitatCode(f.properties||{}),m=SPECIES_META[type];if(!m)return 5.5;
  if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
  let family='borowik';
@@ -26542,7 +26557,45 @@ function v189RefStableHabitatScore(type,f){
  if(type.startsWith('kozlarz_')&&['BMW','LMW','LW','OL'].includes(hab))sc+=.35;
  return clamp(sc);
 }
-function v189RefFruitingConditions(type,f){
+function v190RefSoilSuitability(type,f){
+ const m=SPECIES_META[type],s=soilAt(f._center);if(!m||!s)return 7;
+ if(type==='ponury'){
+   const ph=Number(s.ph);
+   const phScore=Number.isFinite(ph)?piecewise(ph,[[4.9,2.2],[5.4,3.8],[5.8,6.2],[6.2,8.7],[6.8,9.8],[7.5,9.1],[8.0,7.2],[8.5,4.5]]):6.5;
+   let sand=Number(s.sand);if(sand>100)sand/=10;
+   const texture=Number.isFinite(sand)?piecewise(sand,[[8,8.8],[22,9.3],[40,8.8],[58,7.2],[72,5.6],[88,3.8]]):7.2;
+   const socScore=Number.isFinite(s.soc)?piecewise(s.soc,[[0,4.8],[10,6.6],[25,8.0],[45,8.8],[80,8.2],[120,6.5]]):7;
+   return blendSoilWithNeutral(.72*phScore+.18*texture+.10*socScore);
+ }
+ const lo=m.ph?.[0]??4.5,hi=m.ph?.[1]??7,mid=(lo+hi)/2;
+ const phScore=piecewise(s.ph,[[lo-1.6,3.5],[lo,8],[mid,9.5],[hi,8],[hi+1.4,3.5]]);
+ let sand=s.sand;if(sand>100)sand/=10;
+ let texture=7.5;
+ if(Number.isFinite(sand)){
+   if(m.sand==='very_sandy')texture=piecewise(sand,[[15,3.5],[35,6.5],[55,9],[75,10],[92,8]]);
+   else if(m.sand==='sandy')texture=piecewise(sand,[[10,5],[30,7],[50,9],[72,9.4],[90,7]]);
+   else texture=piecewise(sand,[[5,6],[25,8],[50,8.7],[75,7.7],[92,5.5]]);
+ }
+ const socScore=Number.isFinite(s.soc)?piecewise(s.soc,[[0,5],[10,7],[25,8.5],[60,9],[120,7]]):7;
+ return blendSoilWithNeutral(.62*phScore+.24*texture+.14*socScore);
+}
+function v190RefMoistureTerrainScore(type,f){
+ const m=SPECIES_META[type],base=terrainSuitability(type,f);
+ if(!m)return base;
+ if(m.moist==='mesic_moist')return Math.min(10,base+.45);
+ if(m.moist==='mesic_dry')return clamp(13.2-base);
+ return base;
+}
+function v190RefAgeSuitability(type,age){
+ const m=SPECIES_META[type];age=Number(age||0);
+ if(!m||m.ecology==='grassland')return 8;
+ if(!age)return 6.5;
+ const a=m.age?.[0]??10,b=m.age?.[1]??100;
+ if(age<a)return piecewise(age,[[0,4],[Math.max(1,a*.5),6.5],[a,9]]);
+ if(age<=b)return 9.2;
+ return piecewise(age,[[b,9.2],[b+40,7],[b+100,5.5]]);
+}
+function v190RefFruitingConditions(type,f){
  const season=seasonScore(type);
  if(weatherReady){
    const weather=speciesWeatherProductionInfo(type,f._center).productionScore;
@@ -26551,7 +26604,68 @@ function v189RefFruitingConditions(type,f){
  }
  return Math.max(0,Math.min(100,season));
 }
-function v189RefScalarFromNiches(vals,meta){
+function v190RefStaticSuitability(type,f){
+ const m=SPECIES_META[type];if(!m)return 0;
+ if(m.ecology==='mycorrhiza'&&f._kind==='open')return .4;
+ if(m.ecology==='wood'&&f._kind==='open')return .6;
+ const hist=historyInfo(type,f),soil=v190RefSoilSuitability(type,f),terr=v190RefMoistureTerrainScore(type,f),evidence=7+Math.min(3,hist.bonus*2.4);
+ let raw=0;
+ if(m.ecology==='mycorrhiza'){
+   const tree=v190RefTreePreference(type,f),age=v190RefAgeSuitability(type,Number(f.properties?.species_age||0)),hab=v190RefStableHabitatScore(type,f),disturb=disturbancePenalty(type,f),gate=v190RefHostGate(type,f);
+   raw=.38*tree+.14*age+.19*soil+.08*terr+.13*hab+.08*evidence;
+   const gateFactor=STRICT_HOST_TYPES.has(type)?(.20+.80*gate):(.42+.58*gate);
+   raw=(raw-disturb*.55)*gateFactor;
+ }else if(m.ecology==='wood'){
+   const tree=v190RefTreePreference(type,f),hab=v190RefStableHabitatScore(type,f),old=woodAgeScore(f),stumpStatic=f._ko?9.3:6.2;
+   raw=.30*tree+.20*old+.13*soil+.07*terr+.10*hab+.15*stumpStatic+.05*evidence;
+ }else if(m.ecology==='edge'){
+   const age=v190RefAgeSuitability(type,Number(f.properties?.species_age||0)),disturb=disturbancePenalty(type,f),open=openHabitatScore(type,f);
+   raw=.50*open+.20*soil+.10*terr+.08*age+.12*evidence-disturb*.35;
+ }else if(m.ecology==='grassland'){
+   const open=openHabitatScore(type,f);
+   raw=.62*open+.22*soil+.08*terr+.08*evidence;
+ }
+ return clamp(raw);
+}
+function v190RefStableSpeciesPotential(type,f){
+ const m=SPECIES_META[type];if(!m||m.collect===false)return 0;
+ if((m.ecology==='mycorrhiza'||m.ecology==='wood')&&f._kind==='open')return .3;
+ const hist=historyInfo(type,f),soil=v190RefSoilSuitability(type,f),terr=v190RefMoistureTerrainScore(type,f),evidence=7+Math.min(3,hist.bonus*2.4);
+ let out=0;
+ if(m.ecology==='mycorrhiza'){
+   const tree=v190RefTreePreference(type,f),age=v190RefAgeSuitability(type,Number(f.properties?.species_age||0)),hab=v190RefStableHabitatScore(type,f),disturb=disturbancePenalty(type,f),gate=v190RefHostGate(type,f),gate10=gate*10;
+   if(STRICT_HOST_TYPES.has(type))out=.32*tree+.11*age+.23*gate10+.09*hab+.14*soil+.05*terr+.06*evidence-disturb*.55;
+   else out=.30*tree+.12*age+.16*gate10+.12*hab+.17*soil+.07*terr+.06*evidence-disturb*.55;
+ }else if(m.ecology==='wood'){
+   const tree=v190RefTreePreference(type,f),hab=v190RefStableHabitatScore(type,f),old=woodAgeScore(f),stumpStable=f._ko?9.1:6.1;
+   out=.28*tree+.19*old+.11*hab+.12*soil+.06*terr+.19*stumpStable+.05*evidence;
+ }else if(m.ecology==='edge'){
+   const age=v190RefAgeSuitability(type,Number(f.properties?.species_age||0)),disturb=disturbancePenalty(type,f),open=openHabitatScore(type,f);
+   out=.58*open+.19*soil+.09*terr+.08*age+.06*evidence-disturb*.35;
+ }else if(m.ecology==='grassland'){
+   const open=openHabitatScore(type,f);
+   out=.62*open+.23*soil+.09*terr+.06*evidence;
+ }
+ return clamp(out);
+}
+function v190RefStableScoreForType(type,f){
+ if(!featureRelevant(type,f))return 0;
+ let base=v190RefStableSpeciesPotential(type,f);
+ const ctx=forestContextInfo(f),eco=SPECIES_META[type]?.ecology;
+ if(eco==='mycorrhiza'||eco==='wood'){
+   base=.86*base+.14*ctx.score;
+   if(ctx.score<4.2)base-=(4.2-ctx.score)*.12;
+ }
+ return clamp(base);
+}
+function v190RefSpeciesEffective(type,f){
+ const habitat=v190RefStaticSuitability(type,f);
+ if(mapMode==='habitat')return habitat;
+ const fruit=Math.max(0,Math.min(1,v190RefFruitingConditions(type,f)/100));
+ const conditionFactor=.12+.88*Math.pow(fruit,.52);
+ return clamp(habitat*conditionFactor);
+}
+function v190RefScalarFromNiches(vals,meta){
  const nicheVals=[];
  for(let i=0;i<meta.nicheCount;i++){const v=vals[i];if(Number.isFinite(v))nicheVals.push(v);}
  if(!nicheVals.length)return 0;
@@ -26563,50 +26677,57 @@ function v189RefScalarFromNiches(vals,meta){
  if(meta.possibleExtras<3){const used=extras.slice(0,meta.possibleExtras);if(used.length){let sum=0,ws=0;for(let i=0;i<meta.possibleExtras;i++){const w=weights[i],val=used[i]??4.80;sum+=w*val;ws+=w;}supportRaw=sum/ws;}else supportRaw=4.80;}
  return clamp(best*(1-meta.breadthWeight)+supportRaw*meta.breadthWeight);
 }
-function v189ReferenceRawPair(f,types,needDynamic=true){
+function v190ReferenceRawPair(f,types,needDynamic=true){
  const meta=opportunityScalarMetaV175(types);
  const sv=new Array(meta.nicheCount).fill(-Infinity),dv=needDynamic?new Array(meta.nicheCount).fill(-Infinity):null;
  for(let i=0;i<types.length;i++){
    const t=types[i];if(!featureRelevant(t,f))continue;
-   const potential=stableScoreForType(t,f);
+   const potential=v190RefStableScoreForType(t,f);
    if(Number.isFinite(potential)){const v=clamp(potential),ni=meta.nicheIds[i];if(v>sv[ni])sv[ni]=v;}
-   if(needDynamic){const raw=Math.min(speciesEffective(t,f),potential);if(Number.isFinite(raw)){const v=clamp(raw),ni=meta.nicheIds[i];if(v>dv[ni])dv[ni]=v;}}
+   if(needDynamic){const raw=Math.min(v190RefSpeciesEffective(t,f),potential);if(Number.isFinite(raw)){const v=clamp(raw),ni=meta.nicheIds[i];if(v>dv[ni])dv[ni]=v;}}
  }
- return {staticScore:v189RefScalarFromNiches(sv,meta),dynamicScore:needDynamic?v189RefScalarFromNiches(dv,meta):NaN};
+ return {staticScore:v190RefScalarFromNiches(sv,meta),dynamicScore:needDynamic?v190RefScalarFromNiches(dv,meta):NaN};
 }
-async function auditV189PerformanceEquivalence(limit=180){
+async function auditV190PerformanceEquivalence(limit=180){
  const src=allFeatures.filter(f=>!f._blocked);
  const forest=src.filter(f=>f._kind!=='open').slice(0,Math.ceil(limit*.75));
  const open=src.filter(f=>f._kind==='open').slice(0,Math.floor(limit*.25));
- const features=[...forest,...open];
- const types=PICK_TYPES;
- let treeMax=0,gateMax=0,habMax=0,fruitMax=0,pairStaticMax=0,pairDynamicMax=0,checks=0;
+ const features=[...forest,...open],types=PICK_TYPES;
+ const maxima={treeMax:0,gateMax:0,habMax:0,soilMax:0,terrainMax:0,ageMax:0,fruitMax:0,staticSuitabilityMax:0,stablePotentialMax:0,stableScoreMax:0,effectiveMax:0,pairStaticMax:0,pairDynamicMax:0};
+ const worst={};let checks=0;
+ const upd=(k,d,f,t)=>{if(d>maxima[k]){maxima[k]=d;worst[k]={type:t,kind:f?._kind||'forest',tree:speciesCode(f?.properties||{}),habitat:habitatCode(f?.properties||{}),address:String(f?.properties?.adress_forest||'')}}};
  const t0=performance.now();
  for(const f of features){
    for(const t of types){
      if(!featureRelevant(t,f))continue;
-     treeMax=Math.max(treeMax,Math.abs(treePreference(t,f)-v189RefTreePreference(t,f)));
-     gateMax=Math.max(gateMax,Math.abs(hostGate(t,f)-v189RefHostGate(t,f)));
-     habMax=Math.max(habMax,Math.abs(stableHabitatScore(t,f)-v189RefStableHabitatScore(t,f)));
-     if(mapMode==='today')fruitMax=Math.max(fruitMax,Math.abs(fruitingConditions(t,f)-v189RefFruitingConditions(t,f)));
+     upd('treeMax',Math.abs(treePreference(t,f)-v190RefTreePreference(t,f)),f,t);
+     upd('gateMax',Math.abs(hostGate(t,f)-v190RefHostGate(t,f)),f,t);
+     upd('habMax',Math.abs(stableHabitatScore(t,f)-v190RefStableHabitatScore(t,f)),f,t);
+     upd('soilMax',Math.abs(soilSuitability(t,f)-v190RefSoilSuitability(t,f)),f,t);
+     upd('terrainMax',Math.abs(moistureTerrainScore(t,f)-v190RefMoistureTerrainScore(t,f)),f,t);
+     upd('ageMax',Math.abs(ageSuitability(t,Number(f.properties?.species_age||0))-v190RefAgeSuitability(t,Number(f.properties?.species_age||0))),f,t);
+     if(mapMode==='today')upd('fruitMax',Math.abs(fruitingConditions(t,f)-v190RefFruitingConditions(t,f)),f,t);
+     upd('staticSuitabilityMax',Math.abs(staticSuitability(t,f)-v190RefStaticSuitability(t,f)),f,t);
+     upd('stablePotentialMax',Math.abs(stableSpeciesPotential(t,f)-v190RefStableSpeciesPotential(t,f)),f,t);
+     upd('stableScoreMax',Math.abs(stableScoreForType(t,f)-v190RefStableScoreForType(t,f)),f,t);
+     if(mapMode==='today')upd('effectiveMax',Math.abs(speciesEffective(t,f)-v190RefSpeciesEffective(t,f)),f,t);
      checks++;
    }
    const fast=opportunityRawScorePairV175(f,types,mapMode==='today');
-   const ref=v189ReferenceRawPair(f,types,mapMode==='today');
-   pairStaticMax=Math.max(pairStaticMax,Math.abs(fast.staticScore-ref.staticScore));
-   if(mapMode==='today')pairDynamicMax=Math.max(pairDynamicMax,Math.abs(fast.dynamicScore-ref.dynamicScore));
+   const ref=v190ReferenceRawPair(f,types,mapMode==='today');
+   upd('pairStaticMax',Math.abs(fast.staticScore-ref.staticScore),f,'ALL');
+   if(mapMode==='today')upd('pairDynamicMax',Math.abs(fast.dynamicScore-ref.dynamicScore),f,'ALL');
  }
- const maxDelta=Math.max(treeMax,gateMax,habMax,fruitMax,pairStaticMax,pairDynamicMax);
- const report={
-   version:'v189',features:features.length,checks,mode:mapMode,
-   treeMax,gateMax,habMax,fruitMax,pairStaticMax,pairDynamicMax,maxDelta,
-   ok:maxDelta<=1e-10,elapsedMs:performance.now()-t0
- };
- window.__v189PerformanceEquivalence=report;
- console.info('V189 PERFORMANCE EQUIVALENCE',report);
+ const maxDelta=Math.max(...Object.values(maxima));
+ const report={version:'v190',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-10,worst,elapsedMs:performance.now()-t0};
+ window.__v190PerformanceEquivalence=report;
+ console.info('V190 TRUE PERFORMANCE EQUIVALENCE',report);
  return report;
 }
-window.auditV189PerformanceEquivalence=auditV189PerformanceEquivalence;
+window.auditV190PerformanceEquivalence=auditV190PerformanceEquivalence;
+// Alias celowo wskazuje nowy, poprawny audyt — stare polecenie użytkownika nadal działa,
+// ale nie zwraca już fałszywego pairMax=0 z audytu v189.
+window.auditV189PerformanceEquivalence=auditV190PerformanceEquivalence;
 
 function auditBestHabitatBalance(){
  const savedFilter=currentFilter;
@@ -27470,7 +27591,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v189',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v190',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -27582,7 +27703,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v189-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
+   'v190-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -27867,9 +27988,9 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v189',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v190',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v189',{
+   console.info('HOTSPOT PHASE v190',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      forestWorkerWallMs:+phase.forestWorkerWallMs.toFixed(1),forestWorkerMs:+phase.forestWorkerMs.toFixed(1),
      priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),distributionPairs:phase.distributionPairs||0,finalizedScores:phase.finalizedScores||0,
@@ -27878,7 +27999,7 @@ async function prewarmHotspotPipeline(){
      distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
-   console.info(`HOTSPOT PHASE v189 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   console.info(`HOTSPOT PHASE v190 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -28053,7 +28174,7 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v189',{
+   console.info('HOTSPOT RENDER v190',{
      features:rows.length,
      visibleRows,
      reasons:perfRenderNow._v182Reasons||[],
@@ -30175,7 +30296,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v189: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v190: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -30184,7 +30305,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v189',{
+   console.info('HOTSPOT ACCESS NETWORK v190',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -30198,7 +30319,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v189',{
+   console.info('HOTSPOT ACCESS v190',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -30223,7 +30344,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v189: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v190: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -30245,15 +30366,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v189',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v190',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v189',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v190',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v189: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v190: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }

@@ -5703,10 +5703,10 @@ function ageSuitability(type,age){
  const m=SPECIES_META[type]; age=Number(age||0);
  if(!m || m.ecology==='grassland')return 8;
  if(!age)return 6.5;
- const a=m.age?.[0]??10,b=m.age?.[1]??100;
- if(age<a)return piecewise(age,[[0,4],[Math.max(1,a*.5),6.5],[a,9]]);
+ const cfg=speciesAgeCurveV189(type),a=cfg?.a??10,b=cfg?.b??100;
+ if(age<a)return piecewise(age,cfg.low);
  if(age<=b)return 9.2;
- return piecewise(age,[[b,9.2],[b+40,7],[b+100,5.5]]);
+ return piecewise(age,cfg.high);
 }
 // v65: usunieto martwy legacy scoring (SPEC / oneScore / calcScores).
 const HAB={
@@ -7640,6 +7640,7 @@ function setSpeciesWeatherProduction(enabled){
  todayScaleCacheKey='';todayScales={};
  bestTodayConditionScaleCache.clear();
  perfTodaySpeciesEffectiveCache=new Map();
+ perfSpeciesWeatherProductionScalarCacheV189=new WeakMap();
  perfBestTodayInfoCache=new WeakMap();
  perfBestTodayInvariantCache=new WeakMap();
  perfScoreCache=new WeakMap();
@@ -7720,7 +7721,7 @@ function updateWeatherCard(){
  document.getElementById('weatherTip').textContent=tip;
 }
 function moistureTerrainScore(type,f){
- const m=SPECIES_META[type],base=terrainSuitability(type,f);
+ const m=SPECIES_META[type],base=terrainBaseForFeatureV189(f);
  if(!m)return base;
  if(m.moist==='mesic_moist')return Math.min(10,base+.45);
  // v65 FIX: poprawne odbicie skali terenu (lustro wokol ~6,6).
@@ -7796,10 +7797,9 @@ function staticSuitability(type,f){
   return clamp(raw);
  });
 }
+const SEASON_GATE_POINTS_V189=Object.freeze([[0,.01],[15,.04],[30,.13],[45,.34],[60,.62],[75,.86],[90,.98],[100,1]]);
 function seasonGate(season){
- return piecewise(season,[
-   [0,.01],[15,.04],[30,.13],[45,.34],[60,.62],[75,.86],[90,.98],[100,1]
- ]);
+ return piecewise(season,SEASON_GATE_POINTS_V189);
 }
 function fruitingConditions(type,f){
  const season=seasonScore(type);
@@ -7807,7 +7807,7 @@ function fruitingConditions(type,f){
  // v112: DZIŚ używa teraz konserwatywnie zakotwiczonej pogody per gatunek.
  // OGÓLNIE nie korzysta z tej funkcji, więc potencjał siedliska pozostaje bez zmian.
  if(weatherReady){
-   const weather=speciesWeatherProductionInfo(type,f._center).productionScore;
+   const weather=speciesWeatherProductionScoreScalarV189(type,f._center);
    const base=.60*weather+.40*season;
    return Math.max(0,Math.min(100,base*seasonGate(season)));
  }
@@ -8252,9 +8252,12 @@ function observationEvidenceActive(type){
         !!obsLoaded[type];
 }
 
+const EMPTY_HISTORY_INFO_V189=Object.freeze({bonus:0,nearest:Infinity,count2:0,rawCount2:0,independent5:0,raw5:0});
 function historyInfo(type,f){
  const arr=observationEvidenceActive(type)?(observationData[type]||[]):[];
- if(!arr.length)return {bonus:0,nearest:Infinity,count2:0,rawCount2:0,independent5:0,raw5:0};
+ // v189: w trybie wielogatunkowym obserwacje są wyłączone. Nie twórz wtedy
+ // dziesiątek tysięcy identycznych obiektów tylko po to, by odczytać bonus=0.
+ if(!arr.length)return EMPTY_HISTORY_INFO_V189;
 
  let nearest=Infinity,rawCount2=0,raw5=0;
  const now=Date.now();
@@ -8298,8 +8301,18 @@ function fallbackSeason(type,day){
 }
 function seasonScore(type){
  const active=observationEvidenceActive(type);
- const raw=active?(observationData[type]||[]):[];
  const today=doy(new Date());
+ // v189: w BEST / diversity / 2+ Atlas obserwacje są z definicji wyłączone.
+ // Fenologia zależy wtedy wyłącznie od gatunku i dnia roku, więc liczymy ją raz.
+ if(!active){
+   const fastKey=`${today}|${type}`;
+   if(perfFallbackSeasonCacheV189.has(fastKey))return perfFallbackSeasonCacheV189.get(fastKey);
+   const v=fallbackSeason(type,today);
+   perfFallbackSeasonCacheV189.set(fastKey,v);
+   if(perfFallbackSeasonCacheV189.size>128)perfFallbackSeasonCacheV189.clear();
+   return v;
+ }
+ const raw=observationData[type]||[];
  const fallback=fallbackSeason(type,today);
 
  // v159: seasonScore jest identyczny dla wszystkich wydzieleń danego gatunku.
@@ -8956,12 +8969,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v188',
+     mode:'sync-batched-v189',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v188',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v189',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -9753,6 +9766,18 @@ let perfSpeciesWeatherPayloadCache=new WeakMap();
 // v172: wyniki pogody współdzielone przez gatunki o tym samym profilu na tym samym centroidzie.
 let perfSpeciesWeatherNeutralCache=new WeakMap();
 let perfSpeciesWeatherProfileCache=new WeakMap();
+// v189 — feature-level hot-path memo. W 32-gatunkowym BEST te same dane wejściowe
+// były normalizowane / materializowane dziesiątki razy dla jednego wydzielenia.
+// WeakMap trzyma wynik tylko tak długo, jak żyje feature; wzory scoringu są bez zmian.
+let perfFeatureTreeCodeCacheV189=new WeakMap();
+let perfFeatureHabitatCodeCacheV189=new WeakMap();
+let perfFeatureNearSpeciesCacheV189=new WeakMap();
+let perfFeatureSoilSampleCacheV189=new WeakMap();
+let perfFeatureTerrainBaseCacheV189=new WeakMap();
+// Końcowy weather score jest identyczny dla gatunków dzielących profile/moist/evidence.
+// Cache po centrum usuwa budowę dużych obiektów diagnostycznych w gorącej ścieżce DZIŚ.
+let perfSpeciesWeatherProductionScalarCacheV189=new WeakMap();
+let perfFallbackSeasonCacheV189=new Map();
 // v172: wspólny pakiet drogich komponentów siedliska używany równocześnie przez
 // staticSuitability() i stableSpeciesPotential(). Nie zmienia wzorów — usuwa duplikację.
 let perfSpeciesStaticComponentCache=new Map();
@@ -9802,6 +9827,64 @@ function perfCoordKey(c){
    ? `${Number(c[0]).toFixed(5)}|${Number(c[1]).toFixed(5)}`
    : '';
 }
+
+function featureTreeCodeV189(f){
+ if(!f||typeof f!=='object')return '';
+ if(perfFeatureTreeCodeCacheV189.has(f))return perfFeatureTreeCodeCacheV189.get(f);
+ const v=speciesCode(f.properties||{});
+ perfFeatureTreeCodeCacheV189.set(f,v);
+ return v;
+}
+function featureHabitatCodeV189(f){
+ if(!f||typeof f!=='object')return '';
+ if(perfFeatureHabitatCodeCacheV189.has(f))return perfFeatureHabitatCodeCacheV189.get(f);
+ const v=habitatCode(f.properties||{});
+ perfFeatureHabitatCodeCacheV189.set(f,v);
+ return v;
+}
+function featureNearSpeciesSetV189(f){
+ if(!f||typeof f!=='object')return new Set();
+ const src=Array.isArray(f._nearSpecies)?f._nearSpecies:[];
+ const hit=perfFeatureNearSpeciesCacheV189.get(f);
+ // _nearSpecies może zostać podmienione po przygotowaniu kontekstu; kontrolujemy
+ // referencję + długość, więc nie zamrażamy przedwcześnie starego zbioru.
+ if(hit&&hit.src===src&&hit.len===src.length)return hit.set;
+ const set=new Set(src);
+ perfFeatureNearSpeciesCacheV189.set(f,{src,len:src.length,set});
+ return set;
+}
+function soilAtFeatureV189(f){
+ if(!f||typeof f!=='object')return null;
+ const hit=perfFeatureSoilSampleCacheV189.get(f);
+ if(hit&&hit.samples===soilSamples&&hit.ready===soilReady)return hit.value;
+ const value=soilAt(f._center);
+ perfFeatureSoilSampleCacheV189.set(f,{samples:soilSamples,ready:soilReady,value});
+ return value;
+}
+function terrainBaseForFeatureV189(f){
+ if(!f||typeof f!=='object')return 7;
+ const rel=f._relElev,north=f._northness||0,slope=f._slope||0;
+ const hit=perfFeatureTerrainBaseCacheV189.get(f);
+ if(hit&&Object.is(hit.rel,rel)&&Object.is(hit.north,north)&&Object.is(hit.slope,slope))return hit.value;
+ const value=terrainSuitability('',f);
+ perfFeatureTerrainBaseCacheV189.set(f,{rel,north,slope,value});
+ return value;
+}
+function speciesWeatherProductionScoreScalarV189(type,c){
+ if(!weatherReady)return NaN;
+ const assignment=speciesWeatherLabAssignment(type);
+ const moist=SPECIES_META[type]?.moist||'mesic';
+ const key=`${assignment.profile}|${moist}|${assignment.evidence}|${speciesWeatherProductionEnabled?1:0}`;
+ if(c&&typeof c==='object'){
+   let m=perfSpeciesWeatherProductionScalarCacheV189.get(c);
+   if(!m){m=new Map();perfSpeciesWeatherProductionScalarCacheV189.set(c,m);}
+   if(m.has(key))return m.get(key);
+   const v=speciesWeatherProductionInfo(type,c).productionScore;
+   m.set(key,v);
+   return v;
+ }
+ return speciesWeatherProductionInfo(type,c).productionScore;
+}
 let perfAuditLast={
  total:0,prepare:0,styles:0,top:0,hints:0,linked:0,
  features:0,layers:0,mode:'',filter:'',atlas:0
@@ -9824,6 +9907,10 @@ function invalidateScoringCaches(reason=''){
  perfSpeciesWeatherPayloadCache=new WeakMap();
  perfSpeciesWeatherNeutralCache=new WeakMap();
  perfSpeciesWeatherProfileCache=new WeakMap();
+ perfSpeciesWeatherProductionScalarCacheV189=new WeakMap();
+ perfFeatureSoilSampleCacheV189=new WeakMap();
+ perfFeatureTerrainBaseCacheV189=new WeakMap();
+ perfFallbackSeasonCacheV189.clear();
  perfSpeciesStaticComponentCache.clear();
  perfStaticSuitabilityCache.clear();
  perfStableSpeciesPotentialCache.clear();
@@ -9885,6 +9972,8 @@ function invalidateWeatherScoringCachesV176(reason='weather'){
  perfSpeciesWeatherPayloadCache=new WeakMap();
  perfSpeciesWeatherNeutralCache=new WeakMap();
  perfSpeciesWeatherProfileCache=new WeakMap();
+ perfSpeciesWeatherProductionScalarCacheV189=new WeakMap();
+ perfFallbackSeasonCacheV189.clear();
  perfTodaySpeciesEffectiveCache.clear();
  perfBestTodayInvariantCache=new WeakMap();
  perfHotspotTodayInfoCache=new WeakMap();perfHotspotTodayInfoCacheKey='';
@@ -9979,10 +10068,65 @@ function ensurePerfCache(){
  return k;
 }
 
+// ========================= v189: PRECOMPUTED STATIC SPECIES CONFIG =========================
+// Te dane są niezmienne w trakcie sesji. W v188 część tablic/obiektów powstawała
+// ponownie dla każdego gatunku × feature, co przy 32 gatunkach niepotrzebnie obciążało GC.
+const STABLE_HABITAT_BASE_V189=Object.freeze({
+ BSW:6.8,BMSW:7.5,LMSW:8.0,LSW:7.7,BW:5.8,BMW:6.8,LMW:7.2,LW:6.5,BB:3.5,BMB:4.0,LMB:4.6,OL:4.2,OLJ:4.3
+});
+const stableHabitatFamilyCacheV189=new Map();
+function stableHabitatFamilyV189(type){
+ if(stableHabitatFamilyCacheV189.has(type))return stableHabitatFamilyCacheV189.get(type);
+ let family='borowik';
+ if(type==='podgrzybek')family='podgrzybek';
+ else if(type==='podgrzybek_zajaczek')family='zajaczek';
+ else if(type==='kozlarz_grabowy')family='kozlarz_grab';
+ else if(type.startsWith('kozlarz_'))family='kozlarz';
+ else if(type.startsWith('maslak_'))family='maslak';
+ else if(type==='rydz'||type==='mleczaj_swierkowy')family='mleczaj';
+ else if(type==='kurka'||type==='pieprznik_trabkowy')family='kurka';
+ else if(type==='lejkowiec_dety')family='lejkowiec_lisc';
+ else if(type==='kolczak_oblaczasty')family='kolczak_lisc';
+ else if(type==='gaska_nieksztaltna')family='gaska_sosna';
+ else if(type==='siedzun_sosnowy')family='siedzun';
+ else if(type==='opienka_miodowa')family='opienka_lisc';
+ else if(type==='opienka_ciemna')family='opienka_igl';
+ stableHabitatFamilyCacheV189.set(type,family);
+ return family;
+}
+const SOIL_SOC_POINTS_V189=Object.freeze([[0,5],[10,7],[25,8.5],[60,9],[120,7]]);
+const SOIL_TEXTURE_NEUTRAL_V189=Object.freeze([[5,6],[25,8],[50,8.7],[75,7.7],[92,5.5]]);
+const SOIL_TEXTURE_SANDY_V189=Object.freeze([[10,5],[30,7],[50,9],[72,9.4],[90,7]]);
+const SOIL_TEXTURE_VERY_SANDY_V189=Object.freeze([[15,3.5],[35,6.5],[55,9],[75,10],[92,8]]);
+const SOIL_PONURY_PH_V189=Object.freeze([[4.9,2.2],[5.4,3.8],[5.8,6.2],[6.2,8.7],[6.8,9.8],[7.5,9.1],[8.0,7.2],[8.5,4.5]]);
+const SOIL_PONURY_TEXTURE_V189=Object.freeze([[8,8.8],[22,9.3],[40,8.8],[58,7.2],[72,5.6],[88,3.8]]);
+const SOIL_PONURY_SOC_V189=Object.freeze([[0,4.8],[10,6.6],[25,8.0],[45,8.8],[80,8.2],[120,6.5]]);
+const speciesSoilCurveCacheV189=new Map();
+function speciesSoilCurveV189(type){
+ if(speciesSoilCurveCacheV189.has(type))return speciesSoilCurveCacheV189.get(type);
+ const m=SPECIES_META[type];
+ if(!m)return null;
+ const lo=m.ph?.[0]??4.5,hi=m.ph?.[1]??7,mid=(lo+hi)/2;
+ const texture=m.sand==='very_sandy'?SOIL_TEXTURE_VERY_SANDY_V189:(m.sand==='sandy'?SOIL_TEXTURE_SANDY_V189:SOIL_TEXTURE_NEUTRAL_V189);
+ const cfg={lo,hi,mid,ph:Object.freeze([[lo-1.6,3.5],[lo,8],[mid,9.5],[hi,8],[hi+1.4,3.5]]),texture};
+ speciesSoilCurveCacheV189.set(type,cfg);
+ return cfg;
+}
+const speciesAgeCurveCacheV189=new Map();
+function speciesAgeCurveV189(type){
+ if(speciesAgeCurveCacheV189.has(type))return speciesAgeCurveCacheV189.get(type);
+ const m=SPECIES_META[type];
+ if(!m)return null;
+ const a=m.age?.[0]??10,b=m.age?.[1]??100;
+ const cfg={a,b,low:Object.freeze([[0,4],[Math.max(1,a*.5),6.5],[a,9]]),high:Object.freeze([[b,9.2],[b+40,7],[b+100,5.5]])};
+ speciesAgeCurveCacheV189.set(type,cfg);
+ return cfg;
+}
+
 function treePreference(type,f){
  const m=SPECIES_META[type];if(!m)return 5;
  if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
- const direct=speciesCode(f.properties||{}),near=new Set(f._nearSpecies||[]);
+ const direct=featureTreeCodeV189(f),near=featureNearSpeciesSetV189(f);
  if(type==='ponury'){
    if(['DB','BK','LP'].includes(direct))return 9.7;
    if(direct==='GB')return 8.2;
@@ -10002,8 +10146,8 @@ function hostGate(type,f){
  if(m.ecology==='grassland'||m.ecology==='edge')return 1;
 
  const cfg=HOSTS[type]||{strong:[],secondary:[]};
- const direct=speciesCode(f.properties||{});
- const near=new Set(f._nearSpecies||[]);
+ const direct=featureTreeCodeV189(f);
+ const near=featureNearSpeciesSetV189(f);
  const strict=STRICT_HOST_TYPES.has(type);
 
  if(type==='ponury'){
@@ -10011,7 +10155,7 @@ function hostGate(type,f){
    if(cfg.secondary.includes(direct))return .82;
    if(cfg.strong.some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?.42:.62;
    if(cfg.secondary.some(x=>near.has(x)))return .50;
-   const hab=habitatCode(f.properties||{});
+   const hab=featureHabitatCodeV189(f);
    return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
  }
 
@@ -10022,7 +10166,7 @@ function hostGate(type,f){
 
  if(m.ecology==='wood')return .38;
 
- const hab=habitatCode(f.properties||{});
+ const hab=featureHabitatCodeV189(f);
  if(strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
  return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
 }
@@ -10044,25 +10188,21 @@ function blendSoilWithNeutral(score){
 }
 
 function soilSuitability(type,f){
- const m=SPECIES_META[type],s=soilAt(f._center);if(!m||!s)return 7;
+ const m=SPECIES_META[type],s=soilAtFeatureV189(f);if(!m||!s)return 7;
  if(type==='ponury'){
    const ph=Number(s.ph);
-   const phScore=Number.isFinite(ph)?piecewise(ph,[[4.9,2.2],[5.4,3.8],[5.8,6.2],[6.2,8.7],[6.8,9.8],[7.5,9.1],[8.0,7.2],[8.5,4.5]]):6.5;
+   const phScore=Number.isFinite(ph)?piecewise(ph,SOIL_PONURY_PH_V189):6.5;
    let sand=Number(s.sand);if(sand>100)sand/=10;
-   const texture=Number.isFinite(sand)?piecewise(sand,[[8,8.8],[22,9.3],[40,8.8],[58,7.2],[72,5.6],[88,3.8]]):7.2;
-   const socScore=Number.isFinite(s.soc)?piecewise(s.soc,[[0,4.8],[10,6.6],[25,8.0],[45,8.8],[80,8.2],[120,6.5]]):7;
+   const texture=Number.isFinite(sand)?piecewise(sand,SOIL_PONURY_TEXTURE_V189):7.2;
+   const socScore=Number.isFinite(s.soc)?piecewise(s.soc,SOIL_PONURY_SOC_V189):7;
    return blendSoilWithNeutral(.72*phScore+.18*texture+.10*socScore);
  }
- const lo=m.ph?.[0]??4.5,hi=m.ph?.[1]??7,mid=(lo+hi)/2;
- const phScore=piecewise(s.ph,[[lo-1.6,3.5],[lo,8],[mid,9.5],[hi,8],[hi+1.4,3.5]]);
+ const cfg=speciesSoilCurveV189(type);
+ const phScore=piecewise(s.ph,cfg.ph);
  let sand=s.sand;if(sand>100)sand/=10;
  let texture=7.5;
- if(Number.isFinite(sand)){
-   if(m.sand==='very_sandy')texture=piecewise(sand,[[15,3.5],[35,6.5],[55,9],[75,10],[92,8]]);
-   else if(m.sand==='sandy')texture=piecewise(sand,[[10,5],[30,7],[50,9],[72,9.4],[90,7]]);
-   else texture=piecewise(sand,[[5,6],[25,8],[50,8.7],[75,7.7],[92,5.5]]);
- }
- const socScore=Number.isFinite(s.soc)?piecewise(s.soc,[[0,5],[10,7],[25,8.5],[60,9],[120,7]]):7;
+ if(Number.isFinite(sand))texture=piecewise(sand,cfg.texture);
+ const socScore=Number.isFinite(s.soc)?piecewise(s.soc,SOIL_SOC_POINTS_V189):7;
  return blendSoilWithNeutral(.62*phScore+.24*texture+.14*socScore);
 }
 
@@ -12322,35 +12462,55 @@ function opportunityScalarMetaV175(types){
  const targetNiches=nicheToIndex.size;
  const possibleExtras=Math.min(3,Math.max(0,targetNiches-1));
  const breadthWeight=possibleExtras<=0?0:(possibleExtras===1?.18:(possibleExtras===2?.24:.30));
- meta={typeKey,nicheIds,nicheCount:targetNiches,possibleExtras,breadthWeight};
+ const forestIndices=[],openIndices=[];
+ for(let i=0;i<types.length;i++){
+   const eco=SPECIES_META[types[i]]?.ecology;
+   if(eco!=='grassland')forestIndices.push(i);
+   if(eco==='grassland'||eco==='edge')openIndices.push(i);
+ }
+ meta={
+   typeKey,nicheIds,nicheCount:targetNiches,possibleExtras,breadthWeight,
+   forestIndices,openIndices,
+   stableScratch:new Array(targetNiches).fill(-Infinity),
+   dynamicScratch:new Array(targetNiches).fill(-Infinity)
+ };
  opportunityScalarMetaCacheV175.set(typeKey,meta);
  return meta;
 }
 function opportunityScalarFromNicheArrayV175(vals,meta){
- const nicheVals=[];
+ // v189: potrzebujemy najwyżej best + 3 extras. Pełne sortowanie krótkiej tablicy
+ // dla każdego feature było zbędną alokacją. Top-4 daje dokładnie ten sam wynik.
+ let n=0,a=-Infinity,b=-Infinity,c=-Infinity,d=-Infinity;
  for(let i=0;i<meta.nicheCount;i++){
    const v=vals[i];
-   if(Number.isFinite(v))nicheVals.push(v);
+   if(!Number.isFinite(v))continue;
+   n++;
+   if(v>a){d=c;c=b;b=a;a=v;}
+   else if(v>b){d=c;c=b;b=v;}
+   else if(v>c){d=c;c=v;}
+   else if(v>d)d=v;
  }
- if(!nicheVals.length)return 0;
- nicheVals.sort((a,b)=>b-a);
- const best=nicheVals[0];
+ if(!n)return 0;
+ const best=a;
  if(meta.possibleExtras===0)return best;
+ const extras=[b,c,d];
  const weights=[.50,.30,.20];
- const extras=nicheVals.slice(1,4);
  let supportRaw=4.80;
- if(extras.length){
+ const available=Math.min(3,Math.max(0,n-1));
+ if(available){
    let sum=0,ws=0;
-   for(let i=0;i<extras.length;i++){const w=weights[i];sum+=w*extras[i];ws+=w;}
-   for(let i=extras.length;i<3;i++){const w=weights[i];sum+=w*4.80;ws+=w;}
+   for(let i=0;i<3;i++){
+     const w=weights[i],val=i<available?extras[i]:4.80;
+     sum+=w*val;ws+=w;
+   }
    supportRaw=sum/ws;
  }
  if(meta.possibleExtras<3){
-   const used=extras.slice(0,meta.possibleExtras);
-   if(used.length){
+   const used=Math.min(meta.possibleExtras,available);
+   if(used){
      let sum=0,ws=0;
      for(let i=0;i<meta.possibleExtras;i++){
-       const w=weights[i],val=used[i]??4.80;
+       const w=weights[i],val=i<used?extras[i]:4.80;
        sum+=w*val;ws+=w;
      }
      supportRaw=sum/ws;
@@ -12373,17 +12533,21 @@ function opportunityRawScorePairV175(f,typesOverride=null,needDynamic=true){
    return {staticScore:staticWM.get(f),dynamicScore:needDynamic?dynamicWM.get(f):NaN,cacheHit:true};
  }
  const meta=opportunityScalarMetaV175(types);
- const stableVals=new Array(meta.nicheCount).fill(-Infinity);
- const dynamicVals=needDynamic?new Array(meta.nicheCount).fill(-Infinity):null;
- for(let i=0;i<types.length;i++){
-   const t=types[i];
-   if(!featureRelevant(t,f))continue;
+ const stableVals=meta.stableScratch;
+ const dynamicVals=needDynamic?meta.dynamicScratch:null;
+ if(!hasStatic)for(let i=0;i<meta.nicheCount;i++)stableVals[i]=-Infinity;
+ if(needDynamic&&!hasDynamic)for(let i=0;i<meta.nicheCount;i++)dynamicVals[i]=-Infinity;
+ const indices=f._kind==='open'?meta.openIndices:meta.forestIndices;
+ for(let k=0;k<indices.length;k++){
+   const i=indices[k],t=types[i];
+   // edge na wydzieleniu leśnym nadal wymaga rzeczywistego skraju/polany.
+   if(SPECIES_META[t]?.ecology==='edge'&&!featureRelevant(t,f))continue;
    const potential=stableScoreForType(t,f);
-   if(Number.isFinite(potential)){
+   if(!hasStatic&&Number.isFinite(potential)){
      const v=clamp(potential),ni=meta.nicheIds[i];
      if(v>stableVals[ni])stableVals[ni]=v;
    }
-   if(needDynamic){
+   if(needDynamic&&!hasDynamic){
      const effectiveRaw=speciesEffective(t,f);
      const raw=Math.min(effectiveRaw,potential);
      if(Number.isFinite(raw)){
@@ -12414,17 +12578,15 @@ function opportunityRawScoreScalar(f,dynamic=false,typesOverride=null){
 function opportunityCompositeDistribution(types,areaName,kind='forest'){
  const key=`v105|${scoringRevision}|${opportunityTypeSetKey(types)}|${areaName}|${RADIUS_KM}|${kind}|${allFeatures.length}|${openFeatures.length}`;
  if(opportunityCompositeDistributionCache.has(key))return opportunityCompositeDistributionCache.get(key);
-
- const rows=allFeatures
-   .filter(f=>{
-     if(f._blocked||!featureInAnalysisAreaName(f,areaName))return false;
-     if(kind==='open')return f._kind==='open';
-     return f._kind!=='open';
-   })
-   .map(f=>opportunityRawScoreScalar(f,false,types))
-   .filter(Number.isFinite)
-   .sort((a,b)=>a-b);
-
+ const rows=[];
+ const wantOpen=kind==='open';
+ for(const f of allFeatures){
+   if(f._blocked||!featureInAnalysisAreaName(f,areaName))continue;
+   if((f._kind==='open')!==wantOpen)continue;
+   const v=opportunityRawScoreScalar(f,false,types);
+   if(Number.isFinite(v))rows.push(v);
+ }
+ rows.sort((a,b)=>a-b);
  const out={rows,min:rows[0]??0,max:rows.at(-1)??10};
  opportunityCompositeDistributionCache.set(key,out);
  return out;
@@ -12744,24 +12906,10 @@ function resetStaticCachesIfNeeded(){
 }
 
 function stableHabitatScore(type,f){
- const hab=habitatCode(f.properties||{}),m=SPECIES_META[type];if(!m)return 5.5;
+ const hab=featureHabitatCodeV189(f),m=SPECIES_META[type];if(!m)return 5.5;
  if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
- let family='borowik';
- if(type==='podgrzybek')family='podgrzybek';
- else if(type==='podgrzybek_zajaczek')family='zajaczek';
- else if(type==='kozlarz_grabowy')family='kozlarz_grab';
- else if(type.startsWith('kozlarz_'))family='kozlarz';
- else if(type.startsWith('maslak_'))family='maslak';
- else if(type==='rydz'||type==='mleczaj_swierkowy')family='mleczaj';
- else if(type==='kurka'||type==='pieprznik_trabkowy')family='kurka';
- else if(type==='lejkowiec_dety')family='lejkowiec_lisc';
- else if(type==='kolczak_oblaczasty')family='kolczak_lisc';
- else if(type==='gaska_nieksztaltna')family='gaska_sosna';
- else if(type==='siedzun_sosnowy')family='siedzun';
- else if(type==='opienka_miodowa')family='opienka_lisc';
- else if(type==='opienka_ciemna')family='opienka_igl';
-
- const base={BSW:6.8,BMSW:7.5,LMSW:8.0,LSW:7.7,BW:5.8,BMW:6.8,LMW:7.2,LW:6.5,BB:3.5,BMB:4.0,LMB:4.6,OL:4.2,OLJ:4.3}[hab]??6.4;
+ const family=stableHabitatFamilyV189(type);
+ const base=STABLE_HABITAT_BASE_V189[hab]??6.4;
  let s=base+(((HAB[family]||{})[hab])||0);
 
  if(type==='ponury'){
@@ -12909,7 +13057,7 @@ function ensureForestContextWorkerV174(){
    URL.revokeObjectURL(url);
    return forestContextWorker;
  }catch(e){
-   console.warn('FOREST CONTEXT WORKER v188 unavailable',e);
+   console.warn('FOREST CONTEXT WORKER v189 unavailable',e);
    return null;
  }
 }
@@ -12948,10 +13096,10 @@ async function prewarmForestContextWorkerV174(key){
    }
    forestContextWorkerRevision=revision;
    forestContextWorkerLast={state:'ready',revision,features:msg.rows.length,prepMs,workerMs:msg.workerMs,applyMs:performance.now()-ta,totalMs:performance.now()-t0};
-   console.info('FOREST CONTEXT WORKER v188',forestContextWorkerLast);
+   console.info('FOREST CONTEXT WORKER v189',forestContextWorkerLast);
    return forestContextWorkerLast;
  })().catch(e=>{
-   console.warn('FOREST CONTEXT WORKER v188 fallback',e);
+   console.warn('FOREST CONTEXT WORKER v189 fallback',e);
    return {state:'error',error:String(e?.message||e)};
  }).finally(()=>{forestContextWorkerPromise=null;});
  return forestContextWorkerPromise;
@@ -25558,7 +25706,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v188',{
+   console.info('UI ACTION v189',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -26321,6 +26469,144 @@ window.copyFullYearPhenologyAuditV188=async function(){
  try{await navigator.clipboard.writeText(text);console.info('FULL-YEAR PHENOLOGY AUDIT v188: skopiowano raport');return true;}
  catch(_){console.log(text);return false;}
 };
+
+// ===== v189 PERFORMANCE EQUIVALENCE AUDIT =====
+// Ręczny audyt regresji po optymalizacji hot-path. Referencje poniżej są
+// dokładną logiką v188, ale nie uczestniczą w produkcyjnym scoringu.
+function v189RefTreePreference(type,f){
+ const m=SPECIES_META[type];if(!m)return 5;
+ if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
+ const direct=speciesCode(f.properties||{}),near=new Set(f._nearSpecies||[]);
+ if(type==='ponury'){
+   if(['DB','BK','LP'].includes(direct))return 9.7;
+   if(direct==='GB')return 8.2;
+   if(['DB','BK','LP'].some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?5.2:6.9;
+   if(near.has('GB'))return 5.9;
+   return 2.6;
+ }
+ if((m.strong||[]).includes(direct))return 9.7;
+ if((m.secondary||[]).includes(direct))return 8.0;
+ if((m.strong||[]).some(x=>near.has(x)))return 7.2;
+ if((m.secondary||[]).some(x=>near.has(x)))return 6.2;
+ return m.ecology==='wood'?4.2:2.5;
+}
+function v189RefHostGate(type,f){
+ const m=SPECIES_META[type];if(!m)return 1;
+ if(m.ecology==='grassland'||m.ecology==='edge')return 1;
+ const cfg=HOSTS[type]||{strong:[],secondary:[]};
+ const direct=speciesCode(f.properties||{}),near=new Set(f._nearSpecies||[]);
+ const strict=STRICT_HOST_TYPES.has(type);
+ if(type==='ponury'){
+   if(cfg.strong.includes(direct))return 1;
+   if(cfg.secondary.includes(direct))return .82;
+   if(cfg.strong.some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?.42:.62;
+   if(cfg.secondary.some(x=>near.has(x)))return .50;
+   const hab=habitatCode(f.properties||{});
+   return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
+ }
+ if(cfg.strong.includes(direct))return 1;
+ if(cfg.secondary.includes(direct))return strict?.72:.84;
+ if(cfg.strong.some(x=>near.has(x)))return strict?.72:.68;
+ if(cfg.secondary.some(x=>near.has(x)))return strict?.48:.55;
+ if(m.ecology==='wood')return .38;
+ const hab=habitatCode(f.properties||{});
+ if(strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
+ return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
+}
+function v189RefStableHabitatScore(type,f){
+ const hab=habitatCode(f.properties||{}),m=SPECIES_META[type];if(!m)return 5.5;
+ if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
+ let family='borowik';
+ if(type==='podgrzybek')family='podgrzybek';
+ else if(type==='podgrzybek_zajaczek')family='zajaczek';
+ else if(type==='kozlarz_grabowy')family='kozlarz_grab';
+ else if(type.startsWith('kozlarz_'))family='kozlarz';
+ else if(type.startsWith('maslak_'))family='maslak';
+ else if(type==='rydz'||type==='mleczaj_swierkowy')family='mleczaj';
+ else if(type==='kurka'||type==='pieprznik_trabkowy')family='kurka';
+ else if(type==='lejkowiec_dety')family='lejkowiec_lisc';
+ else if(type==='kolczak_oblaczasty')family='kolczak_lisc';
+ else if(type==='gaska_nieksztaltna')family='gaska_sosna';
+ else if(type==='siedzun_sosnowy')family='siedzun';
+ else if(type==='opienka_miodowa')family='opienka_lisc';
+ else if(type==='opienka_ciemna')family='opienka_igl';
+ const base={BSW:6.8,BMSW:7.5,LMSW:8.0,LSW:7.7,BW:5.8,BMW:6.8,LMW:7.2,LW:6.5,BB:3.5,BMB:4.0,LMB:4.6,OL:4.2,OLJ:4.3}[hab]??6.4;
+ let sc=base+(((HAB[family]||{})[hab])||0);
+ if(type==='ponury'){if(['LSW','LMSW','LMW','LW'].includes(hab))sc+=1;if(['BSW','BMSW','BB','BMB'].includes(hab))sc-=1.6;}
+ if(type==='borowik_usiatkowany'){if(['LSW','LMSW','LMW','LW'].includes(hab))sc+=.75;if(['BSW','BW','BB','BMB'].includes(hab))sc-=.75;}
+ if(type==='borowik_sosnowy'){if(['BSW','BMSW','BMW'].includes(hab))sc+=.75;if(['LW','OL','OLJ'].includes(hab))sc-=.8;}
+ if(type.startsWith('maslak_')||type==='podgrzybek'||type==='rydz'||type==='siedzun_sosnowy'){if(['BSW','BMSW','BMW'].includes(hab))sc+=.55;}
+ if(type==='opienka_miodowa'){if(['OL','OLJ'].includes(hab))sc+=1.5;if(['BSW','BW'].includes(hab))sc-=.6;}
+ if(type==='opienka_ciemna'){if(['BSW','BMSW','BMW','LMSW'].includes(hab))sc+=.5;if(['OL','OLJ'].includes(hab))sc-=.6;}
+ if(type==='mleczaj_swierkowy'&&['BMSW','LMSW','LSW','BMW','LMW'].includes(hab))sc+=.35;
+ if(type.startsWith('kozlarz_')&&['BMW','LMW','LW','OL'].includes(hab))sc+=.35;
+ return clamp(sc);
+}
+function v189RefFruitingConditions(type,f){
+ const season=seasonScore(type);
+ if(weatherReady){
+   const weather=speciesWeatherProductionInfo(type,f._center).productionScore;
+   const base=.60*weather+.40*season;
+   return Math.max(0,Math.min(100,base*seasonGate(season)));
+ }
+ return Math.max(0,Math.min(100,season));
+}
+function v189RefScalarFromNiches(vals,meta){
+ const nicheVals=[];
+ for(let i=0;i<meta.nicheCount;i++){const v=vals[i];if(Number.isFinite(v))nicheVals.push(v);}
+ if(!nicheVals.length)return 0;
+ nicheVals.sort((a,b)=>b-a);
+ const best=nicheVals[0];if(meta.possibleExtras===0)return best;
+ const weights=[.50,.30,.20],extras=nicheVals.slice(1,4);
+ let supportRaw=4.80;
+ if(extras.length){let sum=0,ws=0;for(let i=0;i<extras.length;i++){const w=weights[i];sum+=w*extras[i];ws+=w;}for(let i=extras.length;i<3;i++){const w=weights[i];sum+=w*4.80;ws+=w;}supportRaw=sum/ws;}
+ if(meta.possibleExtras<3){const used=extras.slice(0,meta.possibleExtras);if(used.length){let sum=0,ws=0;for(let i=0;i<meta.possibleExtras;i++){const w=weights[i],val=used[i]??4.80;sum+=w*val;ws+=w;}supportRaw=sum/ws;}else supportRaw=4.80;}
+ return clamp(best*(1-meta.breadthWeight)+supportRaw*meta.breadthWeight);
+}
+function v189ReferenceRawPair(f,types,needDynamic=true){
+ const meta=opportunityScalarMetaV175(types);
+ const sv=new Array(meta.nicheCount).fill(-Infinity),dv=needDynamic?new Array(meta.nicheCount).fill(-Infinity):null;
+ for(let i=0;i<types.length;i++){
+   const t=types[i];if(!featureRelevant(t,f))continue;
+   const potential=stableScoreForType(t,f);
+   if(Number.isFinite(potential)){const v=clamp(potential),ni=meta.nicheIds[i];if(v>sv[ni])sv[ni]=v;}
+   if(needDynamic){const raw=Math.min(speciesEffective(t,f),potential);if(Number.isFinite(raw)){const v=clamp(raw),ni=meta.nicheIds[i];if(v>dv[ni])dv[ni]=v;}}
+ }
+ return {staticScore:v189RefScalarFromNiches(sv,meta),dynamicScore:needDynamic?v189RefScalarFromNiches(dv,meta):NaN};
+}
+async function auditV189PerformanceEquivalence(limit=180){
+ const src=allFeatures.filter(f=>!f._blocked);
+ const forest=src.filter(f=>f._kind!=='open').slice(0,Math.ceil(limit*.75));
+ const open=src.filter(f=>f._kind==='open').slice(0,Math.floor(limit*.25));
+ const features=[...forest,...open];
+ const types=PICK_TYPES;
+ let treeMax=0,gateMax=0,habMax=0,fruitMax=0,pairStaticMax=0,pairDynamicMax=0,checks=0;
+ const t0=performance.now();
+ for(const f of features){
+   for(const t of types){
+     if(!featureRelevant(t,f))continue;
+     treeMax=Math.max(treeMax,Math.abs(treePreference(t,f)-v189RefTreePreference(t,f)));
+     gateMax=Math.max(gateMax,Math.abs(hostGate(t,f)-v189RefHostGate(t,f)));
+     habMax=Math.max(habMax,Math.abs(stableHabitatScore(t,f)-v189RefStableHabitatScore(t,f)));
+     if(mapMode==='today')fruitMax=Math.max(fruitMax,Math.abs(fruitingConditions(t,f)-v189RefFruitingConditions(t,f)));
+     checks++;
+   }
+   const fast=opportunityRawScorePairV175(f,types,mapMode==='today');
+   const ref=v189ReferenceRawPair(f,types,mapMode==='today');
+   pairStaticMax=Math.max(pairStaticMax,Math.abs(fast.staticScore-ref.staticScore));
+   if(mapMode==='today')pairDynamicMax=Math.max(pairDynamicMax,Math.abs(fast.dynamicScore-ref.dynamicScore));
+ }
+ const maxDelta=Math.max(treeMax,gateMax,habMax,fruitMax,pairStaticMax,pairDynamicMax);
+ const report={
+   version:'v189',features:features.length,checks,mode:mapMode,
+   treeMax,gateMax,habMax,fruitMax,pairStaticMax,pairDynamicMax,maxDelta,
+   ok:maxDelta<=1e-10,elapsedMs:performance.now()-t0
+ };
+ window.__v189PerformanceEquivalence=report;
+ console.info('V189 PERFORMANCE EQUIVALENCE',report);
+ return report;
+}
+window.auditV189PerformanceEquivalence=auditV189PerformanceEquivalence;
 
 function auditBestHabitatBalance(){
  const savedFilter=currentFilter;
@@ -27184,7 +27470,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v188',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v189',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -27296,7 +27582,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v188-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
+   'v189-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -27341,8 +27627,10 @@ async function prewarmOpportunityCompositeDistributionsV176(types,key){
    const needOpen=!opportunityCompositeDistributionCache.has(openKey);
    if(!needForest&&!needOpen)continue;
    const forestRows=[],openRows=[];
-   // Parallel arrays zamiast tysięcy obiektów diagnostycznych.
-   const forestFeatures=[],openFeaturesLocal=[],forestDynamic=[],openDynamic=[];
+   // Parallel arrays zamiast tysięcy obiektów diagnostycznych. v189 trzyma także
+   // statyczne raw w kolejności feature, więc po sortowaniu rozkładu nie odczytujemy
+   // ponownie ~4 tys. wartości z WeakMap.
+   const forestFeatures=[],openFeaturesLocal=[],forestStatic=[],openStatic=[],forestDynamic=[],openDynamic=[];
    let sliceStarted=performance.now();
    for(const f of allFeatures){
      if(f._blocked||!featureInAnalysisAreaName(f,area.name))continue;
@@ -27351,8 +27639,8 @@ async function prewarmOpportunityCompositeDistributionsV176(types,key){
      const pair=opportunityRawScorePairV175(f,types,warmDynamic);
      const raw=pair.staticScore;
      if(Number.isFinite(raw)){
-       if(isOpen){openRows.push(raw);openFeaturesLocal.push(f);if(warmDynamic)openDynamic.push(pair.dynamicScore);}
-       else{forestRows.push(raw);forestFeatures.push(f);if(warmDynamic)forestDynamic.push(pair.dynamicScore);}
+       if(isOpen){openRows.push(raw);openFeaturesLocal.push(f);openStatic.push(raw);if(warmDynamic)openDynamic.push(pair.dynamicScore);}
+       else{forestRows.push(raw);forestFeatures.push(f);forestStatic.push(raw);if(warmDynamic)forestDynamic.push(pair.dynamicScore);}
        rowCount++;
      }
      if(!pair.cacheHit)pairs++;
@@ -27398,10 +27686,7 @@ async function prewarmOpportunityCompositeDistributionsV176(types,key){
          finalized++;
        }
      };
-     // Uwaga: staticVals w tablicach features muszą zachować kolejność sprzed sortowania.
-     // Dlatego odczytujemy raw z istniejącego scalar cache — to O(1), bez ponownego modelu.
-     const forestStatic=forestFeatures.map(f=>opportunityRawScoreScalar(f,false,types));
-     const openStatic=openFeaturesLocal.map(f=>opportunityRawScoreScalar(f,false,types));
+     // staticVals zachowują kolejność sprzed sortowania już z pierwszego przebiegu.
      seedFinal(forestFeatures,forestStatic,forestDynamic,forestRows);
      seedFinal(openFeaturesLocal,openStatic,openDynamic,openRows);
    }
@@ -27582,9 +27867,9 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,anchorMs,
      ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v188',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v189',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v188',{
+   console.info('HOTSPOT PHASE v189',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      forestWorkerWallMs:+phase.forestWorkerWallMs.toFixed(1),forestWorkerMs:+phase.forestWorkerMs.toFixed(1),
      priorMs:+phase.priorMs.toFixed(1),distributionMs:+phase.distributionMs.toFixed(1),distributionPairs:phase.distributionPairs||0,finalizedScores:phase.finalizedScores||0,
@@ -27593,7 +27878,7 @@ async function prewarmHotspotPipeline(){
      distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
-   console.info(`HOTSPOT PHASE v188 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   console.info(`HOTSPOT PHASE v189 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | prior=${phase.priorMs.toFixed(1)} | distribution=${phase.distributionMs.toFixed(1)}(pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)} | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
    return true;
  })().finally(()=>{hotspotPipelineWarmPromise=null;});
 
@@ -27768,7 +28053,7 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v188',{
+   console.info('HOTSPOT RENDER v189',{
      features:rows.length,
      visibleRows,
      reasons:perfRenderNow._v182Reasons||[],
@@ -29890,7 +30175,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v188: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v189: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -29899,7 +30184,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v188',{
+   console.info('HOTSPOT ACCESS NETWORK v189',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -29913,7 +30198,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v188',{
+   console.info('HOTSPOT ACCESS v189',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -29938,7 +30223,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v188: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v189: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -29960,15 +30245,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v188',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v189',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v188',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v189',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v188: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v189: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }

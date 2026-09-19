@@ -4791,61 +4791,57 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   .score-legend-words{font-size:5.8px!important;gap:2px!important}
 }
 </style>
-<style id="v212-start-guide-style">
-/* v212 — onboarding nie nachodzi na panele: desktop = karta w Ustawieniach, mobile = pływający baner między dockiem a statusami. */
+<style id="v213-start-guide-style">
+/* v213 — onboarding zawsze jako osobna karta nad mapą; pozycja liczona względem realnych paneli. */
 .start-guide{
+  position:fixed;
   display:none;
-  margin:8px 0 10px;
   align-items:flex-start;
   gap:10px;
-  padding:10px 12px;
-  border-radius:14px;
-  background:linear-gradient(135deg,rgba(27,46,36,.98),rgba(16,24,20,.98));
-  border:1px solid rgba(108,214,139,.34);
-  border-left:4px solid #57c472;
-  color:#eef8f0;
-  box-shadow:0 10px 24px rgba(0,0,0,.16), inset 0 0 0 1px rgba(255,255,255,.04);
+  padding:11px 13px;
+  border-radius:15px;
+  background:linear-gradient(135deg,rgba(22,48,34,.985),rgba(12,24,18,.985));
+  border:1px solid rgba(111,226,143,.48);
+  border-left:5px solid #58d47a;
+  color:#f2fff4;
+  box-shadow:0 14px 34px rgba(0,0,0,.30),0 0 0 1px rgba(255,255,255,.035) inset;
   font-family:Inter,Segoe UI,Arial,sans-serif;
-  position:relative;
+  backdrop-filter:blur(7px);
+  z-index:5300;
   overflow:hidden;
 }
 .start-guide::before{
-  content:"";
-  position:absolute;
-  inset:0;
-  background:radial-gradient(circle at 10% 0%, rgba(110,208,132,.18), transparent 40%);
+  content:"";position:absolute;inset:0;
+  background:radial-gradient(circle at 8% 0%,rgba(112,225,142,.22),transparent 42%);
   pointer-events:none;
 }
 .start-guide.show{display:flex}
-.start-guide-icon{font-size:19px;line-height:1;flex:0 0 auto;margin-top:1px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.24))}
+.start-guide-icon{font-size:21px;line-height:1;flex:0 0 auto;margin-top:1px;position:relative;z-index:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,.32))}
 .start-guide-main{min-width:0;flex:1 1 auto;position:relative;z-index:1}
-.start-guide-title{font-size:12.5px;font-weight:950;line-height:1.2;color:#f7fff8}
-.start-guide-text{margin-top:3px;font-size:11.2px;line-height:1.38;color:#dce9df}
+.start-guide-title{font-size:13.5px;font-weight:950;line-height:1.15;color:#f7fff8;letter-spacing:.01em}
+.start-guide-text{margin-top:4px;font-size:11.5px;line-height:1.42;color:#dcecdf}
 .start-guide-close{
-  position:relative;z-index:1;
-  flex:0 0 auto;width:28px;height:28px;padding:0;border-radius:10px;
-  border:1px solid rgba(255,255,255,.12);background:rgba(37,48,41,.9);color:#eef5ef;
+  position:relative;z-index:1;flex:0 0 auto;width:29px;height:29px;padding:0;border-radius:10px;
+  border:1px solid rgba(255,255,255,.16);background:rgba(37,54,44,.92);color:#f5fff7;
   cursor:pointer;font-size:18px;line-height:1;
 }
-.start-guide.start-guide-floating{
-  position:fixed;
-  margin:0;
-  left:7px;
-  right:128px;
-  top:112px;
-  z-index:1698;
-  padding:9px 10px;
-  border-radius:13px;
-  backdrop-filter:blur(6px);
-}
-.start-guide.start-guide-floating .start-guide-title{font-size:11.5px}
-.start-guide.start-guide-floating .start-guide-text{font-size:10px}
-.start-guide.start-guide-floating .start-guide-close{width:26px;height:26px;border-radius:9px}
 @media(max-width:700px){
-  .start-guide:not(.start-guide-floating){
-    padding:9px 10px;
-    border-radius:13px;
+  .start-guide{
+    padding:10px 11px;
+    border-radius:14px;
+    gap:9px;
+    z-index:5300;
   }
+  .start-guide-icon{font-size:19px}
+  .start-guide-title{font-size:12px}
+  .start-guide-text{font-size:10.2px;line-height:1.38}
+  .start-guide-close{width:27px;height:27px;border-radius:9px}
+}
+</style>
+<style id="v213-mobile-popup-stack">
+@media(max-width:700px){
+  .place-details-panel{z-index:5800!important}
+  .data-source-mini,.source-detail-box{z-index:5200!important}
 }
 </style>
 </head>
@@ -4938,7 +4934,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   <div class="start-guide-icon" aria-hidden="true">📍</div>
   <div class="start-guide-main">
     <div class="start-guide-title">Jak zacząć?</div>
-    <div class="start-guide-text">To tylko podgląd całej Polski. Aby wystartować, wpisz miejscowość lub las i rozpocznij analizę konkretnego miejsca.</div>
+    <div class="start-guide-text">To tylko podgląd całej Polski. Wpisz u góry miejscowość albo las — dopiero wtedy mapa przejdzie do dokładnej analizy wybranego rejonu.</div>
   </div>
   <button id="startGuideClose" class="start-guide-close" type="button" aria-label="Zamknij podpowiedź">×</button>
 </div>
@@ -33145,60 +33141,53 @@ const locatorHint=document.getElementById('locatorHint');
 const startGuide=document.getElementById('startGuide');
 const startGuideClose=document.getElementById('startGuideClose');
 let startGuideDismissed=false;
-try{startGuideDismissed=localStorage.getItem('v211StartGuideDismissed')==='1';}catch(_){startGuideDismissed=false;}
 function mountStartGuide(){
  if(!startGuide)return;
- const locatorCard=document.querySelector('.locator-card');
- const mobile=window.matchMedia('(max-width:700px)').matches;
- if(mobile){
-   if(startGuide.parentElement!==document.body)document.body.appendChild(startGuide);
-   startGuide.classList.add('start-guide-floating');
- }else{
-   if(locatorCard && startGuide.parentElement!==locatorCard){
-     const afterNode=locatorCard.querySelector('.locator-title')?.nextSibling || locatorCard.firstChild;
-     locatorCard.insertBefore(startGuide, afterNode);
-   }
-   startGuide.classList.remove('start-guide-floating');
-   startGuide.style.top='';
-   startGuide.style.left='';
-   startGuide.style.right='';
-   startGuide.style.width='';
- }
+ if(startGuide.parentElement!==document.body)document.body.appendChild(startGuide);
 }
 function positionStartGuide(){
  if(!startGuide)return;
+ mountStartGuide();
  const mobile=window.matchMedia('(max-width:700px)').matches;
- if(!mobile){
-   startGuide.style.top='';
-   startGuide.style.left='';
-   startGuide.style.right='';
-   startGuide.style.width='';
-   return;
- }
  const dock=document.getElementById('mobileSearchDock');
  const dataMini=document.getElementById('dataSourceMini');
+ const modeRow=document.getElementById('modeToolsRow');
+ const panel=document.querySelector('.panel');
  const dockRect=dock?.getBoundingClientRect();
  const dataRect=dataMini?.getBoundingClientRect();
- const top=Math.round((dockRect?.bottom || 102) + 6);
- startGuide.style.top=`${top}px`;
- startGuide.style.left='7px';
- if(dataRect && dataRect.left>140){
-   const right=Math.max(7, Math.round(window.innerWidth - dataRect.left + 8));
-   startGuide.style.right=`${right}px`;
-   startGuide.style.width='auto';
- }else{
+ const modeRect=modeRow?.getBoundingClientRect();
+ const panelRect=panel?.getBoundingClientRect();
+ if(mobile){
+   // Na telefonie karta stoi POD całym panelem źródeł danych, więc nic jej nie przykrywa.
+   const top=Math.round(Math.max(dockRect?.bottom||102,dataRect?.bottom||0)+8);
+   startGuide.style.top=`${top}px`;
+   startGuide.style.left='7px';
    startGuide.style.right='7px';
    startGuide.style.width='auto';
+   startGuide.style.maxWidth='none';
+ }else{
+   // Na PC: obok Ustawień, pod przełącznikiem Dziś/Ogólnie, z dala od panelu Dane po prawej.
+   const left=Math.round((panelRect?.right||400)+14);
+   const top=Math.round(Math.max(74,(modeRect?.bottom||62)+9));
+   const rightGuard=dataRect?.left ? Math.max(18,window.innerWidth-dataRect.left+14) : 18;
+   const available=Math.max(300,window.innerWidth-left-rightGuard);
+   const width=Math.min(500,available);
+   startGuide.style.top=`${top}px`;
+   startGuide.style.left=`${left}px`;
+   startGuide.style.right='auto';
+   startGuide.style.width=`${width}px`;
+   startGuide.style.maxWidth=`calc(100vw - ${left+18}px)`;
  }
 }
-function dismissStartGuide(persist=true){
+function dismissStartGuide(){
  if(!startGuide)return;
+ startGuideDismissed=true;
  startGuide.classList.remove('show');
  startGuide.setAttribute('aria-hidden','true');
- if(persist){
-   startGuideDismissed=true;
-   try{localStorage.setItem('v211StartGuideDismissed','1');}catch(_){ }
- }
+}
+function resetStartGuide(){
+ startGuideDismissed=false;
+ syncStartGuide();
 }
 function syncStartGuide(){
  if(!startGuide)return;
@@ -33211,9 +33200,18 @@ function syncStartGuide(){
  startGuide.setAttribute('aria-hidden',shouldShow?'false':'true');
  if(shouldShow)positionStartGuide();
 }
-startGuideClose?.addEventListener('click',()=>dismissStartGuide(true));
-window.addEventListener('resize',()=>{mountStartGuide();positionStartGuide();syncStartGuide();},{passive:true});
-window.addEventListener('orientationchange',()=>{mountStartGuide();positionStartGuide();syncStartGuide();},{passive:true});
+startGuideClose?.addEventListener('click',dismissStartGuide);
+window.addEventListener('resize',()=>{positionStartGuide();syncStartGuide();},{passive:true});
+window.addEventListener('orientationchange',()=>{setTimeout(()=>{positionStartGuide();syncStartGuide();},80);},{passive:true});
+if('ResizeObserver' in window){
+ const guideRO=new ResizeObserver(()=>{if(startGuide?.classList.contains('show'))positionStartGuide();});
+ const dataMiniRO=document.getElementById('dataSourceMini');
+ const dockRO=document.getElementById('mobileSearchDock');
+ const panelRO=document.querySelector('.panel');
+ if(dataMiniRO)guideRO.observe(dataMiniRO);
+ if(dockRO)guideRO.observe(dockRO);
+ if(panelRO)guideRO.observe(panelRO);
+}
 
 function cleanPlaceName(display){
  const parts=String(display||'').split(',').map(x=>x.trim()).filter(Boolean);
@@ -33251,6 +33249,7 @@ function renderDraft(){
          clearAnalysisData();
          selectionGroup.clearLayers();
          document.getElementById('status').textContent='📍 Wyszukaj lub wskaż na mapie miejsce.';
+         resetStartGuide();
        }
      };
      selectedLocationsEl.appendChild(row);
@@ -33263,8 +33262,10 @@ function renderDraft(){
    : selectedDraft.length
      ? `Wybrano ${selectedDraft.length}/${MAX_AREAS}. Dodaj miejsca wyszukiwarką albo wskaż je na mapie.`
      : '📍 Aby zacząć, wyszukaj miejscowość, las albo wskaż punkt na mapie. Ta mapa Polski to tylko podgląd ogólny.';
- if(selectedDraft.length)dismissStartGuide(true);
- else syncStartGuide();
+ if(selectedDraft.length){
+   startGuide?.classList.remove('show');
+   startGuide?.setAttribute('aria-hidden','true');
+ }else syncStartGuide();
 }
 
 function syncDraftPreview(){
@@ -33546,6 +33547,7 @@ clearSelectedBtn.onclick=()=>{
  }
 
  document.getElementById('status').textContent='📍 Wybierz miejsce, a mapa sama pokaże wynik.';
+ resetStartGuide();
  document.getElementById('areaCompareBody').innerHTML='<div class="area-card"><div class="area-name">Wybierz co najmniej jeden rejon</div></div>';
  document.getElementById('areaCompareResult').textContent='Dodaj 2–4 rejony, żeby porównać je bezpośrednio.';
  map.setView(CENTER,6);
@@ -33574,7 +33576,6 @@ function syncMobileSearchDock(){
  }else if(locatorSearchRow.parentElement!==locatorCard){
    locatorCard.insertBefore(locatorSearchRow,locatorActions||locatorCard.firstChild);
  }
- mountStartGuide();
  positionStartGuide();
 }
 
@@ -33597,6 +33598,7 @@ function setPanelCollapsed(collapsed){
    panelBody.style.display='';
    panelBody.style.maxHeight=collapsed?'0px':panelBody.scrollHeight+'px';
  }
+ setTimeout(()=>{syncStartGuide();positionStartGuide();},0);
 }
 function syncPanelHeight(){
  if(!panelBody||!panelEl||panelEl.classList.contains('mobile-collapsed'))return;
@@ -33915,7 +33917,7 @@ window.auditV176Architecture=function(){
   </div>
 </div>
 
-<script id="v212-mobile-score-legend-position">
+<script id="v213-mobile-score-legend-position">
 (()=>{
   const root=document.documentElement;
   const atlas=document.getElementById('mushroomAtlas');

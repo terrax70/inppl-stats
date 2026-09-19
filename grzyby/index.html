@@ -5112,10 +5112,10 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
       <option value="maslak_sitarz">Maślak sitarz</option>
       <option value="maslak_pstry">Maślak pstry</option>
       <option value="opienka_ciemna">Opieńka ciemna</option>
-      <option value="opienka_miodowa">Opieńka miodowa</option>
+      <option value="opienka_miodowa">Opieńka miodowa właściwa</option>
       <option value="kania">Czubajka kania</option>
       <option value="czernidlak">Czernidłak kołpakowaty</option>
-      <option value="pieczarka_polna">Pieczarka polna</option>
+      <option value="pieczarka_polna">Pieczarka łąkowa</option>
       <option value="kurka">Kurka</option>
     </select>
     <div id="speciesMeta" class="species-meta"></div>
@@ -5335,12 +5335,12 @@ const SCI_NAMES=Object.fromEntries(Object.entries(SPECIES_META).map(([k,v])=>[k,
 const HUMAN_NAMES=Object.fromEntries(Object.entries(SPECIES_META).map(([k,v])=>[k,v.label]));
 const ATLAS_GROUPS=[
  {id:'mixed_bolete',label:'Borowiki lasów mieszanych',sub:'dąb • buk • lasy mieszane',rep:'borowik',members:['borowik','borowik_usiatkowany','ceglastopory','ponury','podgrzybek_zajaczek']},
- {id:'pine_acid',label:'Bory sosnowe',sub:'sosna • kwaśna ściółka • piasek',rep:'podgrzybek',members:['podgrzybek','borowik_sosnowy','maslak_zwyczajny','maslak_sitarz','maslak_pstry','maslak_ziarnisty','rydz','gaska_nieksztaltna','kozlarz_sosnowy']},
+ {id:'pine_acid',label:'Bory sosnowe',sub:'sosna • kwaśna ściółka • piasek',rep:'podgrzybek',members:['podgrzybek','borowik_sosnowy','maslak_zwyczajny','maslak_sitarz','maslak_pstry','maslak_ziarnisty','rydz','gaska_nieksztaltna']},
  {id:'birch_aspen',label:'Koźlarze',sub:'brzoza • osika • grab • dąb • sosna',rep:'kozlarz_babka',members:['kozlarz_babka','kozlarz_pomaranczowozolty','kozlarz_czerwony','kozlarz_grabowy','kozlarz_debowy','kozlarz_sosnowy']},
  {id:'spruce',label:'Świerkowe',sub:'silny związek ze świerkiem',rep:'mleczaj_swierkowy',members:['mleczaj_swierkowy']},
  {id:'larch',label:'Modrzewiowe',sub:'silny związek z modrzewiem',rep:'maslak_zolty',members:['maslak_zolty']},
  {id:'wood',label:'Pniaki i korzenie',sub:'korzenie • pniaki • osłabione drzewa',rep:'opienka_miodowa',members:['opienka_ciemna','opienka_miodowa','siedzun_sosnowy','boczniak_ostrygowaty']},
- {id:'edges',label:'Skraje i polany',sub:'widne skraje • polany • łąki',rep:'kania',members:['kania','kania_gwiazdzista']},
+ {id:'edges',label:'Kanie • skraje i widne lasy',sub:'skraje • polany • widne lasy • parki',rep:'kania',members:['kania','kania_gwiazdzista']},
  {id:'grassland',label:'Łąki i trawniki',sub:'łąki • pastwiska • trawniki',rep:'pieczarka_polna',members:['pieczarka_polna','czernidlak','purchawka_oczkowana','twardzioszek_przydrozny']},
  {id:'chanterelle',label:'Kurki, lejki i kolczaki',sub:'mchowe i wilgotniejsze lasy',rep:'kurka',members:['kurka','pieprznik_trabkowy','lejkowiec_dety','kolczak_oblaczasty']},
  {id:'golabki',label:'Gołąbki',sub:'lasy liściaste • bory sosnowe',rep:'golabek_zielonawy',members:['golabek_zielonawy','golabek_bagienny']}
@@ -5363,11 +5363,11 @@ const ATLAS_SHORT_NAMES={
  mleczaj_swierkowy:'Mleczaj świerkowy',
  maslak_zolty:'Maślak żółty',
  opienka_ciemna:'Opieńka ciemna',
- opienka_miodowa:'Opieńka miodowa',
+ opienka_miodowa:'Opieńka miodowa wł.',
  siedzun_sosnowy:'Siedzuń sosnowy',
  kania:'Czubajka kania',
  kania_gwiazdzista:'Czubajka gwiaździsta',
- pieczarka_polna:'Pieczarka polna',
+ pieczarka_polna:'Pieczarka łąkowa',
  czernidlak:'Czernidłak kołpak.',
  purchawka_oczkowana:'Purchawka oczkowana',
  kurka:'Kurka',
@@ -5380,6 +5380,11 @@ const ATLAS_SHORT_NAMES={
  podgrzybek_zajaczek:'Podgrzybek zającz.',
  gaska_nieksztaltna:'Gąska siwa',
  twardzioszek_przydrozny:'Twardzioszek',
+ boczniak_ostrygowaty:'Boczniak ostryg.',
+ kozlarz_debowy:'Koźlarz dębowy',
+ kozlarz_sosnowy:'Koźlarz sosnowy',
+ golabek_zielonawy:'Gołąbek zielonawy',
+ golabek_bagienny:'Gołąbek błotny',
 };
 const ATLAS_GROUP_SHORT={
  mixed_bolete:'Borowiki mieszane',
@@ -5388,7 +5393,7 @@ const ATLAS_GROUP_SHORT={
  spruce:'Świerkowe',
  larch:'Modrzewiowe',
  wood:'Pniaki i korzenie',
- edges:'Skraje i polany',
+ edges:'Kanie i skraje',
  grassland:'Łąki i trawniki',
  chanterelle:'Kurki i lejki',
  golabki:'Gołąbki'
@@ -5408,17 +5413,17 @@ const ATLAS_ICON_ASSETS={
   gaska_nieksztaltna:'assets/atlas/gaska_nieksztaltna.webp',
   twardzioszek_przydrozny:'assets/atlas/twardzioszek_przydrozny.webp',
   borowik_usiatkowany:'assets/atlas/borowik_usiatkowany.webp',
-  borowik_sosnowy:'assets/atlas/borowik_sosnowy.png',
+  borowik_sosnowy:'assets/atlas/borowik_sosnowy.webp',
   kozlarz_czerwony:'assets/atlas/kozlarz_czerwony.webp',
   kozlarz_pomaranczowozolty:'assets/atlas/kozlarz_pomaranczowozolty.webp',
   mleczaj_swierkowy:'assets/atlas/mleczaj_swierkowy.webp',
   rydz:'assets/atlas/rydz.webp',
   siedzun_sosnowy:'assets/atlas/siedzun_sosnowy.webp',
-  boczniak_ostrygowaty:'assets/atlas/boczniak_ostrygowaty.png',
-  kozlarz_debowy:'assets/atlas/kozlarz_debowy.png',
-  kozlarz_sosnowy:'assets/atlas/kozlarz_sosnowy.png',
-  golabek_zielonawy:'assets/atlas/golabek_zielonawy.png',
-  golabek_bagienny:'assets/atlas/golabek_bagienny.png'
+  boczniak_ostrygowaty:'assets/atlas/boczniak_ostrygowaty.webp',
+  kozlarz_debowy:'assets/atlas/kozlarz_debowy.webp',
+  kozlarz_sosnowy:'assets/atlas/kozlarz_sosnowy.webp',
+  golabek_zielonawy:'assets/atlas/golabek_zielonawy.webp',
+  golabek_bagienny:'assets/atlas/golabek_bagienny.webp'
 };
 
 const ATLAS_ICON_WEBP={"borowik":"assets/atlas/borowik.webp","ceglastopory":"assets/atlas/ceglastopory.webp","ponury":"assets/atlas/ponury.webp","gorzkoborowik":"assets/atlas/gorzkoborowik.webp","kozlarz_babka":"assets/atlas/kozlarz_babka.webp","podgrzybek":"assets/atlas/podgrzybek.webp","maslak_zolty":"assets/atlas/maslak_zolty.webp","maslak_sitarz":"assets/atlas/maslak_sitarz.webp","maslak_pstry":"assets/atlas/maslak_pstry.webp","opienka_ciemna":"assets/atlas/opienka_ciemna.webp","opienka_miodowa":"assets/atlas/opienka_miodowa.webp","kania":"assets/atlas/kania.webp","kania_gwiazdzista":"assets/atlas/kania_gwiazdzista.webp","czernidlak":"assets/atlas/czernidlak.webp","pieczarka_polna":"assets/atlas/pieczarka_polna.webp","purchawka_oczkowana":"assets/atlas/purchawka_oczkowana.webp","kurka":"assets/atlas/kurka.webp","goryczak":"assets/atlas/goryczak.webp","szatanski":"assets/atlas/szatanski.webp"};
@@ -5532,7 +5537,7 @@ function atlasSvg(type){
  ATLAS_SVG_CACHE.set(requestedType,uri);
  return uri;
 }
-const HINT_SHORT={"borowik":"Borowik","borowik_usiatkowany":"Borowik usiatk.","borowik_sosnowy":"Borowik sosn.","ceglastopory":"Ceglastopory","ponury":"Ponury","gorzkoborowik":"Gorzkoborowik","kozlarz_babka":"Koźlarz babka","kozlarz_pomaranczowozolty":"Koźlarz pom.-ż.","kozlarz_czerwony":"Koźlarz czerw.","podgrzybek":"Podgrzybek","maslak_zwyczajny":"Maślak zw.","maslak_zolty":"Maślak żółty","maslak_sitarz":"Maślak sitarz","maslak_pstry":"Maślak pstry","rydz":"Mleczaj rydz","mleczaj_swierkowy":"Mleczaj świerk.","opienka_ciemna":"Opieńka ciemna","opienka_miodowa":"Opieńka miodowa","siedzun_sosnowy":"Siedzuń sosn.","kania":"Czubajka kania","kania_gwiazdzista":"Czubajka gw.","czernidlak":"Czernidłak","pieczarka_polna":"Pieczarka","purchawka_oczkowana":"Purchawka","kurka":"Kurka","goryczak":"Goryczak","szatanski":"Szatański","kozlarz_grabowy":"Koźlarz grab.","maslak_ziarnisty":"Maślak ziarn.","pieprznik_trabkowy":"Pieprznik trąb.","lejkowiec_dety":"Lejkowiec dęty","kolczak_oblaczasty":"Kolczak obł.","podgrzybek_zajaczek":"Zajączek","gaska_nieksztaltna":"Gąska siwa","twardzioszek_przydrozny":"Twardzioszek","boczniak_ostrygowaty":"Boczniak ostryg.","kozlarz_debowy":"Koźlarz dęb.","kozlarz_sosnowy":"Koźlarz sosn.","golabek_zielonawy":"Gołąbek ziel.","golabek_bagienny":"Gołąbek bag."};
+const HINT_SHORT={"borowik":"Borowik","borowik_usiatkowany":"Borowik usiatk.","borowik_sosnowy":"Borowik sosn.","ceglastopory":"Ceglastopory","ponury":"Ponury","gorzkoborowik":"Gorzkoborowik","kozlarz_babka":"Koźlarz babka","kozlarz_pomaranczowozolty":"Koźlarz pom.-ż.","kozlarz_czerwony":"Koźlarz czerw.","podgrzybek":"Podgrzybek","maslak_zwyczajny":"Maślak zw.","maslak_zolty":"Maślak żółty","maslak_sitarz":"Maślak sitarz","maslak_pstry":"Maślak pstry","rydz":"Mleczaj rydz","mleczaj_swierkowy":"Mleczaj świerk.","opienka_ciemna":"Opieńka ciemna","opienka_miodowa":"Opieńka miod. wł.","siedzun_sosnowy":"Siedzuń sosn.","kania":"Czubajka kania","kania_gwiazdzista":"Czubajka gw.","czernidlak":"Czernidłak","pieczarka_polna":"Pieczarka łąkowa","purchawka_oczkowana":"Purchawka","kurka":"Kurka","goryczak":"Goryczak","szatanski":"Szatański","kozlarz_grabowy":"Koźlarz grab.","maslak_ziarnisty":"Maślak ziarn.","pieprznik_trabkowy":"Pieprznik trąb.","lejkowiec_dety":"Lejkowiec dęty","kolczak_oblaczasty":"Kolczak obł.","podgrzybek_zajaczek":"Zajączek","gaska_nieksztaltna":"Gąska siwa","twardzioszek_przydrozny":"Twardzioszek","boczniak_ostrygowaty":"Boczniak ostryg.","kozlarz_debowy":"Koźlarz dęb.","kozlarz_sosnowy":"Koźlarz sosn.","golabek_zielonawy":"Gołąbek ziel.","golabek_bagienny":"Gołąbek błotny"};
 function shortHintName(type){return HINT_SHORT[type]||HUMAN_NAMES[type]||type;}
 // v71 FIX: "roznorodnosc" liczy unikalne NISZE SIEDLISKOWE, a nie rodziny grzybow.
 // v65 uzywalo SPECIES_META.group ("Maslaki", "Mleczaje", "Siedzunie"), czyli
@@ -5956,7 +5961,11 @@ const HAB={
  // realnie wystepuje najobficiej.
  opienka_lisc:{BSW:-.9,BMSW:-.4,LMSW:.5,LSW:.9,BW:-.6,BMW:.1,LMW:.8,LW:1.0,BB:-.4,BMB:.2,LMB:.6,OL:1.0,OLJ:1.1},
  opienka_igl:{BSW:.45,BMSW:.75,LMSW:.5,LSW:.1,BW:.2,BMW:.5,LMW:.3,LW:-.2,BB:-.5,BMB:-.15,LMB:-.1,OL:-.7,OLJ:-.6},
- siedzun:{BSW:.9,BMSW:.9,LMSW:.35,LSW:0,BW:.2,BMW:.4,LMW:.1,LW:-.45,BB:-.9,BMB:-.7,LMB:-.6,OL:-1.4,OLJ:-1.3}
+ siedzun:{BSW:.9,BMSW:.9,LMSW:.35,LSW:0,BW:.2,BMW:.4,LMW:.1,LW:-.45,BB:-.9,BMB:-.7,LMB:-.6,OL:-1.4,OLJ:-1.3},
+ // v219: osobne rodziny dla gatunków, które w v218 wpadały w fallback 'borowik'.
+ boczniak_lisc:{BSW:-1.2,BMSW:-.5,LMSW:.45,LSW:.85,BW:-.6,BMW:0,LMW:.75,LW:.95,BB:-.7,BMB:-.2,LMB:.55,OL:.75,OLJ:.85},
+ golabek_lisc:{BSW:-1.0,BMSW:-.4,LMSW:.55,LSW:.95,BW:-.5,BMW:.1,LMW:.75,LW:.75,BB:-1.2,BMB:-.6,LMB:.35,OL:-.5,OLJ:-.3},
+ golabek_blotny:{BSW:.25,BMSW:.55,LMSW:.05,LSW:-.45,BW:1.0,BMW:1.1,LMW:.35,LW:.1,BB:1.25,BMB:1.15,LMB:.45,OL:-.2,OLJ:-.1}
 };
 function hexToRgb(h){
  h=h.replace('#',''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
@@ -7552,7 +7561,7 @@ const SPECIES_WEATHER_LAB_ASSIGNMENTS={
   siedzun_sosnowy:{profile:'wood_autumn',evidence:'ecology-proxy',basis:'grzyb nadrzewny; persistence jako ostrożny priorytet'},
 
   kania:{profile:'edge_recent',evidence:'ecology-proxy',basis:'gatunek skrajów/łąk; świeży opad jako priorytet testowy'},
-  kania_gwiazdzista:{profile:'edge_recent',evidence:'ecology-proxy',basis:'gatunek skrajów/łąk; świeży opad jako priorytet testowy'},
+  kania_gwiazdzista:{profile:'edge_recent',evidence:'ecology-proxy',basis:'widne lasy, parki i skraje; świeży opad jako ostrożny proxy'},
   czernidlak:{profile:'grass_recent',evidence:'ecology-proxy',basis:'teren otwarty; świeży opad i umiarkowane ciepło'},
   pieczarka_polna:{profile:'grass_recent',evidence:'ecology-proxy',basis:'teren otwarty; świeży opad i umiarkowane ciepło'},
   boczniak_ostrygowaty:{profile:'wood_autumn',evidence:'ecology-proxy',basis:'grzyb nadrzewny drzew liściastych; chłodniejsza jesień i persistence'},
@@ -8109,6 +8118,8 @@ function featureRelevant(type,f){
 
  if(m.ecology==='edge'){
    if(f._kind==='open')return true;
+   // v219: M. mastoidea / forma tradycyjnie nazywana 'gwiaździstą' jest także leśno-parkowa.
+   if(type==='kania_gwiazdzista')return true;
 
    const d=Number(f._openNear);
    // Kania może wejść do wyniku lasu tylko przy rzeczywistym skraju/polanie
@@ -9023,6 +9034,9 @@ function openHabitatBaseScore(type,tag){
    purchawka_oczkowana:{pasture:9.2,meadow:9.1,grassland:9.4,grass:5.4,heath:9.6,park:4.3,recreation_ground:3.8}
  };
  if(tables[type]&&Number.isFinite(tables[type][tag]))return tables[type][tag];
+ if(type==='kania_gwiazdzista'){
+   return ({meadow:6.8,pasture:6.2,grassland:6.8,grass:5.8,heath:4.8,park:8.2,recreation_ground:7.2})[tag]??6.0;
+ }
  if(SPECIES_META[type]?.ecology==='edge'){
    return ({meadow:8.4,pasture:8.1,grassland:8.7,grass:5.2,heath:6.5,park:4.0,recreation_ground:3.6})[tag]??5.0;
  }
@@ -9087,6 +9101,10 @@ function openHabitatScore(type,f){
  }
  const d=Number(f._openNear);
  if(m.ecology==='edge'){
+   if(type==='kania_gwiazdzista'){
+     const woodland=Number.isFinite(d)?piecewise(d,[[0,9.2],[.18,9.0],[.45,8.5],[1.0,7.8],[2.0,7.2],[4.0,6.8]]):7.4;
+     return Math.max(woodland,f._ko?8.2:0);
+   }
    const edge=Number.isFinite(d)?piecewise(d,[[0,9.8],[.12,9.5],[.3,8.3],[.6,6.3],[1.2,4.5],[3,3]]):6;
    return Math.max(edge,f._ko?8.0:0);
  }
@@ -9990,6 +10008,42 @@ for(const [type,curve] of Object.entries(PHENOLOGY_V188_CORRECTIONS)){
  if(SPECIES_META[type])SPECIES_META[type].season=curve;
 }
 
+// ========================= v219: AUDYT BIOLOGII CAŁEGO ATLASU =========================
+// Źródła i rozdzielenie SOURCE_FACTS vs MODEL_PRIORS są w MUSHROOM_ECOLOGY_REFERENCE.md.
+// Tu trafiają wyłącznie poprawki, dla których audyt wykazał konkretny kierunek.
+const BIOLOGY_CORRECTIONS_V219={
+ borowik:{secondary:['JD','GB']},
+ ceglastopory:{strong:['BK','SW'],secondary:['DB','JD','GB']},
+ ponury:{strong:['DB','BK','GB','LP'],secondary:[]},
+ gorzkoborowik:{strong:['SW','BK'],secondary:['DB','JD']},
+ kozlarz_babka:{strong:['BRZ'],secondary:[],moist:'mesic'},
+ opienka_ciemna:{strong:['SW'],secondary:['SO','MD','JD','BK','DB','GB','BRZ']},
+ opienka_miodowa:{label:'Opieńka miodowa właściwa',scientific:'Armillaria mellea',strong:['DB','GB','BK'],secondary:['OS','TP','JW','KL'],warning:'Model dotyczy opieńki miodowej właściwej (A. mellea s.str.) na żywym i martwym drewnie liściastym.'},
+ kania_gwiazdzista:{scientific:'Macrolepiota mastoidea',warning:'Nazwa M. konradii jest w części baz traktowana jako synonim M. mastoidea; model preferuje widne lasy, parki i skraje zamiast otwartych łąk.'},
+ pieczarka_polna:{label:'Pieczarka łąkowa'},
+ kurka:{secondary:['GB']},
+ goryczak:{strong:['SO','SW'],secondary:[]},
+ szatanski:{strong:['BK','DB','GB','LP'],secondary:[]},
+ borowik_usiatkowany:{secondary:['GB']},
+ borowik_sosnowy:{secondary:[]},
+ kozlarz_czerwony:{scientific:'Leccinum aurantiacum',secondary:[]},
+ mleczaj_swierkowy:{ph:[4.0,8.0]},
+ pieprznik_trabkowy:{strong:[],secondary:['SO','SW','BK','DB']},
+ podgrzybek_zajaczek:{strong:[],secondary:['SO','SW','DB','BK','BRZ','GB']},
+ boczniak_ostrygowaty:{strong:['BK','WB','TP','BRZ','GB','JS'],secondary:['DB','OL','OS'],warning:'Rośnie na żywym, zamierającym i martwym drewnie liściastym; substrat drzewny jest ważniejszy niż pH gleby.'},
+ kozlarz_debowy:{strong:['DB'],secondary:[]},
+ kozlarz_sosnowy:{strong:['SO'],secondary:[]},
+ golabek_zielonawy:{strong:['DB','BK'],secondary:['BRZ','SW']},
+ golabek_bagienny:{label:'Gołąbek błotny',strong:['SO','SW'],secondary:[],warning:'Preferuje wilgotne i zabagnione bory sosnowe oraz świerkowe; wilgoć siedliska jest ważniejsza niż sama piaszczystość.'}
+};
+for(const [type,cfg] of Object.entries(BIOLOGY_CORRECTIONS_V219)){
+ if(!SPECIES_META[type])continue;
+ Object.assign(SPECIES_META[type],cfg);
+ HOSTS[type]={strong:[...(SPECIES_META[type].strong||[])],secondary:[...(SPECIES_META[type].secondary||[])]};
+ HUMAN_NAMES[type]=SPECIES_META[type].label||type;
+ SCI_NAMES[type]=SPECIES_META[type].scientific||'';
+}
+
 // Ścisłe związki gospodarza: bez właściwego rodzaju drzewa wynik ma być niski.
 // Gospodarz w sąsiednim wydzieleniu nadal jest dopuszczany, bo BDL pokazuje
 // przede wszystkim gatunek dominujący, a nie każdy pojedynczy składnik drzewostanu.
@@ -10049,10 +10103,38 @@ const ALL_MODE_WEIGHT={
  twardzioszek_przydrozny:1.00,
  boczniak_ostrygowaty:.94,
  kozlarz_debowy:1.00,
- kozlarz_sosnowy:.99,
+ kozlarz_sosnowy:.90,
  golabek_zielonawy:.96,
  golabek_bagienny:.95
 };
+
+// v219: szybki test spójności biologii po każdej przyszłej edycji atlasu.
+function biologySanityV219(){
+ const atlas=ATLAS_GROUPS.flatMap(g=>g.members);
+ const unique=[...new Set(atlas)];
+ const duplicates=atlas.filter((t,i)=>atlas.indexOf(t)!==i);
+ const missingFromAtlas=PICK_TYPES.filter(t=>!unique.includes(t));
+ const unknownInAtlas=unique.filter(t=>!PICK_TYPES.includes(t));
+ const badTreeCodes=[];
+ for(const [type,m] of Object.entries(SPECIES_META)){
+   for(const code of [...(m.strong||[]),...(m.secondary||[])])if(!CANONICAL_TREE_CODES.has(code))badTreeCodes.push({type,code});
+ }
+ const badHabitatFamilies=[];
+ for(const type of PICK_TYPES){
+   const eco=SPECIES_META[type]?.ecology;
+   if(eco!=='mycorrhiza'&&eco!=='wood')continue;
+   const family=stableHabitatFamilyV189(type);
+   if(!HAB[family])badHabitatFamilies.push({type,family});
+ }
+ return {
+   version:'v219',profiles:Object.keys(SPECIES_META).length,collectible:PICK_TYPES.length,
+   atlasSlots:atlas.length,atlasUnique:unique.length,duplicates:[...new Set(duplicates)],
+   missingFromAtlas,unknownInAtlas,badTreeCodes,badHabitatFamilies,
+   ok:!duplicates.length&&!missingFromAtlas.length&&!unknownInAtlas.length&&!badTreeCodes.length&&!badHabitatFamilies.length
+ };
+}
+window.biologySanityV219=biologySanityV219;
+
 
 const perfCanvasRenderer=L.canvas({padding:.35});
 let scoringRevision=0;
@@ -10528,6 +10610,9 @@ function stableHabitatFamilyV189(type){
  else if(type==='kolczak_oblaczasty')family='kolczak_lisc';
  else if(type==='gaska_nieksztaltna')family='gaska_sosna';
  else if(type==='siedzun_sosnowy')family='siedzun';
+ else if(type==='boczniak_ostrygowaty')family='boczniak_lisc';
+ else if(type==='golabek_zielonawy')family='golabek_lisc';
+ else if(type==='golabek_bagienny')family='golabek_blotny';
  else if(type==='opienka_miodowa')family='opienka_lisc';
  else if(type==='opienka_ciemna')family='opienka_igl';
  stableHabitatFamilyCacheV189.set(type,family);
@@ -10642,7 +10727,11 @@ function soilSuitability(type,f){
  let texture=7.5;
  if(Number.isFinite(sand))texture=piecewise(sand,cfg.texture);
  const socScore=Number.isFinite(s.soc)?piecewise(s.soc,SOIL_SOC_POINTS_V189):7;
- return blendSoilWithNeutral(.62*phScore+.24*texture+.14*socScore);
+ const raw=blendSoilWithNeutral(.62*phScore+.24*texture+.14*socScore);
+ // v219: dla grzybów nadrzewnych substrat/host jest lepiej udokumentowany niż dokładne pH gleby.
+ // Zamiast usuwać sygnał całkowicie, ściskamy go w stronę neutralnego 7.
+ const woodSoilScale={boczniak_ostrygowaty:.20,opienka_miodowa:.45,siedzun_sosnowy:.55,opienka_ciemna:.80}[type]??1;
+ return 7+(raw-7)*woodSoilScale;
 }
 
 function practicalAllScore(type,f,precomputedScore=NaN){
@@ -10653,7 +10742,7 @@ function practicalAllScore(type,f,precomputedScore=NaN){
    const p=f.properties||{},sp=speciesCode(p),hab=habitatCode(p),soil=soilAt(f._center);
    if(['SO','SW','JD','MD'].includes(sp))s-=3;
    else if(['BRZ','OS','TP'].includes(sp))s-=1.5;
-   else if(!['DB','BK','GB','JW','JS'].includes(sp))s-=1;
+   else if(!['DB','BK','GB','LP'].includes(sp))s-=1;
    if(['BSW','BMSW','BB','BMB','OL','OLJ'].includes(hab))s-=1.2;
    else if(['LMSW','LSW','LMB'].includes(hab))s-=.7;
    else if(['BMW','LMW','LW'].includes(hab))s+=.25;
@@ -13342,7 +13431,7 @@ function opportunityPracticalV200(d,ctx,actualRaw){
    const sp=ctx.direct,hab=ctx.habCode,soil=ctx.soil;
    if(['SO','SW','JD','MD'].includes(sp))s-=3;
    else if(['BRZ','OS','TP'].includes(sp))s-=1.5;
-   else if(!['DB','BK','GB','JW','JS'].includes(sp))s-=1;
+   else if(!['DB','BK','GB','LP'].includes(sp))s-=1;
    if(['BSW','BMSW','BB','BMB','OL','OLJ'].includes(hab))s-=1.2;
    else if(['LMSW','LSW','LMB'].includes(hab))s-=.7;
    else if(['BMW','LMW','LW'].includes(hab))s+=.25;
@@ -27655,6 +27744,9 @@ function v190RefStableHabitatScore(type,f){
  else if(type==='kolczak_oblaczasty')family='kolczak_lisc';
  else if(type==='gaska_nieksztaltna')family='gaska_sosna';
  else if(type==='siedzun_sosnowy')family='siedzun';
+ else if(type==='boczniak_ostrygowaty')family='boczniak_lisc';
+ else if(type==='golabek_zielonawy')family='golabek_lisc';
+ else if(type==='golabek_bagienny')family='golabek_blotny';
  else if(type==='opienka_miodowa')family='opienka_lisc';
  else if(type==='opienka_ciemna')family='opienka_igl';
  const base={BSW:6.8,BMSW:7.5,LMSW:8.0,LSW:7.7,BW:5.8,BMW:6.8,LMW:7.2,LW:6.5,BB:3.5,BMB:4.0,LMB:4.6,OL:4.2,OLJ:4.3}[hab]??6.4;

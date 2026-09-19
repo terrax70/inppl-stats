@@ -10108,6 +10108,169 @@ const ALL_MODE_WEIGHT={
  golabek_bagienny:.95
 };
 
+
+// ========================= v221: RICH SPECIES ECOLOGY SCHEMA =========================
+// Cel: rozdzielić FAKTY ŹRÓDŁOWE od PRIORY MODELU i przechowywać więcej cech biologii
+// bez dokładania "magicznych" liczb do scoringu. Dane liczbowe ph/age/season odziedziczone
+// z SPECIES_META są jawnie oznaczone jako model-prior, chyba że profil mówi inaczej.
+const SPECIES_REFERENCE_V221={"borowik":{"frequency":"pospolity","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Boletus_edulis.htm"]},"borowik_usiatkowany":{"frequency":"niezbyt częsty","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Boletus_reticulatus.htm"]},"ceglastopory":{"frequency":"dość częsty, szczególnie południe/góry","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Boletus_erythropus.htm"]},"ponury":{"frequency":"lokalnie częsty","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Boletus_luridus.htm"]},"podgrzybek_zajaczek":{"frequency":"powszechny, zwykle nieliczny","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Xerocomus_subtomentosus.htm"]},"podgrzybek":{"frequency":"pospolity","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Xerocomus_badius.htm"]},"borowik_sosnowy":{"frequency":"niezbyt częsty","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Boletus_pinophilus.htm"]},"maslak_zwyczajny":{"frequency":"bardzo pospolity","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Suillus_luteus.htm"]},"maslak_sitarz":{"frequency":"bardzo pospolity","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Suillus_bovinus.htm"]},"maslak_pstry":{"frequency":"pospolity","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Suillus_variegatus.htm"]},"maslak_ziarnisty":{"frequency":"częsty","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Suillus_granulatus.htm"]},"rydz":{"frequency":"miejscami dość częsty","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Lactarius_deliciosus.htm"]},"gaska_nieksztaltna":{"frequency":"pospolita","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Tricholoma_portentosum.htm"]},"kozlarz_sosnowy":{"frequency":"rzadki / potencjalnie zagrożony wg cytowanej Czerwonej Listy","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Leccinum_vulpinum.htm"]},"kozlarz_babka":{"frequency":"bardzo pospolity","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Leccinum_scabrum.htm"]},"kozlarz_pomaranczowozolty":{"frequency":"pospolity","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Leccinum_versipelle.htm"]},"kozlarz_czerwony":{"frequency":"częsty","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Leccinum_aurantiacum.htm"]},"kozlarz_grabowy":{"frequency":"dość częsty, ciepłolubny","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Leccinum_carpini.htm"]},"kozlarz_debowy":{"frequency":"brak solidnego oszacowania częstości w użytym źródle","reviewStatus":"TAXONOMY_REVIEW","sourceUrls":["https://www.grzyby.pl/gatunki/Leccinum_quercinum.htm","https://www.gbif.org/species/8142395"]},"mleczaj_swierkowy":{"frequency":"częsty","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Lactarius_deterrimus.htm"]},"maslak_zolty":{"frequency":"pospolity","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Suillus_grevillei.htm"]},"opienka_ciemna":{"frequency":"najczęstsza z polskich opieniek wg źródła","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Armillaria_ostoyae.htm"]},"opienka_miodowa":{"frequency":"A","reviewStatus":"TAXONOMY_REVIEW","sourceUrls":["https://www.grzyby.pl/gatunki/Armillaria_mellea.htm"]},"siedzun_sosnowy":{"frequency":"nieczęsty na stronie","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Sparassis_crispa.htm","https://ostroleka.olsztyn.lasy.gov.pl/documents/21659642/22979895/Regionalna_lista_gatunk%C3%B3w_chronionych_lub_rzadkich_regionalnie.pdf/ff5296d4-a639-4557-9593-a0e982a21bbe"]},"boczniak_ostrygowaty":{"frequency":"pospolity","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Pleurotus_ostreatus.htm","https://www.lasy.gov.pl/pl/informacje/publikacje/do-poczytania/grzyby-polskich-lasow/grzyby-polskich-lasow_internet-1.pdf"]},"kania":{"frequency":"pospolita","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Macrolepiota_procera.htm"]},"kania_gwiazdzista":{"frequency":"częsta wg grzyby","reviewStatus":"TAXONOMY_REVIEW","sourceUrls":["https://www.grzyby.pl/gatunki/Macrolepiota_konradii.htm","https://www.indexfungorum.org/names/namesrecord.asp?RecordID=317072"]},"pieczarka_polna":{"frequency":"pospolita","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Agaricus_campestris.htm"]},"czernidlak":{"frequency":"bardzo pospolity","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Coprinus_comatus.htm"]},"purchawka_oczkowana":{"frequency":"częsta","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Handkea_utriformis.htm"]},"twardzioszek_przydrozny":{"frequency":"bardzo pospolity","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Marasmius_oreades.htm"]},"kurka":{"frequency":"bardzo pospolita","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Cantharellus_cibarius.htm"]},"pieprznik_trabkowy":{"frequency":"pospolity","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Cantharellus_tubaeformis.htm"]},"lejkowiec_dety":{"frequency":"dość częsty","reviewStatus":"OK","sourceUrls":["https://www.grzyby.pl/gatunki/Craterellus_cornucopioides.htm"]},"kolczak_oblaczasty":{"frequency":"bardzo pospolity","reviewStatus":"MINOR","sourceUrls":["https://www.grzyby.pl/gatunki/Hydnum_repandum.htm"]},"golabek_zielonawy":{"frequency":"częsty","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Russula_virescens.htm","https://okonek.pila.lasy.gov.pl/documents/52096/24088464/Atlas%2Bgrzyb%C3%B3w/45e7fadd-ebda-e07e-69f0-df44c9a9aed7"]},"golabek_bagienny":{"frequency":"pospolity","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Russula_paludosa.htm"]},"gorzkoborowik":{"frequency":"stosunkowo częsty w górach/pogórzu","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Boletus_calopus.htm"]},"goryczak":{"frequency":"pospolity","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Tylopilus_felleus.htm"]},"szatanski":{"frequency":"bardzo rzadki w Polsce","reviewStatus":"FIX","sourceUrls":["https://www.grzyby.pl/gatunki/Boletus_satanas.htm"]}};
+
+const SPECIES_TRAIT_OVERRIDES_V221={
+  opienka_ciemna:{
+    trophic:{primary:'plant_pathogen',secondary:['wood_saprotroph']},
+    substrate:{primary:['living_roots','root_collar','stumps'],secondary:['deadwood'],hostState:['living','weakened','dead'],decayType:'white_rot_like'},
+    habitat:{forestAffinity:['conifer','mixed'],nutrient:'broad',disturbance:'neutral'}
+  },
+  opienka_miodowa:{
+    trophic:{primary:'plant_pathogen',secondary:['wood_saprotroph']},
+    substrate:{primary:['living_roots','root_collar','stumps'],secondary:['deadwood'],hostState:['living','weakened','dead'],decayType:'white_rot'},
+    habitat:{forestAffinity:['deciduous','mixed'],temperatureAffinity:'warm'}
+  },
+  siedzun_sosnowy:{
+    trophic:{primary:'weak_plant_pathogen',secondary:['wood_saprotroph']},
+    substrate:{primary:['roots','stem_base'],secondary:['stumps','deadwood'],hostState:['living','weakened','recently_dead'],decayType:'brown_rot'},
+    habitat:{forestAffinity:['conifer'],nutrient:'broad'}
+  },
+  boczniak_ostrygowaty:{
+    trophic:{primary:'wood_saprotroph',secondary:['weak_plant_pathogen']},
+    substrate:{primary:['standing_deadwood','logs','trunks'],secondary:['stumps'],hostState:['dead','dying','living_weakened'],decayType:'white_rot'},
+    habitat:{forestAffinity:['deciduous','mixed'],temperatureAffinity:'cool'}
+  },
+  kania:{substrate:{primary:['soil_humus','litter'],secondary:['grassland_soil'],hostState:[]},habitat:{forestAffinity:['edge','open','deciduous_light'],openAffinity:'high',disturbance:'tolerant'}},
+  kania_gwiazdzista:{substrate:{primary:['soil_humus','litter'],secondary:[],hostState:[]},habitat:{forestAffinity:['deciduous_light','park','edge'],openAffinity:'medium',disturbance:'tolerant'}},
+  pieczarka_polna:{substrate:{primary:['grassland_soil','humus'],secondary:[],hostState:[]},habitat:{forestAffinity:['open'],openAffinity:'very_high',nutrient:'rich',disturbance:'tolerant'}},
+  czernidlak:{substrate:{primary:['rich_soil','composted_soil'],secondary:['grassland_soil'],hostState:[]},habitat:{forestAffinity:['open','park','roadside'],openAffinity:'very_high',nutrient:'rich',disturbance:'positive'}},
+  purchawka_oczkowana:{substrate:{primary:['grassland_soil'],secondary:['heath_soil'],hostState:[]},habitat:{forestAffinity:['open'],openAffinity:'very_high',nutrient:'mesotrophic_to_rich',disturbance:'neutral'}},
+  twardzioszek_przydrozny:{substrate:{primary:['grassland_soil','turf'],secondary:[],hostState:[]},habitat:{forestAffinity:['open','roadside'],openAffinity:'very_high',disturbance:'tolerant',growthPattern:'fairy_rings'}},
+  golabek_bagienny:{habitat:{forestAffinity:['conifer','bog_conifer'],waterlogging:'positive',moss:'positive'}},
+  maslak_sitarz:{habitat:{forestAffinity:['conifer','heath_edge'],nutrient:'poor',openAffinity:'medium'}},
+  maslak_pstry:{habitat:{forestAffinity:['conifer','heath','wet_conifer'],nutrient:'poor',waterlogging:'tolerant'}},
+  maslak_ziarnisty:{habitat:{forestAffinity:['conifer','edge','grass_under_pine'],openAffinity:'medium_high',calcareousTolerance:'positive'}},
+  ponury:{habitat:{forestAffinity:['deciduous','park'],calcareousTolerance:'high',temperatureAffinity:'warm'}},
+  szatanski:{habitat:{forestAffinity:['deciduous_warm'],calcareousTolerance:'very_high',temperatureAffinity:'warm'}},
+  borowik_usiatkowany:{habitat:{forestAffinity:['deciduous_warm'],temperatureAffinity:'warm',waterlogging:'avoid'}},
+  lejkowiec_dety:{habitat:{forestAffinity:['deciduous','beech'],waterlogging:'moist_depressions',sandTolerance:'low'}},
+  pieprznik_trabkowy:{habitat:{forestAffinity:['conifer','mixed','deciduous'],moss:'high',deadwoodAssociation:'positive'}},
+  kurka:{habitat:{forestAffinity:['conifer','mixed','deciduous'],moss:'positive',soilAcidity:'acidic_preferred'}}
+};
+
+function v221DefaultTrophic(m){
+  if(m.ecology==='mycorrhiza')return {primary:'ectomycorrhizal',secondary:[]};
+  if(m.ecology==='wood')return {primary:'wood_saprotroph',secondary:[]};
+  if(m.ecology==='grassland'||m.ecology==='edge')return {primary:'soil_litter_saprotroph',secondary:[]};
+  return {primary:'unknown',secondary:[]};
+}
+function v221DefaultSubstrate(m){
+  if(m.ecology==='mycorrhiza')return {primary:['soil_root_zone'],secondary:['litter'],hostState:['living']};
+  if(m.ecology==='wood')return {primary:['wood','roots','stumps'],secondary:[],hostState:['living','weakened','dead'],decayType:'unknown'};
+  if(m.ecology==='edge')return {primary:['soil_humus','litter'],secondary:['grassland_soil'],hostState:[]};
+  return {primary:['grassland_soil','humus'],secondary:[],hostState:[]};
+}
+function v221ForestAffinity(m){
+  if(m.ecology==='grassland')return ['open'];
+  if(m.ecology==='edge')return ['edge','open','light_forest'];
+  const c=new Set(['SO','SW','JD','MD']),hosts=[...(m.strong||[]),...(m.secondary||[])];
+  let con=0,dec=0;for(const h of hosts)(c.has(h)?con++:dec++);
+  if(con&&dec)return ['mixed','conifer','deciduous'];
+  if(con)return ['conifer','mixed'];
+  if(dec)return ['deciduous','mixed'];
+  return ['forest','mixed'];
+}
+function v221HostSpecificity(type,m){
+  if(m.ecology==='grassland'||m.ecology==='edge')return 'none';
+  if(STRICT_HOST_TYPES.has(type))return (m.strong||[]).length<=1?'obligate_or_very_narrow':'narrow';
+  const n=(m.strong||[]).length+(m.secondary||[]).length;
+  if(n<=1)return 'narrow';if(n<=4)return 'moderate';return 'broad';
+}
+function v221HostWeights(m){
+  const out={};for(const h of (m.strong||[]))out[h]=1;for(const h of (m.secondary||[]))if(out[h]===undefined)out[h]=.72;return out;
+}
+function v221MoistureTrait(m){
+  if(m.moist==='mesic_dry')return {class:'mesic_dry',droughtTolerance:'medium_high',waterlogging:'avoid'};
+  if(m.moist==='mesic_moist')return {class:'mesic_moist',droughtTolerance:'low_medium',waterlogging:'tolerant'};
+  return {class:'mesic',droughtTolerance:'medium',waterlogging:'neutral'};
+}
+function v221MergeDeep(base,extra){
+  if(!extra)return base;
+  for(const [k,v] of Object.entries(extra)){
+    if(v&&typeof v==='object'&&!Array.isArray(v)&&base[k]&&typeof base[k]==='object'&&!Array.isArray(base[k]))v221MergeDeep(base[k],v);
+    else base[k]=Array.isArray(v)?[...v]:v;
+  }
+  return base;
+}
+function v221ProfileFor(type){
+  const m=SPECIES_META[type];if(!m)return null;
+  const src=SPECIES_REFERENCE_V221[type]||{frequency:'unknown',reviewStatus:'UNREVIEWED',sourceUrls:[]};
+  const wa=speciesWeatherLabAssignment(type);
+  const wp=SPECIES_WEATHER_LAB_PROFILES[wa.profile]||SPECIES_WEATHER_LAB_PROFILES.generic_reference;
+  const lo=Number(m.ph?.[0]??4.5),hi=Number(m.ph?.[1]??7),a=Number(m.age?.[0]??0),b=Number(m.age?.[1]??120);
+  const moist=v221MoistureTrait(m);
+  const base={
+    id:type,
+    taxonomy:{acceptedName:m.scientific||'',polishName:m.label||type,synonyms:[]},
+    collection:{collectible:m.collect!==false,frequency:src.frequency||'unknown'},
+    trophic:v221DefaultTrophic(m),
+    hosts:{specificity:v221HostSpecificity(type,m),weights:v221HostWeights(m),strong:[...(m.strong||[])],secondary:[...(m.secondary||[])],nearbyHostAllowed:true},
+    substrate:v221DefaultSubstrate(m),
+    habitat:{forestAffinity:v221ForestAffinity(m),openAffinity:m.ecology==='grassland'?'very_high':(m.ecology==='edge'?'high':'low'),moss:'unknown',disturbance:'unknown',waterlogging:moist.waterlogging},
+    soil:{
+      ph:{core:[lo,hi],tolerance:[lo-1.6,hi+1.4],basis:'model-prior',response:'piecewise_core_tolerance'},
+      texture:{class:m.sand||'neutral',basis:'qualitative-habitat-prior'},
+      moisture:{...moist,basis:'qualitative-habitat-prior'},
+      organicMatter:{preference:'unknown',basis:'not-calibrated'},
+      nutrientStatus:{preference:'unknown',basis:'not-calibrated'}
+    },
+    stand:{ageCore:[a,b],ageTolerance:[Math.max(0,a*.5),b+100],basis:'model-prior'},
+    fruiting:{
+      phenology:{curve:(m.season||[]).map(x=>[...x]),basis:'field-guide-informed-model-prior',regionalScope:'Poland/Central Europe',latitudeAdjustment:{candidate:true,active:false},elevationAdjustment:{candidate:true,active:false}},
+      weather:{profile:wa.profile,evidence:wa.evidence,basis:wa.basis,rainMemory:{windowsDays:[[0,7],[8,14],[15,21],[22,28]],weights:[...wp.rainW],scaleMm:wp.rainScale,response:'1-exp(-mm/scale)'},temperatureProfile:wp.temp,frostClass:wp.frost,componentWeights:{...wp.weights},evidenceWeight:speciesWeatherEvidenceWeight(wa.evidence)}
+    },
+    evidence:{reviewStatus:src.reviewStatus||'UNREVIEWED',sourceUrls:[...(src.sourceUrls||[])],numericPriors:'model-prior-unless-source-explicit',hostEvidence:'source-reviewed',weatherEvidence:wa.evidence},
+    calibration:{presenceOnlyBiasCorrection:'required-before-training',spatialThinning:'required',targetGroupBackground:'preferred',spatialBlockValidation:'required',status:'not-trained'},
+    model:{legacyCompatibility:true,productionScoring:'v220-compatible',profileVersion:221}
+  };
+  if(type==='kozlarz_czerwony')base.taxonomy.synonyms.push('Leccinum rufum');
+  if(type==='kania_gwiazdzista')base.taxonomy.synonyms.push('Macrolepiota konradii');
+  return v221MergeDeep(base,SPECIES_TRAIT_OVERRIDES_V221[type]);
+}
+
+const SPECIES_ECOLOGY_V221=Object.freeze(Object.fromEntries(Object.keys(SPECIES_META).map(t=>[t,Object.freeze(v221ProfileFor(t))])));
+const SPECIES_HOST_RUNTIME_V221=Object.freeze(Object.fromEntries(Object.entries(SPECIES_META).map(([t,m])=>[t,Object.freeze({strong:new Set(m.strong||[]),secondary:new Set(m.secondary||[])})])));
+function v221SetIntersects(a,b){for(const x of a)if(b.has(x))return true;return false;}
+window.SPECIES_ECOLOGY_V221=SPECIES_ECOLOGY_V221;
+
+function biologyDataQualityV221(){
+  const required=['taxonomy','trophic','hosts','substrate','habitat','soil','stand','fruiting','evidence','calibration'];
+  const issues=[],evidenceCounts={},reviewCounts={},weatherCounts={};
+  for(const type of PICK_TYPES){
+    const p=SPECIES_ECOLOGY_V221[type];
+    if(!p){issues.push({type,issue:'missing-profile'});continue;}
+    for(const k of required)if(!p[k])issues.push({type,issue:'missing-'+k});
+    const core=p.soil?.ph?.core,tol=p.soil?.ph?.tolerance;
+    if(!(Array.isArray(core)&&Array.isArray(tol)&&tol[0]<=core[0]&&core[1]<=tol[1]))issues.push({type,issue:'bad-ph-core-tolerance'});
+    for(const code of Object.keys(p.hosts?.weights||{}))if(!CANONICAL_TREE_CODES.has(code))issues.push({type,issue:'bad-host-code',code});
+    if(!(p.evidence?.sourceUrls||[]).length)issues.push({type,issue:'no-source-url'});
+    const rev=p.evidence?.reviewStatus||'UNKNOWN';reviewCounts[rev]=(reviewCounts[rev]||0)+1;
+    const we=p.fruiting?.weather?.evidence||'unknown';weatherCounts[we]=(weatherCounts[we]||0)+1;
+    for(const k of ['hostEvidence','weatherEvidence','numericPriors']){const v=p.evidence?.[k]||'unknown';evidenceCounts[v]=(evidenceCounts[v]||0)+1;}
+  }
+  const report={version:'v221',species:PICK_TYPES.length,profiles:Object.keys(SPECIES_ECOLOGY_V221).length,issues,ok:issues.length===0,reviewCounts,weatherCounts,evidenceCounts};
+  console.info('BIOLOGY DATA QUALITY v221',report);return report;
+}
+window.biologyDataQualityV221=biologyDataQualityV221;
+const BIOLOGY_DATA_QUALITY_REPORT_V221=biologyDataQualityV221();
+window.BIOLOGY_DATA_QUALITY_REPORT_V221=BIOLOGY_DATA_QUALITY_REPORT_V221;
+function speciesProfileV221(type){return SPECIES_ECOLOGY_V221[type]||null;}
+window.speciesProfileV221=speciesProfileV221;
+async function copySpeciesProfileV221(type){
+  const p=speciesProfileV221(type);if(!p)return false;const txt=JSON.stringify(p,null,2);
+  try{await navigator.clipboard.writeText(txt);return true;}catch(e){console.info(txt);return false;}
+}
+window.copySpeciesProfileV221=copySpeciesProfileV221;
+
+// v221 optymalizacja: hosty są kompilowane raz do Setów. Matematyka scoringu pozostaje
+// taka sama; runtime nie wykonuje wielokrotnie Array.includes/some dla tych samych list.
+
 // v219: szybki test spójności biologii po każdej przyszłej edycji atlasu.
 function biologySanityV219(){
  const atlas=ATLAS_GROUPS.flatMap(g=>g.members);
@@ -10630,9 +10793,12 @@ function speciesSoilCurveV189(type){
  if(speciesSoilCurveCacheV189.has(type))return speciesSoilCurveCacheV189.get(type);
  const m=SPECIES_META[type];
  if(!m)return null;
- const lo=m.ph?.[0]??4.5,hi=m.ph?.[1]??7,mid=(lo+hi)/2;
+ const eco=SPECIES_ECOLOGY_V221?.[type];
+ const core=eco?.soil?.ph?.core||m.ph||[4.5,7];
+ const tolerance=eco?.soil?.ph?.tolerance||[core[0]-1.6,core[1]+1.4];
+ const lo=core[0],hi=core[1],mid=(lo+hi)/2;
  const texture=m.sand==='very_sandy'?SOIL_TEXTURE_VERY_SANDY_V189:(m.sand==='sandy'?SOIL_TEXTURE_SANDY_V189:SOIL_TEXTURE_NEUTRAL_V189);
- const cfg={lo,hi,mid,ph:Object.freeze([[lo-1.6,3.5],[lo,8],[mid,9.5],[hi,8],[hi+1.4,3.5]]),texture};
+ const cfg={lo,hi,mid,ph:Object.freeze([[tolerance[0],3.5],[lo,8],[mid,9.5],[hi,8],[tolerance[1],3.5]]),texture};
  speciesSoilCurveCacheV189.set(type,cfg);
  return cfg;
 }
@@ -10641,8 +10807,12 @@ function speciesAgeCurveV189(type){
  if(speciesAgeCurveCacheV189.has(type))return speciesAgeCurveCacheV189.get(type);
  const m=SPECIES_META[type];
  if(!m)return null;
- const a=m.age?.[0]??10,b=m.age?.[1]??100;
- const cfg={a,b,low:Object.freeze([[0,4],[Math.max(1,a*.5),6.5],[a,9]]),high:Object.freeze([[b,9.2],[b+40,7],[b+100,5.5]])};
+ const eco=SPECIES_ECOLOGY_V221?.[type];
+ const core=eco?.stand?.ageCore||m.age||[10,100];
+ const tol=eco?.stand?.ageTolerance||[Math.max(0,core[0]*.5),core[1]+100];
+ const a=core[0],b=core[1];
+ const lowKnee=Math.max(1,tol[0]);
+ const cfg={a,b,low:Object.freeze([[0,4],[lowKnee,6.5],[a,9]]),high:Object.freeze([[b,9.2],[b+40,7],[tol[1],5.5]])};
  speciesAgeCurveCacheV189.set(type,cfg);
  return cfg;
 }
@@ -10658,10 +10828,11 @@ function treePreference(type,f){
    if(near.has('GB'))return 5.9;
    return 2.6;
  }
- if((m.strong||[]).includes(direct))return 9.7;
- if((m.secondary||[]).includes(direct))return 8.0;
- if((m.strong||[]).some(x=>near.has(x)))return 7.2;
- if((m.secondary||[]).some(x=>near.has(x)))return 6.2;
+ const hosts=SPECIES_HOST_RUNTIME_V221[type];
+ if(hosts?.strong.has(direct))return 9.7;
+ if(hosts?.secondary.has(direct))return 8.0;
+ if(hosts&&v221SetIntersects(hosts.strong,near))return 7.2;
+ if(hosts&&v221SetIntersects(hosts.secondary,near))return 6.2;
  return m.ecology==='wood'?4.2:2.5;
 }
 
@@ -10683,10 +10854,11 @@ function hostGate(type,f){
    return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
  }
 
- if(cfg.strong.includes(direct))return 1;
- if(cfg.secondary.includes(direct))return strict?.72:.84;
- if(cfg.strong.some(x=>near.has(x)))return strict?.72:.68;
- if(cfg.secondary.some(x=>near.has(x)))return strict?.48:.55;
+ const hosts=SPECIES_HOST_RUNTIME_V221[type];
+ if(hosts?.strong.has(direct))return 1;
+ if(hosts?.secondary.has(direct))return strict?.72:.84;
+ if(hosts&&v221SetIntersects(hosts.strong,near))return strict?.72:.68;
+ if(hosts&&v221SetIntersects(hosts.secondary,near))return strict?.48:.55;
 
  if(m.ecology==='wood')return .38;
 

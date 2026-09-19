@@ -4747,7 +4747,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
-<style id="v198-mega-debug-style">
+<style id="v199-mega-debug-style">
 .mega-debug-btn{font-weight:800!important;border-color:#7aa88a!important;background:#edf8ef!important;color:#17331f!important}
 .mega-debug-btn:disabled{opacity:.65;cursor:wait}
 .mega-debug-status{font-size:11px;color:#64736b;min-width:120px}
@@ -5145,6 +5145,9 @@ const obsLoaded={};
 const SPECIES_META={"borowik":{"label":"Borowik szlachetny","scientific":"Boletus edulis","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["DB","BK","SW","SO"],"secondary":["JD","GB","JW"],"age":[35,120],"ph":[4.2,6.3],"sand":"neutral","moist":"mesic","season":[[90,15],[140,35],[175,65],[215,82],[250,100],[285,88],[315,48],[345,15]],"warning":"Możliwa pomyłka z goryczakiem żółciowym — mapa nie służy do oznaczania grzybów."},"ceglastopory":{"label":"Krasnoborowik ceglastopory","scientific":"Neoboletus luridiformis","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["BK","DB","SW","SO"],"secondary":["GB","JD"],"age":[25,120],"ph":[4.0,6.5],"sand":"neutral","moist":"mesic","season":[[130,10],[175,38],[210,72],[245,96],[275,100],[305,68],[330,20]],"warning":"Może być mylony z innymi czerwonoporowymi borowikami. Krwistoborowik szatański jest trujący i ściśle chroniony."},"ponury":{"label":"Modroborowik ponury","scientific":"Suillellus luridus","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["DB","BK","GB","JW"],"secondary":["BRZ","SO"],"age":[30,120],"ph":[5.7,7.7],"sand":"neutral","moist":"mesic_dry","season":[[135,10],[175,40],[210,78],[240,100],[270,94],[300,62],[325,15]],"warning":"Może być mylony z krwistoborowikiem szatańskim. Nie identyfikuj czerwonoporowych borowików wyłącznie po mapie."},"gorzkoborowik":{"label":"Gorzkoborowik żółtopory","scientific":"Caloboletus calopus","group":"Borowikowate","ecology":"mycorrhiza","collect":false,"radar":"borowik","strong":["BK","DB","SW","JD"],"secondary":["SO","GB"],"age":[35,140],"ph":[4.1,6.2],"sand":"neutral","moist":"mesic","season":[[150,10],[190,45],[225,82],[255,100],[285,82],[315,35]],"warning":"Gatunek gorzki/niejadalny — mapa pokazuje potencjalne siedlisko tylko informacyjnie."},"kozlarz_babka":{"label":"Koźlarz babka","scientific":"Leccinum scabrum","group":"Koźlarze","ecology":"mycorrhiza","collect":true,"radar":"kozlarz","strong":["BRZ"],"secondary":["OS","TP"],"age":[10,85],"ph":[4.0,6.7],"sand":"neutral","moist":"mesic_moist","season":[[120,10],[155,42],[190,78],[225,96],[260,100],[295,72],[325,25]],"warning":"Wynik jest mocno uzależniony od obecności brzozy — to celowa bramka gospodarza."},"podgrzybek":{"label":"Podgrzybek brunatny","scientific":"Imleria badia","group":"Podgrzybki","ecology":"mycorrhiza","collect":true,"radar":"podgrzybek","strong":["SO","SW"],"secondary":["DB","BK","BRZ","JD"],"age":[25,115],"ph":[3.7,5.9],"sand":"sandy","moist":"mesic","season":[[120,8],[170,30],[210,62],[245,90],[275,100],[310,82],[340,28]],"warning":"Preferowane są kwaśniejsze siedliska iglaste i mieszane; wilgotna ściółka mocno poprawia ocenę."},"maslak_zolty":{"label":"Maślak żółty","scientific":"Suillus grevillei","group":"Maślaki","ecology":"mycorrhiza","collect":true,"radar":"maslak","strong":["MD"],"secondary":[],"age":[5,65],"ph":[4.3,6.5],"sand":"sandy","moist":"mesic","season":[[145,10],[185,40],[220,78],[255,98],[285,100],[315,64],[340,20]],"warning":"Ten gatunek jest bardzo silnie związany z modrzewiem; bez modrzewia wynik jest mocno obniżany."},"maslak_sitarz":{"label":"Maślak sitarz","scientific":"Suillus bovinus","group":"Maślaki","ecology":"mycorrhiza","collect":true,"radar":"maslak","strong":["SO"],"secondary":[],"age":[5,50],"ph":[3.6,5.5],"sand":"very_sandy","moist":"mesic","season":[[145,8],[185,35],[225,75],[260,98],[290,100],[315,70],[345,20]],"warning":"Premiowane są młodsze lub zaburzone bory sosnowe na kwaśnych, piaszczystych glebach."},"maslak_pstry":{"label":"Maślak pstry","scientific":"Suillus variegatus","group":"Maślaki","ecology":"mycorrhiza","collect":true,"radar":"maslak","strong":["SO"],"secondary":[],"age":[10,75],"ph":[3.5,5.6],"sand":"very_sandy","moist":"mesic_moist","season":[[145,8],[185,35],[225,72],[260,96],[290,100],[320,68],[345,18]],"warning":"Najbardziej interesujące są kwaśne, piaszczyste i omszone lasy sosnowe, także nieco wilgotniejsze."},"opienka_ciemna":{"label":"Opieńka ciemna","scientific":"Armillaria ostoyae","group":"Opieńki","ecology":"wood","collect":true,"radar":"all","strong":["SO","SW","JD","MD"],"secondary":["BK","DB"],"age":[35,160],"ph":[3.8,6.5],"sand":"neutral","moist":"mesic_moist","season":[[210,10],[235,35],[260,80],[280,100],[300,92],[320,55],[340,15]],"warning":"Opieńka rośnie przy korzeniach, pniakach i osłabionych drzewach; niedawne cięcia mogą zwiększyć liczbę pniaków."},"opienka_miodowa":{"label":"Opieńka miodowa","scientific":"Armillaria mellea","group":"Opieńki","ecology":"wood","collect":true,"radar":"all","strong":["DB","BK","GB","JW","BRZ","OS","TP","OL"],"secondary":["SO","SW"],"age":[30,160],"ph":[4.5,7.3],"sand":"neutral","moist":"mesic_moist","season":[[210,8],[240,35],[265,78],[285,100],[305,94],[325,55],[345,15]],"warning":"Szukaj głównie przy pniakach, korzeniach i osłabionych drzewach; sama barwa wydzielenia nie zastępuje oględzin martwego drewna."},"kania":{"label":"Czubajka kania","scientific":"Macrolepiota procera","group":"Kanie","ecology":"edge","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,80],"ph":[4.8,7.4],"sand":"neutral","moist":"mesic","season":[[155,10],[195,35],[225,72],[255,98],[285,100],[315,70],[340,20]],"warning":"Model premiuje polany, łąki i skraje lasu. Nie opieraj decyzji o zjedzeniu na mapie."},"kania_gwiazdzista":{"label":"Czubajka gwieździsta","scientific":"Macrolepiota konradii","group":"Kanie","ecology":"edge","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,100],"ph":[4.8,7.3],"sand":"neutral","moist":"mesic","season":[[165,10],[205,40],[235,78],[265,100],[295,92],[320,55],[345,15]],"warning":"Najwyżej oceniane są skraje drzewostanów, polany i widne lasy."},"czernidlak":{"label":"Czernidłak kołpakowaty","scientific":"Coprinus comatus","group":"Czernidłaki","ecology":"grassland","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,20],"ph":[5.5,7.8],"sand":"neutral","moist":"mesic_moist","season":[[120,10],[175,35],[220,68],[260,94],[285,100],[315,80],[345,35]],"warning":"To gatunek terenów otwartych, trawników, poboczy i miejsc żyznych; warstwa OSM jest ważniejsza niż BDL."},"pieczarka_polna":{"label":"Pieczarka polna","scientific":"Agaricus campestris","group":"Pieczarki","ecology":"grassland","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,10],"ph":[5.8,7.8],"sand":"neutral","moist":"mesic","season":[[120,10],[165,35],[210,72],[245,94],[275,100],[310,76],[340,25]],"warning":"Model szuka głównie łąk i pastwisk. Pieczarki mają gatunki mylące — mapa nie jest narzędziem identyfikacji."},"purchawka_oczkowana":{"label":"Purchawka oczkowana","scientific":"Bovistella utriformis","group":"Purchawki","ecology":"grassland","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,15],"ph":[4.8,7.4],"sand":"neutral","moist":"mesic_dry","season":[[130,10],[180,40],[220,78],[255,98],[285,100],[315,68],[340,20]],"warning":"Najbardziej interesujące są łąki, pastwiska, wrzosowiska i inne otwarte siedliska."},"kurka":{"label":"Kurka","scientific":"Cantharellus cibarius","group":"Dodatkowe","ecology":"mycorrhiza","collect":true,"radar":"kurka","strong":["SO","SW","BK","DB"],"secondary":["JD","BRZ","GB"],"age":[15,100],"ph":[3.7,5.9],"sand":"neutral","moist":"mesic_moist","season":[[100,18],[145,55],[180,90],[215,100],[250,88],[285,55],[320,20]],"warning":"Kurka została zachowana z poprzedniej wersji mapy; nie było jej na Twojej liście."},"goryczak":{"label":"⚠ Goryczak żółciowy","scientific":"Tylopilus felleus","group":"Gatunki mylące","ecology":"mycorrhiza","collect":false,"radar":"all","strong":["SO","SW","BK","DB"],"secondary":["JD"],"age":[25,140],"ph":[3.6,5.8],"sand":"neutral","moist":"mesic","season":[[130,10],[175,40],[215,78],[250,100],[280,90],[310,55],[335,18]],"warning":"Niejadalny z powodu bardzo gorzkiego smaku; dodany jako ostrzeżenie dla borowika szlachetnego i koźlarzy."},"szatanski":{"label":"⛔ Krwistoborowik szatański","scientific":"Rubroboletus satanas","group":"Gatunki mylące","ecology":"mycorrhiza","collect":false,"radar":"all","strong":["DB","BK","GB","JW"],"secondary":[],"age":[35,140],"ph":[6.2,8.0],"sand":"neutral","moist":"mesic_dry","season":[[145,10],[180,45],[210,90],[235,100],[260,82],[285,35]],"warning":"TRUJĄCY i ściśle chroniony w Polsce. Jeśli trafisz na podobny okaz — nie zbieraj ani nie niszcz."},"borowik_usiatkowany":{"label":"Borowik usiatkowany","scientific":"Boletus reticulatus","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["DB","BK"],"secondary":["GB","JW"],"age":[30,140],"ph":[5.0,7.3],"sand":"neutral","moist":"mesic_dry","season":[[120,10],[155,48],[190,88],[220,100],[250,84],[280,50],[305,16]],"warning":"Ciepłolubny borowik lasów liściastych. Najmocniej premiowane są dęby i buki; mapa nie służy do oznaczania gatunku."},"borowik_sosnowy":{"label":"Borowik sosnowy","scientific":"Boletus pinophilus","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"borowik","strong":["SO"],"secondary":["SW","JD"],"age":[30,145],"ph":[3.8,5.9],"sand":"sandy","moist":"mesic","season":[[115,8],[155,35],[195,72],[235,96],[270,100],[305,72],[335,25]],"warning":"Silnie związany z borami sosnowymi, zwłaszcza starszymi i kwaśniejszymi."},"maslak_zwyczajny":{"label":"Maślak zwyczajny","scientific":"Suillus luteus","group":"Maślaki","ecology":"mycorrhiza","collect":true,"radar":"maslak","strong":["SO"],"secondary":[],"age":[5,65],"ph":[4.0,6.4],"sand":"sandy","moist":"mesic","season":[[145,8],[185,32],[225,72],[260,98],[290,100],[320,68],[345,18]],"warning":"Silny związek z sosną. Dobrze wypadają młode i średniowiekowe drzewostany oraz piaszczyste gleby."},"rydz":{"label":"Mleczaj rydz","scientific":"Lactarius deliciosus","group":"Mleczaje","ecology":"mycorrhiza","collect":true,"radar":"all","strong":["SO"],"secondary":[],"age":[5,70],"ph":[4.2,6.6],"sand":"sandy","moist":"mesic","season":[[155,8],[195,35],[230,72],[260,96],[285,100],[315,70],[340,22]],"warning":"Rydz jest silnie związany z sosną. Mapa wskazuje siedliska, nie potwierdza obecności owocników."},"kozlarz_czerwony":{"label":"Koźlarz czerwony","scientific":"Leccinum rufum","group":"Koźlarze","ecology":"mycorrhiza","collect":true,"radar":"kozlarz","strong":["OS"],"secondary":["TP"],"age":[10,100],"ph":[4.2,6.8],"sand":"neutral","moist":"mesic_moist","season":[[125,8],[165,38],[205,78],[240,98],[270,100],[300,70],[330,22]],"warning":"Najmocniej związany z osiką i innymi topolami. Bez gospodarza wynik jest celowo mocno obniżany."},"kozlarz_pomaranczowozolty":{"label":"Koźlarz pomarańczowożółty","scientific":"Leccinum versipelle","group":"Koźlarze","ecology":"mycorrhiza","collect":true,"radar":"kozlarz","strong":["BRZ"],"secondary":[],"age":[10,95],"ph":[4.0,6.5],"sand":"neutral","moist":"mesic_moist","season":[[125,8],[165,40],[205,80],[240,98],[270,100],[300,68],[328,20]],"warning":"Bardzo silny związek z brzozą; model celowo stosuje ostrą bramkę gospodarza."},"mleczaj_swierkowy":{"label":"Mleczaj świerkowy","scientific":"Lactarius deterrimus","group":"Mleczaje","ecology":"mycorrhiza","collect":true,"radar":"all","strong":["SW"],"secondary":[],"age":[5,90],"ph":[4.0,6.4],"sand":"neutral","moist":"mesic_moist","season":[[160,8],[200,35],[235,76],[265,100],[292,96],[320,62],[345,18]],"warning":"Silnie związany ze świerkiem. Pomarańczowe mleczaje mogą być do siebie podobne — mapa nie służy do identyfikacji."},"siedzun_sosnowy":{"label":"Siedzuń sosnowy","scientific":"Sparassis crispa","group":"Siedzunie","ecology":"wood","collect":true,"radar":"all","strong":["SO"],"secondary":["SW"],"age":[35,155],"ph":[3.8,6.4],"sand":"sandy","moist":"mesic","season":[[170,8],[205,35],[235,72],[265,98],[290,100],[315,65],[340,18]],"warning":"Rośnie zwykle u podstawy lub przy korzeniach starszych sosen. W modelu ważny jest wiek drzewostanu i obecność sosny."},"kozlarz_grabowy":{"label":"Koźlarz grabowy","scientific":"Leccinellum pseudoscabrum","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"kozlarz","strong":["GB"],"secondary":[],"age":[20,120],"ph":[5.0,7.4],"sand":"neutral","moist":"mesic_moist","season":[[145,3],[160,18],[175,55],[195,90],[215,100],[235,85],[255,45],[275,15],[295,4]],"warning":"Silnie związany z grabem. Może przypominać inne koźlarze; mapa nie służy do oznaczania gatunku."},"maslak_ziarnisty":{"label":"Maślak ziarnisty","scientific":"Suillus granulatus","group":"Maślaki","ecology":"mycorrhiza","collect":true,"radar":"maslak","strong":["SO"],"secondary":[],"age":[5,80],"ph":[5.6,8.0],"sand":"sandy","moist":"mesic","season":[[125,5],[150,18],[175,45],[205,72],[235,92],[265,100],[295,85],[320,40],[340,8]],"warning":"Pod sosnami dwuigielnymi. Może być mylony z maślakiem zwyczajnym i rdzawobrązowym; identyfikuj owocnik, nie tylko siedlisko."},"pieprznik_trabkowy":{"label":"Pieprznik trąbkowy","scientific":"Craterellus tubaeformis","group":"Pieprznikowate","ecology":"mycorrhiza","collect":true,"radar":"kurka","strong":["SW","SO"],"secondary":["BK"],"age":[30,140],"ph":[3.7,5.8],"sand":"neutral","moist":"mesic_moist","season":[[180,3],[205,12],[230,40],[255,72],[280,95],[305,100],[330,75],[350,30],[365,8]],"warning":"Rośnie gromadnie w mchu. Wśród kęp może pojawić się silnie trujący zasłonak rudy — każdy owocnik sprawdzaj osobno."},"lejkowiec_dety":{"label":"Lejkowiec dęty","scientific":"Craterellus cornucopioides","group":"Pieprznikowate","ecology":"mycorrhiza","collect":true,"radar":"kurka","strong":["BK","DB"],"secondary":["GB","LP"],"age":[40,160],"ph":[5.6,7.8],"sand":"neutral","moist":"mesic_moist","season":[[175,3],[200,20],[225,55],[250,88],[275,100],[300,80],[320,35],[340,8]],"warning":"Preferuje lasy liściaste i unika kwaśnych piasków. Może być mylony z pieprznikiem szarym; mapa nie służy do oznaczania."},"kolczak_oblaczasty":{"label":"Kolczak obłączasty","scientific":"Hydnum repandum","group":"Kolczaki","ecology":"mycorrhiza","collect":true,"radar":"kurka","strong":["BK","DB"],"secondary":["GB","SO","SW"],"age":[30,140],"ph":[5.2,7.5],"sand":"neutral","moist":"mesic","season":[[175,3],[200,20],[225,58],[250,88],[275,100],[300,75],[320,30],[340,8]],"warning":"Jadalny; starsze owocniki bywają gorzkawe. Od podobnych grzybów odróżnia go kolczasty hymenofor."},"podgrzybek_zajaczek":{"label":"Podgrzybek zajączek","scientific":"Xerocomus subtomentosus","group":"Borowikowate","ecology":"mycorrhiza","collect":true,"radar":"podgrzybek","strong":["DB","BK"],"secondary":["SO","SW","BRZ","GB"],"age":[20,130],"ph":[4.0,6.5],"sand":"neutral","moist":"mesic","season":[[150,5],[175,20],[205,52],[235,82],[265,100],[290,90],[315,58],[340,20],[355,5]],"warning":"Szeroki krąg drzew-gospodarzy. Może być mylony z innymi zajączkami/podgrzybkami i goryczakiem; mapa nie oznacza grzybów."},"gaska_nieksztaltna":{"label":"Gąska niekształtna","scientific":"Tricholoma portentosum","group":"Gąski","ecology":"mycorrhiza","collect":true,"radar":"all","strong":["SO"],"secondary":["SW","JD"],"age":[20,120],"ph":[3.5,5.8],"sand":"very_sandy","moist":"mesic_dry","season":[[235,2],[255,8],[275,30],[295,70],[315,100],[335,95],[350,75],[365,50]],"warning":"Późnojesienny gatunek borów sosnowych. Uwaga na podobne gąski, w tym trujące gatunki szare; zbieraj tylko pewnie oznaczone okazy."},"twardzioszek_przydrozny":{"label":"Twardzioszek przydrożny","scientific":"Marasmius oreades","group":"Twardzioszki","ecology":"grassland","collect":true,"radar":"all","strong":[],"secondary":[],"age":[0,0],"ph":[5.0,7.5],"sand":"neutral","moist":"mesic_dry","season":[[120,8],[145,28],[175,60],[205,82],[235,95],[265,100],[295,92],[325,65],[345,30],[360,8]],"warning":"Rośnie na trawnikach, łąkach i poboczach. Groźna pomyłka z silnie trującymi białymi lejkówkami rosnącymi w tych samych siedliskach."}};
 const TYPE_LIST=Object.keys(SPECIES_META).filter(k=>!['goryczak','szatanski'].includes(k));
 const PICK_TYPES=TYPE_LIST.filter(k=>SPECIES_META[k].collect!==false);
+// v199: indeks pełnego atlasu do zwartego cache potencjału per feature.
+// Jedna tablica per feature zastępuje dziesiątki zapisów WeakMap per gatunek.
+const PICK_TYPE_INDEX_V199=Object.freeze(Object.fromEntries(PICK_TYPES.map((t,i)=>[t,i])));
 const SCI_NAMES=Object.fromEntries(Object.entries(SPECIES_META).map(([k,v])=>[k,v.scientific]));
 const HUMAN_NAMES=Object.fromEntries(Object.entries(SPECIES_META).map(([k,v])=>[k,v.label]));
 const ATLAS_GROUPS=[
@@ -7698,6 +7701,8 @@ function setSpeciesWeatherProduction(enabled){
  perfBestTodayInfoCache=new WeakMap();
  perfBestTodayInvariantCache=new WeakMap();
  perfBestTodayCoreV198=new WeakMap();
+ perfStableTypePackedV199=new WeakMap();
+ perfStableTypePackedPerfV199={writes:0,reads:0};
  perfScoreCache=new WeakMap();
  perfBestCache=new WeakMap();
  perfDiversityCache=new WeakMap();
@@ -9024,12 +9029,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v198',
+     mode:'sync-batched-v199',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v198',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v199',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -9844,6 +9849,10 @@ let perfBestTodayInvariantCache=new WeakMap();
 // v198: minimalny wynik wyboru BEST zapisany podczas lean distribution.
 // Nie materializujemy pelnych per-species dynamic cache'y jak v196.
 let perfBestTodayCoreV198=new WeakMap();
+// v199: zwarty cache stableScoreForType dla pełnego BEST.
+// Powstaje tylko w standardowym ALL+DZIŚ i jest kasowany razem ze scoringiem.
+let perfStableTypePackedV199=new WeakMap();
+let perfStableTypePackedPerfV199={writes:0,reads:0};
 let perfHotspotTodayInfoCache=new WeakMap();
 let perfHotspotTodayInfoCacheKey='';
 
@@ -9990,6 +9999,8 @@ function invalidateScoringCaches(reason=''){
  perfTodaySpeciesEffectiveCache.clear();
  perfBestTodayInvariantCache=new WeakMap();
  perfBestTodayCoreV198=new WeakMap();
+ perfStableTypePackedV199=new WeakMap();
+ perfStableTypePackedPerfV199={writes:0,reads:0};
  perfHotspotTodayInfoCache=new WeakMap();
  perfHotspotTodayInfoCacheKey='';
  todayStyleScoreCacheKey='';
@@ -10050,6 +10061,8 @@ function invalidateWeatherScoringCachesV176(reason='weather'){
  perfTodaySpeciesEffectiveCache.clear();
  perfBestTodayInvariantCache=new WeakMap();
  perfBestTodayCoreV198=new WeakMap();
+ perfStableTypePackedV199=new WeakMap();
+ perfStableTypePackedPerfV199={writes:0,reads:0};
  perfHotspotTodayInfoCache=new WeakMap();perfHotspotTodayInfoCacheKey='';
  todayStyleScoreCacheKey='';todayStyleScoreCache=new WeakMap();
  // Zachowaj statyczne raw cache, usuń tylko dynamiczne wpisy.
@@ -10077,6 +10090,8 @@ function invalidateOpenHabitatScoringCaches(reason='OSM open habitats'){
  perfDiversityCache=new WeakMap();
  perfBestTodayInvariantCache=new WeakMap();
  perfBestTodayCoreV198=new WeakMap();
+ perfStableTypePackedV199=new WeakMap();
+ perfStableTypePackedPerfV199={writes:0,reads:0};
  perfHotspotTodayInfoCache=new WeakMap();
  perfHotspotTodayInfoCacheKey='';
 
@@ -12630,7 +12645,7 @@ function opportunityScalarFromNicheArrayV175(vals,meta){
 function opportunityRawScalarCacheKeyV175(dynamic,types){
  return `v175-scalar|${scoringRevision}|${dynamic?1:0}|${opportunityTypeSetKey(types)}`;
 }
-// ========================= v198: FUSED TYPE SCORE FAST PATH =========================
+// ========================= v199: FUSED TYPE SCORE FAST PATH =========================
 // W trybie wielogatunkowym POTENCJAL + DZIS korzystaja z tych samych komponentow
 // statycznych. Wczesniej stableScoreForType() i speciesEffective() przechodzily
 // przez osobne warstwy cache/funkcji dla kazdego gatunku x feature. Ten helper
@@ -12695,7 +12710,7 @@ function opportunityTypeScorePairV196(type,f,needDynamic=true,sharedForestContex
  return {potential,effective};
 }
 
-// ========================= v198: HYBRID LEAN DISTRIBUTION SPECIES PATH =========================
+// ========================= v199: HYBRID LEAN DISTRIBUTION SPECIES PATH =========================
 // Distribution potrzebuje wyłącznie dwóch skalarów per feature. Nie zapisujemy tutaj
 // 4 dodatkowych cache'y per gatunek x feature; UI/audyt policzą je leniwie tylko tam,
 // gdzie naprawdę są potrzebne. Wzory pozostają 1:1 z opportunityTypeScorePairV196().
@@ -12777,13 +12792,16 @@ function opportunityRawScorePairLeanV197(f,typesOverride=null,needDynamic=true){
  const indices=f._kind==='open'?meta.openIndices:meta.forestIndices;
  const sharedForestContextScore=f._kind==='open'?NaN:forestContextInfo(f).score;
 
- // v198 HYBRID: tylko standardowe BEST + DZIŚ potrzebuje później informacji
+ // v199 HYBRID: tylko standardowe BEST + DZIŚ potrzebuje później informacji
  // o zwycięskim gatunku i skalach pojedynczych gatunków. Zapisujemy więc
  // potencjał per gatunek (1 WeakMap write), ale nadal NIE zapisujemy
  // stableSpeciesPotential/staticSuitability/speciesEffective dla każdego pair.
  const seedBestCore=needDynamic&&!hasDynamic&&mapMode==='today'&&!atlasSelected.size&&currentFilter==='all'&&
    types.length===PICK_TYPES.length&&types.every((t,i)=>t===PICK_TYPES[i]);
  let bestCore=null;
+ // v199 PACKED: jedna tablica Float64Array zamiast osobnego WeakMap.set() dla
+ // każdego gatunku x feature. Indeksy są stabilne, bo seedBestCore wymaga dokładnie PICK_TYPES.
+ const packedStable=seedBestCore?new Float64Array(PICK_TYPES.length):null;
 
  for(let k=0;k<indices.length;k++){
    const i=indices[k],t=types[i];
@@ -12792,8 +12810,9 @@ function opportunityRawScorePairLeanV197(f,typesOverride=null,needDynamic=true){
    const potential=scores.potential;
 
    // Minimalny seed dla atlasSingleSpeciesClass()/atlasSpeciesScale().
-   // stableScoreForType() zwraca dokladnie `potential` z tego helpera.
-   if(seedBestCore&&Number.isFinite(potential))perfSetTypeFeatureCacheV196(perfStableTypeScoreCache,t,f,potential);
+   // stableScoreForType() zwraca dokładnie `potential`; v199 zapisuje go w zwartej
+   // tablicy per feature zamiast robić osobny WeakMap write dla każdego pair.
+   if(packedStable&&Number.isFinite(potential))packedStable[i]=potential;
 
    if(!hasStatic&&Number.isFinite(potential)){
      const v=clamp(potential),ni=meta.nicheIds[i];
@@ -12832,6 +12851,8 @@ function opportunityRawScorePairLeanV197(f,typesOverride=null,needDynamic=true){
  if(seedBestCore){
    if(!bestCore)bestCore={type:'borowik',score:0,rawToday:0,potential:0,selectionScore:0};
    perfBestTodayCoreV198.set(f,bestCore);
+   perfStableTypePackedV199.set(f,{rev:scoringRevision,values:packedStable});
+   perfStableTypePackedPerfV199.writes++;
  }
  return {staticScore,dynamicScore,cacheHit:false};
 }
@@ -13221,6 +13242,8 @@ function resetStaticCachesIfNeeded(){
  perfBestCache=new WeakMap();
  perfBestTodayInfoCache=new WeakMap();
  perfBestTodayCoreV198=new WeakMap();
+ perfStableTypePackedV199=new WeakMap();
+ perfStableTypePackedPerfV199={writes:0,reads:0};
  perfDiversityCache=new WeakMap();
 }
 
@@ -13376,7 +13399,7 @@ function ensureForestContextWorkerV174(){
    URL.revokeObjectURL(url);
    return forestContextWorker;
  }catch(e){
-   console.warn('FOREST CONTEXT WORKER v198 unavailable',e);
+   console.warn('FOREST CONTEXT WORKER v199 unavailable',e);
    return null;
  }
 }
@@ -13415,10 +13438,10 @@ async function prewarmForestContextWorkerV174(key){
    }
    forestContextWorkerRevision=revision;
    forestContextWorkerLast={state:'ready',revision,features:msg.rows.length,prepMs,workerMs:msg.workerMs,applyMs:performance.now()-ta,totalMs:performance.now()-t0};
-   console.info('FOREST CONTEXT WORKER v198',forestContextWorkerLast);
+   console.info('FOREST CONTEXT WORKER v199',forestContextWorkerLast);
    return forestContextWorkerLast;
  })().catch(e=>{
-   console.warn('FOREST CONTEXT WORKER v198 fallback',e);
+   console.warn('FOREST CONTEXT WORKER v199 fallback',e);
    return {state:'error',error:String(e?.message||e)};
  }).finally(()=>{forestContextWorkerPromise=null;});
  return forestContextWorkerPromise;
@@ -23788,6 +23811,13 @@ const atlasSpeciesScaleCache=new Map();
 
 function stableScoreForType(type,f){
  if(!featureRelevant(type,f))return 0;
+ // v199: distribution BEST policzyło już ten sam stable score. Odczyt z jednej
+ // zwartej tablicy per feature jest znacznie tańszy niż Map -> WeakMap dla 32 typów.
+ const packed=perfStableTypePackedV199.get(f),packedIdx=PICK_TYPE_INDEX_V199[type];
+ if(packed&&packed.rev===scoringRevision&&packedIdx!==undefined){
+   const v=packed.values[packedIdx];
+   if(Number.isFinite(v)){perfStableTypePackedPerfV199.reads++;return v;}
+ }
  return perfTypeFeatureCache(perfStableTypeScoreCache,type,f,()=>{
    let base=stableSpeciesPotential(type,f);
    const ctx=forestContextInfo(f);
@@ -26025,7 +26055,7 @@ function updateAtlasHead(){
 }
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v198',{
+   console.info('UI ACTION v199',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -26998,7 +27028,7 @@ async function auditV191PerformanceEquivalence(limit=180){
  const forest=src.filter(f=>f._kind!=='open').slice(0,Math.ceil(limit*.75));
  const open=src.filter(f=>f._kind==='open').slice(0,Math.floor(limit*.25));
  const features=[...forest,...open],types=PICK_TYPES;
- const maxima={treeMax:0,gateMax:0,habMax:0,soilMax:0,terrainMax:0,ageMax:0,fruitMax:0,staticSuitabilityMax:0,stablePotentialMax:0,stableScoreMax:0,effectiveMax:0,pairStaticMax:0,pairDynamicMax:0,bestCoreScoreMax:0,bestCorePotentialMax:0,bestCoreSelectionMax:0,bestCoreTypeMismatch:0};
+ const maxima={treeMax:0,gateMax:0,habMax:0,soilMax:0,terrainMax:0,ageMax:0,fruitMax:0,staticSuitabilityMax:0,stablePotentialMax:0,stableScoreMax:0,effectiveMax:0,pairStaticMax:0,pairDynamicMax:0,bestCoreScoreMax:0,bestCorePotentialMax:0,bestCoreSelectionMax:0,bestCoreTypeMismatch:0,packedStableMax:0,leanPairStaticMax:0,leanPairDynamicMax:0};
  const worst={};let checks=0;
  const upd=(k,d,f,t)=>{if(d>maxima[k]){maxima[k]=d;worst[k]={type:t,kind:f?._kind||'forest',tree:speciesCode(f?.properties||{}),habitat:habitatCode(f?.properties||{}),address:String(f?.properties?.adress_forest||'')}}};
  const t0=performance.now();
@@ -27014,14 +27044,22 @@ async function auditV191PerformanceEquivalence(limit=180){
      if(mapMode==='today')upd('fruitMax',Math.abs(fruitingConditions(t,f)-v190RefFruitingConditions(t,f)),f,t);
      upd('staticSuitabilityMax',Math.abs(staticSuitability(t,f)-v190RefStaticSuitability(t,f)),f,t);
      upd('stablePotentialMax',Math.abs(stableSpeciesPotential(t,f)-v190RefStableSpeciesPotential(t,f)),f,t);
-     upd('stableScoreMax',Math.abs(stableScoreForType(t,f)-v190RefStableScoreForType(t,f)),f,t);
+     const refStable=v190RefStableScoreForType(t,f);
+     upd('stableScoreMax',Math.abs(stableScoreForType(t,f)-refStable),f,t);
+     const packed=perfStableTypePackedV199.get(f),packedIdx=PICK_TYPE_INDEX_V199[t];
+     if(packed&&packed.rev===scoringRevision&&packedIdx!==undefined)upd('packedStableMax',Math.abs(packed.values[packedIdx]-refStable),f,t);
      if(mapMode==='today')upd('effectiveMax',Math.abs(speciesEffective(t,f)-v190RefSpeciesEffective(t,f)),f,t);
      checks++;
    }
    const fast=opportunityRawScorePairV175(f,types,mapMode==='today');
+   const lean=opportunityRawScorePairLeanV197(f,types,mapMode==='today');
    const ref=v190ReferenceRawPair(f,types,mapMode==='today');
    upd('pairStaticMax',Math.abs(fast.staticScore-ref.staticScore),f,'ALL');
-   if(mapMode==='today')upd('pairDynamicMax',Math.abs(fast.dynamicScore-ref.dynamicScore),f,'ALL');
+   upd('leanPairStaticMax',Math.abs(lean.staticScore-ref.staticScore),f,'ALL');
+   if(mapMode==='today'){
+     upd('pairDynamicMax',Math.abs(fast.dynamicScore-ref.dynamicScore),f,'ALL');
+     upd('leanPairDynamicMax',Math.abs(lean.dynamicScore-ref.dynamicScore),f,'ALL');
+   }
    if(mapMode==='today'&&!atlasSelected.size&&currentFilter==='all'){
      const core=perfBestTodayCoreV198.get(f);
      if(core?.type){
@@ -27040,9 +27078,9 @@ async function auditV191PerformanceEquivalence(limit=180){
    }
  }
  const maxDelta=Math.max(...Object.values(maxima));
- const report={version:'v198',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-10,worst,elapsedMs:performance.now()-t0};
+ const report={version:'v199',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-10,worst,elapsedMs:performance.now()-t0};
  window.__v190PerformanceEquivalence=report;
- console.info('V198 TRUE PERFORMANCE EQUIVALENCE',report);
+ console.info('V199 TRUE PERFORMANCE EQUIVALENCE',report);
  return report;
 }
 window.auditV192PerformanceEquivalence=auditV191PerformanceEquivalence;
@@ -27914,7 +27952,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v198',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v199',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -28004,7 +28042,7 @@ function areaWeatherSignatureV191(area){
  return commutativeSigV191(parts);
 }
 function areaScoreSessionKeyV191(area,types){
- return `v198|${analysisAreaGeometrySigV191(area)}|${opportunityTypeSetKey(types)}`;
+ return `v199|${analysisAreaGeometrySigV191(area)}|${opportunityTypeSetKey(types)}`;
 }
 function currentDistributionKeyV191(types,areaName,kind){
  return `v105|${scoringRevision}|${opportunityTypeSetKey(types)}|${areaName}|${RADIUS_KM}|${kind}|${allFeatures.length}|${openFeatures.length}`;
@@ -28079,7 +28117,7 @@ function restoreAreaScoreSessionV191(types){
    entry.ts=Date.now();areaScoreSessionCacheV191.delete(key);areaScoreSessionCacheV191.set(key,entry);
  }
  areaScoreSessionLastV191={restoredAreas,staticAreas,dynamicAreas,reusedFeatures,misses,elapsedMs:performance.now()-t0};
- console.info('AREA SCORE CACHE RESTORE v198',areaScoreSessionLastV191);
+ console.info('AREA SCORE CACHE RESTORE v199',areaScoreSessionLastV191);
  return areaScoreSessionLastV191;
 }
 function saveAreaScoreSessionV191(types){
@@ -28111,7 +28149,7 @@ function saveAreaScoreSessionV191(types){
 window.auditV191SessionCache=function(){
  pruneAreaScoreSessionCacheV191();
  const entries=[...areaScoreSessionCacheV191.entries()].map(([key,v])=>({key,ageSec:+((Date.now()-v.ts)/1000).toFixed(1),staticScores:v.staticRaw?.size||0,dynamicScores:v.dynamicRaw?.size||0,forestRows:v.forestRows?.length||0,openRows:v.openRows?.length||0}));
- const report={version:'v198',entries:entries.length,last:{...areaScoreSessionLastV191},rows:entries};
+ const report={version:'v199',entries:entries.length,last:{...areaScoreSessionLastV191},rows:entries};
  console.table(entries);console.info('V195 SESSION AREA CACHE',report);return report;
 };
 window.clearV191SessionCache=function(){areaScoreSessionCacheV191.clear();areaScoreSessionLastV191={restoredAreas:0,staticAreas:0,dynamicAreas:0,reusedFeatures:0,misses:0,elapsedMs:0};return true;};
@@ -28124,7 +28162,7 @@ window.auditV191AreaIsolation=function(){
    return {area:area.name,sig,weatherSamples:localWeather.length,clusterSize:cluster.length,sessionEntries:cacheKeys.length};
  });
  const weatherOk=!weatherReady||rows.every(r=>r.weatherSamples>=5);
- const report={version:'v198',areas:rows.length,weatherReady,weatherIsolationOk:weatherOk,rows,lastCache:{...areaScoreSessionLastV191}};
+ const report={version:'v199',areas:rows.length,weatherReady,weatherIsolationOk:weatherOk,rows,lastCache:{...areaScoreSessionLastV191}};
  console.table(rows);console.info('V195 AREA ISOLATION',report);return report;
 };
 
@@ -28213,7 +28251,7 @@ async function runAutoQAV192(){
 
    const overall=!!equivalence?.ok&&roundTrip.ok&&weatherIsolationOk&&reuseOk;
    const report={
-     version:'v198',scenario:scenario.kind,areas:rows.length,areaSigs:rows.map(r=>r.sig),overlap:scenario.overlap,
+     version:'v199',scenario:scenario.kind,areas:rows.length,areaSigs:rows.map(r=>r.sig),overlap:scenario.overlap,
      overall:overall?'PASS':'FAIL',equivalenceOk:!!equivalence?.ok,maxDelta:Number(equivalence?.maxDelta??NaN),
      roundTripOk:roundTrip.ok,roundTripMaxDelta:roundTrip.maxDelta,roundTripStaticAreas:roundTrip.staticAreas,roundTripDynamicAreas:roundTrip.dynamicAreas,
      weatherStatus,weatherSamples:rows.map(r=>r.weatherSamples),expectedReuse:scenario.expectedReuse,
@@ -28225,12 +28263,12 @@ async function runAutoQAV192(){
    autoQAV192.runs.push({ts:Date.now(),areaSigs:report.areaSigs,scenario:report.scenario,overall:report.overall});
    if(autoQAV192.runs.length>24)autoQAV192.runs.shift();
    window.__v192AutoQA=report;window.__v195AutoQA=report;
-   console.info('V198 AUTO QA',report);
-   console.info(`V198 AUTO QA FLAT | scenario=${report.scenario} | areas=${report.areas} | equivalence=${report.equivalenceOk?'PASS':'FAIL'}(delta ${Number.isFinite(report.maxDelta)?report.maxDelta:'?'}) | cacheRoundTrip=${report.roundTripOk?'PASS':'FAIL'}(delta ${report.roundTripMaxDelta}, static ${report.roundTripStaticAreas}, dynamic ${report.roundTripDynamicAreas}) | phaseReuse=${reuseApplicable?(report.phaseReuseOk?'PASS':'FAIL'):'N/A'}(${report.phaseStaticAreas}/${report.expectedReuse}, dyn ${report.phaseDynamicAreas}, final ${report.phaseReusedFeatures}) | weather=${report.weatherStatus}[${report.weatherSamples.join(',')}] | prior=${report.priorMs.toFixed(1)} | distribution=${report.distributionMs.toFixed(1)} pairs=${report.distributionPairs} | overall=${report.overall}`);
+   console.info('V199 AUTO QA',report);
+   console.info(`V199 AUTO QA FLAT | scenario=${report.scenario} | areas=${report.areas} | equivalence=${report.equivalenceOk?'PASS':'FAIL'}(delta ${Number.isFinite(report.maxDelta)?report.maxDelta:'?'}) | cacheRoundTrip=${report.roundTripOk?'PASS':'FAIL'}(delta ${report.roundTripMaxDelta}, static ${report.roundTripStaticAreas}, dynamic ${report.roundTripDynamicAreas}) | phaseReuse=${reuseApplicable?(report.phaseReuseOk?'PASS':'FAIL'):'N/A'}(${report.phaseStaticAreas}/${report.expectedReuse}, dyn ${report.phaseDynamicAreas}, final ${report.phaseReusedFeatures}) | weather=${report.weatherStatus}[${report.weatherSamples.join(',')}] | prior=${report.priorMs.toFixed(1)} | distribution=${report.distributionMs.toFixed(1)} pairs=${report.distributionPairs} | overall=${report.overall}`);
    return report;
  }catch(err){
-   const report={version:'v198',overall:'FAIL',error:String(err?.stack||err)};
-   autoQAV192.last=report;window.__v192AutoQA=report;window.__v195AutoQA=report;console.error('V198 AUTO QA FAIL',report);return report;
+   const report={version:'v199',overall:'FAIL',error:String(err?.stack||err)};
+   autoQAV192.last=report;window.__v192AutoQA=report;window.__v195AutoQA=report;console.error('V199 AUTO QA FAIL',report);return report;
  }finally{autoQAV192.busy=false;}
 }
 function scheduleAutoQAV192(delay=650){
@@ -28350,15 +28388,15 @@ async function runCacheStressV195(){
    const stateUnchanged=setSig===cacheStressAreaSetSigV195()&&ANALYSIS_CENTERS.length===1;
    tests.stateRestored=cacheStressResultV195(stateUnchanged,{before:setSig,after:cacheStressAreaSetSigV195(),areas:ANALYSIS_CENTERS.length});
    const failed=Object.entries(tests).filter(([,v])=>v&&v.ok===false).map(([k])=>k);
-   const report={version:'v198',overall:failed.length?'FAIL':'PASS',area:analysisAreaGeometrySigV191(area),tests,failed,elapsedMs:+(performance.now()-started).toFixed(1),baselinePhase:{sessionStaticAreas:Number(hotspotPipelineWarmLast?.sessionStaticAreas||0),sessionDynamicAreas:Number(hotspotPipelineWarmLast?.sessionDynamicAreas||0),sessionReusedFeatures:Number(hotspotPipelineWarmLast?.sessionReusedFeatures||0),priorMs:Number(hotspotPipelineWarmLast?.priorMs||0),distributionMs:Number(hotspotPipelineWarmLast?.distributionMs||0),distributionPairs:Number(hotspotPipelineWarmLast?.distributionPairs||0)}};
+   const report={version:'v199',overall:failed.length?'FAIL':'PASS',area:analysisAreaGeometrySigV191(area),tests,failed,elapsedMs:+(performance.now()-started).toFixed(1),baselinePhase:{sessionStaticAreas:Number(hotspotPipelineWarmLast?.sessionStaticAreas||0),sessionDynamicAreas:Number(hotspotPipelineWarmLast?.sessionDynamicAreas||0),sessionReusedFeatures:Number(hotspotPipelineWarmLast?.sessionReusedFeatures||0),priorMs:Number(hotspotPipelineWarmLast?.priorMs||0),distributionMs:Number(hotspotPipelineWarmLast?.distributionMs||0),distributionPairs:Number(hotspotPipelineWarmLast?.distributionPairs||0)}};
    cacheStressV195.last=report;cacheStressV195.runs.push(report);if(cacheStressV195.runs.length>8)cacheStressV195.runs.shift();cacheStressV195.done=true;window.__v195CacheStress=report;
-   console.info('V198 CACHE STRESS',report);
-   console.info(`V198 CACHE STRESS FLAT | restoreA=${tests.restoreA.ok?'PASS':'FAIL'} | addFar=${tests.addFarArea.ok?'PASS':'FAIL'}(reuse ${tests.addFarArea.reusedFeatures||0}, miss ${tests.addFarArea.misses||0}) | overlap=${tests.overlapGuard.ok?'PASS':'FAIL'}(final ${tests.overlapGuard.reusedFeatures||0}, miss ${tests.overlapGuard.misses||0}) | weather=${tests.weatherInvalidation.ok&&tests.weatherRecovery.ok?'PASS':'FAIL'} | staticFingerprint=${tests.staticFingerprintInvalidation.ok&&tests.staticFingerprintRecovery.ok?'PASS':'FAIL'} | ttl=${tests.ttlExpiry.ok?'PASS':'FAIL'} | finalDelta=${tests.finalRecovery.maxDelta??'?'} | equivalence=${tests.equivalence.ok?'PASS':'FAIL'}(delta ${tests.equivalence.maxDelta??'?'}) | elapsed=${report.elapsedMs.toFixed(1)}ms | overall=${report.overall}`);
+   console.info('V199 CACHE STRESS',report);
+   console.info(`V199 CACHE STRESS FLAT | restoreA=${tests.restoreA.ok?'PASS':'FAIL'} | addFar=${tests.addFarArea.ok?'PASS':'FAIL'}(reuse ${tests.addFarArea.reusedFeatures||0}, miss ${tests.addFarArea.misses||0}) | overlap=${tests.overlapGuard.ok?'PASS':'FAIL'}(final ${tests.overlapGuard.reusedFeatures||0}, miss ${tests.overlapGuard.misses||0}) | weather=${tests.weatherInvalidation.ok&&tests.weatherRecovery.ok?'PASS':'FAIL'} | staticFingerprint=${tests.staticFingerprintInvalidation.ok&&tests.staticFingerprintRecovery.ok?'PASS':'FAIL'} | ttl=${tests.ttlExpiry.ok?'PASS':'FAIL'} | finalDelta=${tests.finalRecovery.maxDelta??'?'} | equivalence=${tests.equivalence.ok?'PASS':'FAIL'}(delta ${tests.equivalence.maxDelta??'?'}) | elapsed=${report.elapsedMs.toFixed(1)}ms | overall=${report.overall}`);
    setTimeout(()=>{prepareAutoMegaDebugV195();},80);
    return report;
  }catch(err){
-   const report={version:'v198',overall:'FAIL',error:String(err?.stack||err),tests,elapsedMs:+(performance.now()-started).toFixed(1)};
-   cacheStressV195.last=report;cacheStressV195.runs.push(report);cacheStressV195.done=true;window.__v195CacheStress=report;console.error('V198 CACHE STRESS FAIL',report);return report;
+   const report={version:'v199',overall:'FAIL',error:String(err?.stack||err),tests,elapsedMs:+(performance.now()-started).toFixed(1)};
+   cacheStressV195.last=report;cacheStressV195.runs.push(report);cacheStressV195.done=true;window.__v195CacheStress=report;console.error('V199 CACHE STRESS FAIL',report);return report;
  }finally{
    // Bezwarunkowo przywróć ewentualne mutacje wejść diagnostycznych.
    if(changedWeather){changedWeather.sample.index=changedWeather.old;}
@@ -28482,7 +28520,7 @@ async function buildMegaDebugReportV195(){
       areaIsolation={weatherReady,weatherIsolationOk:!weatherReady||rows.every(r=>r.weatherSamples>=5),rows};
     }catch(e){areaIsolation={error:String(e?.stack||e)};}
     const payload={
-      schema:'mushroom-map-mega-debug/1',version:'v198',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
+      schema:'mushroom-map-mega-debug/1',version:'v199',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
       verdict:{overall:(qa?.overall==='PASS'&&cacheStressV195.last?.overall==='PASS'&&equivalence?.ok&&areaIsolation?.weatherIsolationOk!==false)?'PASS':'FAIL',autoQA:qa?.overall||null,cacheStress:cacheStressV195.last?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
       state:megaDebugCoreStateV195(),equivalence:megaDebugSafeV195(equivalence),areaIsolation:megaDebugSafeV195(areaIsolation),
       autoQAHistory:megaDebugSafeV195(autoQAV192.runs.slice(-24)),cacheStressHistory:megaDebugSafeV195(cacheStressV195.runs.slice(-8)),
@@ -28490,9 +28528,9 @@ async function buildMegaDebugReportV195(){
       reportBuildMs:+(performance.now()-started).toFixed(1)
     };
     megaDebugV195.lastObject=payload;
-    megaDebugV195.lastReport=`===== MAPA GRZYBÓW MEGA DEBUG v198 =====\n${JSON.stringify(payload,null,2)}\n===== END MEGA DEBUG v198 =====`;
+    megaDebugV195.lastReport=`===== MAPA GRZYBÓW MEGA DEBUG v199 =====\n${JSON.stringify(payload,null,2)}\n===== END MEGA DEBUG v199 =====`;
     window.__megaDebugV195=payload;
-    console.info('V198 MEGA DEBUG READY',{chars:megaDebugV195.lastReport.length,verdict:payload.verdict,reportBuildMs:payload.reportBuildMs});
+    console.info('V199 MEGA DEBUG READY',{chars:megaDebugV195.lastReport.length,verdict:payload.verdict,reportBuildMs:payload.reportBuildMs});
     return megaDebugV195.lastReport;
   }finally{megaDebugV195.running=false;}
 }
@@ -28502,7 +28540,7 @@ async function copyTextMegaDebugV195(text){
 }
 function downloadMegaDebugV195(text){
   const blob=new Blob([text],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=url;a.download=`mapa-grzybow-mega-debug-v198-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  a.href=url;a.download=`mapa-grzybow-mega-debug-v199-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 function showMegaDebugOverlayV195(text){
   const ov=document.getElementById('megaDebugReportOverlay'),ta=document.getElementById('megaDebugReportText');if(!ov||!ta)return;
@@ -28550,12 +28588,12 @@ async function prepareAutoMegaDebugV195(){
      `total=${Number(phase.elapsedMs||0).toFixed(1)}`,
      `reportChars=${text.length}`
    ].join(' | ');
-   console.info(`V198 AUTO MEGA DEBUG FLAT | ${flat}`);
+   console.info(`V199 AUTO MEGA DEBUG FLAT | ${flat}`);
    window.__v195AutoMegaDebugText=text;
    return text;
  }catch(e){
    if(q){q.className='fail';q.textContent='📋 Debug FAIL';}
-   console.error('V198 AUTO MEGA DEBUG FAIL',e);return '';
+   console.error('V199 AUTO MEGA DEBUG FAIL',e);return '';
  }
 }
 function multiAreaWarmSignature(){
@@ -28653,7 +28691,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v198-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
+   'v199-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -28890,7 +28928,7 @@ async function prewarmHotspotPipeline(){
    if(forestWorker?.state==='aborted'||forestWorker?.state==='stale'||forestWorker?.state==='aborted-apply')return false;
    for(const a of ANALYSIS_CENTERS)stableCandidateFeatures(a.name);
 
-   const phase={forestWorkerMs:Number(forestWorker?.workerMs||0),forestWorkerWallMs:Number(forestWorker?.totalMs||0),sessionCacheMs:0,sessionStaticAreas:0,sessionDynamicAreas:0,sessionReusedFeatures:0,priorMs:0,priorComboHits:0,priorComboMisses:0,distributionMs:0,distributionPairs:0,finalizedScores:0,mainScoreMs:0};
+   const phase={forestWorkerMs:Number(forestWorker?.workerMs||0),forestWorkerWallMs:Number(forestWorker?.totalMs||0),sessionCacheMs:0,sessionStaticAreas:0,sessionDynamicAreas:0,sessionReusedFeatures:0,priorMs:0,priorComboHits:0,priorComboMisses:0,distributionMs:0,distributionPairs:0,finalizedScores:0,packedWrites:0,packedReads:0,mainScoreMs:0};
    const opportunityTypes=activeOpportunityTypesForHotspotWarm();
 
    if(opportunityTypes){
@@ -28914,9 +28952,12 @@ async function prewarmHotspotPipeline(){
      if(prior.aborted)return false;
 
      t=performance.now();
+     const packed0={writes:perfStableTypePackedPerfV199.writes,reads:perfStableTypePackedPerfV199.reads};
      const dist=await prewarmOpportunityCompositeDistributionsV176(opportunityTypes,key);
      phase.distributionPairs=Number(dist.pairs||0);
      phase.finalizedScores=Number(dist.finalized||0);
+     phase.packedWrites=perfStableTypePackedPerfV199.writes-packed0.writes;
+     phase.packedReads=perfStableTypePackedPerfV199.reads-packed0.reads;
      phase.distributionMs=performance.now()-t;
      if(dist.aborted)return false;
      saveAreaScoreSessionV191(opportunityTypes);
@@ -28999,19 +29040,19 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,buildBalancedMs,buildTodayScaleMs,buildHotspotsMs,anchorMs,
      ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v198',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v199',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v198',{
+   console.info('HOTSPOT PHASE v199',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      forestWorkerWallMs:+phase.forestWorkerWallMs.toFixed(1),forestWorkerMs:+phase.forestWorkerMs.toFixed(1),
      sessionCacheMs:+phase.sessionCacheMs.toFixed(1),sessionStaticAreas:phase.sessionStaticAreas||0,sessionDynamicAreas:phase.sessionDynamicAreas||0,sessionReusedFeatures:phase.sessionReusedFeatures||0,
-     priorMs:+phase.priorMs.toFixed(1),priorComboHits:phase.priorComboHits||0,priorComboMisses:phase.priorComboMisses||0,distributionMs:+phase.distributionMs.toFixed(1),distributionPairs:phase.distributionPairs||0,finalizedScores:phase.finalizedScores||0,
+     priorMs:+phase.priorMs.toFixed(1),priorComboHits:phase.priorComboHits||0,priorComboMisses:phase.priorComboMisses||0,distributionMs:+phase.distributionMs.toFixed(1),distributionPairs:phase.distributionPairs||0,finalizedScores:phase.finalizedScores||0,packedWrites:phase.packedWrites||0,packedReads:phase.packedReads||0,
      mainScoreMs:+phase.mainScoreMs.toFixed(1),buildMs:+buildMs.toFixed(1),buildBalancedMs:+buildBalancedMs.toFixed(1),buildTodayScaleMs:+buildTodayScaleMs.toFixed(1),buildHotspotsMs:+buildHotspotsMs.toFixed(1),anchorMs:+anchorMs.toFixed(1),
      contextHits:forestPerfDelta.contextHits,contextMisses:forestPerfDelta.contextMisses,
      distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
-   console.info(`HOTSPOT PHASE v198 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | sessionCache=${phase.sessionCacheMs.toFixed(1)}ms(static ${phase.sessionStaticAreas||0}, dynamic ${phase.sessionDynamicAreas||0}, final ${phase.sessionReusedFeatures||0}) | prior=${phase.priorMs.toFixed(1)}(combo ${phase.priorComboHits||0}h/${phase.priorComboMisses||0}m) | distribution=${phase.distributionMs.toFixed(1)}(hybrid, pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)}(scale ${buildBalancedMs.toFixed(1)}, todayScale ${buildTodayScaleMs.toFixed(1)}, hotspots ${buildHotspotsMs.toFixed(1)}) | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   console.info(`HOTSPOT PHASE v199 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | sessionCache=${phase.sessionCacheMs.toFixed(1)}ms(static ${phase.sessionStaticAreas||0}, dynamic ${phase.sessionDynamicAreas||0}, final ${phase.sessionReusedFeatures||0}) | prior=${phase.priorMs.toFixed(1)}(combo ${phase.priorComboHits||0}h/${phase.priorComboMisses||0}m) | distribution=${phase.distributionMs.toFixed(1)}(packed, pairs ${phase.distributionPairs||0}, final ${phase.finalizedScores||0}, packW ${phase.packedWrites||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)}(scale ${buildBalancedMs.toFixed(1)}, todayScale ${buildTodayScaleMs.toFixed(1)}, hotspots ${buildHotspotsMs.toFixed(1)}) | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
    scheduleAutoQAV192();
    scheduleCacheStressV195();
    return true;
@@ -29188,7 +29229,7 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v198',{
+   console.info('HOTSPOT RENDER v199',{
      features:rows.length,
      visibleRows,
      reasons:perfRenderNow._v182Reasons||[],
@@ -31310,7 +31351,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v198: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v199: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -31319,7 +31360,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v198',{
+   console.info('HOTSPOT ACCESS NETWORK v199',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -31333,7 +31374,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v198',{
+   console.info('HOTSPOT ACCESS v199',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -31358,7 +31399,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v198: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v199: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -31380,15 +31421,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v198',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v199',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v198',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v199',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v198: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v199: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }
@@ -32793,7 +32834,7 @@ if(clearApiCacheBtn)clearApiCacheBtn.onclick=async()=>{
  clearApiCacheBtn.disabled=false;
 };
 const megaDebugBtn=document.getElementById('megaDebugBtn');
-if(megaDebugBtn)megaDebugBtn.onclick=()=>{runMegaDebugFromUiV195().catch(e=>console.error('V198 MEGA DEBUG button',e));};
+if(megaDebugBtn)megaDebugBtn.onclick=()=>{runMegaDebugFromUiV195().catch(e=>console.error('V199 MEGA DEBUG button',e));};
 const megaDebugQuickBtn=document.getElementById('megaDebugQuickBtn');
 if(megaDebugQuickBtn)megaDebugQuickBtn.onclick=async()=>{
  megaDebugQuickBtn.disabled=true;
@@ -32891,7 +32932,7 @@ window.auditV176Architecture=function(){
 
 <div id="megaDebugReportOverlay" aria-hidden="true">
   <div class="mega-debug-report-shell" role="dialog" aria-modal="true" aria-labelledby="megaDebugReportTitle">
-    <div class="mega-debug-report-head"><span id="megaDebugReportTitle">📋 Raport Mega Debug v198</span><button id="megaDebugClose" type="button">×</button></div>
+    <div class="mega-debug-report-head"><span id="megaDebugReportTitle">📋 Raport Mega Debug v199</span><button id="megaDebugClose" type="button">×</button></div>
     <div style="font-size:12px;color:#5e6d65">Jeśli automatyczne kopiowanie nie zadziałało, kliknij „Kopiuj” albo pobierz TXT i wyślij go do ChatGPT.</div>
     <textarea id="megaDebugReportText" readonly spellcheck="false"></textarea>
     <div class="mega-debug-report-actions">

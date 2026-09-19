@@ -8154,6 +8154,42 @@ async function observationFetchJson(url,source,timeoutMs=18000,tries=2){
  });
 }
 
+// v222: exact taxonomy, complete observation dates, stable 365-day calendar.
+const GBIF_ACCEPTED_KEYS_V222=Object.freeze({"boczniak_ostrygowaty":2526530,"borowik":5954958,"borowik_sosnowy":5954949,"borowik_usiatkowany":5954691,"ceglastopory":8208185,"czernidlak":7987658,"gaska_nieksztaltna":5241860,"golabek_bagienny":2551201,"golabek_zielonawy":2551423,"kania":8914748,"kania_gwiazdzista":2536707,"kolczak_oblaczasty":2554716,"kozlarz_babka":9141390,"kozlarz_czerwony":2524513,"kozlarz_debowy":2524513,"kozlarz_grabowy":9712569,"kozlarz_pomaranczowozolty":2524490,"kozlarz_sosnowy":2524528,"kurka":5249504,"lejkowiec_dety":2554662,"maslak_pstry":9043861,"maslak_sitarz":7623986,"maslak_ziarnisty":8146046,"maslak_zolty":5239864,"maslak_zwyczajny":7777157,"mleczaj_swierkowy":7925734,"opienka_ciemna":2536899,"opienka_miodowa":2536891,"pieczarka_polna":5243458,"pieprznik_trabkowy":2554536,"podgrzybek":7832732,"podgrzybek_zajaczek":2519457,"ponury":3355021,"purchawka_oczkowana":10828425,"rydz":5248629,"siedzun_sosnowy":2550247,"twardzioszek_przydrozny":2537250});
+function gbifTaxonDecisionV222(type,j){
+ const key=Number(j?.acceptedUsageKey||j?.usageKey);
+ const exact=j?.matchType==='EXACT'&&j?.rank==='SPECIES'&&j?.kingdom==='Fungi'&&Number(j?.confidence)>=95;
+ if(!exact||!Number.isInteger(key)||key<=0)return {blocked:true,reason:'unresolved-species',key:null};
+ const conflicts=Object.keys(GBIF_ACCEPTED_KEYS_V222).filter(t=>t!==type&&GBIF_ACCEPTED_KEYS_V222[t]===key);
+ if(conflicts.length)return {blocked:true,reason:'shared-accepted-taxon',key,conflicts};
+ if(GBIF_ACCEPTED_KEYS_V222[type]&&GBIF_ACCEPTED_KEYS_V222[type]!==key)return {blocked:true,reason:'taxonomy-changed-review-required',key};
+ return {blocked:false,key,scientificName:j.scientificName,canonicalName:j.canonicalName,matchType:j.matchType,confidence:j.confidence};
+}
+function observationDateV222(o,source){
+ const raw=source==='inat'?(o.observed_on||o.time_observed_at):o.eventDate;
+ if(typeof raw!=='string'||raw.includes('/'))return null;
+ const m=/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/.exec(raw);
+ if(!m)return null;
+ const y=Number(m[1]),month=Number(m[2]),day=Number(m[3]);
+ if(y<1800||y>new Date().getUTCFullYear())return null;
+ const date=new Date(Date.UTC(y,month-1,day,12));
+ if(date.getUTCFullYear()!==y||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)return null;
+ if(date.toISOString().slice(0,10)>new Date().toISOString().slice(0,10))return null;
+ if(source==='gbif'){
+   if(o.startDayOfYear!=null&&o.endDayOfYear!=null&&o.startDayOfYear!==o.endDayOfYear)return null;
+   for(const [field,value] of [['year',y],['month',month],['day',day]])if(o[field]!=null&&Number(o[field])!==value)return null;
+ }
+ return date;
+}
+function observationCoordinatesV222(lat,lon){
+ if(lat==null||lon==null||lat===''||lon==='')return false;
+ return Number.isFinite(Number(lat))&&Number.isFinite(Number(lon))&&Math.abs(Number(lat))<=90&&Math.abs(Number(lon))<=180;
+}
+function observationTaxonRequiredV222(taxon,source){
+ if(!taxon||taxon.blocked)throw new Error(source+': '+(taxon?.reason||'unresolved-species'));
+ return taxon;
+}
+
 async function resolveINatTaxonId(type){
  if(observationTaxonResolverCache.inat.has(type))return observationTaxonResolverCache.inat.get(type);
  const scientific=SCI_NAMES[type];
@@ -8162,8 +8198,8 @@ async function resolveINatTaxonId(type){
    const q=new URLSearchParams({q:scientific,rank:'species',per_page:'30'});
    const j=await observationFetchJson('https://api.inaturalist.org/v1/taxa?'+q,'inat',15000,2);
    const exact=(j.results||[]).find(x=>String(x.name||'').toLowerCase()===String(scientific).toLowerCase());
-   if(exact?.id)out={id:exact.id,name:exact.name,matched:'exact'};
-   else if(j.results?.[0]?.id)out={id:j.results[0].id,name:j.results[0].name,matched:'fallback'};
+   if(exact?.id&&exact.rank==='species'&&exact.is_active!==false)out={id:exact.id,name:exact.name,matched:'exact'};
+   else out={blocked:true,reason:'no-exact-species-match'};
  }catch(e){
    console.warn('iNat taxon resolver',scientific,e);
  }
@@ -8176,16 +8212,9 @@ async function resolveGbifTaxonKey(type){
  const scientific=SCI_NAMES[type];
  let out=null;
  try{
-   const q=new URLSearchParams({name:scientific,rank:'SPECIES'});
+   const q=new URLSearchParams({name:scientific,rank:'SPECIES',kingdom:'Fungi',strict:'true'});
    const j=await observationFetchJson('https://api.gbif.org/v1/species/match?'+q,'gbif',15000,2);
-   const key=Number(j.acceptedUsageKey||j.usageKey);
-   if(Number.isFinite(key))out={
-     key,
-     scientificName:j.scientificName||scientific,
-     canonicalName:j.canonicalName||scientific,
-     matchType:j.matchType||null,
-     confidence:j.confidence??null
-   };
+   out=gbifTaxonDecisionV222(type,j);
  }catch(e){
    console.warn('GBIF taxon resolver',scientific,e);
  }
@@ -8209,6 +8238,11 @@ function circleWkt(center,rKm,steps=48){
 async function fetchINat(type){
  const out=[];
  const taxon=await resolveINatTaxonId(type);
+ if(!taxon||taxon.blocked){
+   observationFetchDiagnostics[type]??={};
+   observationFetchDiagnostics[type].inat={source:'inat',raw:0,accepted:0,errors:[taxon?.reason||'unresolved-species'],resolvedTaxon:taxon};
+   observationTaxonRequiredV222(taxon,'inat');
+ }
  const diag={
    source:'iNaturalist',areas:0,pages:0,raw:0,accepted:0,
    privacyRejected:0,accuracyRejected:0,noCoords:0,dateRejected:0,
@@ -8243,6 +8277,8 @@ async function fetchINat(type){
      diag.raw+=results.length;
 
      for(const o of results){
+       if(Number(o.taxon?.id)!==Number(taxon.id)&&!(o.taxon?.ancestor_ids||[]).includes(Number(taxon.id))){diag.taxonRejected=(diag.taxonRejected||0)+1;continue;}
+       if(o.captive===true){diag.cultivatedRejected=(diag.cultivatedRejected||0)+1;continue;}
        // Brak wartości traktujemy jako brak aktywnego ukrycia.
        // Odrzucamy tylko jawne obscured/private.
        const gp=String(o.geoprivacy||'open').toLowerCase();
@@ -8253,13 +8289,13 @@ async function fetchINat(type){
        }
 
        const co=o.geojson?.coordinates;
-       if(!co||co.length<2||!Number.isFinite(Number(co[0]))||!Number.isFinite(Number(co[1]))){
+       if(!co||co.length<2||!observationCoordinatesV222(co[1],co[0])){
          diag.noCoords++;
          continue;
        }
 
-       const d=new Date(o.observed_on||o.time_observed_at||0);
-       if(!Number.isFinite(d.getTime())){
+       const d=observationDateV222(o,'inat');
+       if(!d){
          diag.dateRejected++;
          continue;
        }
@@ -8292,6 +8328,11 @@ async function fetchINat(type){
 async function fetchGBIF(type){
  const out=[];
  const taxon=await resolveGbifTaxonKey(type);
+ if(!taxon||taxon.blocked){
+   observationFetchDiagnostics[type]??={};
+   observationFetchDiagnostics[type].gbif={source:'gbif',raw:0,accepted:0,errors:[taxon?.reason||'unresolved-species'],resolvedTaxon:taxon};
+   observationTaxonRequiredV222(taxon,'gbif');
+ }
  const diag={
    source:'GBIF',areas:0,pages:0,raw:0,accepted:0,
    accuracyRejected:0,noCoords:0,dateRejected:0,outsideRadius:0,
@@ -8310,7 +8351,7 @@ async function fetchGBIF(type){
        limit:'300',
        offset:String(offset)
      };
-     if(taxon?.key)params.taxon_key=String(taxon.key);
+     if(taxon?.key)params.taxonKey=String(taxon.key);
      else params.scientificName=SCI_NAMES[type];
 
      const q=new URLSearchParams(params);
@@ -8321,8 +8362,9 @@ async function fetchGBIF(type){
        diag.raw+=results.length;
 
        for(const o of results){
+         if(Number(o.speciesKey)!==Number(taxon.key)||o.occurrenceStatus==='ABSENT'){diag.taxonRejected=(diag.taxonRejected||0)+1;continue;}
          const lat=Number(o.decimalLatitude),lon=Number(o.decimalLongitude);
-         if(!Number.isFinite(lat)||!Number.isFinite(lon)){
+         if(!observationCoordinatesV222(o.decimalLatitude,o.decimalLongitude)){
            diag.noCoords++;
            continue;
          }
@@ -8333,8 +8375,8 @@ async function fetchGBIF(type){
            continue;
          }
 
-         const date=new Date(o.eventDate||o.occurrenceDate||o.year||0);
-         if(!Number.isFinite(date.getTime())){
+         const date=observationDateV222(o,'gbif');
+         if(!date){
            diag.dateRejected++;
            continue;
          }
@@ -8517,7 +8559,9 @@ async function ensureObservations(type){
    return;
  }
  if(obsLoaded[type]){
-   setSourceState('obs','ok',`${HUMAN_NAMES[type]} • historia w cache`);
+   const cachedDiag=observationFetchDiagnostics[type]||{};
+   const partial=(cachedDiag.inat?.errors?.length||0)+(cachedDiag.gbif?.errors?.length||0)>0;
+   setSourceState('obs',partial?'error':'ok',`${HUMAN_NAMES[type]} • historia w cache${partial?' • część źródeł niedostępna lub niejednoznaczna':''}`);
    showObsLayer(type);
    return;
  }
@@ -8543,7 +8587,8 @@ async function ensureObservations(type){
  const detail=arr.length
    ?`${HUMAN_NAMES[type]} • ${arr.length} obserwacji • ${reduced14.length} po anti-bias`
    :`${HUMAN_NAMES[type]} • 0 obserwacji (iNat raw ${id.raw||0}/accepted ${id.accepted||0}; GBIF raw ${gb.raw||0}/accepted ${gb.accepted||0})`;
- setSourceState('obs','ok',detail);
+ const sourceError=(id.errors?.length||0)+(gb.errors?.length||0)>0;
+ setSourceState('obs',sourceError?'error':'ok',sourceError?detail+' • część źródeł niedostępna lub niejednoznaczna':detail);
  showObsLayer(type);
  invalidateObservationScoringCachesV210(type);
  if(allFeatures.length&&!deferSecondaryRenders)render('observations-'+type);
@@ -8627,9 +8672,13 @@ function historyInfo(type,f){
  };
 }
 function doy(d){
- const y=d.getFullYear(),start=new Date(y,0,0);return Math.floor((d-start)/86400000);
+ // Calendar components avoid DST shifts; all season curves use a 365-day year.
+ if(!(d instanceof Date)||!Number.isFinite(d.getTime()))return NaN;
+ const month=d.getMonth(),day=d.getDate();
+ if(month===1&&day===29)return 59;
+ return Math.round((Date.UTC(2001,month,day)-Date.UTC(2001,0,0))/86400000);
 }
-function circularDayDist(a,b){const d=Math.abs(a-b);return Math.min(d,365-d);}
+function circularDayDist(a,b){const d=((Math.abs(a-b)%365)+365)%365;return Math.min(d,365-d);}
 function fallbackSeason(type,day){
  const curve=SPECIES_META[type]?.season;
  return curve?piecewise(day,curve):50;
@@ -10267,6 +10316,17 @@ async function copySpeciesProfileV221(type){
   try{await navigator.clipboard.writeText(txt);return true;}catch(e){console.info(txt);return false;}
 }
 window.copySpeciesProfileV221=copySpeciesProfileV221;
+
+// v222: empirical evidence is a read-only audit, never an automatic scoring override.
+const CALIBRATION_AUDIT_V222={"version":"v222","retrievedAt":"2026-09-19T21:20:19.177077+00:00","parameters":{"thinCellKm":5,"thinDays":14,"blockKm":50,"folds":5,"maxUncertaintyM":5000,"bandwidthBins":2,"priorStrength":20,"trainYears":[2015,2022],"validationYears":[2023,2023],"testYears":[2024,2025],"minTrain":30,"minValidation":8,"minTest":15,"minTrainBlocks":5,"minBackgroundTrain":60},"scope":"CC0/CC BY human observations, Poland, complete years 2015-2025","productionActive":false,"rawRecordMemberships":846,"uniqueRawRecords":835,"independentRecordMemberships":395,"uniqueIndependentRecords":391,"inputSha256":"c73f24535712e4c2a34d47ebb5931fb4df8f624cba7a219921b8c070386f0e3b","species":{"borowik":{"raw":87,"independent":47,"status":"blocked","blockers":["train-under-30","validation-under-8","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":20,"validation":2,"test":25,"backgroundTrain":52,"backgroundValidation":30,"backgroundTest":63},"productionActive":false},"ceglastopory":{"raw":1,"independent":0,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":0,"validation":0,"test":0,"backgroundTrain":67,"backgroundValidation":31,"backgroundTest":78},"productionActive":false},"ponury":{"raw":5,"independent":5,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":2,"validation":1,"test":2,"backgroundTrain":65,"backgroundValidation":30,"backgroundTest":76},"productionActive":false},"kozlarz_babka":{"raw":31,"independent":9,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":2,"validation":3,"test":4,"backgroundTrain":66,"backgroundValidation":29,"backgroundTest":76},"productionActive":false},"podgrzybek":{"raw":61,"independent":26,"status":"blocked","blockers":["train-under-30","test-under-15"],"taxonomyCollision":[],"split":{"train":9,"validation":8,"test":9,"backgroundTrain":62,"backgroundValidation":26,"backgroundTest":76},"productionActive":false},"maslak_zolty":{"raw":44,"independent":27,"status":"blocked","blockers":["train-under-30","validation-under-8"],"taxonomyCollision":[],"split":{"train":7,"validation":2,"test":18,"backgroundTrain":64,"backgroundValidation":31,"backgroundTest":68},"productionActive":false},"maslak_sitarz":{"raw":15,"independent":6,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":1,"validation":3,"test":2,"backgroundTrain":66,"backgroundValidation":29,"backgroundTest":77},"productionActive":false},"maslak_pstry":{"raw":16,"independent":7,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":3,"validation":0,"test":4,"backgroundTrain":66,"backgroundValidation":31,"backgroundTest":76},"productionActive":false},"opienka_ciemna":{"raw":24,"independent":6,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":2,"validation":1,"test":3,"backgroundTrain":22,"backgroundValidation":7,"backgroundTest":21},"productionActive":false},"opienka_miodowa":{"raw":8,"independent":2,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":1,"validation":0,"test":1,"backgroundTrain":23,"backgroundValidation":8,"backgroundTest":23},"productionActive":false},"kania":{"raw":74,"independent":30,"status":"blocked","blockers":["train-under-30","test-under-15","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":13,"validation":8,"test":9,"backgroundTrain":0,"backgroundValidation":0,"backgroundTest":1},"productionActive":false},"kania_gwiazdzista":{"raw":19,"independent":1,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":0,"validation":0,"test":1,"backgroundTrain":13,"backgroundValidation":8,"backgroundTest":9},"productionActive":false},"czernidlak":{"raw":101,"independent":55,"status":"blocked","blockers":["train-under-30","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":20,"validation":9,"test":26,"backgroundTrain":5,"backgroundValidation":4,"backgroundTest":3},"productionActive":false},"pieczarka_polna":{"raw":2,"independent":1,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":1,"validation":0,"test":0,"backgroundTrain":24,"backgroundValidation":13,"backgroundTest":29},"productionActive":false},"purchawka_oczkowana":{"raw":5,"independent":2,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":0,"validation":1,"test":1,"backgroundTrain":25,"backgroundValidation":12,"backgroundTest":28},"productionActive":false},"kurka":{"raw":57,"independent":25,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15"],"taxonomyCollision":[],"split":{"train":12,"validation":6,"test":7,"backgroundTrain":60,"backgroundValidation":28,"backgroundTest":73},"productionActive":false},"borowik_usiatkowany":{"raw":11,"independent":6,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":2,"validation":1,"test":3,"backgroundTrain":66,"backgroundValidation":30,"backgroundTest":76},"productionActive":false},"borowik_sosnowy":{"raw":7,"independent":1,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":0,"validation":0,"test":1,"backgroundTrain":67,"backgroundValidation":31,"backgroundTest":77},"productionActive":false},"maslak_zwyczajny":{"raw":17,"independent":10,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":1,"validation":3,"test":6,"backgroundTrain":67,"backgroundValidation":29,"backgroundTest":74},"productionActive":false},"rydz":{"raw":11,"independent":5,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":3,"validation":0,"test":2,"backgroundTrain":66,"backgroundValidation":31,"backgroundTest":76},"productionActive":false},"kozlarz_czerwony":{"raw":11,"independent":4,"status":"blocked","blockers":["taxonomy-collision","train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":["kozlarz_czerwony","kozlarz_debowy"],"split":{"train":2,"validation":0,"test":2,"backgroundTrain":67,"backgroundValidation":31,"backgroundTest":78},"productionActive":false},"kozlarz_pomaranczowozolty":{"raw":5,"independent":4,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":3,"validation":1,"test":0,"backgroundTrain":64,"backgroundValidation":30,"backgroundTest":78},"productionActive":false},"mleczaj_swierkowy":{"raw":3,"independent":3,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":1,"validation":0,"test":2,"backgroundTrain":66,"backgroundValidation":31,"backgroundTest":77},"productionActive":false},"siedzun_sosnowy":{"raw":86,"independent":26,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":13,"validation":2,"test":11,"backgroundTrain":11,"backgroundValidation":6,"backgroundTest":13},"productionActive":false},"kozlarz_grabowy":{"raw":12,"independent":5,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":0,"validation":2,"test":3,"backgroundTrain":67,"backgroundValidation":30,"backgroundTest":75},"productionActive":false},"maslak_ziarnisty":{"raw":11,"independent":6,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":2,"validation":1,"test":3,"backgroundTrain":66,"backgroundValidation":31,"backgroundTest":76},"productionActive":false},"pieprznik_trabkowy":{"raw":12,"independent":9,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":4,"validation":2,"test":3,"backgroundTrain":66,"backgroundValidation":29,"backgroundTest":77},"productionActive":false},"lejkowiec_dety":{"raw":18,"independent":11,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15"],"taxonomyCollision":[],"split":{"train":9,"validation":0,"test":2,"backgroundTrain":61,"backgroundValidation":31,"backgroundTest":77},"productionActive":false},"kolczak_oblaczasty":{"raw":7,"independent":6,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":2,"validation":2,"test":2,"backgroundTrain":66,"backgroundValidation":30,"backgroundTest":77},"productionActive":false},"podgrzybek_zajaczek":{"raw":9,"independent":6,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":2,"validation":2,"test":2,"backgroundTrain":67,"backgroundValidation":30,"backgroundTest":78},"productionActive":false},"gaska_nieksztaltna":{"raw":2,"independent":1,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":1,"validation":0,"test":0,"backgroundTrain":67,"backgroundValidation":31,"backgroundTest":78},"productionActive":false},"twardzioszek_przydrozny":{"raw":14,"independent":9,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":4,"validation":3,"test":2,"backgroundTrain":21,"backgroundValidation":10,"backgroundTest":27},"productionActive":false},"boczniak_ostrygowaty":{"raw":38,"independent":22,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","insufficient-target-group"],"taxonomyCollision":[],"split":{"train":8,"validation":5,"test":9,"backgroundTrain":16,"backgroundValidation":3,"backgroundTest":15},"productionActive":false},"kozlarz_debowy":{"raw":11,"independent":4,"status":"blocked","blockers":["taxonomy-collision","train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":["kozlarz_czerwony","kozlarz_debowy"],"split":{"train":2,"validation":0,"test":2,"backgroundTrain":67,"backgroundValidation":31,"backgroundTest":78},"productionActive":false},"kozlarz_sosnowy":{"raw":1,"independent":0,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":0,"validation":0,"test":0,"backgroundTrain":67,"backgroundValidation":31,"backgroundTest":78},"productionActive":false},"golabek_zielonawy":{"raw":9,"independent":8,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":2,"validation":2,"test":4,"backgroundTrain":66,"backgroundValidation":30,"backgroundTest":75},"productionActive":false},"golabek_bagienny":{"raw":1,"independent":0,"status":"blocked","blockers":["train-under-30","validation-under-8","test-under-15","train-blocks-under-5"],"taxonomyCollision":[],"split":{"train":0,"validation":0,"test":0,"backgroundTrain":67,"backgroundValidation":31,"backgroundTest":78},"productionActive":false}}};
+function calibrationAuditV222(){return JSON.parse(JSON.stringify(CALIBRATION_AUDIT_V222));}
+function speciesProfileV222(type){
+ const base=speciesProfileV221(type);if(!base)return null;
+ return {...JSON.parse(JSON.stringify(base)),empiricalCalibration:calibrationAuditV222().species[type]||{status:'not-audited',productionActive:false}};
+}
+window.calibrationAuditV222=calibrationAuditV222;
+window.speciesProfileV222=speciesProfileV222;
+
 
 // v221 optymalizacja: hosty są kompilowane raz do Setów. Matematyka scoringu pozostaje
 // taka sama; runtime nie wykonuje wielokrotnie Array.includes/some dla tych samych list.
@@ -16316,6 +16376,11 @@ function backtestQuantile(arr,p){
 
 async function observationCoverageCandidateCountINat(type,center,radiusKm){
  const taxon=await resolveINatTaxonId(type);
+ if(!taxon||taxon.blocked){
+   observationFetchDiagnostics[type]??={};
+   observationFetchDiagnostics[type].inat={source:'inat',raw:0,accepted:0,errors:[taxon?.reason||'unresolved-species'],resolvedTaxon:taxon};
+   observationTaxonRequiredV222(taxon,'inat');
+ }
  const params={
    lat:String(center[0]),lng:String(center[1]),radius:String(radiusKm),
    quality_grade:'research',geo:'true',per_page:'1'
@@ -16328,11 +16393,16 @@ async function observationCoverageCandidateCountINat(type,center,radiusKm){
 
 async function observationCoverageCandidateCountGbif(type,center,radiusKm){
  const taxon=await resolveGbifTaxonKey(type);
+ if(!taxon||taxon.blocked){
+   observationFetchDiagnostics[type]??={};
+   observationFetchDiagnostics[type].gbif={source:'gbif',raw:0,accepted:0,errors:[taxon?.reason||'unresolved-species'],resolvedTaxon:taxon};
+   observationTaxonRequiredV222(taxon,'gbif');
+ }
  const params={
    geometry:circleWkt(center,radiusKm,48),
    hasCoordinate:'true',hasGeospatialIssue:'false',limit:'0'
  };
- if(taxon?.key)params.taxon_key=String(taxon.key);
+ if(taxon?.key)params.taxonKey=String(taxon.key);
  else params.scientificName=SCI_NAMES[type];
  const j=await observationFetchJson('https://api.gbif.org/v1/occurrence/search?'+new URLSearchParams(params),'gbif',15000,2);
  return {count:Number(j.count)||0,taxon:taxon?.key||null};
@@ -16412,6 +16482,11 @@ let observationValidationRegions=[];
 
 async function fetchGbifPolandValidationOccurrences(type,{maxRecords=1500}={}){
  const taxon=await resolveGbifTaxonKey(type);
+ if(!taxon||taxon.blocked){
+   observationFetchDiagnostics[type]??={};
+   observationFetchDiagnostics[type].gbif={source:'gbif',raw:0,accepted:0,errors:[taxon?.reason||'unresolved-species'],resolvedTaxon:taxon};
+   observationTaxonRequiredV222(taxon,'gbif');
+ }
  const out=[];
  const diag={pages:0,raw:0,accepted:0,accuracyRejected:0,noCoords:0,dateRejected:0,errors:[]};
 
@@ -16423,7 +16498,7 @@ async function fetchGbifPolandValidationOccurrences(type,{maxRecords=1500}={}){
      limit:String(Math.min(300,maxRecords-offset)),
      offset:String(offset)
    };
-   if(taxon?.key)params.taxon_key=String(taxon.key);
+   if(taxon?.key)params.taxonKey=String(taxon.key);
    else params.scientificName=SCI_NAMES[type];
 
    try{
@@ -16432,8 +16507,9 @@ async function fetchGbifPolandValidationOccurrences(type,{maxRecords=1500}={}){
      diag.pages++;diag.raw+=results.length;
 
      for(const o of results){
+       if(Number(o.speciesKey)!==Number(taxon.key)||o.occurrenceStatus==='ABSENT'){diag.taxonRejected=(diag.taxonRejected||0)+1;continue;}
        const lat=Number(o.decimalLatitude),lon=Number(o.decimalLongitude);
-       if(!Number.isFinite(lat)||!Number.isFinite(lon)){
+       if(!observationCoordinatesV222(o.decimalLatitude,o.decimalLongitude)){
          diag.noCoords++;continue;
        }
        if(lat<49||lat>55.2||lon<14||lon>24.3)continue;
@@ -16444,8 +16520,8 @@ async function fetchGbifPolandValidationOccurrences(type,{maxRecords=1500}={}){
          diag.accuracyRejected++;continue;
        }
 
-       const d=new Date(o.eventDate||o.occurrenceDate||o.year||0);
-       if(!Number.isFinite(d.getTime())){
+       const d=observationDateV222(o,'gbif');
+       if(!d){
          diag.dateRejected++;continue;
        }
 
@@ -29611,9 +29687,10 @@ async function buildMegaDebugReportV195(){
       areaIsolation={weatherReady,weatherIsolationOk:!weatherReady||rows.every(r=>r.weatherSamples>=5),rows};
     }catch(e){areaIsolation={error:String(e?.stack||e)};}
     const payload={
-      schema:'mushroom-map-mega-debug/1',version:'v217',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
+      schema:'mushroom-map-mega-debug/1',version:'v222',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
       snapshot:{fresh:true,trigger:'current-call',interactionSeq:speciesInteractionPerfV203.seq,softResetCount:speciesSelectionSoftResetV210.count,weatherReady:!!weatherReady},
       verdict:{overall:(qa?.overall==='PASS'&&cacheStressV195.last?.overall==='PASS'&&equivalence?.ok&&areaIsolation?.weatherIsolationOk!==false)?'PASS':'FAIL',autoQA:qa?.overall||null,cacheStress:cacheStressV195.last?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
+      calibration:calibrationAuditV222(),observationSources:megaDebugSafeV195(observationFetchDiagnostics),
       state:megaDebugCoreStateV195(),equivalence:megaDebugSafeV195(equivalence),areaIsolation:megaDebugSafeV195(areaIsolation),
       autoQAHistory:megaDebugSafeV195(autoQAV192.runs.slice(-24)),cacheStressHistory:megaDebugSafeV195(cacheStressV195.runs.slice(-8)),
       device:megaDebugDeviceV195(),resources:megaDebugResourcesV195(),errors:megaDebugV195.errors.slice(-40),events:megaDebugV195.events.slice(-180),

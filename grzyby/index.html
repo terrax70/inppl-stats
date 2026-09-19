@@ -4858,6 +4858,40 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   }
 }
 </style>
+
+<style id="v215-mobile-pan-performance">
+/* v215 — podczas aktywnego gestu pan/zoom odciążamy compositor Androida.
+   Po puszczeniu palca pełny wygląd overlayów wraca automatycznie. */
+@media(max-width:700px){
+  body.mobile-map-panning .mushroom-atlas,
+  body.mobile-map-panning .start-guide,
+  body.mobile-map-panning .score-legend,
+  body.mobile-map-panning .data-source-summary,
+  body.mobile-map-panning .source-chip,
+  body.mobile-map-panning .mobile-search-dock .locator-search-row,
+  body.mobile-map-panning .map-mode-control,
+  body.mobile-map-panning .mobile-settings-toggle{
+    -webkit-backdrop-filter:none!important;
+    backdrop-filter:none!important;
+    box-shadow:none!important;
+  }
+  body.mobile-map-panning .data-source-mini,
+  body.mobile-map-panning .data-source-summary,
+  body.mobile-map-panning .source-chip,
+  body.mobile-map-panning .score-legend,
+  body.mobile-map-panning .start-guide{
+    transition:none!important;
+  }
+  body.mobile-map-panning .source-dot,
+  body.mobile-map-panning .source-summary-dot{
+    animation-play-state:paused!important;
+  }
+  .leaflet-map-pane,.leaflet-tile-pane,.leaflet-overlay-pane{
+    will-change:transform;
+    backface-visibility:hidden;
+  }
+}
+</style>
 </head>
 
 <style>
@@ -5491,6 +5525,19 @@ const map=L.map('map',{
  bounceAtZoomLimits:false
 }).setView(CENTER,6);
 L.control.zoom({position:'bottomright'}).addTo(map);
+
+// v215: zero pracy per-frame; lekki compositing trwa przez cały ruch mapy,
+// także przez bezwładność po puszczeniu palca i pinch-zoom.
+function setMobileMapPanningV215(active){
+ if(window.innerWidth>700)return;
+ if(active){
+   document.body.classList.add('mobile-map-panning');
+ }else{
+   requestAnimationFrame(()=>document.body.classList.remove('mobile-map-panning'));
+ }
+}
+map.on('movestart',()=>setMobileMapPanningV215(true));
+map.on('moveend',()=>setMobileMapPanningV215(false));
 
 const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
  maxZoom:19,attribution:'© OpenStreetMap'
@@ -28452,6 +28499,8 @@ function findAnalysisFeatureAt(latlng){
 }
 
 let mobileTapStart=null;
+let mobileTapStatsV215={taps:0,dragRejected:0,longRejected:0,lastDist:0,lastMs:0};
+window.mobileTapStatsV215=mobileTapStatsV215;
 function installMobileFeatureTap(){
  const el=map.getContainer();
  if(!el||el.dataset.featureTapInstalled==='1')return;
@@ -28460,7 +28509,8 @@ function installMobileFeatureTap(){
  el.addEventListener('pointerdown',e=>{
    if(e.pointerType!=='touch')return;
    if(e.target.closest('.leaflet-control,.panel,.mushroom-atlas,.mobile-search-dock,.place-details-panel,.leaflet-popup'))return;
-   mobileTapStart={x:e.clientX,y:e.clientY,t:performance.now(),center:map.getCenter(),zoom:map.getZoom()};
+   // v215: zapamiętujemy wyłącznie gest. Nie zapisujemy środka mapy i nigdy nie cofamy panowania.
+   mobileTapStart={x:e.clientX,y:e.clientY,t:performance.now()};
  },{passive:true});
 
  el.addEventListener('pointerup',e=>{
@@ -28470,7 +28520,12 @@ function installMobileFeatureTap(){
 
    const dist=Math.hypot(e.clientX-s.x,e.clientY-s.y);
    const dt=performance.now()-s.t;
-   if(dist>26||dt>750)return;
+   mobileTapStatsV215.lastDist=+dist.toFixed(1);
+   mobileTapStatsV215.lastMs=+dt.toFixed(1);
+
+   // v215: 12 px to prawdziwy tap. W v214 było 26 px i drobne pany mogły być mylone z kliknięciem.
+   if(dist>12){mobileTapStatsV215.dragRejected++;return;}
+   if(dt>650){mobileTapStatsV215.longRejected++;return;}
 
    const rect=el.getBoundingClientRect();
    const cp=L.point(e.clientX-rect.left,e.clientY-rect.top);
@@ -28478,14 +28533,9 @@ function installMobileFeatureTap(){
    const hit=findAnalysisFeatureAt(ll);
    if(!hit)return;
 
+   mobileTapStatsV215.taps++;
    mobileFeatureTapHandledUntil=performance.now()+500;
-
-   // Cofnij tylko drobne przypadkowe drgnięcie. Prawdziwy drag (>26 px) tu nie trafia.
-   const movedPx=map.latLngToContainerPoint(s.center).distanceTo(
-     map.latLngToContainerPoint(map.getCenter())
-   );
-   if(movedPx>1&&movedPx<30)map.setView(s.center,s.zoom,{animate:false});
-
+   // WAŻNE: żadnego map.setView(startCenter). Tap nie może wpływać na pozycję mapy.
    requestAnimationFrame(()=>openFeatureDetails(hit.f,hit.layer,ll));
  },{passive:true});
 

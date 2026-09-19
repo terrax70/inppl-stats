@@ -4767,28 +4767,71 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 .mega-debug-report-actions button{padding:8px 11px}
 </style>
 
-<style id="v210-mobile-score-legend">
-/* v210 — na telefonie legenda skali zawsze siedzi bezpośrednio nad realną wysokością atlasu. */
+<style id="v211-mobile-score-legend">
+/* v211 — na telefonie legenda skali jest krótsza i zostawia wolne miejsce dla kontrolek +/-. */
 @media(max-width:700px){
   .score-legend{
-    left:50%!important;
-    right:auto!important;
+    left:8px!important;
+    right:84px!important;
     bottom:var(--v210-mobile-legend-bottom,196px)!important;
-    width:min(360px,calc(100vw - 28px))!important;
-    max-width:calc(100vw - 28px)!important;
+    width:auto!important;
+    max-width:none!important;
     z-index:1705!important;
-    padding:7px 9px 8px!important;
+    padding:6px 8px 7px!important;
     border-radius:11px!important;
-    transform:translate(-50%,4px)!important;
+    transform:translateY(4px)!important;
     box-sizing:border-box!important;
   }
   .score-legend.visible{
-    transform:translate(-50%,0)!important;
+    transform:translateY(0)!important;
   }
-  .score-legend-head{font-size:8.5px!important;margin-bottom:4px!important}
-  .score-legend-head b{font-size:7px!important}
-  .score-legend-bar{height:10px!important}
-  .score-legend-words{font-size:6.4px!important;gap:3px!important}
+  .score-legend-head{font-size:8px!important;margin-bottom:4px!important;gap:6px!important}
+  .score-legend-head b{font-size:6.6px!important;padding:2px 4px!important}
+  .score-legend-bar{height:9px!important}
+  .score-legend-words{font-size:5.8px!important;gap:2px!important}
+}
+</style>
+<style id="v211-start-guide-style">
+.start-guide{
+  position:fixed;
+  left:12px;
+  top:72px;
+  z-index:1695;
+  width:min(430px,calc(100vw - 24px));
+  display:none;
+  align-items:flex-start;
+  gap:9px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:rgba(18,23,20,.96);
+  border:1px solid rgba(255,255,255,.12);
+  color:#eef5ef;
+  box-shadow:0 10px 26px rgba(0,0,0,.25);
+  font-family:Inter,Segoe UI,Arial,sans-serif;
+  backdrop-filter:blur(6px);
+}
+.start-guide.show{display:flex}
+.start-guide-icon{font-size:18px;line-height:1;flex:0 0 auto;margin-top:1px}
+.start-guide-main{min-width:0;flex:1 1 auto}
+.start-guide-title{font-size:12px;font-weight:950;line-height:1.2;color:#f5fbf6}
+.start-guide-text{margin-top:3px;font-size:11px;line-height:1.35;color:#d5dfd9}
+.start-guide-close{
+  flex:0 0 auto;width:28px;height:28px;padding:0;border-radius:10px;
+  border:1px solid rgba(255,255,255,.12);background:#253029;color:#eef5ef;
+  cursor:pointer;font-size:18px;line-height:1;
+}
+@media(max-width:700px){
+  .start-guide{
+    left:7px;
+    right:7px;
+    top:108px;
+    width:auto;
+    padding:9px 10px;
+    border-radius:13px;
+  }
+  .start-guide-title{font-size:11.5px}
+  .start-guide-text{font-size:10px}
+  .start-guide-close{width:26px;height:26px;border-radius:9px}
 }
 </style>
 </head>
@@ -4877,6 +4920,14 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
     </button>
   </div>
 </div>
+<div id="startGuide" class="start-guide" aria-live="polite" aria-hidden="true">
+  <div class="start-guide-icon" aria-hidden="true">📍</div>
+  <div class="start-guide-main">
+    <div class="start-guide-title">Jak zacząć?</div>
+    <div class="start-guide-text">Ta mapa Polski to tylko podgląd ogólny. Wpisz miejscowość, las lub użyj lupy, żeby rozpocząć analizę konkretnego miejsca.</div>
+  </div>
+  <button id="startGuideClose" class="start-guide-close" type="button" aria-label="Zamknij podpowiedź">×</button>
+</div>
 <div id="dataSourceMini" class="data-source-mini">
   <div id="dataSourceSummary" class="data-source-summary" data-state="off">
     <span class="source-summary-dot"></span>
@@ -4923,7 +4974,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
     <div class="locator-search-row">
       <div class="locator-search-wrap">
         <input id="locationSearch" type="search" autocomplete="off"
-          placeholder="Miasto, las lub miejscowość…" aria-label="Szukaj miejsca w Polsce">
+          placeholder="Aby zacząć: miasto, las lub miejscowość…" aria-label="Szukaj miejsca w Polsce">
         <div id="searchResults" class="search-results"></div>
       </div>
       <button id="searchBtn" type="button">🔎</button>
@@ -4936,6 +4987,9 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
           <option value="5">5 km</option>
           <option value="10" selected>10 km</option>
           <option value="15">15 km</option>
+          <option value="25">25 km</option>
+          <option value="40">40 km</option>
+          <option value="100">100 km</option>
         </select>
       </label>
     </div>
@@ -4947,7 +5001,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
       <button id="clearSelected" type="button">Wyczyść</button>
     </div>
     <div id="locatorHint" class="locator-hint">
-      Możesz porównać maks. 4 miejsca. Analiza uruchamia się automatycznie po dodaniu lub zmianie miejsca.
+      Najpierw wybierz miejsce do analizy. Ta mapa Polski to tylko podgląd ogólny — wpisz miejscowość, las albo wskaż punkt na mapie.
     </div>
   </div>
 
@@ -33074,6 +33128,26 @@ const pickOnMapBtn=document.getElementById('pickOnMap');
 const useMyLocationBtn=document.getElementById('useMyLocation');
 const radiusSelect=document.getElementById('radiusSelect');
 const locatorHint=document.getElementById('locatorHint');
+const startGuide=document.getElementById('startGuide');
+const startGuideClose=document.getElementById('startGuideClose');
+let startGuideDismissed=false;
+try{startGuideDismissed=localStorage.getItem('v211StartGuideDismissed')==='1';}catch(_){startGuideDismissed=false;}
+function dismissStartGuide(persist=true){
+ if(!startGuide)return;
+ startGuide.classList.remove('show');
+ startGuide.setAttribute('aria-hidden','true');
+ if(persist){
+   startGuideDismissed=true;
+   try{localStorage.setItem('v211StartGuideDismissed','1');}catch(_){ }
+ }
+}
+function syncStartGuide(){
+ if(!startGuide)return;
+ const shouldShow=!startGuideDismissed && !analysisRunning && Array.isArray(selectedDraft) && selectedDraft.length===0;
+ startGuide.classList.toggle('show',shouldShow);
+ startGuide.setAttribute('aria-hidden',shouldShow?'false':'true');
+}
+startGuideClose?.addEventListener('click',()=>dismissStartGuide(true));
 
 function cleanPlaceName(display){
  const parts=String(display||'').split(',').map(x=>x.trim()).filter(Boolean);
@@ -33120,7 +33194,11 @@ function renderDraft(){
  radiusSelect.disabled=analysisRunning;
  locatorHint.textContent=analysisRunning
    ? 'Analiza trwa…'
-   : `Wybrano ${selectedDraft.length}/${MAX_AREAS}. Dodaj miejsca wyszukiwarką albo wskaż je na mapie.`;
+   : selectedDraft.length
+     ? `Wybrano ${selectedDraft.length}/${MAX_AREAS}. Dodaj miejsca wyszukiwarką albo wskaż je na mapie.`
+     : '📍 Aby zacząć, wyszukaj miejscowość, las albo wskaż punkt na mapie. Ta mapa Polski to tylko podgląd ogólny.';
+ if(selectedDraft.length)dismissStartGuide(true);
+ else syncStartGuide();
 }
 
 function syncDraftPreview(){

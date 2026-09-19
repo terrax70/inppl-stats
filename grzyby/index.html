@@ -25619,21 +25619,51 @@ function unifiedSpeciesGridHtml(rows){
  }).join('')}</div>`;
 }
 
+// v216 — popup ma wybierać „główny gatunek” tą samą miarą, którą pokazujemy
+// na kartach gatunków (ocena praktyczna), a nie surowym bestType agregatora miejsca.
+function unifiedPrimarySpeciesForPopupV216(f){
+ if(!f)return null;
+ const pool=atlasSelected.size?[...atlasSelected]:PICK_TYPES;
+ let best=null;
+ for(const type of pool){
+   if(!featureRelevant(type,f))continue;
+   const rawScore=speciesDisplayScore(type,f);
+   if(!Number.isFinite(rawScore))continue;
+   const info=practicalSpeciesScoreInfo(type,f,rawScore);
+   const score=Number(info?.practical);
+   if(!Number.isFinite(score))continue;
+   const potential=stableScoreForType(type,f);
+   if(!best || score>best.score+1e-9 ||
+      (Math.abs(score-best.score)<=1e-9 && rawScore>best.rawScore+1e-9) ||
+      (Math.abs(score-best.score)<=1e-9 && Math.abs(rawScore-best.rawScore)<=1e-9 && potential>best.potential)){
+     best={type,score,rawScore,potential,info};
+   }
+ }
+ return best;
+}
+
 function unifiedPopupHtml(f,h=null){
  if(!f&&h)f=h.best;
  if(!f)return '<div class="popup-card">Brak danych o miejscu.</div>';
  if(!h)h=hotspotForFeature(f);
 
  const p=f.properties||{};
- const type=unifiedFeatureType(f);
- const m=type?SPECIES_META[type]:null;
- const v=unifiedFeatureVerdict(f);
- const conf=v.conf||{value:35,label:'niska'};
- const stable=stableAnchorScore(f);
  const singleType=activeSingleSpeciesType();
  const opportunity=singleType?null:opportunityAggregateInfo(f,mapMode==='today',atlasSelected.size?[...atlasSelected]:PICK_TYPES);
- const primaryScoreInfo=singleType&&type?practicalSpeciesScoreInfo(type,f,v.score):null;
- const displayedPrimaryScore=singleType?(primaryScoreInfo?primaryScoreInfo.practical:v.score):(opportunity?.score??v.score);
+ const popupPrimaryV216=singleType?null:unifiedPrimarySpeciesForPopupV216(f);
+ const type=singleType||popupPrimaryV216?.type||unifiedFeatureType(f);
+ const m=type?SPECIES_META[type]:null;
+ const aggregateVerdict=unifiedFeatureVerdict(f);
+ const primaryRawScore=type?speciesDisplayScore(type,f):NaN;
+ const v=(!singleType&&type&&type!==aggregateVerdict.type)
+   ? {...aggregateVerdict,type,score:Number.isFinite(primaryRawScore)?primaryRawScore:aggregateVerdict.score,
+      habitat:staticSuitability(type,f),fruit:fruitingConditions(type,f),conf:evidenceConfidence(type,f)}
+   : aggregateVerdict;
+ const conf=v.conf||{value:35,label:'niska'};
+ const stable=stableAnchorScore(f);
+ const primaryScoreInfo=type&&Number.isFinite(primaryRawScore)?practicalSpeciesScoreInfo(type,f,primaryRawScore):null;
+ const displayedPlaceScore=singleType?(primaryScoreInfo?primaryScoreInfo.practical:v.score):(opportunity?.score??v.score);
+ const displayedPrimarySpeciesScore=primaryScoreInfo?primaryScoreInfo.practical:(popupPrimaryV216?.score??v.score);
  const countryText=(!singleType&&opportunity?.nationalActive&&Number.isFinite(opportunity?.nationalAreaMedian))
    ? ` • region ${Math.round(opportunity.nationalAreaMedian)} pc. Polski (${opportunity.nationalAdjustment>=0?'+':''}${opportunity.nationalAdjustment.toFixed(2)})`
    : '';
@@ -25677,14 +25707,14 @@ function unifiedPopupHtml(f,h=null){
      : (mapMode==='today'?` • warunki ${retentionPct}%`:'')) + countryText;
    primaryHtml=`<div class="u-primary-species">
      <img src="${atlasSvg(type)}" alt="${escapeHtml(m.label||type)}">
-     <div><div class="u-primary-name">${escapeHtml(m.label||type)}</div><div class="u-primary-latin">najmocniejszy gatunek${nicheText}</div></div>
-     <div class="u-primary-score">${modelScorePercentText(displayedPrimaryScore)}<small>ocena miejsca</small></div>
+     <div><div class="u-primary-name">${escapeHtml(m.label||type)}</div><div class="u-primary-latin">najlepiej oceniony gatunek • ocena miejsca ${modelScorePercentText(displayedPlaceScore)}${nicheText}</div></div>
+     <div class="u-primary-score">${modelScorePercentText(displayedPrimarySpeciesScore)}<small>ocena gatunku</small></div>
    </div>`;
  }else if(type&&m){
    primaryHtml=`<div class="u-primary-species">
      <img src="${atlasSvg(type)}" alt="${escapeHtml(m.label||type)}">
      <div><div class="u-primary-name">${escapeHtml(m.label||type)}</div><div class="u-primary-latin">${escapeHtml(m.scientific||'')}</div></div>
-     <div class="u-primary-score">${modelScorePercentText(displayedPrimaryScore)}<small>ocena modelu</small></div>
+     <div class="u-primary-score">${modelScorePercentText(displayedPrimarySpeciesScore)}<small>ocena modelu</small></div>
    </div>`;
 
    const reasons=reasonsFor(type,f);
@@ -25697,9 +25727,9 @@ function unifiedPopupHtml(f,h=null){
  // niezależnie od tego, czy należy ono do hotspotu.
  const otherRows=unifiedFeatureSpeciesRows(f,type);
  const scoreMeaningHtml=`<div style="font-size:9.5px;line-height:1.35;color:#68786e;margin:5px 2px 8px">
-   Procent = ocena modelu miejsca (0–100), nie statystycznie skalibrowane prawdopodobieństwo znalezienia owocnika.
+   Procent przy grzybie = praktyczna ocena tego gatunku dokładnie w tym miejscu. To nie jest statystycznie skalibrowane prawdopodobieństwo znalezienia owocnika.
    ${!singleType
-     ? ' Wynik wielu gatunków jest liczony jako jedna ocena miejsca: najmocniejsza nisza + jakość kilku innych nisz, a dopiero potem porównywany z innymi wydzieleniami. DZIŚ obniża tę samą ocenę zgodnie z bieżącymi warunkami.'
+     ? ` Osobna <b>ocena miejsca ${modelScorePercentText(displayedPlaceScore)}</b> łączy najmocniejsze niezależne nisze i służy do koloru/rankingu całego wydzielenia.`
      : ''}
  </div>`;
  const otherSpeciesHtml=unifiedSpeciesGridHtml(otherRows);
@@ -25749,7 +25779,7 @@ function unifiedPopupHtml(f,h=null){
      (primaryScoreInfo?`<div class="factor"><span>Korekta lokalna</span><b>${Math.round(primaryScoreInfo.localMultiplier*100)}%</b></div>`:'')+
      (primaryScoreInfo&&primaryScoreInfo.nationalSupported?`<div class="factor"><span>Benchmark Polski</span><b>${Number.isFinite(primaryScoreInfo.nationalPercentile)?('P'+Math.round(primaryScoreInfo.nationalPercentile)+' • ×'+primaryScoreInfo.nationalMultiplier.toFixed(2)):'wczytywanie…'}</b></div>`:'')+
      (primaryScoreInfo?`<div class="factor"><span>Łączny mnożnik</span><b>${Math.round(primaryScoreInfo.combinedMultiplier*100)}%</b></div>`:'')+
-     (primaryScoreInfo?`<div class="factor"><span>Ocena praktyczna</span><b>${displayedPrimaryScore.toFixed(1)}/10</b></div>`:'')+
+     (primaryScoreInfo?`<div class="factor"><span>Ocena praktyczna</span><b>${displayedPrimarySpeciesScore.toFixed(1)}/10</b></div>`:'')+
      `<div class="factor"><span>Dopasowanie gospodarza</span><b>${Math.round(hostGate(type,f)*100)}%</b></div>`+
      `<div class="factor"><span>Gleba</span><b>${soilSuitability(type,f).toFixed(1)}</b></div>`+
      `<div class="factor"><span>Mikroteren</span><b>${moistureTerrainScore(type,f).toFixed(1)}</b></div></div>`+
@@ -25773,7 +25803,7 @@ function unifiedPopupHtml(f,h=null){
      <div class="popup-verdict ${featureVm.cls}" style="margin-top:7px">${featureVm.label} • ${modeLabel}</div>
 
      <div class="u-core-stats">
-       <div class="u-core-stat"><span>Ocena modelu</span><b>${modelScorePercentText(displayedPrimaryScore)}</b></div>
+       <div class="u-core-stat"><span>Ocena modelu</span><b>${modelScorePercentText(displayedPlaceScore)}</b></div>
        <div class="u-core-stat"><span>Ocena Ogólnie</span><b>${modelScorePercentText(stable)}</b></div>
        <div class="u-core-stat"><span>Pewność danych</span><b>${escapeHtml(conf.label)} • ${conf.value}/100</b></div>
        <div class="u-core-stat"><span>Mozaika do eksploracji</span><b>${exploration.score.toFixed(1)}/10</b></div>
@@ -26391,9 +26421,8 @@ function applyAtlasLinkedFocus(rows,locked=false){
    focusFeature?practicalSpeciesScore(x.type,focusFeature,x.score):x.score
  ]));
 
- // TYLKO chwilowy hover nad lasem może fizycznie ukrywać niepasujące karty.
- // Kliknięte/zablokowane wydzielenie jedynie podświetla/przygasza atlas,
- // ale nigdy nie usuwa gatunków z listy.
+ // v216: hover i kliknięcie tylko podświetlają/przygaszają atlas.
+ // Nigdy nie zmieniamy geometrii paska ani nie ukrywamy kart — scroll pozostaje nieruchomy.
  if(locked){
    atlasHoverTypes.clear();
    applyAtlasHoverFilter(null);
@@ -26636,18 +26665,16 @@ function applyAtlasHoverFilter(typesSet){
  const active=typesSet&&typesSet.size>0;
  root.dataset.hoverFiltered=active?'1':'0';
 
+ // v216: hover jest WYŁĄCZNIE wizualnym podglądem. Nie chowamy kart, nie zmieniamy
+ // szerokości grup i nie dotykamy scrollWidth — dzięki temu ruch myszy nad wydzieleniami
+ // nie może sam przesuwać poziomego atlasu.
  root.querySelectorAll('.atlas-mini[data-type]').forEach(card=>{
-   const show=!active||typesSet.has(card.dataset.type);
-   card.classList.toggle('filtered-out',!show);
+   card.classList.remove('filtered-out');
  });
-
  root.querySelectorAll('.atlas-group-card').forEach(group=>{
-   const cards=[...group.querySelectorAll('.atlas-mini[data-type]')];
-   const visible=cards.filter(x=>!x.classList.contains('filtered-out')).length;
-
-   group.dataset.visibleCount=String(visible);
-   group.style.setProperty('--atlas-visible',String(Math.max(1,visible)));
-   group.classList.toggle('filtered-out',active&&visible===0);
+   group.classList.remove('filtered-out');
+   group.removeAttribute('data-visible-count');
+   group.style.removeProperty('--atlas-visible');
  });
 }
 function atlasHoverFeature(f){
@@ -26740,9 +26767,8 @@ function syncAtlasSelectionUI(){
  root.querySelectorAll('.atlas-mini[data-type]').forEach(card=>{const selected=atlasSelected.has(card.dataset.type);card.classList.toggle('selected',selected);const check=card.querySelector('.atlas-mini-check');if(check)check.textContent=selected?'✓':'+';});
  root.querySelectorAll('.atlas-group-card[data-group]').forEach(group=>{const g=ATLAS_GROUPS.find(x=>x.id===group.dataset.group);if(!g)return;const n=g.members.filter(t=>atlasSelected.has(t)).length;group.classList.toggle('group-selected',n===g.members.length);group.classList.toggle('group-partial',n>0&&n<g.members.length);const check=group.querySelector('.atlas-group-check');if(check)check.textContent=n===g.members.length?'✓':n>0?`${n}/${g.members.length}`:'+';});
 
- // Invariant: ukrywanie kart jest dozwolone wyłącznie podczas AKTYWNEGO
- // hoveru nad wydzieleniem. Zmiana wyboru gatunków nigdy nie może przywracać
- // starego, nieaktualnego filtra.
+ // v216: hover może zmieniać wyłącznie klasy wizualne; nie może zmieniać szerokości
+ // ani widoczności kart, więc pozycja poziomego scrolla atlasu jest stabilna.
  const transientHoverActive=!!linkedTransientFeature&&!linkedLockedFeature&&atlasHoverTypes.size>0;
  if(transientHoverActive)applyAtlasHoverFilter(atlasHoverTypes);
  else{

@@ -4747,7 +4747,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 }
 </style>
 
-<style id="v201-mega-debug-style">
+<style id="v202-mega-debug-style">
 .mega-debug-btn{font-weight:800!important;border-color:#7aa88a!important;background:#edf8ef!important;color:#17331f!important}
 .mega-debug-btn:disabled{opacity:.65;cursor:wait}
 .mega-debug-status{font-size:11px;color:#64736b;min-width:120px}
@@ -9029,12 +9029,12 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    }
    invalidateInteractionGrid();
    analysisLayerBuildLast={
-     mode:'sync-batched-v201',
+     mode:'sync-batched-v202',
      features:feats.length,
      elapsedMs:performance.now()-t0,
      cpuMs,maxSliceMs:cpuMs,batches:containers,containers
    };
-   console.info('LAYER BUILD PERFORMANCE v201',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v202',analysisLayerBuildLast);
  }
 
  document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label}${useProgressive?' • render progresywny':''}`;
@@ -9793,10 +9793,10 @@ function scheduleVisualSlice(fn){
  }
  setTimeout(()=>fn(null),0);
 }
-// v201 — przy dużym progresywnym renderze oddaj jedną pełną klatkę wyłącznie
+// v202 — przy dużym progresywnym renderze oddaj jedną pełną klatkę wyłącznie
 // hotspotom. Dzięki podwójnemu rAF pinezki/lista mają szansę zostać faktycznie
 // namalowane zanim zaczniemy pierwszą porcję zmian stylów kilku tysięcy poligonów.
-function scheduleAfterHotspotFirstPaintV201(fn){
+function scheduleAfterHotspotFirstPaintV202(fn){
  if(typeof requestAnimationFrame==='function'){
    requestAnimationFrame(()=>requestAnimationFrame(()=>fn(null)));
    return;
@@ -13635,7 +13635,7 @@ function ensureForestContextWorkerV174(){
    URL.revokeObjectURL(url);
    return forestContextWorker;
  }catch(e){
-   console.warn('FOREST CONTEXT WORKER v201 unavailable',e);
+   console.warn('FOREST CONTEXT WORKER v202 unavailable',e);
    return null;
  }
 }
@@ -13674,10 +13674,10 @@ async function prewarmForestContextWorkerV174(key){
    }
    forestContextWorkerRevision=revision;
    forestContextWorkerLast={state:'ready',revision,features:msg.rows.length,prepMs,workerMs:msg.workerMs,applyMs:performance.now()-ta,totalMs:performance.now()-t0};
-   console.info('FOREST CONTEXT WORKER v201',forestContextWorkerLast);
+   console.info('FOREST CONTEXT WORKER v202',forestContextWorkerLast);
    return forestContextWorkerLast;
  })().catch(e=>{
-   console.warn('FOREST CONTEXT WORKER v201 fallback',e);
+   console.warn('FOREST CONTEXT WORKER v202 fallback',e);
    return {state:'error',error:String(e?.message||e)};
  }).finally(()=>{forestContextWorkerPromise=null;});
  return forestContextWorkerPromise;
@@ -26289,9 +26289,35 @@ function updateAtlasHead(){
  if(!atlasSelected.size)info.textContent='Grzyby są pogrupowane według podobnych siedlisk. Kliknij mały gatunek albo nagłówek grupy, aby wybrać całą grupę.';
  else{const names=[...atlasSelected].map(t=>HUMAN_NAMES[t]||t);info.innerHTML='<span class="atlas-selected-summary">Wybrane '+atlasSelected.size+':</span> '+escapeHtml(names.join(', '));}
 }
+// v202 — pomiar i UX przełączania gatunków.
+// Kliknięcie gatunku zmienia wyłącznie widok/ranking; dopóki nowy hotspot cache
+// się rozgrzewa, zostawiamy poprzednie pinezki przygaszone zamiast robić pustą mapę.
+let speciesInteractionPerfV202={
+ seq:0,completedSeq:0,lastActionAt:0,lastAction:'',targetKey:'',fromKey:'',
+ lastActionToTopMs:null,lastPipelineWaitMs:null,lastType:null,pending:false
+};
+function markSpeciesInteractionV202(action,fromKey=''){
+ speciesInteractionPerfV202.seq++;
+ speciesInteractionPerfV202.lastActionAt=performance.now();
+ speciesInteractionPerfV202.lastAction=String(action||'species');
+ speciesInteractionPerfV202.fromKey=String(fromKey||'');
+ speciesInteractionPerfV202.targetKey=atlasSelectionKey();
+ speciesInteractionPerfV202.lastType=activeSingleSpeciesType()||null;
+ speciesInteractionPerfV202.pending=true;
+}
+function setHotspotPendingV202(pending){
+ speciesInteractionPerfV202.pending=!!pending;
+ try{
+   topGroup.eachLayer?.(ly=>{ if(typeof ly?.setOpacity==='function')ly.setOpacity(pending ? 0.28 : 1); const el=ly?.getElement?.();if(el)el.style.pointerEvents=pending?'none':''; });
+ }catch(_){}
+ try{
+   const box=document.getElementById('toplist');
+   if(box){box.style.opacity=pending?'.42':'';box.style.pointerEvents=pending?'none':'';}
+ }catch(_){}
+}
 function logUiActionV167(action,extra={}){
  try{
-   console.info('UI ACTION v201',{
+   console.info('UI ACTION v202',{
      action,
      mode:mapMode,
      filter:currentFilter,
@@ -26303,9 +26329,11 @@ function logUiActionV167(action,extra={}){
  }catch(_){}
 }
 function toggleAtlasType(t){
+ const fromKey=atlasSelectionKey();
  atlasHoverTypes.clear();
  applyAtlasHoverFilter(null);
  currentFilter='all';atlasSelected.has(t)?atlasSelected.delete(t):atlasSelected.add(t);
+ markSpeciesInteractionV202('species-toggle',fromKey);
  logUiActionV167('species-toggle',{type:t,selected:atlasSelected.has(t)});
  if(ANALYSIS_CENTERS.length){
    ensureActiveSingleSpeciesObservations().catch(e=>console.warn('Observation preload',e));
@@ -26315,11 +26343,13 @@ function toggleAtlasType(t){
 }
 function toggleAtlasGroup(groupId){
  const g=ATLAS_GROUPS.find(x=>x.id===groupId);if(!g)return;
+ const fromKey=atlasSelectionKey();
  atlasHoverTypes.clear();
  applyAtlasHoverFilter(null);
  currentFilter='all';
  const allSelected=g.members.every(t=>atlasSelected.has(t));
  if(allSelected)g.members.forEach(t=>atlasSelected.delete(t));else g.members.forEach(t=>atlasSelected.add(t));
+ markSpeciesInteractionV202('species-group-toggle',fromKey);
  logUiActionV167('species-group-toggle',{group:groupId,selected:!allSelected});
  clearAtlasHover();syncAtlasSelectionUI();updateAtlasHead();resetStaticCachesIfNeeded();syncSpeciesModeButtons();updateSpeciesMeta();
  ensureActiveSingleSpeciesObservations().catch(e=>console.warn('Observation preload',e));
@@ -27326,9 +27356,9 @@ async function auditV191PerformanceEquivalence(limit=180){
    }
  }
  const maxDelta=Math.max(...Object.values(maxima));
- const report={version:'v201',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-10,worst,elapsedMs:performance.now()-t0};
+ const report={version:'v202',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-10,worst,elapsedMs:performance.now()-t0};
  window.__v190PerformanceEquivalence=report;
- console.info('V201 TRUE PERFORMANCE EQUIVALENCE',report);
+ console.info('V202 TRUE PERFORMANCE EQUIVALENCE',report);
  return report;
 }
 window.auditV192PerformanceEquivalence=auditV191PerformanceEquivalence;
@@ -28200,7 +28230,7 @@ function progressiveAnalysisLayerBuild(feats){
      elapsedMs:performance.now()-t0,
      cpuMs, maxSliceMs, batches, containers
    };
-   console.info('LAYER BUILD PERFORMANCE v201',analysisLayerBuildLast);
+   console.info('LAYER BUILD PERFORMANCE v202',analysisLayerBuildLast);
    try{render();}catch(_){}
  };
 
@@ -28290,7 +28320,7 @@ function areaWeatherSignatureV191(area){
  return commutativeSigV191(parts);
 }
 function areaScoreSessionKeyV191(area,types){
- return `v201|${analysisAreaGeometrySigV191(area)}|${opportunityTypeSetKey(types)}`;
+ return `v202|${analysisAreaGeometrySigV191(area)}|${opportunityTypeSetKey(types)}`;
 }
 function currentDistributionKeyV191(types,areaName,kind){
  return `v105|${scoringRevision}|${opportunityTypeSetKey(types)}|${areaName}|${RADIUS_KM}|${kind}|${allFeatures.length}|${openFeatures.length}`;
@@ -28365,7 +28395,7 @@ function restoreAreaScoreSessionV191(types){
    entry.ts=Date.now();areaScoreSessionCacheV191.delete(key);areaScoreSessionCacheV191.set(key,entry);
  }
  areaScoreSessionLastV191={restoredAreas,staticAreas,dynamicAreas,reusedFeatures,misses,elapsedMs:performance.now()-t0};
- console.info('AREA SCORE CACHE RESTORE v201',areaScoreSessionLastV191);
+ console.info('AREA SCORE CACHE RESTORE v202',areaScoreSessionLastV191);
  return areaScoreSessionLastV191;
 }
 function saveAreaScoreSessionV191(types){
@@ -28397,7 +28427,7 @@ function saveAreaScoreSessionV191(types){
 window.auditV191SessionCache=function(){
  pruneAreaScoreSessionCacheV191();
  const entries=[...areaScoreSessionCacheV191.entries()].map(([key,v])=>({key,ageSec:+((Date.now()-v.ts)/1000).toFixed(1),staticScores:v.staticRaw?.size||0,dynamicScores:v.dynamicRaw?.size||0,forestRows:v.forestRows?.length||0,openRows:v.openRows?.length||0}));
- const report={version:'v201',entries:entries.length,last:{...areaScoreSessionLastV191},rows:entries};
+ const report={version:'v202',entries:entries.length,last:{...areaScoreSessionLastV191},rows:entries};
  console.table(entries);console.info('V195 SESSION AREA CACHE',report);return report;
 };
 window.clearV191SessionCache=function(){areaScoreSessionCacheV191.clear();areaScoreSessionLastV191={restoredAreas:0,staticAreas:0,dynamicAreas:0,reusedFeatures:0,misses:0,elapsedMs:0};return true;};
@@ -28410,7 +28440,7 @@ window.auditV191AreaIsolation=function(){
    return {area:area.name,sig,weatherSamples:localWeather.length,clusterSize:cluster.length,sessionEntries:cacheKeys.length};
  });
  const weatherOk=!weatherReady||rows.every(r=>r.weatherSamples>=5);
- const report={version:'v201',areas:rows.length,weatherReady,weatherIsolationOk:weatherOk,rows,lastCache:{...areaScoreSessionLastV191}};
+ const report={version:'v202',areas:rows.length,weatherReady,weatherIsolationOk:weatherOk,rows,lastCache:{...areaScoreSessionLastV191}};
  console.table(rows);console.info('V195 AREA ISOLATION',report);return report;
 };
 
@@ -28499,7 +28529,7 @@ async function runAutoQAV192(){
 
    const overall=!!equivalence?.ok&&roundTrip.ok&&weatherIsolationOk&&reuseOk;
    const report={
-     version:'v201',scenario:scenario.kind,areas:rows.length,areaSigs:rows.map(r=>r.sig),overlap:scenario.overlap,
+     version:'v202',scenario:scenario.kind,areas:rows.length,areaSigs:rows.map(r=>r.sig),overlap:scenario.overlap,
      overall:overall?'PASS':'FAIL',equivalenceOk:!!equivalence?.ok,maxDelta:Number(equivalence?.maxDelta??NaN),
      roundTripOk:roundTrip.ok,roundTripMaxDelta:roundTrip.maxDelta,roundTripStaticAreas:roundTrip.staticAreas,roundTripDynamicAreas:roundTrip.dynamicAreas,
      weatherStatus,weatherSamples:rows.map(r=>r.weatherSamples),expectedReuse:scenario.expectedReuse,
@@ -28511,12 +28541,12 @@ async function runAutoQAV192(){
    autoQAV192.runs.push({ts:Date.now(),areaSigs:report.areaSigs,scenario:report.scenario,overall:report.overall});
    if(autoQAV192.runs.length>24)autoQAV192.runs.shift();
    window.__v192AutoQA=report;window.__v195AutoQA=report;
-   console.info('V201 AUTO QA',report);
-   console.info(`V201 AUTO QA FLAT | scenario=${report.scenario} | areas=${report.areas} | equivalence=${report.equivalenceOk?'PASS':'FAIL'}(delta ${Number.isFinite(report.maxDelta)?report.maxDelta:'?'}) | cacheRoundTrip=${report.roundTripOk?'PASS':'FAIL'}(delta ${report.roundTripMaxDelta}, static ${report.roundTripStaticAreas}, dynamic ${report.roundTripDynamicAreas}) | phaseReuse=${reuseApplicable?(report.phaseReuseOk?'PASS':'FAIL'):'N/A'}(${report.phaseStaticAreas}/${report.expectedReuse}, dyn ${report.phaseDynamicAreas}, final ${report.phaseReusedFeatures}) | weather=${report.weatherStatus}[${report.weatherSamples.join(',')}] | prior=${report.priorMs.toFixed(1)} | distribution=${report.distributionMs.toFixed(1)} pairs=${report.distributionPairs} | overall=${report.overall}`);
+   console.info('V202 AUTO QA',report);
+   console.info(`V202 AUTO QA FLAT | scenario=${report.scenario} | areas=${report.areas} | equivalence=${report.equivalenceOk?'PASS':'FAIL'}(delta ${Number.isFinite(report.maxDelta)?report.maxDelta:'?'}) | cacheRoundTrip=${report.roundTripOk?'PASS':'FAIL'}(delta ${report.roundTripMaxDelta}, static ${report.roundTripStaticAreas}, dynamic ${report.roundTripDynamicAreas}) | phaseReuse=${reuseApplicable?(report.phaseReuseOk?'PASS':'FAIL'):'N/A'}(${report.phaseStaticAreas}/${report.expectedReuse}, dyn ${report.phaseDynamicAreas}, final ${report.phaseReusedFeatures}) | weather=${report.weatherStatus}[${report.weatherSamples.join(',')}] | prior=${report.priorMs.toFixed(1)} | distribution=${report.distributionMs.toFixed(1)} pairs=${report.distributionPairs} | overall=${report.overall}`);
    return report;
  }catch(err){
-   const report={version:'v201',overall:'FAIL',error:String(err?.stack||err)};
-   autoQAV192.last=report;window.__v192AutoQA=report;window.__v195AutoQA=report;console.error('V201 AUTO QA FAIL',report);return report;
+   const report={version:'v202',overall:'FAIL',error:String(err?.stack||err)};
+   autoQAV192.last=report;window.__v192AutoQA=report;window.__v195AutoQA=report;console.error('V202 AUTO QA FAIL',report);return report;
  }finally{autoQAV192.busy=false;}
 }
 function scheduleAutoQAV192(delay=650){
@@ -28636,15 +28666,15 @@ async function runCacheStressV195(){
    const stateUnchanged=setSig===cacheStressAreaSetSigV195()&&ANALYSIS_CENTERS.length===1;
    tests.stateRestored=cacheStressResultV195(stateUnchanged,{before:setSig,after:cacheStressAreaSetSigV195(),areas:ANALYSIS_CENTERS.length});
    const failed=Object.entries(tests).filter(([,v])=>v&&v.ok===false).map(([k])=>k);
-   const report={version:'v201',overall:failed.length?'FAIL':'PASS',area:analysisAreaGeometrySigV191(area),tests,failed,elapsedMs:+(performance.now()-started).toFixed(1),baselinePhase:{sessionStaticAreas:Number(hotspotPipelineWarmLast?.sessionStaticAreas||0),sessionDynamicAreas:Number(hotspotPipelineWarmLast?.sessionDynamicAreas||0),sessionReusedFeatures:Number(hotspotPipelineWarmLast?.sessionReusedFeatures||0),priorMs:Number(hotspotPipelineWarmLast?.priorMs||0),distributionMs:Number(hotspotPipelineWarmLast?.distributionMs||0),distributionPairs:Number(hotspotPipelineWarmLast?.distributionPairs||0)}};
+   const report={version:'v202',overall:failed.length?'FAIL':'PASS',area:analysisAreaGeometrySigV191(area),tests,failed,elapsedMs:+(performance.now()-started).toFixed(1),baselinePhase:{sessionStaticAreas:Number(hotspotPipelineWarmLast?.sessionStaticAreas||0),sessionDynamicAreas:Number(hotspotPipelineWarmLast?.sessionDynamicAreas||0),sessionReusedFeatures:Number(hotspotPipelineWarmLast?.sessionReusedFeatures||0),priorMs:Number(hotspotPipelineWarmLast?.priorMs||0),distributionMs:Number(hotspotPipelineWarmLast?.distributionMs||0),distributionPairs:Number(hotspotPipelineWarmLast?.distributionPairs||0)}};
    cacheStressV195.last=report;cacheStressV195.runs.push(report);if(cacheStressV195.runs.length>8)cacheStressV195.runs.shift();cacheStressV195.done=true;window.__v195CacheStress=report;
-   console.info('V201 CACHE STRESS',report);
-   console.info(`V201 CACHE STRESS FLAT | restoreA=${tests.restoreA.ok?'PASS':'FAIL'} | addFar=${tests.addFarArea.ok?'PASS':'FAIL'}(reuse ${tests.addFarArea.reusedFeatures||0}, miss ${tests.addFarArea.misses||0}) | overlap=${tests.overlapGuard.ok?'PASS':'FAIL'}(final ${tests.overlapGuard.reusedFeatures||0}, miss ${tests.overlapGuard.misses||0}) | weather=${tests.weatherInvalidation.ok&&tests.weatherRecovery.ok?'PASS':'FAIL'} | staticFingerprint=${tests.staticFingerprintInvalidation.ok&&tests.staticFingerprintRecovery.ok?'PASS':'FAIL'} | ttl=${tests.ttlExpiry.ok?'PASS':'FAIL'} | finalDelta=${tests.finalRecovery.maxDelta??'?'} | equivalence=${tests.equivalence.ok?'PASS':'FAIL'}(delta ${tests.equivalence.maxDelta??'?'}) | elapsed=${report.elapsedMs.toFixed(1)}ms | overall=${report.overall}`);
+   console.info('V202 CACHE STRESS',report);
+   console.info(`V202 CACHE STRESS FLAT | restoreA=${tests.restoreA.ok?'PASS':'FAIL'} | addFar=${tests.addFarArea.ok?'PASS':'FAIL'}(reuse ${tests.addFarArea.reusedFeatures||0}, miss ${tests.addFarArea.misses||0}) | overlap=${tests.overlapGuard.ok?'PASS':'FAIL'}(final ${tests.overlapGuard.reusedFeatures||0}, miss ${tests.overlapGuard.misses||0}) | weather=${tests.weatherInvalidation.ok&&tests.weatherRecovery.ok?'PASS':'FAIL'} | staticFingerprint=${tests.staticFingerprintInvalidation.ok&&tests.staticFingerprintRecovery.ok?'PASS':'FAIL'} | ttl=${tests.ttlExpiry.ok?'PASS':'FAIL'} | finalDelta=${tests.finalRecovery.maxDelta??'?'} | equivalence=${tests.equivalence.ok?'PASS':'FAIL'}(delta ${tests.equivalence.maxDelta??'?'}) | elapsed=${report.elapsedMs.toFixed(1)}ms | overall=${report.overall}`);
    setTimeout(()=>{prepareAutoMegaDebugV195();},80);
    return report;
  }catch(err){
-   const report={version:'v201',overall:'FAIL',error:String(err?.stack||err),tests,elapsedMs:+(performance.now()-started).toFixed(1)};
-   cacheStressV195.last=report;cacheStressV195.runs.push(report);cacheStressV195.done=true;window.__v195CacheStress=report;console.error('V201 CACHE STRESS FAIL',report);return report;
+   const report={version:'v202',overall:'FAIL',error:String(err?.stack||err),tests,elapsedMs:+(performance.now()-started).toFixed(1)};
+   cacheStressV195.last=report;cacheStressV195.runs.push(report);cacheStressV195.done=true;window.__v195CacheStress=report;console.error('V202 CACHE STRESS FAIL',report);return report;
  }finally{
    // Bezwarunkowo przywróć ewentualne mutacje wejść diagnostycznych.
    if(changedWeather){changedWeather.sample.index=changedWeather.old;}
@@ -28746,7 +28776,7 @@ function megaDebugCoreStateV195(){
     revisions:{scoring:scoringRevision,weather:weatherScoringRevisionV176},
     weatherSamples:weatherSamples.length,soilSamples:soilSamples.length,
     hotspotPipeline:megaDebugSafeV195(hotspotPipelineWarmLast),layerBuild:megaDebugSafeV195(analysisLayerBuildLast),forestWorker:megaDebugSafeV195(forestContextWorkerLast),
-    render:megaDebugSafeV195(perfAuditLast),
+    render:megaDebugSafeV195(perfAuditLast),speciesInteraction:megaDebugSafeV195(speciesInteractionPerfV202),
     autoQA:megaDebugSafeV195(autoQAV192.last),cacheStress:megaDebugSafeV195(cacheStressV195.last),dom:megaDebugDomStatusV195(),cache:megaDebugCacheStateV195()
   };
 }
@@ -28769,7 +28799,7 @@ async function buildMegaDebugReportV195(){
       areaIsolation={weatherReady,weatherIsolationOk:!weatherReady||rows.every(r=>r.weatherSamples>=5),rows};
     }catch(e){areaIsolation={error:String(e?.stack||e)};}
     const payload={
-      schema:'mushroom-map-mega-debug/1',version:'v201',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
+      schema:'mushroom-map-mega-debug/1',version:'v202',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
       verdict:{overall:(qa?.overall==='PASS'&&cacheStressV195.last?.overall==='PASS'&&equivalence?.ok&&areaIsolation?.weatherIsolationOk!==false)?'PASS':'FAIL',autoQA:qa?.overall||null,cacheStress:cacheStressV195.last?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
       state:megaDebugCoreStateV195(),equivalence:megaDebugSafeV195(equivalence),areaIsolation:megaDebugSafeV195(areaIsolation),
       autoQAHistory:megaDebugSafeV195(autoQAV192.runs.slice(-24)),cacheStressHistory:megaDebugSafeV195(cacheStressV195.runs.slice(-8)),
@@ -28777,9 +28807,9 @@ async function buildMegaDebugReportV195(){
       reportBuildMs:+(performance.now()-started).toFixed(1)
     };
     megaDebugV195.lastObject=payload;
-    megaDebugV195.lastReport=`===== MAPA GRZYBÓW MEGA DEBUG v201 =====\n${JSON.stringify(payload,null,2)}\n===== END MEGA DEBUG v201 =====`;
+    megaDebugV195.lastReport=`===== MAPA GRZYBÓW MEGA DEBUG v202 =====\n${JSON.stringify(payload,null,2)}\n===== END MEGA DEBUG v202 =====`;
     window.__megaDebugV195=payload;
-    console.info('V201 MEGA DEBUG READY',{chars:megaDebugV195.lastReport.length,verdict:payload.verdict,reportBuildMs:payload.reportBuildMs});
+    console.info('V202 MEGA DEBUG READY',{chars:megaDebugV195.lastReport.length,verdict:payload.verdict,reportBuildMs:payload.reportBuildMs});
     return megaDebugV195.lastReport;
   }finally{megaDebugV195.running=false;}
 }
@@ -28789,7 +28819,7 @@ async function copyTextMegaDebugV195(text){
 }
 function downloadMegaDebugV195(text){
   const blob=new Blob([text],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=url;a.download=`mapa-grzybow-mega-debug-v201-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  a.href=url;a.download=`mapa-grzybow-mega-debug-v202-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 function showMegaDebugOverlayV195(text){
   const ov=document.getElementById('megaDebugReportOverlay'),ta=document.getElementById('megaDebugReportText');if(!ov||!ta)return;
@@ -28837,12 +28867,12 @@ async function prepareAutoMegaDebugV195(){
      `total=${Number(phase.elapsedMs||0).toFixed(1)}`,
      `reportChars=${text.length}`
    ].join(' | ');
-   console.info(`V201 AUTO MEGA DEBUG FLAT | ${flat}`);
+   console.info(`V202 AUTO MEGA DEBUG FLAT | ${flat}`);
    window.__v195AutoMegaDebugText=text;
    return text;
  }catch(e){
    if(q){q.className='fail';q.textContent='📋 Debug FAIL';}
-   console.error('V201 AUTO MEGA DEBUG FAIL',e);return '';
+   console.error('V202 AUTO MEGA DEBUG FAIL',e);return '';
  }
 }
 function multiAreaWarmSignature(){
@@ -28940,7 +28970,7 @@ function activeHotspotCacheReady(){
 
 function hotspotPipelineSignature(){
  return [
-   'v201-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
+   'v202-hotspot-pipeline',scoringRevision,weatherScoringRevisionV176,mapMode,currentFilter,atlasSelectionKey(),
    allFeatures.length,openFeatures.length,ANALYSIS_CENTERS.length,
    weatherReady?1:0,soilReady?1:0,terrainReady?1:0,
    window.innerWidth<=700?'m':'d'
@@ -29292,9 +29322,9 @@ async function prewarmHotspotPipeline(){
      elapsedMs:performance.now()-t0,scoreMs,buildMs,buildBalancedMs,buildTodayScaleMs,buildHotspotsMs,anchorMs,
      ...phase,...forestPerfDelta
    };
-   console.info('HOTSPOT PIPELINE WARM v201',hotspotPipelineWarmLast);
+   console.info('HOTSPOT PIPELINE WARM v202',hotspotPipelineWarmLast);
    hotspotPhaseLastAt=performance.now();
-   console.info('HOTSPOT PHASE v201',{
+   console.info('HOTSPOT PHASE v202',{
      mode:mapMode,filter:currentFilter,atlas:atlasSelected.size,features:processed,
      forestWorkerWallMs:+phase.forestWorkerWallMs.toFixed(1),forestWorkerMs:+phase.forestWorkerMs.toFixed(1),
      sessionCacheMs:+phase.sessionCacheMs.toFixed(1),sessionStaticAreas:phase.sessionStaticAreas||0,sessionDynamicAreas:phase.sessionDynamicAreas||0,sessionReusedFeatures:phase.sessionReusedFeatures||0,
@@ -29304,7 +29334,7 @@ async function prewarmHotspotPipeline(){
      distanceHits:forestPerfDelta.distanceHits,distanceMisses:forestPerfDelta.distanceMisses,
      totalMs:+(performance.now()-t0).toFixed(1)
    });
-   console.info(`HOTSPOT PHASE v201 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | sessionCache=${phase.sessionCacheMs.toFixed(1)}ms(static ${phase.sessionStaticAreas||0}, dynamic ${phase.sessionDynamicAreas||0}, final ${phase.sessionReusedFeatures||0}) | prior=${phase.priorMs.toFixed(1)}(combo ${phase.priorComboHits||0}h/${phase.priorComboMisses||0}m) | distribution=${phase.distributionMs.toFixed(1)}(forest-kernel, pairs ${phase.distributionPairs||0}, kernel ${phase.forestKernelFeatures||0}f/${phase.forestKernelPairs||0}p, final ${phase.finalizedScores||0}, packW ${phase.packedWrites||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)}(scale ${buildBalancedMs.toFixed(1)}, todayScale ${buildTodayScaleMs.toFixed(1)}, hotspots ${buildHotspotsMs.toFixed(1)}) | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
+   console.info(`HOTSPOT PHASE v202 FLAT | forestWorker=${phase.forestWorkerWallMs.toFixed(1)}ms(worker ${phase.forestWorkerMs.toFixed(1)}) | sessionCache=${phase.sessionCacheMs.toFixed(1)}ms(static ${phase.sessionStaticAreas||0}, dynamic ${phase.sessionDynamicAreas||0}, final ${phase.sessionReusedFeatures||0}) | prior=${phase.priorMs.toFixed(1)}(combo ${phase.priorComboHits||0}h/${phase.priorComboMisses||0}m) | distribution=${phase.distributionMs.toFixed(1)}(forest-kernel, pairs ${phase.distributionPairs||0}, kernel ${phase.forestKernelFeatures||0}f/${phase.forestKernelPairs||0}p, final ${phase.finalizedScores||0}, packW ${phase.packedWrites||0}) | main=${phase.mainScoreMs.toFixed(1)} | build=${buildMs.toFixed(1)}(scale ${buildBalancedMs.toFixed(1)}, todayScale ${buildTodayScaleMs.toFixed(1)}, hotspots ${buildHotspotsMs.toFixed(1)}) | anchor=${anchorMs.toFixed(1)} | total=${(performance.now()-t0).toFixed(1)}`);
    scheduleAutoQAV192();
    scheduleCacheStressV195();
    return true;
@@ -29360,10 +29390,11 @@ function perfRenderNow(){
 
  updateScoreLegend();
  invalidateInteractionGrid();
- topGroup.clearLayers();
- hintGroup.clearLayers();
 
  if(!allFeatures.length){
+   setHotspotPendingV202(false);
+   topGroup.clearLayers();
+   hintGroup.clearLayers();
    perfAuditLast={
      ...perfAuditLast,
      total:performance.now()-t0,
@@ -29377,6 +29408,9 @@ function perfRenderNow(){
  }
 
  if(!analysisScoringReady){
+   setHotspotPendingV202(false);
+   topGroup.clearLayers();
+   hintGroup.clearLayers();
    const ts=performance.now();
 
    const rows=[...analysisLayers];
@@ -29433,12 +29467,25 @@ function perfRenderNow(){
  // Jeśli aktywny cache nie istnieje, rozgrzewamy cały pipeline porcjami i
  // dopiero potem wracamy do normalnego renderu.
  if(!activeHotspotCacheReady()){
+   // v202: stale-while-revalidate TYLKO dla świadomego kliknięcia Atlasu.
+   // Zmiana rejonu/trybu nadal czyści stare hotspoty, aby nie pokazywać
+   // pinezek z innego kontekstu geograficznego lub semantycznego.
+   const speciesRefreshPending=speciesInteractionPerfV202.seq>speciesInteractionPerfV202.completedSeq&&
+     speciesInteractionPerfV202.targetKey===atlasSelectionKey()&&topSpots?.length;
+   if(speciesRefreshPending){
+     setHotspotPendingV202(true);
+     hintGroup.clearLayers();
+   }else{
+     setHotspotPendingV202(false);
+     topGroup.clearLayers();
+     hintGroup.clearLayers();
+   }
    // Zawsze podpinamy aktualny render pod trwający warm-up. Jeśli użytkownik
    // zmieni tryb w trakcie, po zakończeniu starej porcji nowy render sam
    // uruchomi warm-up dla aktualnego klucza — bez utknięcia UI.
    prewarmHotspotPipeline()
      .then(()=>{if(workToken===perfRenderWorkToken)render();})
-     .catch(e=>console.warn('Hotspot pipeline prewarm',e));
+     .catch(e=>{setHotspotPendingV202(false);console.warn('Hotspot pipeline prewarm',e);});
    perfAuditLast={
      ...perfAuditLast,
      total:performance.now()-t0,
@@ -29449,6 +29496,10 @@ function perfRenderNow(){
    };
    return;
  }
+
+ setHotspotPendingV202(false);
+ topGroup.clearLayers();
+ hintGroup.clearLayers();
 
  const tp0=performance.now();
  ensurePerfCache();
@@ -29464,7 +29515,7 @@ function perfRenderNow(){
  const visualStateKey=visualStateKeyV176();
  const wholeStyleCacheHit=lastVisualStateKeyV176===visualStateKey;
 
- // v201: hotspoty są już gotowe po HOTSPOT PHASE, więc pokazujemy pinezki/listę
+ // v202: hotspoty są już gotowe po HOTSPOT PHASE, więc pokazujemy pinezki/listę
  // PRZED progresywnym przestylowaniem tysięcy poligonów. Zadania poboczne
  // buildTop (porównanie rejonów + access OSM) odkładamy do finish(), aby nie
  // konkurowały o główny wątek z pierwszym paintem mapy.
@@ -29473,18 +29524,38 @@ function perfRenderNow(){
  const topFirst1=performance.now();
  const topFirstPaintMs=topFirst1-topFirst0;
  const sincePhaseToTopMs=hotspotPhaseLastAt?topFirst1-hotspotPhaseLastAt:null;
+ let speciesActionToTopMs=null,speciesPipelineWaitMs=null;
+ const speciesSeq=speciesInteractionPerfV202.seq;
+ if(speciesSeq>speciesInteractionPerfV202.completedSeq&&speciesInteractionPerfV202.targetKey===atlasSelectionKey()&&speciesInteractionPerfV202.lastActionAt>0){
+   speciesActionToTopMs=topFirst1-speciesInteractionPerfV202.lastActionAt;
+   speciesPipelineWaitMs=hotspotPhaseLastAt?Math.max(0,hotspotPhaseLastAt-speciesInteractionPerfV202.lastActionAt):null;
+   speciesInteractionPerfV202.completedSeq=speciesSeq;
+   speciesInteractionPerfV202.lastActionToTopMs=speciesActionToTopMs;
+   speciesInteractionPerfV202.lastPipelineWaitMs=speciesPipelineWaitMs;
+   speciesInteractionPerfV202.pending=false;
+   console.info('SPECIES SWITCH FIRST PAINT v202',{
+     action:speciesInteractionPerfV202.lastAction,
+     from:speciesInteractionPerfV202.fromKey,
+     to:speciesInteractionPerfV202.targetKey,
+     type:speciesInteractionPerfV202.lastType,
+     actionToTopMs:+speciesActionToTopMs.toFixed(1),
+     pipelineWaitMs:Number.isFinite(speciesPipelineWaitMs)?+speciesPipelineWaitMs.toFixed(1):null,
+     topMs:+topFirstPaintMs.toFixed(1),hotspots:firstPaintHotspots.length
+   });
+ }
  const styleStartAt=performance.now();
- console.info('HOTSPOT FIRST PAINT v201',{
+ console.info('HOTSPOT FIRST PAINT v202',{
    hotspots:firstPaintHotspots.length,
    topMs:+topFirstPaintMs.toFixed(1),
    sincePhaseMs:Number.isFinite(sincePhaseToTopMs)?+sincePhaseToTopMs.toFixed(1):null,
+   speciesActionToTopMs:Number.isFinite(speciesActionToTopMs)?+speciesActionToTopMs.toFixed(1):null,
    stylesPending:!wholeStyleCacheHit
  });
 
  const finish=(ts1,styleCpuMs=0,styleBatches=0,stylePlan=null)=>{
    if(workToken!==perfRenderWorkToken)return;
 
-   // v201: dopiero po zakończeniu stylowania uruchamiamy niekrytyczne prace,
+   // v202: dopiero po zakończeniu stylowania uruchamiamy niekrytyczne prace,
    // które dawniej były skutkiem buildTop() i mogły wejść przed pierwszy paint.
    scheduleAreaComparisonRefresh();
    scheduleHotspotAccessLoad(firstPaintHotspots);
@@ -29498,7 +29569,7 @@ function perfRenderNow(){
    }
    const th1=performance.now();
 
-   console.info('HOTSPOT RENDER v201',{
+   console.info('HOTSPOT RENDER v202',{
      features:rows.length,
      visibleRows,
      reasons:perfRenderNow._v182Reasons||[],
@@ -29508,6 +29579,8 @@ function perfRenderNow(){
      progressive,
      topFirstPaintMs:+topFirstPaintMs.toFixed(1),
      sincePhaseToTopMs:Number.isFinite(sincePhaseToTopMs)?+sincePhaseToTopMs.toFixed(1):null,
+     speciesActionToTopMs:Number.isFinite(speciesActionToTopMs)?+speciesActionToTopMs.toFixed(1):null,
+     speciesPipelineWaitMs:Number.isFinite(speciesPipelineWaitMs)?+speciesPipelineWaitMs.toFixed(1):null,
      stylesWallMs:+(ts1-styleStartAt).toFixed(1),
      stylesCpuMs:+styleCpuMs.toFixed(1),
      styleBatches,
@@ -29559,6 +29632,9 @@ function perfRenderNow(){
      top:topFirstPaintMs,
      topFirstPaint:topFirstPaintMs,
      sincePhaseToTop:sincePhaseToTopMs,
+     speciesActionToTop:speciesActionToTopMs,
+     speciesPipelineWait:speciesPipelineWaitMs,
+     speciesInteraction:speciesInteractionPerfV202?{...speciesInteractionPerfV202}:null,
      hints:th1-hints0,
      linked:tl1-th1,
 
@@ -29636,8 +29712,8 @@ function perfRenderNow(){
      });
    }
  };
- // v201: pierwsza porcja stylowania dopiero po jednym realnym paint hotspotów.
- scheduleAfterHotspotFirstPaintV201(step);
+ // v202: pierwsza porcja stylowania dopiero po jednym realnym paint hotspotów.
+ scheduleAfterHotspotFirstPaintV202(step);
 }
 
 // ========================= v66: RADAR POLSKI — 10 KM + PERCENTYLE + ŁAGODNIEJSZY RENDER =========================
@@ -31625,7 +31701,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessLastError=parkingErr?.message||roadErr?.message||'Overpass niedostępny';
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v201: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
+     console.info('HOTSPOT ACCESS v202: pominięte po timeout/API failure; ponowna próba najwcześniej za 5 min');
      return false;
    }
 
@@ -31634,7 +31710,7 @@ async function loadHotspotAccessContext(hotspots){
    hotspotAccessLastError='';
 
    const networkDoneAt=performance.now();
-   console.info('HOTSPOT ACCESS NETWORK v201',{
+   console.info('HOTSPOT ACCESS NETWORK v202',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,roadOk,
@@ -31648,7 +31724,7 @@ async function loadHotspotAccessContext(hotspots){
    try{accessUiMs=refreshHotspotAccessUiOnly();}
    catch(e){console.warn('Access UI patch',e);}
 
-   console.info('HOTSPOT ACCESS v201',{
+   console.info('HOTSPOT ACCESS v202',{
      parkingSample:parkingSample.length,
      roadSample:hotspotAccessSpatialSample(parkingSample,3,2.0).length,
      parkingOk,
@@ -31673,7 +31749,7 @@ async function loadHotspotAccessContext(hotspots){
      hotspotAccessRetryAfter=Date.now()+5*60*1000;
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
    }
-   console.info('HOTSPOT ACCESS v201: opcjonalne dane pominięte',e?.message||String(e));
+   console.info('HOTSPOT ACCESS v202: opcjonalne dane pominięte',e?.message||String(e));
    return false;
  }finally{
    if(seq===hotspotAccessSeq)hotspotAccessLoading=false;
@@ -31695,15 +31771,15 @@ function scheduleHotspotAccessLoad(hotspots,delay=2600){
  if(Date.now()<hotspotAccessGlobalRetryAfter)return;
  if(Date.now()<hotspotAccessRetryAfter&&key===hotspotAccessQueryKey)return;
 
- console.info('HOTSPOT ACCESS SCHEDULE v201',{delay,key,hotspots:(hotspots||[]).length});
+ console.info('HOTSPOT ACCESS SCHEDULE v202',{delay,key,hotspots:(hotspots||[]).length});
  hotspotAccessTimer=setTimeout(()=>{
    if(!analysisScoringReady||analysisHeadlessBatchMode)return;
-   console.info('HOTSPOT ACCESS START v201',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
+   console.info('HOTSPOT ACCESS START v202',{key,hotspots:activeHotspots().length,sincePhaseMs:hotspotPhaseLastAt?+(performance.now()-hotspotPhaseLastAt).toFixed(1):null});
    // Ostatnia siatka bezpieczeństwa: opcjonalna warstwa nigdy nie może
    // wypuścić rejected Promise do konsoli użytkownika.
    Promise.resolve(loadHotspotAccessContext(activeHotspots())).catch(e=>{
      hotspotAccessGlobalRetryAfter=Date.now()+5*60*1000;
-     console.info('HOTSPOT ACCESS v201: błąd sieci połknięty',e?.message||String(e));
+     console.info('HOTSPOT ACCESS v202: błąd sieci połknięty',e?.message||String(e));
    });
  },delay);
 }
@@ -32151,8 +32227,8 @@ function buildTop({deferSecondary=false}={}){
    box.appendChild(empty);
  }
 
- // v160/v201: porównanie rejonów i access OSM nie są potrzebne do pokazania
- // hotspotów. Przy first-paint v201 odkładamy je aż do zakończenia stylowania.
+ // v160/v202: porównanie rejonów i access OSM nie są potrzebne do pokazania
+ // hotspotów. Przy first-paint v202 odkładamy je aż do zakończenia stylowania.
  syncToplistHeight();
  syncPanelHeight();
  if(!deferSecondary){
@@ -33111,7 +33187,7 @@ if(clearApiCacheBtn)clearApiCacheBtn.onclick=async()=>{
  clearApiCacheBtn.disabled=false;
 };
 const megaDebugBtn=document.getElementById('megaDebugBtn');
-if(megaDebugBtn)megaDebugBtn.onclick=()=>{runMegaDebugFromUiV195().catch(e=>console.error('V201 MEGA DEBUG button',e));};
+if(megaDebugBtn)megaDebugBtn.onclick=()=>{runMegaDebugFromUiV195().catch(e=>console.error('V202 MEGA DEBUG button',e));};
 const megaDebugQuickBtn=document.getElementById('megaDebugQuickBtn');
 if(megaDebugQuickBtn)megaDebugQuickBtn.onclick=async()=>{
  megaDebugQuickBtn.disabled=true;
@@ -33209,7 +33285,7 @@ window.auditV176Architecture=function(){
 
 <div id="megaDebugReportOverlay" aria-hidden="true">
   <div class="mega-debug-report-shell" role="dialog" aria-modal="true" aria-labelledby="megaDebugReportTitle">
-    <div class="mega-debug-report-head"><span id="megaDebugReportTitle">📋 Raport Mega Debug v201</span><button id="megaDebugClose" type="button">×</button></div>
+    <div class="mega-debug-report-head"><span id="megaDebugReportTitle">📋 Raport Mega Debug v202</span><button id="megaDebugClose" type="button">×</button></div>
     <div style="font-size:12px;color:#5e6d65">Jeśli automatyczne kopiowanie nie zadziałało, kliknij „Kopiuj” albo pobierz TXT i wyślij go do ChatGPT.</div>
     <textarea id="megaDebugReportText" readonly spellcheck="false"></textarea>
     <div class="mega-debug-report-actions">

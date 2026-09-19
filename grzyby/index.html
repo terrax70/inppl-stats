@@ -4791,47 +4791,61 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   .score-legend-words{font-size:5.8px!important;gap:2px!important}
 }
 </style>
-<style id="v211-start-guide-style">
+<style id="v212-start-guide-style">
+/* v212 — onboarding nie nachodzi na panele: desktop = karta w Ustawieniach, mobile = pływający baner między dockiem a statusami. */
 .start-guide{
-  position:fixed;
-  left:12px;
-  top:72px;
-  z-index:1695;
-  width:min(430px,calc(100vw - 24px));
   display:none;
+  margin:8px 0 10px;
   align-items:flex-start;
-  gap:9px;
+  gap:10px;
   padding:10px 12px;
   border-radius:14px;
-  background:rgba(18,23,20,.96);
-  border:1px solid rgba(255,255,255,.12);
-  color:#eef5ef;
-  box-shadow:0 10px 26px rgba(0,0,0,.25);
+  background:linear-gradient(135deg,rgba(27,46,36,.98),rgba(16,24,20,.98));
+  border:1px solid rgba(108,214,139,.34);
+  border-left:4px solid #57c472;
+  color:#eef8f0;
+  box-shadow:0 10px 24px rgba(0,0,0,.16), inset 0 0 0 1px rgba(255,255,255,.04);
   font-family:Inter,Segoe UI,Arial,sans-serif;
-  backdrop-filter:blur(6px);
+  position:relative;
+  overflow:hidden;
+}
+.start-guide::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:radial-gradient(circle at 10% 0%, rgba(110,208,132,.18), transparent 40%);
+  pointer-events:none;
 }
 .start-guide.show{display:flex}
-.start-guide-icon{font-size:18px;line-height:1;flex:0 0 auto;margin-top:1px}
-.start-guide-main{min-width:0;flex:1 1 auto}
-.start-guide-title{font-size:12px;font-weight:950;line-height:1.2;color:#f5fbf6}
-.start-guide-text{margin-top:3px;font-size:11px;line-height:1.35;color:#d5dfd9}
+.start-guide-icon{font-size:19px;line-height:1;flex:0 0 auto;margin-top:1px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.24))}
+.start-guide-main{min-width:0;flex:1 1 auto;position:relative;z-index:1}
+.start-guide-title{font-size:12.5px;font-weight:950;line-height:1.2;color:#f7fff8}
+.start-guide-text{margin-top:3px;font-size:11.2px;line-height:1.38;color:#dce9df}
 .start-guide-close{
+  position:relative;z-index:1;
   flex:0 0 auto;width:28px;height:28px;padding:0;border-radius:10px;
-  border:1px solid rgba(255,255,255,.12);background:#253029;color:#eef5ef;
+  border:1px solid rgba(255,255,255,.12);background:rgba(37,48,41,.9);color:#eef5ef;
   cursor:pointer;font-size:18px;line-height:1;
 }
+.start-guide.start-guide-floating{
+  position:fixed;
+  margin:0;
+  left:7px;
+  right:128px;
+  top:112px;
+  z-index:1698;
+  padding:9px 10px;
+  border-radius:13px;
+  backdrop-filter:blur(6px);
+}
+.start-guide.start-guide-floating .start-guide-title{font-size:11.5px}
+.start-guide.start-guide-floating .start-guide-text{font-size:10px}
+.start-guide.start-guide-floating .start-guide-close{width:26px;height:26px;border-radius:9px}
 @media(max-width:700px){
-  .start-guide{
-    left:7px;
-    right:7px;
-    top:108px;
-    width:auto;
+  .start-guide:not(.start-guide-floating){
     padding:9px 10px;
     border-radius:13px;
   }
-  .start-guide-title{font-size:11.5px}
-  .start-guide-text{font-size:10px}
-  .start-guide-close{width:26px;height:26px;border-radius:9px}
 }
 </style>
 </head>
@@ -4924,7 +4938,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   <div class="start-guide-icon" aria-hidden="true">📍</div>
   <div class="start-guide-main">
     <div class="start-guide-title">Jak zacząć?</div>
-    <div class="start-guide-text">Ta mapa Polski to tylko podgląd ogólny. Wpisz miejscowość, las lub użyj lupy, żeby rozpocząć analizę konkretnego miejsca.</div>
+    <div class="start-guide-text">To tylko podgląd całej Polski. Aby wystartować, wpisz miejscowość lub las i rozpocznij analizę konkretnego miejsca.</div>
   </div>
   <button id="startGuideClose" class="start-guide-close" type="button" aria-label="Zamknij podpowiedź">×</button>
 </div>
@@ -33132,6 +33146,51 @@ const startGuide=document.getElementById('startGuide');
 const startGuideClose=document.getElementById('startGuideClose');
 let startGuideDismissed=false;
 try{startGuideDismissed=localStorage.getItem('v211StartGuideDismissed')==='1';}catch(_){startGuideDismissed=false;}
+function mountStartGuide(){
+ if(!startGuide)return;
+ const locatorCard=document.querySelector('.locator-card');
+ const mobile=window.matchMedia('(max-width:700px)').matches;
+ if(mobile){
+   if(startGuide.parentElement!==document.body)document.body.appendChild(startGuide);
+   startGuide.classList.add('start-guide-floating');
+ }else{
+   if(locatorCard && startGuide.parentElement!==locatorCard){
+     const afterNode=locatorCard.querySelector('.locator-title')?.nextSibling || locatorCard.firstChild;
+     locatorCard.insertBefore(startGuide, afterNode);
+   }
+   startGuide.classList.remove('start-guide-floating');
+   startGuide.style.top='';
+   startGuide.style.left='';
+   startGuide.style.right='';
+   startGuide.style.width='';
+ }
+}
+function positionStartGuide(){
+ if(!startGuide)return;
+ const mobile=window.matchMedia('(max-width:700px)').matches;
+ if(!mobile){
+   startGuide.style.top='';
+   startGuide.style.left='';
+   startGuide.style.right='';
+   startGuide.style.width='';
+   return;
+ }
+ const dock=document.getElementById('mobileSearchDock');
+ const dataMini=document.getElementById('dataSourceMini');
+ const dockRect=dock?.getBoundingClientRect();
+ const dataRect=dataMini?.getBoundingClientRect();
+ const top=Math.round((dockRect?.bottom || 102) + 6);
+ startGuide.style.top=`${top}px`;
+ startGuide.style.left='7px';
+ if(dataRect && dataRect.left>140){
+   const right=Math.max(7, Math.round(window.innerWidth - dataRect.left + 8));
+   startGuide.style.right=`${right}px`;
+   startGuide.style.width='auto';
+ }else{
+   startGuide.style.right='7px';
+   startGuide.style.width='auto';
+ }
+}
 function dismissStartGuide(persist=true){
  if(!startGuide)return;
  startGuide.classList.remove('show');
@@ -33143,11 +33202,18 @@ function dismissStartGuide(persist=true){
 }
 function syncStartGuide(){
  if(!startGuide)return;
- const shouldShow=!startGuideDismissed && !analysisRunning && Array.isArray(selectedDraft) && selectedDraft.length===0;
+ mountStartGuide();
+ const uiPanel=document.querySelector('.panel');
+ const mobile=window.matchMedia('(max-width:700px)').matches;
+ const mobilePanelOpen=mobile && uiPanel && !uiPanel.classList.contains('mobile-collapsed');
+ const shouldShow=!startGuideDismissed && !analysisRunning && Array.isArray(selectedDraft) && selectedDraft.length===0 && !mobilePanelOpen;
  startGuide.classList.toggle('show',shouldShow);
  startGuide.setAttribute('aria-hidden',shouldShow?'false':'true');
+ if(shouldShow)positionStartGuide();
 }
 startGuideClose?.addEventListener('click',()=>dismissStartGuide(true));
+window.addEventListener('resize',()=>{mountStartGuide();positionStartGuide();syncStartGuide();},{passive:true});
+window.addEventListener('orientationchange',()=>{mountStartGuide();positionStartGuide();syncStartGuide();},{passive:true});
 
 function cleanPlaceName(display){
  const parts=String(display||'').split(',').map(x=>x.trim()).filter(Boolean);
@@ -33508,6 +33574,8 @@ function syncMobileSearchDock(){
  }else if(locatorSearchRow.parentElement!==locatorCard){
    locatorCard.insertBefore(locatorSearchRow,locatorActions||locatorCard.firstChild);
  }
+ mountStartGuide();
+ positionStartGuide();
 }
 
 function setPanelCollapsed(collapsed){
@@ -33718,6 +33786,7 @@ applyMobileListMode();
 installDesktopForestInteraction();
 installMobileFeatureTap();
 renderDraft();
+syncStartGuide();
 syncAreaMeta();
 map.setView(CENTER,6);
 
@@ -33846,7 +33915,7 @@ window.auditV176Architecture=function(){
   </div>
 </div>
 
-<script id="v210-mobile-score-legend-position">
+<script id="v212-mobile-score-legend-position">
 (()=>{
   const root=document.documentElement;
   const atlas=document.getElementById('mushroomAtlas');

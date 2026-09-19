@@ -4791,8 +4791,8 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   .score-legend-words{font-size:5.8px!important;gap:2px!important}
 }
 </style>
-<style id="v213-start-guide-style">
-/* v213 — onboarding zawsze jako osobna karta nad mapą; pozycja liczona względem realnych paneli. */
+<style id="v214-start-guide-style">
+/* v214 — mobile: onboarding zajmuje pas pod trybem mapy, a panel Dane zjeżdża pod kartę i wraca po jej zamknięciu. Desktop bez zmian. */
 .start-guide{
   position:fixed;
   display:none;
@@ -4838,10 +4838,24 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   .start-guide-close{width:27px;height:27px;border-radius:9px}
 }
 </style>
-<style id="v213-mobile-popup-stack">
+<style id="v214-mobile-popup-stack">
 @media(max-width:700px){
   .place-details-panel{z-index:5800!important}
   .data-source-mini,.source-detail-box{z-index:5200!important}
+}
+</style>
+
+<style id="v214-mobile-guide-stack">
+@media(max-width:700px){
+  .start-guide{
+    left:7px!important;
+    right:7px!important;
+    width:auto!important;
+    max-width:none!important;
+  }
+  .data-source-mini{
+    transition:top .18s ease,max-width .18s ease,gap .18s ease!important;
+  }
 }
 </style>
 </head>
@@ -33158,15 +33172,26 @@ function positionStartGuide(){
  const modeRect=modeRow?.getBoundingClientRect();
  const panelRect=panel?.getBoundingClientRect();
  if(mobile){
-   // Na telefonie karta stoi POD całym panelem źródeł danych, więc nic jej nie przykrywa.
-   const top=Math.round(Math.max(dockRect?.bottom||102,dataRect?.bottom||0)+8);
-   startGuide.style.top=`${top}px`;
+   // v214: karta dokładnie pod całym dockiem (wyszukiwarka + tryb mapy).
+   const baseTop=Math.round((dockRect?.bottom||112)+8);
+   const visible=startGuide.classList.contains('show');
+   startGuide.style.top=`${baseTop}px`;
    startGuide.style.left='7px';
    startGuide.style.right='7px';
    startGuide.style.width='auto';
    startGuide.style.maxWidth='none';
+
+   // Gdy karta jest widoczna, cały panel Dane schodzi pod nią.
+   // Po zamknięciu wraca od razu pod Tryb mapy.
+   let dataTop=baseTop;
+   if(visible){
+     const guideRect=startGuide.getBoundingClientRect();
+     dataTop=Math.round(guideRect.bottom+8);
+   }
+   if(dataMini)dataMini.style.setProperty('top',`${dataTop}px`,'important');
  }else{
-   // Na PC: obok Ustawień, pod przełącznikiem Dziś/Ogólnie, z dala od panelu Dane po prawej.
+   // Desktop pozostaje jak w v213.
+   if(dataMini)dataMini.style.removeProperty('top');
    const left=Math.round((panelRect?.right||400)+14);
    const top=Math.round(Math.max(74,(modeRect?.bottom||62)+9));
    const rightGuard=dataRect?.left ? Math.max(18,window.innerWidth-dataRect.left+14) : 18;
@@ -33184,6 +33209,7 @@ function dismissStartGuide(){
  startGuideDismissed=true;
  startGuide.classList.remove('show');
  startGuide.setAttribute('aria-hidden','true');
+ requestAnimationFrame(positionStartGuide);
 }
 function resetStartGuide(){
  startGuideDismissed=false;
@@ -33198,7 +33224,7 @@ function syncStartGuide(){
  const shouldShow=!startGuideDismissed && !analysisRunning && Array.isArray(selectedDraft) && selectedDraft.length===0 && !mobilePanelOpen;
  startGuide.classList.toggle('show',shouldShow);
  startGuide.setAttribute('aria-hidden',shouldShow?'false':'true');
- if(shouldShow)positionStartGuide();
+ positionStartGuide();
 }
 startGuideClose?.addEventListener('click',dismissStartGuide);
 window.addEventListener('resize',()=>{positionStartGuide();syncStartGuide();},{passive:true});
@@ -33917,7 +33943,7 @@ window.auditV176Architecture=function(){
   </div>
 </div>
 
-<script id="v213-mobile-score-legend-position">
+<script id="v214-mobile-score-legend-position">
 (()=>{
   const root=document.documentElement;
   const atlas=document.getElementById('mushroomAtlas');

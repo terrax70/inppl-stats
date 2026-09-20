@@ -1,6 +1,13 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- v228 — INCREMENTAL RADIUS CACHE + 100 KM RADAR FIX
+     - zmiana 5→10→15→25→40 km nie wyrzuca pobranych danych BDL: pobierany jest tylko brakujący prostokątny pierścień,
+     - zmniejszanie promienia korzysta z już pobranego większego obszaru bez ponownego pobierania geometrii BDL,
+     - podczas rozszerzania stara warstwa lasów zostaje na mapie aż do podmiany na rozszerzony wynik (stale-while-expand),
+     - 100 km pozostaje lekkim widokiem radaru 5 km; wymuszamy widoczny zoom i pełne odświeżenie klipu regionalnego,
+     - scoring/biologia bez zmian; przy zmianie promienia ranking jest przeliczany, bo zmienia się populacja porównawcza.
+-->
 <!-- v227 — 100 KM REGIONAL RADAR MODE
      - 100 km nie pobiera setek tysięcy pełnych geometrii BDL do przeglądarki,
      - używa gotowego radaru 5 km jako lekkiego regionalnego overview, przyciętego do wybranego koła,
@@ -5645,6 +5652,11 @@ const analysisGroup=L.layerGroup().addTo(map);
 let regionalOverviewModeV227=false;
 let regionalOverviewLastStatsV227={active:false,radiusKm:0,radarCells:0,weatherReady:false};
 window.regionalOverviewStatsV227=()=>({...regionalOverviewLastStatsV227});
+window.regionalOverviewStatsV228=()=>({...regionalOverviewLastStatsV227,transport:bdlRadiusCacheReportV228?.()});
+
+// v228 — diagnostyka przejść promienia. Surowe odpowiedzi BDL przeżywają
+// clearAnalysisData(), więc zwiększenie promienia pobiera tylko brakującą obręcz.
+let radiusTransitionLastV228={kind:'none',fromRadius:0,toRadius:0,sameCenters:false,preservedVisual:false};
 
 // ========================= v226: LARGE-RADIUS VIRTUAL VISUAL =========================
 // Przy 80–100 km pełny model nadal liczy WSZYSTKIE wydzielenia, ale nie tworzymy
@@ -6768,6 +6780,94 @@ async function settledMapLimitedV226(items,worker,limit=4){
  return out;
 }
 
+// ========================= v228: INCREMENTAL BDL RADIUS TRANSPORT =========================
+// Cache dotyczy surowych odpowiedzi ArcGIS BDL dla JEDNEGO centrum i promieni <=40 km.
+// Pokrycie cache jest prostokątem bbox, dlatego przy rozszerzeniu wystarczą cztery
+// niepokrywające się pasy pomiędzy starym i nowym bboxem. Wynik geometrii jest na
+// końcu filtrowany do aktualnego koła, więc biologiczny obszar analizy się nie zmienia.
+const bdlRadiusCacheV228=new Map();
+const BDL_RADIUS_CACHE_TTL_V228=20*60*1000;
+const BDL_RADIUS_CACHE_MAX_V228=28;
+let bdlRadiusStatsV228={hits:0,misses:0,expansions:0,networkBoxes:0,reusedRows:0,addedRows:0,last:null};
+function bdlRadiusPruneV228(){
+ const now=Date.now();
+ for(const [k,v] of bdlRadiusCacheV228){if(now-Number(v?.updatedAt||0)>BDL_RADIUS_CACHE_TTL_V228)bdlRadiusCacheV228.delete(k);}
+ while(bdlRadiusCacheV228.size>BDL_RADIUS_CACHE_MAX_V228){
+   let oldestKey=null,oldest=Infinity;
+   for(const [k,v] of bdlRadiusCacheV228){const t=Number(v?.updatedAt||0);if(t<oldest){oldest=t;oldestKey=k;}}
+   if(oldestKey===null)break;
+   bdlRadiusCacheV228.delete(oldestKey);
+ }
+}
+
+function radiusCentersKeyV228(centers=ANALYSIS_CENTERS){
+ return (centers||[]).map(a=>`${Number(a?.point?.[0]).toFixed(5)},${Number(a?.point?.[1]).toFixed(5)}`).sort().join(';');
+}
+function bdlRadiusCenterKeyV228(){
+ if(ANALYSIS_CENTERS.length!==1)return '';
+ const p=ANALYSIS_CENTERS[0].point;
+ return `${Number(p[0]).toFixed(5)},${Number(p[1]).toFixed(5)}`;
+}
+function bdlRadiusCacheEligibleV228(layerId,geometry,base){
+ // Rezerwaty (BDL_FULL/57) zostają w starej ścieżce — ich geometrie mogą przecinać
+ // granicę promienia i nie warto komplikować poprawności cache dla lekkiego źródła.
+ return !analysisHeadlessBatchMode && ANALYSIS_CENTERS.length===1 && RADIUS_KM<=40 && base===BDL_BASE;
+}
+function bdlRadiusCacheKeyV228(layerId,outFields,geometry,base){
+ return [bdlRadiusCenterKeyV228(),String(base),layerId,geometry?'g1':'g0',String(outFields)].join('|');
+}
+function bdlRadiusRawKeyV228(f){
+ const p=f?.properties||{};
+ const objectId=p.OBJECTID??p.objectid??p.ObjectId??'';
+ if(objectId!=='')return `oid:${objectId}`;
+ return [
+   p.adress_forest??'',p.subarea_id??'',p.part_cd??'',p.storey_rank_order??'',
+   p.species_cd??p.species_cd_d??'',p.site_type_cd??'',p.open_type??''
+ ].join('|');
+}
+function bdlRadiusMergeRowsV228(oldRows,newRows){
+ const m=new Map();
+ for(const f of (oldRows||[]))m.set(bdlRadiusRawKeyV228(f),f);
+ for(const f of (newRows||[]))m.set(bdlRadiusRawKeyV228(f),f);
+ return [...m.values()];
+}
+function bdlRadiusExpansionBoxesV228(center,fromKm,toKm){
+ const outer=bboxFor(center,toKm);
+ if(!(fromKm>0))return [outer];
+ const inner=bboxFor(center,fromKm);
+ const [ox0,oy0,ox1,oy1]=outer,[ix0,iy0,ix1,iy1]=inner;
+ const boxes=[
+   [ox0,iy1,ox1,oy1], // północ
+   [ox0,oy0,ox1,iy0], // południe
+   [ox0,iy0,ix0,iy1], // zachód
+   [ix1,iy0,ox1,iy1]  // wschód
+ ];
+ return boxes.filter(b=>b[2]-b[0]>1e-7&&b[3]-b[1]>1e-7);
+}
+function bdlRadiusFilterGeometryV228(rows,radiusKm){
+ if(ANALYSIS_CENTERS.length!==1)return rows;
+ const center=ANALYSIS_CENTERS[0].point;
+ const pad=.20;
+ return (rows||[]).filter(f=>{
+   if(!f?.geometry)return false;
+   let c=f._v228Center;
+   if(!Array.isArray(c)){
+     try{c=geomCenter(f.geometry);f._v228Center=c;}catch(_){return false;}
+   }
+   return hav(center,c)<=Number(radiusKm)+pad;
+ });
+}
+function bdlRadiusCacheReportV228(){
+ bdlRadiusPruneV228();
+ return {
+   version:'v228',...bdlRadiusStatsV228,
+   entries:[...bdlRadiusCacheV228.entries()].map(([key,v])=>({key,maxRadius:v.maxRadius,rows:v.rows?.length||0})),
+   transition:{...radiusTransitionLastV228}
+ };
+}
+window.radiusReuseStatsV228=bdlRadiusCacheReportV228;
+// =========================================================================================
+
 async function fetchPaged(layerId,outFields,geometry=true,base=BDL_BASE){
  async function fetchArea(bb){
    const rows=[];
@@ -6797,10 +6897,6 @@ async function fetchPaged(layerId,outFields,geometry=true,base=BDL_BASE){
      rows.push(...feats);
      if(feats.length<2000)break;
      offset+=feats.length;
-     // v225: 100 km może zwrócić dziesiątki tysięcy wydzieleń.
-     // Stary limit ~20k ucinał wynik po cichu i dawał przestrzennie niepełną mapę.
-     // ArcGIS tej warstwy wspiera paginację, więc kontynuujemy aż do krótkiej strony.
-     // Twardy limit pozostaje wyłącznie jako awaryjna ochrona przed pętlą API.
      if(offset>180000){
        throw new Error(`BDL warstwa ${layerId}: przekroczono 180000 rekordów w jednym bbox — przerywam zamiast zwrócić niepełne dane`);
      }
@@ -6808,21 +6904,64 @@ async function fetchPaged(layerId,outFields,geometry=true,base=BDL_BASE){
    return rows;
  }
 
- // Każdy rejon jest niezależny: awaria jednego nie blokuje pozostałych.
- const requestBoxes=analysisRequestBboxes();
- const results=await Promise.allSettled(requestBoxes.map(fetchArea));
- const ok=results.filter(x=>x.status==='fulfilled').flatMap(x=>x.value);
- const failed=results.filter(x=>x.status==='rejected');
+ async function fetchBoxes(boxes){
+   const list=(boxes||[]).filter(Boolean);
+   if(!list.length)return [];
+   bdlRadiusStatsV228.networkBoxes+=list.length;
+   const results=await Promise.allSettled(list.map(fetchArea));
+   const ok=results.filter(x=>x.status==='fulfilled').flatMap(x=>x.value);
+   const failed=results.filter(x=>x.status==='rejected');
+   if(!ok.length&&failed.length)throw failed[0].reason||new Error(`BDL warstwa ${layerId}: brak danych`);
+   if(failed.length){
+     console.warn(`BDL warstwa ${layerId}: częściowe dane (${failed.length} bboxów nie odpowiedziało)`,failed);
+     const db=document.getElementById('dsBDL');
+     if(db){db.textContent='częściowo';db.className='st-warn';}
+   }
+   return ok;
+ }
 
- if(!ok.length && failed.length){
-   throw failed[0].reason||new Error(`BDL warstwa ${layerId}: brak danych`);
+ if(bdlRadiusCacheEligibleV228(layerId,geometry,base)){
+   const key=bdlRadiusCacheKeyV228(layerId,outFields,geometry,base);
+   const wanted=Number(RADIUS_KM)||10;
+   let entry=bdlRadiusCacheV228.get(key);
+
+   if(!entry){
+     const rows=await fetchBoxes([bboxFor(ANALYSIS_CENTERS[0].point,wanted)]);
+     entry={maxRadius:wanted,rows:bdlRadiusMergeRowsV228([],rows),updatedAt:Date.now()};
+     bdlRadiusCacheV228.set(key,entry);
+     bdlRadiusPruneV228();
+     bdlRadiusStatsV228.misses++;
+     bdlRadiusStatsV228.addedRows+=entry.rows.length;
+     bdlRadiusStatsV228.last={layerId,mode:'cold',fromRadius:0,toRadius:wanted,rows:entry.rows.length};
+   }else if(wanted>Number(entry.maxRadius||0)+1e-6){
+     const from=Number(entry.maxRadius||0);
+     const boxes=bdlRadiusExpansionBoxesV228(ANALYSIS_CENTERS[0].point,from,wanted);
+     const added=await fetchBoxes(boxes);
+     const before=entry.rows.length;
+     entry.rows=bdlRadiusMergeRowsV228(entry.rows,added);
+     entry.maxRadius=wanted;
+     entry.updatedAt=Date.now();
+     bdlRadiusPruneV228();
+     const delta=Math.max(0,entry.rows.length-before);
+     bdlRadiusStatsV228.expansions++;
+     bdlRadiusStatsV228.reusedRows+=before;
+     bdlRadiusStatsV228.addedRows+=delta;
+     bdlRadiusStatsV228.last={layerId,mode:'expand',fromRadius:from,toRadius:wanted,reused:before,added:delta,total:entry.rows.length,boxes:boxes.length};
+     console.info('BDL RADIUS EXPAND v228',bdlRadiusStatsV228.last);
+   }else{
+     bdlRadiusStatsV228.hits++;
+     bdlRadiusStatsV228.reusedRows+=entry.rows.length;
+     bdlRadiusStatsV228.last={layerId,mode:wanted<entry.maxRadius?'shrink-cache':'same-cache',fromRadius:entry.maxRadius,toRadius:wanted,reused:entry.rows.length,total:entry.rows.length};
+     console.info('BDL RADIUS CACHE HIT v228',bdlRadiusStatsV228.last);
+   }
+
+   // Warstwy bez geometrii mogą zwrócić superset z największego pobranego bboxu:
+   // enrichment i tak jest łączony wyłącznie do aktualnych featów po adress_forest.
+   return geometry?bdlRadiusFilterGeometryV228(entry.rows,wanted):entry.rows;
  }
- if(failed.length){
-   console.warn(`BDL warstwa ${layerId}: częściowe dane (${failed.length} rejonów nie odpowiedziało)`,failed);
-   const db=document.getElementById('dsBDL');
-   if(db){db.textContent='częściowo';db.className='st-warn';}
- }
- return ok;
+
+ // Multi-area, 100 km oraz źródła spoza podstawowego MapServera zachowują starą ścieżkę.
+ return fetchBoxes(analysisRequestBboxes());
 }
 
 function joinKey(f,src){
@@ -9824,10 +9963,13 @@ async function fallbackForestFromLayers56(){
 
 async function mainRegionalOverviewV227(){
  regionalOverviewModeV227=true;
- try{largeRadiusResetV226();}catch(_){}
- try{analysisGroup.clearLayers();}catch(_){}
- try{topGroup.clearLayers();hintGroup.clearLayers();reserveGroup.clearLayers();openGroup.clearLayers();obsGroup.clearLayers();}catch(_){}
- allFeatures=[];analysisLayers=[];topSpots=[];reserves=[];openFeatures=[];
+ try{largeRadiusResetV226();}catch(_){ }
+ // v228: 100 km ma być jednoznacznie lekkim widokiem. Dokładne lokalne warstwy
+ // z poprzedniego promienia znikają z mapy, ale surowe dane BDL zostają w cache v228
+ // i po powrocie do 5–40 km nie trzeba ich pobierać ponownie.
+ try{analysisGroup.clearLayers();analysisLayers=[];}catch(_){ }
+ try{topGroup.clearLayers();hintGroup.clearLayers();reserveGroup.clearLayers();openGroup.clearLayers();obsGroup.clearLayers();}catch(_){ }
+ allFeatures=[];topSpots=[];reserves=[];openFeatures=[];
  analysisScoringReady=false;
  deferSecondaryRenders=false;
  hideBdlFallback();
@@ -9839,7 +9981,7 @@ async function mainRegionalOverviewV227(){
  showAnalysisLoader('Włączam szybki radar regionalny 5 km…');
  if(ds){ds.textContent='radar 5 km';ds.className='st-ok';}
 
- setSourceState('forest','ok','Regionalny radar BDL 5 km — bez ładowania setek tysięcy polygonów');
+ setSourceState('forest','ok','Regionalny radar BDL 5 km — pełne wydzielenia pozostają w cache do analizy 5–40 km');
  setSourceState('habitat','ok','Profile siedliskowe są zawarte w radarze offline');
  setSourceState('weather','load','Pobieram pogodę dla wybranego rejonu');
  setSourceState('reserve','off','Dokładne granice ochrony: analiza do 40 km');
@@ -9848,13 +9990,24 @@ async function mainRegionalOverviewV227(){
  setSourceState('open','off','OSM łąk/polan: analiza do 40 km');
  setSourceState('obs','off','Historia obserwacji: analiza do 40 km');
 
+ // Najpierw ustawiamy mapę tak, żeby radar 5 km na pewno nie został ukryty przez zoom.
+ try{
+   const mz=nationalRadarMaxZoom();
+   if(map.getZoom()>mz)map.fitBounds(allRadiusBounds(),{padding:[25,25],maxZoom:mz});
+ }catch(_){ }
+
  nationalRadarLastKey='';
+ nationalRadarLastCount=0;
  nationalRadarRequestToken++;
  try{
    await ensureNationalRadarIndex();
+   // ensureNationalRadarIndex() może zmienić maxZoom (cellKm z indexu), więc kontrola drugi raz.
+   const mz=nationalRadarMaxZoom();
+   if(map.getZoom()>mz)map.setZoom(mz);
+   nationalRadarLastKey='';
    await refreshNationalRadar();
  }catch(e){
-   console.warn('Regional radar v227',e);
+   console.warn('Regional radar v228',e);
  }
 
  let weatherOk=false;
@@ -9869,39 +10022,38 @@ async function mainRegionalOverviewV227(){
 
  analysisScoringReady=true;
  hideAnalysisLoader();
- // Legendę POTENCJAŁ ustawia refreshNationalRadar(); nie nadpisujemy jej lokalną skalą DZIŚ.
-
  const target=nationalRadarIndex?nationalRadarTarget():{kind:'overview',type:''};
  const unsupported=target?.kind==='unsupported';
  const label=target?.kind==='species' ? nationalRadarSpeciesLabel(target.type) : 'najlepsze tereny';
+ if(!unsupported&&nationalRadarLastCount===0){
+   // Jeszcze jedna próba po ustabilizowaniu fitBounds/zoomend. To naprawia przypadek,
+   // w którym przejście 40→100 km kończyło się pustym klipem radaru.
+   nationalRadarLastKey='';
+   try{await refreshNationalRadar();}catch(_){ }
+ }
  st.innerHTML=unsupported
    ? `🗺️ <b>Tryb regionalny ${RADIUS_KM} km.</b> Ten gatunek nie ma jeszcze wiarygodnego radaru BDL. `+
      `Ustaw promień 40 km lub mniej, aby użyć dokładnej analizy lokalnej.`
-   : `🗺️ <b>Tryb regionalny ${RADIUS_KM} km:</b> radar 5 km • ${escapeHtml(label)}. `+
-     `To szybki widok potencjału. Powyżej zoomu ${nationalRadarMaxZoom()} radar znika; `+
-     `dla dokładnych wydzieleń ustaw promień 40 km lub mniej.`;
+   : `🗺️ <b>Tryb regionalny ${RADIUS_KM} km:</b> radar 5 km • ${escapeHtml(label)} • `+
+     `<b>${Number(nationalRadarLastCount||0).toLocaleString('pl-PL')} komórek</b>. `+
+     `Dokładne wydzielenia z mniejszych promieni są zachowane w cache i wrócą bez ponownego pobierania całego obszaru.`;
 
  regionalOverviewLastStatsV227={
-   active:true,
-   radiusKm:RADIUS_KM,
+   active:true,version:'v228',radiusKm:RADIUS_KM,
    radarCellKm:Number(nationalRadarIndex?.cellKm||0),
    radarCells:Number(nationalRadarLastCount||0),
    target:target?.kind==='species'?target.type:target?.kind||'',
-   weatherReady:weatherOk,
-   zoom:map.getZoom(),
-   fullBdlFeaturesLoaded:0,
-   note:'100 km uses offline national radar; exact BDL analysis is intentionally disabled at this radius.'
+   weatherReady:weatherOk,zoom:map.getZoom(),fullBdlFeaturesLoaded:0,
+   bdlRadiusCacheEntries:bdlRadiusCacheV228.size,
+   note:'100 km uses offline 5 km radar; exact 5–40 km BDL transport is retained in incremental radius cache.'
  };
  analysisLastCompletedPerformance={
-   centers:ANALYSIS_CENTERS.length,
-   forests:0,
-   open:0,
+   centers:ANALYSIS_CENTERS.length,forests:0,open:0,
    timings:{...analysisSourceTimings,total:performance.now()-(analysisSourceTimings.startedAt||performance.now())},
-   layerBuild:{mode:'regional-radar-v227',features:0,containers:0,virtual:true},
-   render:{mode:'national-radar-5km',layers:nationalRadarLastCount||0},
-   completedAt:Date.now()
+   layerBuild:{mode:'regional-radar-v228',features:0,containers:0,virtual:true},
+   render:{mode:'national-radar-5km',layers:nationalRadarLastCount||0},completedAt:Date.now()
  };
- console.info('REGIONAL OVERVIEW v227',regionalOverviewLastStatsV227);
+ console.info('REGIONAL OVERVIEW v228',regionalOverviewLastStatsV227);
 }
 
 async function main(){
@@ -30198,7 +30350,7 @@ async function buildMegaDebugReportV195(){
       areaIsolation={weatherReady,weatherIsolationOk:!weatherReady||rows.every(r=>r.weatherSamples>=5),rows};
     }catch(e){areaIsolation={error:String(e?.stack||e)};}
     const payload={
-      schema:'mushroom-map-mega-debug/1',version:'v227',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
+      schema:'mushroom-map-mega-debug/1',version:'v228',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
       snapshot:{fresh:true,trigger:'current-call',interactionSeq:speciesInteractionPerfV203.seq,softResetCount:speciesSelectionSoftResetV210.count,weatherReady:!!weatherReady},
       verdict:{overall:(qa?.overall==='PASS'&&cacheStressV195.last?.overall==='PASS'&&equivalence?.ok&&areaIsolation?.weatherIsolationOk!==false)?'PASS':'FAIL',autoQA:qa?.overall||null,cacheStress:cacheStressV195.last?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
       calibration:calibrationAuditV222(),observationSources:megaDebugSafeV195(observationFetchDiagnostics),
@@ -31315,7 +31467,7 @@ function nationalRadarRowInsideRegionalClipV227(row){
 function nationalRadarRegionalKeyV227(){
  if(!nationalRadarRegionalClipActiveV227())return 'country';
  const a=ANALYSIS_CENTERS[0];
- return `${Number(a.point[0]).toFixed(4)},${Number(a.point[1]).toFixed(4)}|r${Number(RADIUS_KM).toFixed(1)}`;
+ return `v228|${Number(a.point[0]).toFixed(4)},${Number(a.point[1]).toFixed(4)}|r${Number(RADIUS_KM).toFixed(1)}`;
 }
 function nationalRadarClamp01(x){return Math.max(0,Math.min(1,Number(x)||0));}
 function nationalRadarSmoothstep(a,b,x){ if(!(b>a))return x>=b?1:0; const t=nationalRadarClamp01((x-a)/(b-a)); return t*t*(3-2*t); }
@@ -34492,12 +34644,14 @@ async function reverseName(lat,lon,index){
  }catch(e){console.warn('Reverse geocode',e);}
 }
 
-function clearAnalysisData(){
+function clearAnalysisData(opts={}){
+ const preserveVisual=!!opts.preserveVisual;
  hideAnalysisLoader();
  cancelProgressiveAnalysisLayerBuild();
  try{largeRadiusResetV226();}catch(_){}
  regionalOverviewModeV227=false;
  regionalOverviewLastStatsV227={active:false,radiusKm:0,radarCells:0,weatherReady:false};
+ try{nationalRadarLastKey='';scheduleNationalRadarRefresh();}catch(_){}
  resetSourceStates();
  try{closeUnifiedDetails(true);}catch(_){}
 
@@ -34517,8 +34671,11 @@ function clearAnalysisData(){
  linkedTransientFeature=null;
  try{linkedActiveTypes.clear();}catch(_){}
  resetWeatherCard('Pobieram warunki dla nowego rejonu…');
- analysisGroup.clearLayers();topGroup.clearLayers();hintGroup.clearLayers();reserveGroup.clearLayers();obsGroup.clearLayers();openGroup.clearLayers();
- allFeatures=[];analysisLayers=[];reserves=[];topSpots=[];
+ if(!preserveVisual)analysisGroup.clearLayers();
+ topGroup.clearLayers();hintGroup.clearLayers();reserveGroup.clearLayers();obsGroup.clearLayers();openGroup.clearLayers();
+ allFeatures=[];
+ if(!preserveVisual)analysisLayers=[];
+ reserves=[];topSpots=[];
  weatherSamples=[];weatherReady=false;centerWeather=null;
  soilSamples=[];soilReady=false;soilCoverage=0;terrainReady=false;obsReady=false;
  openFeatures=[];openReady=false;
@@ -34546,22 +34703,47 @@ async function analyzeDraft(){
  if(!analysisHeadlessBatchMode)renderDraft();
 
  try{
-   RADIUS_KM=Number(radiusSelect.value)||10;
-   ANALYSIS_CENTERS=selectedDraft.map(x=>({name:x.name,point:[...x.point]}));
+   const nextRadius=Number(radiusSelect.value)||10;
+   const nextCenters=selectedDraft.map(x=>({name:x.name,point:[...x.point]}));
+   const prevRadius=Number(RADIUS_KM)||0;
+   const prevCentersKey=radiusCentersKeyV228(ANALYSIS_CENTERS);
+   const nextCentersKey=radiusCentersKeyV228(nextCenters);
+   const sameCenters=!!prevCentersKey&&prevCentersKey===nextCentersKey;
+   const radiusOnly=sameCenters&&prevRadius!==nextRadius;
+   const canPreserveVisual=radiusOnly&&prevRadius<80&&nextRadius<80&&analysisLayers.length>0;
 
+   radiusTransitionLastV228={
+     kind:radiusOnly?(nextRadius>prevRadius?'expand':'shrink'):(sameCenters?'repeat':'new-area'),
+     fromRadius:prevRadius,toRadius:nextRadius,sameCenters,preservedVisual:canPreserveVisual
+   };
+
+   RADIUS_KM=nextRadius;
+   ANALYSIS_CENTERS=nextCenters;
    syncAreaMeta();
-   clearAnalysisData();
+
+   // v228: przy zmianie promienia <=40 stare lasy zostają na ekranie aż do
+   // pojawienia się nowej wersji. Dane transportowe BDL są cache'owane niezależnie,
+   // więc main() dociągnie tylko brakujący pierścień albo użyje większego cache.
+   clearAnalysisData({preserveVisual:canPreserveVisual});
    if(!analysisHeadlessBatchMode)syncSelectionMarkers();
 
    if(!analysisHeadlessBatchMode){
      try{
-       map.fitBounds(allRadiusBounds(),{padding:[25,25]});
+       map.fitBounds(allRadiusBounds(),{padding:[25,25],maxZoom:RADIUS_KM>=80?nationalRadarMaxZoom():undefined});
      }catch(err){
        console.warn('fitBounds pominięty',err);
      }
    }
 
-   document.getElementById('status').innerHTML=`⏳ Start analizy ${ANALYSIS_CENTERS.length} rejonów…`;
+   if(radiusOnly&&nextRadius<80){
+     document.getElementById('status').innerHTML=nextRadius>prevRadius
+       ?`⏳ Rozszerzam analizę <b>${prevRadius} → ${nextRadius} km</b> — zachowuję już pobrane dane i dociągam tylko brakujący obszar…`
+       :`⏳ Zmniejszam analizę <b>${prevRadius} → ${nextRadius} km</b> — korzystam z już pobranego większego obszaru…`;
+   }else if(nextRadius>=80){
+     document.getElementById('status').innerHTML=`⏳ Włączam szybki radar regionalny ${nextRadius} km…`;
+   }else{
+     document.getElementById('status').innerHTML=`⏳ Start analizy ${ANALYSIS_CENTERS.length} rejonów…`;
+   }
    await main();
 
  }catch(err){
@@ -34576,6 +34758,8 @@ async function analyzeDraft(){
 
    if(allFeatures.some(f=>f._kind!=='open')){
      locatorHint.textContent=`✅ Analiza gotowa. Wybrano ${selectedDraft.length}/${MAX_AREAS} rejonów.`;
+   }else if(RADIUS_KM>=80&&ANALYSIS_CENTERS.length){
+     locatorHint.textContent=`✅ Radar regionalny ${RADIUS_KM} km gotowy. Dokładną analizę wydzieleń wykonuj do 40 km.`;
    }
 
    if(autoAnalyzeQueued){

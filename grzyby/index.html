@@ -29687,7 +29687,7 @@ async function buildMegaDebugReportV195(){
       areaIsolation={weatherReady,weatherIsolationOk:!weatherReady||rows.every(r=>r.weatherSamples>=5),rows};
     }catch(e){areaIsolation={error:String(e?.stack||e)};}
     const payload={
-      schema:'mushroom-map-mega-debug/1',version:'v222',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
+      schema:'mushroom-map-mega-debug/1',version:'v223',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
       snapshot:{fresh:true,trigger:'current-call',interactionSeq:speciesInteractionPerfV203.seq,softResetCount:speciesSelectionSoftResetV210.count,weatherReady:!!weatherReady},
       verdict:{overall:(qa?.overall==='PASS'&&cacheStressV195.last?.overall==='PASS'&&equivalence?.ok&&areaIsolation?.weatherIsolationOk!==false)?'PASS':'FAIL',autoQA:qa?.overall||null,cacheStress:cacheStressV195.last?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
       calibration:calibrationAuditV222(),observationSources:megaDebugSafeV195(observationFetchDiagnostics),
@@ -30677,14 +30677,21 @@ function perfRenderNow(){
  scheduleAfterHotspotFirstPaintV203(step);
 }
 
-// ========================= v66: RADAR POLSKI — 10 KM + PERCENTYLE + ŁAGODNIEJSZY RENDER =========================
+// ========================= v223: RADAR POLSKI — RADAR V2 / DYNAMICZNA ROZDZIELCZOŚĆ =========================
+// Dane v2 są budowane ponownie z BDL dla każdej komórki. Gatunki bez wiarygodnego
+// modelu BDL (edge/grassland) nie dostają zastępczego overview, aby radar nie mylił.
 // Dane są policzone jednorazowo przez radar_poland_builder i zapisane w data/radar.
 // v66 korzysta z gęstszej siatki 10 km, ale nadal zachowuje lekki render i krajową kalibrację.
 // Kolor odpowiada głównie pozycji danego miejsca na tle wszystkich komórek leśnych Polski.
 // Widoczność dołu jest ograniczona, żeby radar nie zamalowywał całej mapy słabymi obszarami.
 
 const NATIONAL_RADAR_BASE='./data/radar';
-const NATIONAL_RADAR_MAX_ZOOM=10;
+function nationalRadarMaxZoom(){
+ const km=Number(nationalRadarIndex?.cellKm||10);
+ if(km<=2.5)return 12;
+ if(km<=5)return 11;
+ return 10;
+}
 
 let nationalRadarIndex=null;
 let nationalRadarIndexPromise=null;
@@ -30736,8 +30743,12 @@ function nationalRadarTarget(){
  if(atlasSelected.size===1){
    const t=[...atlasSelected][0];
    if(supported.has(t))return {kind:'species',type:t};
+   return {kind:'unsupported',type:t};
  }
- if(currentFilter!=='all'&&currentFilter!=='diversity'&&supported.has(currentFilter))return {kind:'species',type:currentFilter};
+ if(currentFilter!=='all'&&currentFilter!=='diversity'){
+   if(supported.has(currentFilter))return {kind:'species',type:currentFilter};
+   return {kind:'unsupported',type:currentFilter};
+ }
  if(currentFilter==='diversity')return {kind:'diversity',type:''};
  return {kind:'overview',type:''};
 }
@@ -30751,6 +30762,17 @@ async function nationalRadarDataForTarget(target){
  const d=await nationalRadarFetchJson(path);
  nationalRadarCache.set(key,d);
  return d;
+}
+
+function nationalRadarExpectedGridPrefix(){
+ const km=Number(nationalRadarIndex?.cellKm);
+ if(!Number.isFinite(km)||!(km>0))return '';
+ const k=Number.isInteger(km)?String(km):String(km).replace('.','p');
+ return `k${k}_`;
+}
+function nationalRadarRowMatchesGrid(row){
+ const prefix=nationalRadarExpectedGridPrefix();
+ return !prefix || String(row?.[0]||'').startsWith(prefix);
 }
 
 function nationalRadarRowRawScore(row,target){
@@ -30812,7 +30834,12 @@ function nationalRadarPrepare(data,target){
  const cacheKey=target.kind==='species'?`species:${target.type}`:`${target.kind}:overview`;
  if(nationalRadarPreparedCache.has(cacheKey))return nationalRadarPreparedCache.get(cacheKey);
 
- const rows=Array.isArray(data?.cells)?data.cells:[];
+ const sourceRows=Array.isArray(data?.cells)?data.cells:[];
+ const rows=sourceRows.filter(nationalRadarRowMatchesGrid);
+ const rejectedMixedGrid=sourceRows.length-rows.length;
+ if(rejectedMixedGrid>0)console.warn('Radar Polski v223: odrzucono komórki o obcej rozdzielczości',{
+   expected:nationalRadarExpectedGridPrefix(),rejected:rejectedMixedGrid,total:sourceRows.length,target
+ });
  const base=rows.map(row=>({
    row,
    raw:nationalRadarRowRawScore(row,target),
@@ -30850,6 +30877,9 @@ function nationalRadarPrepare(data,target){
  };
  const stats={
    n:prepared.length,
+   sourceRows:sourceRows.length,
+   rejectedMixedGrid,
+   expectedGridPrefix:nationalRadarExpectedGridPrefix(),
    rawMin:vals[0],
    rawP10:q(.10),
    rawMedian:q(.50),
@@ -30929,7 +30959,7 @@ function nationalRadarApplyLegend(target){
 async function refreshNationalRadar(){
  const token=++nationalRadarRequestToken;
 
- if(map.getZoom()>NATIONAL_RADAR_MAX_ZOOM){
+ if(map.getZoom()>nationalRadarMaxZoom()){
    nationalRadarGroup.clearLayers();
    nationalRadarLastKey='';
    nationalRadarLastCount=0;
@@ -30942,6 +30972,14 @@ async function refreshNationalRadar(){
  if(!idx||token!==nationalRadarRequestToken)return;
 
  const target=nationalRadarTarget();
+ if(target.kind==='unsupported'){
+   nationalRadarGroup.clearLayers();
+   nationalRadarLastKey=`unsupported:${target.type||''}`;
+   nationalRadarLastCount=0;
+   nationalRadarLastStats={target:'unsupported',type:target.type||'',reason:'open/edge habitat not represented by BDL-only national radar'};
+   try{updateScoreLegend();}catch(_){}
+   return;
+ }
  const key=`${target.kind}:${target.type||''}:z${map.getZoom()}`;
  if(key===nationalRadarLastKey&&nationalRadarLastCount>0){
    nationalRadarApplyLegend(target);
@@ -31022,7 +31060,7 @@ map.on('zoomend',scheduleNationalRadarRefresh);
 function auditNationalRadar(){
  const target=nationalRadarIndex?nationalRadarTarget():null;
  const report={
-   version:'v66-10km-percentile-calibration',
+   version:'v223-radar-v2-dynamic-grid',
    available:!!nationalRadarIndex,
    missing:nationalRadarMissing,
    error:nationalRadarLastError,
@@ -31037,9 +31075,9 @@ function auditNationalRadar(){
    visibleCells:nationalRadarLastCount,
    stats:nationalRadarLastStats,
    zoom:map.getZoom(),
-   maxZoom:NATIONAL_RADAR_MAX_ZOOM,
+   maxZoom:nationalRadarMaxZoom(),
    cachedFiles:[...nationalRadarCache.keys()],
-   note:'Kolor = głównie percentyl krajowy. Widoczne są głównie komórki od mniej więcej średnich wzwyż. Dodatkowy blur łagodzi efekt szachownicy.'
+   note:'Kolor = głównie percentyl krajowy. Radar v2 obsługuje rozdzielczość z index.cellKm; pojedynczy gatunek bez wiarygodnego modelu BDL nie dostaje zastępczego overview.'
  };
  console.info('NATIONAL RADAR AUDIT',report);
  return report;

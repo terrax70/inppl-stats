@@ -1,6 +1,15 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- v230 — BINARY RADAR V3 + JSON FALLBACK
+     - krajowy/regionalny radar 5 km domyślnie czyta data/radar_v3 zamiast wielkich JSON-ów,
+     - geometria/forest/coverage są dekodowane jeden raz z base.bin i współdzielone przez wszystkie gatunki,
+     - pojedynczy gatunek pobiera tylko swój mały plik .bin; overview ma osobny overview.bin,
+     - frontend pracuje bez odtwarzania 12 770 pełnych tablic w formacie JSON; binarne rekordy są czytane przez TypedArray,
+     - przy błędzie index/base/konkretnego .bin automatycznie używany jest stary data/radar/*.json jako fallback,
+     - auditNationalRadar() raportuje transport, bajty, fetch/decode i fallbacki,
+     - scoring/biologia, percentyle, kolory, regionalny klip 100 km i render Leafleta pozostają bez zmian.
+-->
 <!-- v229 — PERSISTENT FOREST LAYERS + RADIAL WAVE
      - zmiana promienia nie usuwa i nie tworzy ponownie już istniejących polygonów Leafleta,
      - 5→10→15→25→40 km dodaje wyłącznie nowe wydzielenia; zmniejszenie promienia tylko odłącza nadmiarowe warstwy,
@@ -31571,6 +31580,7 @@ function perfRenderNow(){
 // Widoczność dołu jest ograniczona, żeby radar nie zamalowywał całej mapy słabymi obszarami.
 
 const NATIONAL_RADAR_BASE='./data/radar';
+const NATIONAL_RADAR_V3_BASE='./data/radar_v3';
 function nationalRadarMaxZoom(){
  const km=Number(nationalRadarIndex?.cellKm||10);
  if(km<=2.5)return 12;
@@ -31589,10 +31599,125 @@ let nationalRadarLastCount=0;
 let nationalRadarLastError='';
 let nationalRadarLastStats=null;
 
+// v230: binarny transport radaru. JSON pozostaje w projekcie wyłącznie jako automatyczny fallback.
+let nationalRadarTransportV230='unknown';
+let nationalRadarV3BaseV230=null;
+let nationalRadarV3BasePromiseV230=null;
+let nationalRadarV3BaseFailedV230=false;
+const nationalRadarV3TargetFailuresV230=new Set();
+const nationalRadarBinaryStatsV230={
+ version:'v230-binary-radar',
+ index:{source:'none',fetchMs:0,bytes:0},
+ base:{loaded:false,fetchMs:0,decodeMs:0,bytes:0,cells:0},
+ targets:{},
+ cacheHits:0,
+ fallbacks:0
+};
+
 async function nationalRadarFetchJson(path){
  const r=await fetch(path,{cache:'default'});
  if(!r.ok)throw new Error(`HTTP ${r.status}: ${path}`);
  return r.json();
+}
+async function nationalRadarFetchBufferV230(path){
+ const t0=performance.now();
+ const r=await fetch(path,{cache:'default'});
+ if(!r.ok)throw new Error(`HTTP ${r.status}: ${path}`);
+ const ab=await r.arrayBuffer();
+ return {ab,fetchMs:performance.now()-t0,bytes:ab.byteLength};
+}
+function nationalRadarMagicV230(v){
+ return String.fromCharCode(v.getUint8(0),v.getUint8(1),v.getUint8(2),v.getUint8(3));
+}
+function nationalRadarAssertV230(ok,msg){if(!ok)throw new Error(`Radar v3: ${msg}`);}
+
+function nationalRadarDecodeBaseV230(ab){
+ const t0=performance.now();
+ const v=new DataView(ab);
+ nationalRadarAssertV230(ab.byteLength>=16,'base.bin za krótki');
+ nationalRadarAssertV230(nationalRadarMagicV230(v)==='MGB3','zły base magic');
+ const version=v.getUint16(4,true);
+ const cellKm=v.getUint16(6,true)/100;
+ const n=v.getUint32(8,true);
+ const recSize=v.getUint16(12,true);
+ nationalRadarAssertV230(recSize===24,`base record ${recSize}, oczekiwano 24`);
+ nationalRadarAssertV230(ab.byteLength>=16+n*recSize,'base.bin ucięty');
+ const row=new Uint16Array(n),col=new Uint16Array(n);
+ const minLat=new Int32Array(n),minLon=new Int32Array(n),maxLat=new Int32Array(n),maxLon=new Int32Array(n);
+ const forest10=new Uint16Array(n),coverage1000=new Uint16Array(n);
+ for(let i=0;i<n;i++){
+   let q=16+i*recSize;
+   row[i]=v.getUint16(q,true);q+=2;
+   col[i]=v.getUint16(q,true);q+=2;
+   minLat[i]=v.getInt32(q,true);q+=4;
+   minLon[i]=v.getInt32(q,true);q+=4;
+   maxLat[i]=v.getInt32(q,true);q+=4;
+   maxLon[i]=v.getInt32(q,true);q+=4;
+   forest10[i]=v.getUint16(q,true);q+=2;
+   coverage1000[i]=v.getUint16(q,true);
+ }
+ return {version,cellKm,n,row,col,minLat,minLon,maxLat,maxLon,forest10,coverage1000,decodeMs:performance.now()-t0};
+}
+function nationalRadarDecodeSpeciesV230(ab){
+ const t0=performance.now();
+ const v=new DataView(ab);
+ nationalRadarAssertV230(ab.byteLength>=16,'species .bin za krótki');
+ const magic=nationalRadarMagicV230(v);
+ nationalRadarAssertV230(magic==='MGS3'||magic==='MGF3',`zły species magic ${magic}`);
+ const version=v.getUint16(4,true);
+ const n=v.getUint32(6,true);
+ const speciesIndex=v.getUint16(10,true);
+ const recSize=v.getUint16(12,true);
+ nationalRadarAssertV230(recSize===6||recSize===12,`species record ${recSize}`);
+ nationalRadarAssertV230(ab.byteLength>=16+n*recSize,'species .bin ucięty');
+ const raw100=new Uint16Array(n),quality100=new Uint16Array(n),good1000=new Uint16Array(n);
+ for(let i=0;i<n;i++){
+   const q=16+i*recSize;
+   raw100[i]=v.getUint16(q,true);
+   quality100[i]=v.getUint16(q+2,true);
+   good1000[i]=v.getUint16(q+(recSize===12?10:4),true);
+ }
+ return {version,n,speciesIndex,recSize,raw100,quality100,good1000,decodeMs:performance.now()-t0};
+}
+function nationalRadarDecodeOverviewV230(ab){
+ const t0=performance.now();
+ const v=new DataView(ab);
+ nationalRadarAssertV230(ab.byteLength>=14,'overview.bin za krótki');
+ nationalRadarAssertV230(nationalRadarMagicV230(v)==='MGO3','zły overview magic');
+ const version=v.getUint16(4,true);
+ const n=v.getUint32(6,true);
+ const recSize=v.getUint16(10,true);
+ nationalRadarAssertV230(recSize===4,`overview record ${recSize}`);
+ nationalRadarAssertV230(ab.byteLength>=14+n*recSize,'overview.bin ucięty');
+ const raw100=new Uint16Array(n),bestSpecies=new Uint8Array(n),diversity=new Uint8Array(n);
+ for(let i=0;i<n;i++){
+   const q=14+i*recSize;
+   raw100[i]=v.getUint16(q,true);
+   bestSpecies[i]=v.getUint8(q+2);
+   diversity[i]=v.getUint8(q+3);
+ }
+ return {version,n,recSize,raw100,bestSpecies,diversity,decodeMs:performance.now()-t0};
+}
+
+async function ensureNationalRadarV3BaseV230(){
+ if(nationalRadarV3BaseV230)return nationalRadarV3BaseV230;
+ if(nationalRadarV3BaseFailedV230)throw new Error('Radar v3 base wcześniej nie przeszedł walidacji');
+ if(nationalRadarV3BasePromiseV230)return nationalRadarV3BasePromiseV230;
+ nationalRadarV3BasePromiseV230=(async()=>{
+   try{
+     const got=await nationalRadarFetchBufferV230(`${NATIONAL_RADAR_V3_BASE}/base.bin`);
+     const base=nationalRadarDecodeBaseV230(got.ab);
+     nationalRadarAssertV230(base.n===Number(nationalRadarIndex?.cells),`base cells ${base.n} != index ${nationalRadarIndex?.cells}`);
+     nationalRadarAssertV230(Math.abs(base.cellKm-Number(nationalRadarIndex?.cellKm))<1e-9,`base cellKm ${base.cellKm} != index ${nationalRadarIndex?.cellKm}`);
+     nationalRadarV3BaseV230=base;
+     Object.assign(nationalRadarBinaryStatsV230.base,{loaded:true,fetchMs:got.fetchMs,decodeMs:base.decodeMs,bytes:got.bytes,cells:base.n});
+     return base;
+   }catch(e){
+     nationalRadarV3BaseFailedV230=true;
+     throw e;
+   }finally{nationalRadarV3BasePromiseV230=null;}
+ })();
+ return nationalRadarV3BasePromiseV230;
 }
 
 async function ensureNationalRadarIndex(){
@@ -31600,16 +31725,34 @@ async function ensureNationalRadarIndex(){
  if(nationalRadarMissing)return null;
  if(nationalRadarIndexPromise)return nationalRadarIndexPromise;
  nationalRadarIndexPromise=(async()=>{
+   const t0=performance.now();
    try{
-     const x=await nationalRadarFetchJson(`${NATIONAL_RADAR_BASE}/index.json`);
-     nationalRadarIndex=x;
+     const r=await fetch(`${NATIONAL_RADAR_V3_BASE}/index.json`,{cache:'default'});
+     if(!r.ok)throw new Error(`HTTP ${r.status}: ${NATIONAL_RADAR_V3_BASE}/index.json`);
+     const text=await r.text();
+     const x=JSON.parse(text);
+     nationalRadarAssertV230(x?.format==='MapaGrzybowRadarV3','index.json nie jest formatem MapaGrzybowRadarV3');
+     nationalRadarAssertV230(Number(x?.formatVersion)===1,`nieobsługiwany formatVersion ${x?.formatVersion}`);
+     nationalRadarIndex={...x,version:x.sourceVersion||x.version||x.format,generatedAt:x.generatedAt||null};
+     nationalRadarTransportV230='binary-v3';
+     nationalRadarBinaryStatsV230.index={source:'binary-v3',fetchMs:performance.now()-t0,bytes:new TextEncoder().encode(text).byteLength};
      nationalRadarLastError='';
-     return x;
-   }catch(e){
-     nationalRadarMissing=true;
-     nationalRadarLastError=e?.message||String(e);
-     console.info('Radar Polski: brak gotowych danych data/radar.',e);
-     return null;
+     return nationalRadarIndex;
+   }catch(binaryError){
+     try{
+       const x=await nationalRadarFetchJson(`${NATIONAL_RADAR_BASE}/index.json`);
+       nationalRadarIndex=x;
+       nationalRadarTransportV230='json-legacy';
+       nationalRadarBinaryStatsV230.index={source:'json-legacy',fetchMs:performance.now()-t0,bytes:0,error:binaryError?.message||String(binaryError)};
+       nationalRadarLastError='';
+       console.info('Radar Polski v230: binary index niedostępny, używam JSON fallback.',binaryError);
+       return x;
+     }catch(e){
+       nationalRadarMissing=true;
+       nationalRadarLastError=e?.message||String(e);
+       console.info('Radar Polski: brak gotowych danych radar_v3 i data/radar.',{binaryError,e});
+       return null;
+     }
    }finally{nationalRadarIndexPromise=null;}
  })();
  return nationalRadarIndexPromise;
@@ -31638,9 +31781,41 @@ function nationalRadarTarget(){
  return {kind:'overview',type:''};
 }
 
+async function nationalRadarDataForTargetV230(target,key){
+ const base=await ensureNationalRadarV3BaseV230();
+ const file=target.kind==='species'
+   ?`species/${encodeURIComponent(target.type)}.bin`
+   :'overview.bin';
+ const got=await nationalRadarFetchBufferV230(`${NATIONAL_RADAR_V3_BASE}/${file}`);
+ const payload=target.kind==='species'?nationalRadarDecodeSpeciesV230(got.ab):nationalRadarDecodeOverviewV230(got.ab);
+ nationalRadarAssertV230(payload.n===base.n,`${key}: payload cells ${payload.n} != base ${base.n}`);
+ if(target.kind==='species'){
+   const expected=(nationalRadarIndex?.species||[]).findIndex(x=>x.id===target.type);
+   nationalRadarAssertV230(expected>=0,`${target.type}: brak w index species`);
+   nationalRadarAssertV230(payload.speciesIndex===expected,`${target.type}: speciesIndex ${payload.speciesIndex} != ${expected}`);
+ }
+ nationalRadarBinaryStatsV230.targets[key]={source:'binary-v3',file,bytes:got.bytes,fetchMs:got.fetchMs,decodeMs:payload.decodeMs,cells:payload.n};
+ return {__radarV3:true,key,targetKind:target.kind,type:target.type||'',base,payload};
+}
+
 async function nationalRadarDataForTarget(target){
  const key=target.kind==='species'?`species:${target.type}`:'overview';
- if(nationalRadarCache.has(key))return nationalRadarCache.get(key);
+ if(nationalRadarCache.has(key)){
+   nationalRadarBinaryStatsV230.cacheHits++;
+   return nationalRadarCache.get(key);
+ }
+ if(nationalRadarTransportV230==='binary-v3'&&!nationalRadarV3TargetFailuresV230.has(key)){
+   try{
+     const d=await nationalRadarDataForTargetV230(target,key);
+     nationalRadarCache.set(key,d);
+     return d;
+   }catch(e){
+     nationalRadarV3TargetFailuresV230.add(key);
+     nationalRadarBinaryStatsV230.fallbacks++;
+     nationalRadarBinaryStatsV230.targets[key]={source:'json-fallback',error:e?.message||String(e)};
+     console.warn(`Radar Polski v230: ${key} nie przeszedł binary v3; używam JSON fallback.`,e);
+   }
+ }
  const path=target.kind==='species'
    ?`${NATIONAL_RADAR_BASE}/species/${encodeURIComponent(target.type)}.json`
    :`${NATIONAL_RADAR_BASE}/overview.json`;
@@ -31656,26 +31831,54 @@ function nationalRadarExpectedGridPrefix(){
  return `k${k}_`;
 }
 function nationalRadarRowMatchesGrid(row){
+ if(Number.isInteger(row)&&nationalRadarV3BaseV230)return row>=0&&row<nationalRadarV3BaseV230.n;
  const prefix=nationalRadarExpectedGridPrefix();
  return !prefix || String(row?.[0]||'').startsWith(prefix);
 }
+function nationalRadarV3IdV230(i){
+ const b=nationalRadarV3BaseV230;
+ if(!b||!Number.isInteger(i)||i<0||i>=b.n)return '';
+ const km=Number.isInteger(b.cellKm)?String(b.cellKm):String(b.cellKm).replace('.','p');
+ return `k${km}_r${String(b.row[i]).padStart(3,'0')}c${String(b.col[i]).padStart(3,'0')}`;
+}
+function nationalRadarRowIdV230(row){return Number.isInteger(row)?nationalRadarV3IdV230(row):String(row?.[0]||'');}
+function nationalRadarRowCenterV230(row){
+ if(Number.isInteger(row)&&nationalRadarV3BaseV230){
+   const b=nationalRadarV3BaseV230,i=row;
+   return [(b.minLat[i]+b.maxLat[i])/2e6,(b.minLon[i]+b.maxLon[i])/2e6];
+ }
+ return [Number(row?.[5]),Number(row?.[6])];
+}
 
 function nationalRadarRowRawScore(row,target){
+ if(Number.isInteger(row))return NaN; // v230 binary czyta scalar bezpośrednio w nationalRadarPrepare().
  if(target.kind==='species')return Number(row?.[7]);
  if(target.kind==='diversity')return Number(row?.[11]||0);
  return Number(row?.[9]);
 }
-function nationalRadarRowCoverage(row,target){return Number(target.kind==='species'?row?.[14]:row?.[8])||0;}
-function nationalRadarRowForest(row,target){return Number(target.kind==='species'?row?.[13]:row?.[7])||0;}
-function nationalRadarRowQuality(row,target){return Number(target.kind==='species'?row?.[8]:row?.[9]);}
-function nationalRadarRowGoodShare(row,target){return target.kind==='species' ? Number(row?.[12]||0) : 0;}
-function nationalRadarRowBounds(row){return [[Number(row?.[1]),Number(row?.[2])],[Number(row?.[3]),Number(row?.[4])]];}
+function nationalRadarRowCoverage(row,target){
+ if(Number.isInteger(row)&&nationalRadarV3BaseV230)return nationalRadarV3BaseV230.coverage1000[row]/1000;
+ return Number(target.kind==='species'?row?.[14]:row?.[8])||0;
+}
+function nationalRadarRowForest(row,target){
+ if(Number.isInteger(row)&&nationalRadarV3BaseV230)return nationalRadarV3BaseV230.forest10[row]/10;
+ return Number(target.kind==='species'?row?.[13]:row?.[7])||0;
+}
+function nationalRadarRowQuality(row,target){return Number.isInteger(row)?NaN:Number(target.kind==='species'?row?.[8]:row?.[9]);}
+function nationalRadarRowGoodShare(row,target){return Number.isInteger(row)?0:(target.kind==='species' ? Number(row?.[12]||0) : 0);}
+function nationalRadarRowBounds(row){
+ if(Number.isInteger(row)&&nationalRadarV3BaseV230){
+   const b=nationalRadarV3BaseV230,i=row;
+   return [[b.minLat[i]/1e6,b.minLon[i]/1e6],[b.maxLat[i]/1e6,b.maxLon[i]/1e6]];
+ }
+ return [[Number(row?.[1]),Number(row?.[2])],[Number(row?.[3]),Number(row?.[4])]];
+}
 function nationalRadarRegionalClipActiveV227(){
  return regionalOverviewModeV227 && RADIUS_KM>=80 && ANALYSIS_CENTERS.length===1;
 }
 function nationalRadarRowInsideRegionalClipV227(row){
  if(!nationalRadarRegionalClipActiveV227())return true;
- const lat=Number(row?.[5]),lon=Number(row?.[6]);
+ const center=nationalRadarRowCenterV230(row),lat=Number(center[0]),lon=Number(center[1]);
  if(!Number.isFinite(lat)||!Number.isFinite(lon))return false;
  const edgePadKm=Math.max(1,Number(nationalRadarIndex?.cellKm||5)*.8);
  return hav(ANALYSIS_CENTERS[0].point,[lat,lon])<=RADIUS_KM+edgePadKm;
@@ -31683,7 +31886,7 @@ function nationalRadarRowInsideRegionalClipV227(row){
 function nationalRadarRegionalKeyV227(){
  if(!nationalRadarRegionalClipActiveV227())return 'country';
  const a=ANALYSIS_CENTERS[0];
- return `v229|${Number(a.point[0]).toFixed(4)},${Number(a.point[1]).toFixed(4)}|r${Number(RADIUS_KM).toFixed(1)}`;
+ return `v230|${Number(a.point[0]).toFixed(4)},${Number(a.point[1]).toFixed(4)}|r${Number(RADIUS_KM).toFixed(1)}`;
 }
 function nationalRadarClamp01(x){return Math.max(0,Math.min(1,Number(x)||0));}
 function nationalRadarSmoothstep(a,b,x){ if(!(b>a))return x>=b?1:0; const t=nationalRadarClamp01((x-a)/(b-a)); return t*t*(3-2*t); }
@@ -31734,20 +31937,37 @@ function nationalRadarPrepare(data,target){
  const cacheKey=target.kind==='species'?`species:${target.type}`:`${target.kind}:overview`;
  if(nationalRadarPreparedCache.has(cacheKey))return nationalRadarPreparedCache.get(cacheKey);
 
- const sourceRows=Array.isArray(data?.cells)?data.cells:[];
- const rows=sourceRows.filter(nationalRadarRowMatchesGrid);
- const rejectedMixedGrid=sourceRows.length-rows.length;
- if(rejectedMixedGrid>0)console.warn('Radar Polski v224: odrzucono komórki o obcej rozdzielczości',{
-   expected:nationalRadarExpectedGridPrefix(),rejected:rejectedMixedGrid,total:sourceRows.length,target
- });
- const base=rows.map(row=>({
-   row,
-   raw:nationalRadarRowRawScore(row,target),
-   quality:nationalRadarRowQuality(row,target),
-   good:nationalRadarRowGoodShare(row,target),
-   forest:nationalRadarRowForest(row,target),
-   coverage:nationalRadarRowCoverage(row,target)
- })).filter(x=>Number.isFinite(x.raw));
+ let base,sourceRowsCount,rejectedMixedGrid=0,sourceKind='json';
+ if(data?.__radarV3){
+   sourceKind='binary-v3';
+   const b=data.base,payload=data.payload,n=b.n;
+   sourceRowsCount=n;
+   base=new Array(n);
+   for(let i=0;i<n;i++){
+     const raw=target.kind==='species' ? payload.raw100[i]/100
+       : target.kind==='diversity' ? payload.diversity[i]
+       : payload.raw100[i]/100;
+     const quality=target.kind==='species' ? payload.quality100[i]/100 : payload.raw100[i]/100;
+     const good=target.kind==='species' ? payload.good1000[i]/1000 : 0;
+     base[i]={row:i,raw,quality,good,forest:b.forest10[i]/10,coverage:b.coverage1000[i]/1000};
+   }
+ }else{
+   const sourceRows=Array.isArray(data?.cells)?data.cells:[];
+   const rows=sourceRows.filter(nationalRadarRowMatchesGrid);
+   sourceRowsCount=sourceRows.length;
+   rejectedMixedGrid=sourceRows.length-rows.length;
+   if(rejectedMixedGrid>0)console.warn('Radar Polski v230: odrzucono komórki o obcej rozdzielczości',{
+     expected:nationalRadarExpectedGridPrefix(),rejected:rejectedMixedGrid,total:sourceRows.length,target
+   });
+   base=rows.map(row=>({
+     row,
+     raw:nationalRadarRowRawScore(row,target),
+     quality:nationalRadarRowQuality(row,target),
+     good:nationalRadarRowGoodShare(row,target),
+     forest:nationalRadarRowForest(row,target),
+     coverage:nationalRadarRowCoverage(row,target)
+   })).filter(x=>Number.isFinite(x.raw));
+ }
 
  const ranks=nationalRadarPercentileRanks(base,x=>{
    if(target.kind==='diversity')return [x.raw,x.quality,x.coverage,x.forest];
@@ -31758,14 +31978,11 @@ function nationalRadarPrepare(data,target){
    const percentile=ranks[i];
    const absolute=nationalRadarAbsoluteStrength(x.raw,target);
 
-   // Mocniej stawiamy na ranking krajowy niż na sam surowy wynik.
+   // Ta sama matematyka wizualna co v229/v224; zmienia się wyłącznie transport danych.
    const visual=nationalRadarClamp01(.88*percentile+.12*absolute);
-
-   // Ilość lasu nie zmienia miejsca w rankingu, ale wpływa na to, jak silnie komórka ma być widoczna.
    const coverageFactor=.42+.58*Math.sqrt(nationalRadarClamp01(x.coverage/.42));
    const forestFactor=.48+.52*Math.sqrt(nationalRadarClamp01(x.forest/900));
    const relevance=nationalRadarClamp01(visual*coverageFactor*.75 + visual*forestFactor*.25);
-
    return {...x,percentile,absolute,visual,relevance};
  });
 
@@ -31777,9 +31994,10 @@ function nationalRadarPrepare(data,target){
  };
  const stats={
    n:prepared.length,
-   sourceRows:sourceRows.length,
+   sourceRows:sourceRowsCount,
    rejectedMixedGrid,
    expectedGridPrefix:nationalRadarExpectedGridPrefix(),
+   source:sourceKind,
    rawMin:vals[0],
    rawP10:q(.10),
    rawMedian:q(.50),
@@ -31949,7 +32167,9 @@ async function refreshNationalRadar(){
      shown,
      shownGlow,
      top10,
-     target:target.kind==='species'?target.type:target.kind
+     target:target.kind==='species'?target.type:target.kind,
+     transport:data?.__radarV3?'binary-v3':'json',
+     binaryTarget:nationalRadarBinaryStatsV230.targets[target.kind==='species'?`species:${target.type}`:'overview']||null
    };
    nationalRadarLastError='';
    nationalRadarApplyLegend(target);
@@ -31970,13 +32190,15 @@ map.on('zoomend',scheduleNationalRadarRefresh);
 function auditNationalRadar(){
  const target=nationalRadarIndex?nationalRadarTarget():null;
  const report={
-   version:'v224-country-species-no-area',
+   version:'v230-binary-radar',
    available:!!nationalRadarIndex,
    missing:nationalRadarMissing,
    error:nationalRadarLastError,
+   transport:nationalRadarTransportV230,
    index:nationalRadarIndex?{
      version:nationalRadarIndex.version,
      generatedAt:nationalRadarIndex.generatedAt,
+     format:nationalRadarIndex.format||'legacy-json',
      cellKm:nationalRadarIndex.cellKm,
      cells:nationalRadarIndex.cells,
      species:nationalRadarIndex.species?.length||0
@@ -31984,10 +32206,15 @@ function auditNationalRadar(){
    target,
    visibleCells:nationalRadarLastCount,
    stats:nationalRadarLastStats,
+   binary:{
+     ...nationalRadarBinaryStatsV230,
+     targetFailures:[...nationalRadarV3TargetFailuresV230],
+     baseFailed:nationalRadarV3BaseFailedV230
+   },
    zoom:map.getZoom(),
    maxZoom:nationalRadarMaxZoom(),
    cachedFiles:[...nationalRadarCache.keys()],
-   note:'Kolor = głównie percentyl krajowy. Radar v2 obsługuje rozdzielczość z index.cellKm; pojedynczy gatunek bez wiarygodnego modelu BDL nie dostaje zastępczego overview.'
+   note:'v230: binarny radar v3 jest źródłem domyślnym; JSON jest automatycznym fallbackiem. Matematyka percentyli/kolorów i klip 100 km są bez zmian.'
  };
  console.info('NATIONAL RADAR AUDIT',report);
  return report;
@@ -31999,21 +32226,27 @@ async function auditNationalRadarDistribution(type=null){
  const target=type?{kind:'species',type}:nationalRadarTarget();
  const data=await nationalRadarDataForTarget(target);
  const prep=nationalRadarPrepare(data,target);
- const top=prep.rows.slice().sort((a,b)=>b.percentile-a.percentile||b.raw-a.raw).slice(0,25).map(x=>({
-   id:x.row?.[0],
-   raw:Number(x.raw.toFixed(2)),
-   percentile:Number((x.percentile*100).toFixed(1)),
-   visual:Number((x.visual*100).toFixed(1)),
-   forestHa:Number(x.forest.toFixed(0)),
-   coveragePct:Number((x.coverage*100).toFixed(1)),
-   center:[Number(x.row?.[5]),Number(x.row?.[6])]
- }));
- const report={target,stats:prep.stats,top};
+ const top=prep.rows.slice().sort((a,b)=>b.percentile-a.percentile||b.raw-a.raw).slice(0,25).map(x=>{
+   const center=nationalRadarRowCenterV230(x.row);
+   return {
+     id:nationalRadarRowIdV230(x.row),
+     raw:Number(x.raw.toFixed(2)),
+     percentile:Number((x.percentile*100).toFixed(1)),
+     visual:Number((x.visual*100).toFixed(1)),
+     forestHa:Number(x.forest.toFixed(0)),
+     coveragePct:Number((x.coverage*100).toFixed(1)),
+     center:[Number(center[0]),Number(center[1])]
+   };
+ });
+ const report={target,transport:data?.__radarV3?'binary-v3':'json',stats:prep.stats,top,binary:auditNationalRadar().binary};
  console.table(top);
  console.info('NATIONAL RADAR DISTRIBUTION',report);
  return report;
 }
 window.auditNationalRadarDistribution=auditNationalRadarDistribution;
+// =========================================================================================
+
+
 // =========================================================================================
 
 

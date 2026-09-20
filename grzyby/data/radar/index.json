@@ -1,10 +1,11 @@
 {
-  "version": "radar-builder-v1",
-  "generatedAt": "2026-09-15T12:28:57Z",
-  "cellKm": 10.0,
+  "version": "radar-builder-v2",
+  "generatedAt": "2026-09-20T10:12:47.046Z",
+  "cellKm": 5,
   "source": "BDL Wydzielenia layers 5+6, grouped by dominant tree/site/age",
-  "modelSource": "mapa_grzybowa_polska_github_production_v63_robust_top_polska.html",
-  "cells": 4165,
+  "modelSource": "Mapa Grzybów v222-national-core-bdl",
+  "modelDigest": "4007331f9088aecb",
+  "cells": 12770,
   "species": [
     {
       "id": "borowik",
@@ -53,7 +54,7 @@
     },
     {
       "id": "opienka_miodowa",
-      "label": "Opieńka miodowa",
+      "label": "Opieńka miodowa właściwa",
       "scientific": "Armillaria mellea"
     },
     {
@@ -84,7 +85,7 @@
     {
       "id": "kozlarz_czerwony",
       "label": "Koźlarz czerwony",
-      "scientific": "Leccinum rufum"
+      "scientific": "Leccinum aurantiacum"
     },
     {
       "id": "kozlarz_pomaranczowozolty",
@@ -100,6 +101,104 @@
       "id": "siedzun_sosnowy",
       "label": "Siedzuń sosnowy",
       "scientific": "Sparassis crispa"
+    },
+    {
+      "id": "kozlarz_grabowy",
+      "label": "Koźlarz grabowy",
+      "scientific": "Leccinellum pseudoscabrum"
+    },
+    {
+      "id": "maslak_ziarnisty",
+      "label": "Maślak ziarnisty",
+      "scientific": "Suillus granulatus"
+    },
+    {
+      "id": "pieprznik_trabkowy",
+      "label": "Pieprznik trąbkowy",
+      "scientific": "Craterellus tubaeformis"
+    },
+    {
+      "id": "lejkowiec_dety",
+      "label": "Lejkowiec dęty",
+      "scientific": "Craterellus cornucopioides"
+    },
+    {
+      "id": "kolczak_oblaczasty",
+      "label": "Kolczak obłączasty",
+      "scientific": "Hydnum repandum"
+    },
+    {
+      "id": "podgrzybek_zajaczek",
+      "label": "Podgrzybek zajączek",
+      "scientific": "Xerocomus subtomentosus"
+    },
+    {
+      "id": "gaska_nieksztaltna",
+      "label": "Gąska niekształtna",
+      "scientific": "Tricholoma portentosum"
+    },
+    {
+      "id": "boczniak_ostrygowaty",
+      "label": "Boczniak ostrygowaty",
+      "scientific": "Pleurotus ostreatus"
+    },
+    {
+      "id": "kozlarz_debowy",
+      "label": "Koźlarz dębowy",
+      "scientific": "Leccinum quercinum"
+    },
+    {
+      "id": "kozlarz_sosnowy",
+      "label": "Koźlarz sosnowy",
+      "scientific": "Leccinum vulpinum"
+    },
+    {
+      "id": "golabek_zielonawy",
+      "label": "Gołąbek zielonawy",
+      "scientific": "Russula virescens"
+    },
+    {
+      "id": "golabek_bagienny",
+      "label": "Gołąbek błotny",
+      "scientific": "Russula paludosa"
+    }
+  ],
+  "unsupportedSpecies": [
+    {
+      "id": "kania",
+      "label": "Czubajka kania",
+      "ecology": "edge",
+      "reason": "BDL alone does not describe open/edge habitat; requires OSM/open-habitat grid"
+    },
+    {
+      "id": "kania_gwiazdzista",
+      "label": "Czubajka gwieździsta",
+      "ecology": "edge",
+      "reason": "BDL alone does not describe open/edge habitat; requires OSM/open-habitat grid"
+    },
+    {
+      "id": "czernidlak",
+      "label": "Czernidłak kołpakowaty",
+      "ecology": "grassland",
+      "reason": "BDL alone does not describe open/edge habitat; requires OSM/open-habitat grid"
+    },
+    {
+      "id": "pieczarka_polna",
+      "label": "Pieczarka łąkowa",
+      "ecology": "grassland",
+      "reason": "BDL alone does not describe open/edge habitat; requires OSM/open-habitat grid"
+    },
+    {
+      "id": "purchawka_oczkowana",
+      "label": "Purchawka oczkowana",
+      "ecology": "grassland",
+      "reason": "BDL alone does not describe open/edge habitat; requires OSM/open-habitat grid"
+    },
+    {
+      "id": "twardzioszek_przydrozny",
+      "label": "Twardzioszek przydrożny",
+      "ecology": "grassland",
+      "reason": "BDL alone does not describe open/edge habitat; requires OSM/open-habitat grid"
     }
   ],
   "files": {
@@ -108,7 +207,9 @@
   },
   "notes": [
     "Statyczny radar siedliskowy; nie zawiera dzisiejszej pogody ani aktualnych owocników.",
+    "Każda komórka jest liczona ponownie z BDL. Cache ma namespace zależny od cellKm + modelDigest; dane 5/10/20 km nie mogą się mieszać.",
     "Waga powierzchni pochodzi z sub_area; poligony przecinające granicę komórki mogą marginalnie zawyżać sumę na krawędziach.",
-    "quality = 30% średnia + 50% p75 + 20% najlepsza kombinacja; radar dodatkowo lekko premiuje większy kompleks leśny."
+    "quality = 30% średnia + 50% ważony p75 + 20% najlepsza kombinacja; radar = quality * łagodna premia za większy kompleks leśny.",
+    "Gatunki edge/grassland nie są fałszywie liczone z BDL. Wymagają osobnej warstwy otwartych siedlisk."
   ]
 }

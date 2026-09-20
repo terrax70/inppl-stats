@@ -1,6 +1,15 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- v227 — 100 KM REGIONAL RADAR MODE
+     - 100 km nie pobiera setek tysięcy pełnych geometrii BDL do przeglądarki,
+     - używa gotowego radaru 5 km jako lekkiego regionalnego overview, przyciętego do wybranego koła,
+     - znika powyżej maksymalnego zoomu radaru; nie zostaje pod dokładną mapą,
+     - dokładne wydzielenia pozostają dla promieni <= 40 km,
+     - usuwa eksperymentalną siatkę overview v226 i ciężki hotspot pipeline 100 km,
+     - scoring/biologia dla dokładnej analizy <=40 km bez zmian.
+-->
+
 <!-- v226 — LARGE RADIUS VIRTUAL MAP + TILED BDL
      - promień 80–100 km nie tworzy dziesiątek tysięcy obiektów Leafleta,
      - pełne dane nadal uczestniczą w scoringu/hotspotach; widok jest lekko agregowany,
@@ -5629,6 +5638,14 @@ function hideBdlFallback(){
 
 const analysisGroup=L.layerGroup().addTo(map);
 
+// ========================= v227: REGIONAL 100 KM MODE =========================
+// 100 km jest trybem przeglądowym. Nie ładujemy pełnych geometrii wszystkich
+// drzewostanów do RAM i nie uruchamiamy hotspot kernel na setkach tysięcy rekordów.
+// Gotowy radar 5 km jest już policzony offline z BDL i służy właśnie do takiej skali.
+let regionalOverviewModeV227=false;
+let regionalOverviewLastStatsV227={active:false,radiusKm:0,radarCells:0,weatherReady:false};
+window.regionalOverviewStatsV227=()=>({...regionalOverviewLastStatsV227});
+
 // ========================= v226: LARGE-RADIUS VIRTUAL VISUAL =========================
 // Przy 80–100 km pełny model nadal liczy WSZYSTKIE wydzielenia, ale nie tworzymy
 // 50–100 tys. obiektów Leafleta. Przy małym zoomie rysujemy lekki overview na
@@ -6371,13 +6388,9 @@ function analysisRequestBboxes(){
    }
  }
 
- // v226: jeden prostokąt 100 km potrafi zawierać dziesiątki tysięcy wydzieleń.
- // ArcGIS stronicuje po 2000 rekordów, więc pojedynczy bbox oznaczał 30–40
- // sekwencyjnych requestów NA WARSTWĘ. Dzielimy wyłącznie transport API na 3x3.
- // Prawdziwy obszar analizy nadal jest kołem i jest filtrowany przez inAnalysisArea().
- if(RADIUS_KM>=80){
-   return boxes.flatMap(bb=>splitBboxGridV226(bb,3));
- }
+ // v227: dla 100 km main() przechodzi w lekki tryb regionalnego radaru 5 km,
+ // więc pełne zapytanie BDL nie jest wykonywane. Zostawiamy tutaj zwykłe bboxy,
+ // aby żaden pomocniczy kod nie zwielokrotnił rekordów przez styki kafli.
  return boxes;
 }
 
@@ -6797,9 +6810,7 @@ async function fetchPaged(layerId,outFields,geometry=true,base=BDL_BASE){
 
  // Każdy rejon jest niezależny: awaria jednego nie blokuje pozostałych.
  const requestBoxes=analysisRequestBboxes();
- const results=RADIUS_KM>=80
-   ?await settledMapLimitedV226(requestBoxes,fetchArea,4)
-   :await Promise.allSettled(requestBoxes.map(fetchArea));
+ const results=await Promise.allSettled(requestBoxes.map(fetchArea));
  const ok=results.filter(x=>x.status==='fulfilled').flatMap(x=>x.value);
  const failed=results.filter(x=>x.status==='rejected');
 
@@ -9691,7 +9702,7 @@ function renderForestBaseImmediately(feats,label='bazowe'){
 
  // v226: przy 80–100 km nie materializujemy każdego wydzielenia jako osobnego
  // obiektu Leafleta. allFeatures nadal zawiera CAŁE 74k+ danych do scoringu.
- const useLargeRadiusVirtual=RADIUS_KM>=LARGE_RADIUS_THRESHOLD_V226&&feats.length>=10000;
+ const useLargeRadiusVirtual=!regionalOverviewModeV227&&RADIUS_KM>=LARGE_RADIUS_THRESHOLD_V226&&feats.length>=10000;
  if(useLargeRadiusVirtual){
    const t0=performance.now();
    largeRadiusModeV226=true;
@@ -9811,11 +9822,100 @@ async function fallbackForestFromLayers56(){
  return out;
 }
 
+async function mainRegionalOverviewV227(){
+ regionalOverviewModeV227=true;
+ try{largeRadiusResetV226();}catch(_){}
+ try{analysisGroup.clearLayers();}catch(_){}
+ try{topGroup.clearLayers();hintGroup.clearLayers();reserveGroup.clearLayers();openGroup.clearLayers();obsGroup.clearLayers();}catch(_){}
+ allFeatures=[];analysisLayers=[];topSpots=[];reserves=[];openFeatures=[];
+ analysisScoringReady=false;
+ deferSecondaryRenders=false;
+ hideBdlFallback();
+ resetSourceStates();
+ perfResetSourceTimings();
+
+ const st=document.getElementById('status');
+ const ds=document.getElementById('dsBDL');
+ showAnalysisLoader('Włączam szybki radar regionalny 5 km…');
+ if(ds){ds.textContent='radar 5 km';ds.className='st-ok';}
+
+ setSourceState('forest','ok','Regionalny radar BDL 5 km — bez ładowania setek tysięcy polygonów');
+ setSourceState('habitat','ok','Profile siedliskowe są zawarte w radarze offline');
+ setSourceState('weather','load','Pobieram pogodę dla wybranego rejonu');
+ setSourceState('reserve','off','Dokładne granice ochrony: analiza do 40 km');
+ setSourceState('soil','off','Pełna gleba WCS: analiza do 40 km');
+ setSourceState('terrain','off','Pełny DEM: analiza do 40 km');
+ setSourceState('open','off','OSM łąk/polan: analiza do 40 km');
+ setSourceState('obs','off','Historia obserwacji: analiza do 40 km');
+
+ nationalRadarLastKey='';
+ nationalRadarRequestToken++;
+ try{
+   await ensureNationalRadarIndex();
+   await refreshNationalRadar();
+ }catch(e){
+   console.warn('Regional radar v227',e);
+ }
+
+ let weatherOk=false;
+ try{
+   await perfTimed('weather',loadWeather());
+   weatherOk=!!weatherReady;
+   setSourceState('weather',weatherOk?'ok':'error',weatherOk?'Pogoda załadowana':'Pogoda niedostępna');
+   if(centerWeather)updateWeatherCard();
+ }catch(e){
+   setSourceState('weather','error',String(e?.message||e));
+ }
+
+ analysisScoringReady=true;
+ hideAnalysisLoader();
+ // Legendę POTENCJAŁ ustawia refreshNationalRadar(); nie nadpisujemy jej lokalną skalą DZIŚ.
+
+ const target=nationalRadarIndex?nationalRadarTarget():{kind:'overview',type:''};
+ const unsupported=target?.kind==='unsupported';
+ const label=target?.kind==='species' ? nationalRadarSpeciesLabel(target.type) : 'najlepsze tereny';
+ st.innerHTML=unsupported
+   ? `🗺️ <b>Tryb regionalny ${RADIUS_KM} km.</b> Ten gatunek nie ma jeszcze wiarygodnego radaru BDL. `+
+     `Ustaw promień 40 km lub mniej, aby użyć dokładnej analizy lokalnej.`
+   : `🗺️ <b>Tryb regionalny ${RADIUS_KM} km:</b> radar 5 km • ${escapeHtml(label)}. `+
+     `To szybki widok potencjału. Powyżej zoomu ${nationalRadarMaxZoom()} radar znika; `+
+     `dla dokładnych wydzieleń ustaw promień 40 km lub mniej.`;
+
+ regionalOverviewLastStatsV227={
+   active:true,
+   radiusKm:RADIUS_KM,
+   radarCellKm:Number(nationalRadarIndex?.cellKm||0),
+   radarCells:Number(nationalRadarLastCount||0),
+   target:target?.kind==='species'?target.type:target?.kind||'',
+   weatherReady:weatherOk,
+   zoom:map.getZoom(),
+   fullBdlFeaturesLoaded:0,
+   note:'100 km uses offline national radar; exact BDL analysis is intentionally disabled at this radius.'
+ };
+ analysisLastCompletedPerformance={
+   centers:ANALYSIS_CENTERS.length,
+   forests:0,
+   open:0,
+   timings:{...analysisSourceTimings,total:performance.now()-(analysisSourceTimings.startedAt||performance.now())},
+   layerBuild:{mode:'regional-radar-v227',features:0,containers:0,virtual:true},
+   render:{mode:'national-radar-5km',layers:nationalRadarLastCount||0},
+   completedAt:Date.now()
+ };
+ console.info('REGIONAL OVERVIEW v227',regionalOverviewLastStatsV227);
+}
+
 async function main(){
  if(!ANALYSIS_CENTERS.length){
    document.getElementById('status').textContent='📍 Najpierw wybierz przynajmniej jeden rejon.';
    return;
  }
+
+ if(RADIUS_KM>=80){
+   await mainRegionalOverviewV227();
+   return;
+ }
+ regionalOverviewModeV227=false;
+ regionalOverviewLastStatsV227={active:false,radiusKm:RADIUS_KM,radarCells:0,weatherReady:false};
 
  resetSourceStates();
  hotspotAccessSeq++;
@@ -30098,7 +30198,7 @@ async function buildMegaDebugReportV195(){
       areaIsolation={weatherReady,weatherIsolationOk:!weatherReady||rows.every(r=>r.weatherSamples>=5),rows};
     }catch(e){areaIsolation={error:String(e?.stack||e)};}
     const payload={
-      schema:'mushroom-map-mega-debug/1',version:'v226',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
+      schema:'mushroom-map-mega-debug/1',version:'v227',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
       snapshot:{fresh:true,trigger:'current-call',interactionSeq:speciesInteractionPerfV203.seq,softResetCount:speciesSelectionSoftResetV210.count,weatherReady:!!weatherReady},
       verdict:{overall:(qa?.overall==='PASS'&&cacheStressV195.last?.overall==='PASS'&&equivalence?.ok&&areaIsolation?.weatherIsolationOk!==false)?'PASS':'FAIL',autoQA:qa?.overall||null,cacheStress:cacheStressV195.last?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
       calibration:calibrationAuditV222(),observationSources:megaDebugSafeV195(observationFetchDiagnostics),
@@ -31202,6 +31302,21 @@ function nationalRadarRowForest(row,target){return Number(target.kind==='species
 function nationalRadarRowQuality(row,target){return Number(target.kind==='species'?row?.[8]:row?.[9]);}
 function nationalRadarRowGoodShare(row,target){return target.kind==='species' ? Number(row?.[12]||0) : 0;}
 function nationalRadarRowBounds(row){return [[Number(row?.[1]),Number(row?.[2])],[Number(row?.[3]),Number(row?.[4])]];}
+function nationalRadarRegionalClipActiveV227(){
+ return regionalOverviewModeV227 && RADIUS_KM>=80 && ANALYSIS_CENTERS.length===1;
+}
+function nationalRadarRowInsideRegionalClipV227(row){
+ if(!nationalRadarRegionalClipActiveV227())return true;
+ const lat=Number(row?.[5]),lon=Number(row?.[6]);
+ if(!Number.isFinite(lat)||!Number.isFinite(lon))return false;
+ const edgePadKm=Math.max(1,Number(nationalRadarIndex?.cellKm||5)*.8);
+ return hav(ANALYSIS_CENTERS[0].point,[lat,lon])<=RADIUS_KM+edgePadKm;
+}
+function nationalRadarRegionalKeyV227(){
+ if(!nationalRadarRegionalClipActiveV227())return 'country';
+ const a=ANALYSIS_CENTERS[0];
+ return `${Number(a.point[0]).toFixed(4)},${Number(a.point[1]).toFixed(4)}|r${Number(RADIUS_KM).toFixed(1)}`;
+}
 function nationalRadarClamp01(x){return Math.max(0,Math.min(1,Number(x)||0));}
 function nationalRadarSmoothstep(a,b,x){ if(!(b>a))return x>=b?1:0; const t=nationalRadarClamp01((x-a)/(b-a)); return t*t*(3-2*t); }
 
@@ -31358,9 +31473,10 @@ function nationalRadarApplyLegend(target){
  el.classList.add('visible');
  el.setAttribute('aria-hidden','false');
 
- if(target.kind==='species')title.textContent=`Radar Polski • ${nationalRadarSpeciesLabel(target.type)}`;
- else if(target.kind==='diversity')title.textContent='Radar Polski • różnorodność';
- else title.textContent='Radar Polski • najlepsze tereny';
+ const radarPrefix=nationalRadarRegionalClipActiveV227()?`Radar ${RADIUS_KM} km`:'Radar Polski';
+ if(target.kind==='species')title.textContent=`${radarPrefix} • ${nationalRadarSpeciesLabel(target.type)}`;
+ else if(target.kind==='diversity')title.textContent=`${radarPrefix} • różnorodność`;
+ else title.textContent=`${radarPrefix} • najlepsze tereny`;
 
  mode.textContent='POTENCJAŁ';
 
@@ -31380,8 +31496,16 @@ async function refreshNationalRadar(){
    nationalRadarGroup.clearLayers();
    nationalRadarLastKey='';
    nationalRadarLastCount=0;
-   nationalRadarLastStats=null;
-   try{updateScoreLegend();}catch(_){}
+   nationalRadarLastStats=regionalOverviewModeV227
+     ?{target:'regional-hidden',reason:'zoom above national radar max',zoom:map.getZoom(),maxZoom:nationalRadarMaxZoom()}
+     :null;
+   if(regionalOverviewModeV227){
+     regionalOverviewLastStatsV227={...regionalOverviewLastStatsV227,radarCells:0,zoom:map.getZoom(),hiddenByZoom:true};
+     const legend=document.getElementById('scoreLegend');
+     if(legend){legend.classList.remove('visible');legend.setAttribute('aria-hidden','true');}
+   }else{
+     try{updateScoreLegend();}catch(_){}
+   }
    return;
  }
 
@@ -31397,7 +31521,7 @@ async function refreshNationalRadar(){
    try{updateScoreLegend();}catch(_){}
    return;
  }
- const key=`${target.kind}:${target.type||''}:z${map.getZoom()}`;
+ const key=`${target.kind}:${target.type||''}:z${map.getZoom()}:${nationalRadarRegionalKeyV227()}`;
  if(key===nationalRadarLastKey&&nationalRadarLastCount>0){
    nationalRadarApplyLegend(target);
    return;
@@ -31412,6 +31536,7 @@ async function refreshNationalRadar(){
 
    let shown=0, shownGlow=0, top10=0;
    for(const x of prepared.rows){
+     if(!nationalRadarRowInsideRegionalClipV227(x.row))continue;
      const opacity=nationalRadarOpacityVisual(x);
      const glowOpacity=nationalRadarGlowOpacityVisual(x);
      if(!(opacity>0 || glowOpacity>0))continue;
@@ -31773,7 +31898,7 @@ window.copySpeciesAuditJsonV182=async function(){
 
 function render(reason='legacy'){
  if(analysisHeadlessBatchMode)return;
- if(largeRadiusModeV226)scheduleLargeRadiusVisualV226();
+ if(largeRadiusModeV226&&!regionalOverviewModeV227)scheduleLargeRadiusVisualV226();
  renderReasonsV176.add(String(reason||'legacy'));
  if(perfRenderRAF){renderCoalescedV176++;cancelAnimationFrame(perfRenderRAF);}
  perfRenderRAF=requestAnimationFrame(()=>{
@@ -34370,6 +34495,9 @@ async function reverseName(lat,lon,index){
 function clearAnalysisData(){
  hideAnalysisLoader();
  cancelProgressiveAnalysisLayerBuild();
+ try{largeRadiusResetV226();}catch(_){}
+ regionalOverviewModeV227=false;
+ regionalOverviewLastStatsV227={active:false,radiusKm:0,radarCells:0,weatherReady:false};
  resetSourceStates();
  try{closeUnifiedDetails(true);}catch(_){}
 

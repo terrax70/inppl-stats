@@ -1,0 +1,16 @@
+{
+  "release": "v231.1",
+  "status": "PASS",
+  "generatedAt": "2026-09-20T20:06:54.783758+00:00",
+  "radarSource": "C:\\Users\\Terra\\OneDrive\\Desktop\\FM STRONA INTERNETOWA\\grzyby\\radar_poland_builder_v4\\radar_poland_builder_v4\\output\\radar_v4_fast",
+  "site": "C:\\Users\\Terra\\OneDrive\\Desktop\\FM STRONA INTERNETOWA\\grzyby\\A1. grzyby",
+  "requiredSourceFiles": 3334,
+  "cleanSourceBytes": 80382884,
+  "removedAccidentalSourceBytes": 5031096812,
+  "deployedFiles": 3335,
+  "deployedBytes": 80454756,
+  "deployedMiB": 76.728,
+  "tiles": 101,
+  "activeCells": 240011,
+  "species": 31
+}

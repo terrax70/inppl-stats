@@ -5016,7 +5016,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   <div class="start-guide-icon" aria-hidden="true">📍</div>
   <div class="start-guide-main">
     <div class="start-guide-title">Jak zacząć?</div>
-    <div class="start-guide-text">To tylko podgląd całej Polski. Wpisz u góry miejscowość albo las — dopiero wtedy mapa przejdzie do dokładnej analizy wybranego rejonu.</div>
+    <div class="start-guide-text">Na dole wybierz gatunek, aby od razu zmienić radar całej Polski. Możesz też wpisać miejscowość albo las — wtedy mapa przejdzie do dokładnej analizy lokalnej z zachowanym wyborem gatunku.</div>
   </div>
   <button id="startGuideClose" class="start-guide-close" type="button" aria-label="Zamknij podpowiedź">×</button>
 </div>
@@ -5093,7 +5093,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
       <button id="clearSelected" type="button">Wyczyść</button>
     </div>
     <div id="locatorHint" class="locator-hint">
-      Najpierw wybierz miejsce do analizy. Ta mapa Polski to tylko podgląd ogólny — wpisz miejscowość, las albo wskaż punkt na mapie.
+      Możesz najpierw wybrać gatunek w Atlasie i oglądać radar całej Polski. Aby przejść do dokładnej analizy, wpisz miejscowość, las albo wskaż punkt na mapie.
     </div>
   </div>
 
@@ -27133,7 +27133,7 @@ function clearAtlasHover(){
 }
 function updateAtlasHead(){
  const info=document.getElementById('atlasHeadInfo');if(!info)return;
- if(!atlasSelected.size)info.textContent='Grzyby są pogrupowane według podobnych siedlisk. Kliknij mały gatunek albo nagłówek grupy, aby wybrać całą grupę.';
+ if(!atlasSelected.size)info.textContent=ANALYSIS_CENTERS.length?'Grzyby są pogrupowane według podobnych siedlisk. Kliknij mały gatunek albo nagłówek grupy, aby wybrać całą grupę.':'Kliknij gatunek, aby od razu przełączyć radar całej Polski. Później możesz dodać rejon — wybór zostanie zachowany.';
  else{const names=[...atlasSelected].map(t=>HUMAN_NAMES[t]||t);info.innerHTML='<span class="atlas-selected-summary">Wybrane '+atlasSelected.size+':</span> '+escapeHtml(names.join(', '));}
 }
 // v203 — pomiar i UX przełączania gatunków.
@@ -27188,7 +27188,8 @@ function toggleAtlasType(t){
    ensureActiveSingleSpeciesObservations().catch(e=>console.warn('Observation preload',e));
  }
  syncAtlasSelectionUI();updateAtlasHead();resetSpeciesSelectionViewCachesV210();syncSpeciesModeButtons();updateSpeciesMeta();
- if(allFeatures.length)render('species-toggle');else{const hint=document.getElementById('locatorHint');if(hint)hint.textContent=atlasSelected.size?'🍄 Wybrane gatunki zapisane. Wybierz lokalizację — mapa użyje tego zestawu.':'📍 Wybierz lokalizację — analiza ruszy automatycznie.';}
+ scheduleNationalRadarRefresh();
+ if(allFeatures.length)render('species-toggle');else{const hint=document.getElementById('locatorHint');if(hint){const one=atlasSelected.size===1?[...atlasSelected][0]:null;const eco=one?SPECIES_META[one]?.ecology:null;hint.textContent=one&&(eco==='edge'||eco==='grassland')?`🍄 ${HUMAN_NAMES[one]||one}: krajowy radar BDL jest celowo wyłączony dla terenów otwartych. Wybierz rejon, aby uruchomić dokładną analizę OSM.`:one?`🍄 Radar Polski przełączony na: ${HUMAN_NAMES[one]||one}. Wybierz lokalizację, jeśli chcesz dokładną analizę.`:atlasSelected.size?'🍄 Wybrano kilka gatunków. Radar Polski pokazuje widok ogólny; dokładna analiza użyje całego zestawu.':'🍄 Radar Polski: wszystkie grzyby. Możesz wybrać gatunek albo dodać lokalizację.';}}
 }
 function toggleAtlasGroup(groupId){
  const g=ATLAS_GROUPS.find(x=>x.id===groupId);if(!g)return;
@@ -27201,6 +27202,7 @@ function toggleAtlasGroup(groupId){
  markSpeciesInteractionV203('species-group-toggle',fromKey);
  logUiActionV167('species-group-toggle',{group:groupId,selected:!allSelected});
  clearAtlasHover();syncAtlasSelectionUI();updateAtlasHead();resetSpeciesSelectionViewCachesV210();syncSpeciesModeButtons();updateSpeciesMeta();
+ scheduleNationalRadarRefresh();
  ensureActiveSingleSpeciesObservations().catch(e=>console.warn('Observation preload',e));
  if(allFeatures.length)render('species-group-toggle');
 }
@@ -28653,6 +28655,7 @@ function clearAtlasSelection(){
  logUiActionV167('species-clear');
  clearAtlasHover();
  syncAtlasSelectionUI();updateAtlasHead();resetSpeciesSelectionViewCachesV210();syncSpeciesModeButtons();updateSpeciesMeta();
+ scheduleNationalRadarRefresh();
  if(allFeatures.length)render('species-clear');
 }
 
@@ -30677,6 +30680,12 @@ function perfRenderNow(){
  scheduleAfterHotspotFirstPaintV203(step);
 }
 
+// ========================= v224: RADAR POLSKI — WYBÓR GATUNKU BEZ REJONU =========================
+// Kliknięcie gatunku w Atlasie odświeża krajowy radar natychmiast, także gdy
+// użytkownik nie wybrał jeszcze żadnej miejscowości. Wybór pozostaje aktywny po
+// późniejszym dodaniu rejonu i wtedy przechodzi do normalnej analizy lokalnej.
+// Biologia, scoring lokalny i dane radaru pozostają bez zmian względem v223.
+
 // ========================= v223: RADAR POLSKI — RADAR V2 / DYNAMICZNA ROZDZIELCZOŚĆ =========================
 // Dane v2 są budowane ponownie z BDL dla każdej komórki. Gatunki bez wiarygodnego
 // modelu BDL (edge/grassland) nie dostają zastępczego overview, aby radar nie mylił.
@@ -30837,7 +30846,7 @@ function nationalRadarPrepare(data,target){
  const sourceRows=Array.isArray(data?.cells)?data.cells:[];
  const rows=sourceRows.filter(nationalRadarRowMatchesGrid);
  const rejectedMixedGrid=sourceRows.length-rows.length;
- if(rejectedMixedGrid>0)console.warn('Radar Polski v223: odrzucono komórki o obcej rozdzielczości',{
+ if(rejectedMixedGrid>0)console.warn('Radar Polski v224: odrzucono komórki o obcej rozdzielczości',{
    expected:nationalRadarExpectedGridPrefix(),rejected:rejectedMixedGrid,total:sourceRows.length,target
  });
  const base=rows.map(row=>({
@@ -31060,7 +31069,7 @@ map.on('zoomend',scheduleNationalRadarRefresh);
 function auditNationalRadar(){
  const target=nationalRadarIndex?nationalRadarTarget():null;
  const report={
-   version:'v223-radar-v2-dynamic-grid',
+   version:'v224-country-species-no-area',
    available:!!nationalRadarIndex,
    missing:nationalRadarMissing,
    error:nationalRadarLastError,
@@ -33845,7 +33854,7 @@ function renderDraft(){
    ? 'Analiza trwa…'
    : selectedDraft.length
      ? `Wybrano ${selectedDraft.length}/${MAX_AREAS}. Dodaj miejsca wyszukiwarką albo wskaż je na mapie.`
-     : '📍 Aby zacząć, wyszukaj miejscowość, las albo wskaż punkt na mapie. Ta mapa Polski to tylko podgląd ogólny.';
+     : '🍄 Wybierz gatunek w Atlasie, aby zmienić radar całej Polski, albo wyszukaj miejscowość do dokładnej analizy lokalnej.';
  if(selectedDraft.length){
    startGuide?.classList.remove('show');
    startGuide?.setAttribute('aria-hidden','true');
@@ -34233,6 +34242,7 @@ async function setSpeciesDisplayMode(mode='all'){
  logUiActionV167('species-display-all',{mode});
  syncAtlasSelectionUI();updateAtlasHead();resetSpeciesSelectionViewCachesV210();
  syncSpeciesModeButtons();updateSpeciesMeta();updateRadarCard();
+ scheduleNationalRadarRefresh();
  if(centerWeather)updateWeatherCard();
  if(allFeatures.length)render('species-display-all');
 }
@@ -34259,8 +34269,8 @@ document.getElementById('speciesSelect').onchange=async e=>{
  markSpeciesInteractionV203('species-select',fromKey);
  logUiActionV167('species-select',{type:value||'all'});
  renderAtlasCards();updateAtlasHead();resetSpeciesSelectionViewCachesV210();
- syncSpeciesModeButtons();updateSpeciesMeta();updateRadarCard();if(centerWeather)updateWeatherCard();
- render('species-select');
+ syncSpeciesModeButtons();updateSpeciesMeta();updateRadarCard();scheduleNationalRadarRefresh();if(centerWeather)updateWeatherCard();
+ if(allFeatures.length)render('species-select');
 };
 
 const quickModeToggle=document.getElementById('quickModeToggle');

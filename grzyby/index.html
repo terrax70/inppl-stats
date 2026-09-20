@@ -1,6 +1,15 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<!-- v226 — LARGE RADIUS VIRTUAL MAP + TILED BDL
+     - promień 80–100 km nie tworzy dziesiątek tysięcy obiektów Leafleta,
+     - pełne dane nadal uczestniczą w scoringu/hotspotach; widok jest lekko agregowany,
+     - przy dużym zbliżeniu wracają dokładne poligony tylko dla aktualnego viewportu,
+     - BDL dla dużego promienia jest dzielone na kafle i pobierane z ograniczoną równoległością,
+     - kernel BEST dostaje ten sam wood-soil scaling co kanoniczny scoring,
+     - model biologiczny i progi produkcyjne poza korektą zgodności kernela pozostają bez zmian.
+-->
+
 <!-- v225 — LARGE RADIUS 100 KM FIX
      - usuwa cichy limit ~20k rekordów BDL w fetchPaged; pełna paginacja do końca,
      - duży pojedynczy rejon buduje warstwy progresywnie,
@@ -5619,6 +5628,284 @@ function hideBdlFallback(){
 }
 
 const analysisGroup=L.layerGroup().addTo(map);
+
+// ========================= v226: LARGE-RADIUS VIRTUAL VISUAL =========================
+// Przy 80–100 km pełny model nadal liczy WSZYSTKIE wydzielenia, ale nie tworzymy
+// 50–100 tys. obiektów Leafleta. Przy małym zoomie rysujemy lekki overview na
+// jednym canvasie. Od zoomu 13 dokładne poligony są tworzone tylko dla viewportu.
+const LARGE_RADIUS_THRESHOLD_V226=80;
+const LARGE_RADIUS_EXACT_ZOOM_V226=13;
+const LARGE_RADIUS_EXACT_MAX_V226=5200;
+let largeRadiusModeV226=false;
+let largeRadiusOverviewLayerV226=null;
+let largeRadiusExactGroupV226=L.layerGroup();
+let largeRadiusOverviewCacheV226={key:'',cells:[]};
+let largeRadiusVisualRAFv226=0;
+let largeRadiusExactKeyV226='';
+let largeRadiusForceOverviewV226=false;
+let largeRadiusLastStatsV226={mode:'off',cells:0,exact:0,features:0,drawMs:0};
+
+if(!map.getPane('largeRadiusOverviewPane')){
+ map.createPane('largeRadiusOverviewPane');
+ map.getPane('largeRadiusOverviewPane').style.zIndex='398';
+ map.getPane('largeRadiusOverviewPane').style.pointerEvents='none';
+}
+
+const LargeRadiusCanvasLayerV226=L.Layer.extend({
+ onAdd(m){
+   this._map=m;
+   this._canvas=L.DomUtil.create('canvas','large-radius-overview-v226');
+   this._canvas.style.pointerEvents='none';
+   this._canvas.style.position='absolute';
+   m.getPane('largeRadiusOverviewPane').appendChild(this._canvas);
+   m.on('resize',this._reset,this);
+   this._reset();
+ },
+ onRemove(m){
+   m.off('resize',this._reset,this);
+   try{this._canvas?.remove();}catch(_){}
+   this._canvas=null;this._map=null;
+ },
+ _reset(){
+   if(!this._map||!this._canvas)return;
+   const size=this._map.getSize();
+   const dpr=Math.max(1,Math.min(2,window.devicePixelRatio||1));
+   const topLeft=this._map.containerPointToLayerPoint([0,0]);
+   L.DomUtil.setPosition(this._canvas,topLeft);
+   this._canvas.style.width=size.x+'px';
+   this._canvas.style.height=size.y+'px';
+   const w=Math.max(1,Math.round(size.x*dpr)),h=Math.max(1,Math.round(size.y*dpr));
+   if(this._canvas.width!==w)this._canvas.width=w;
+   if(this._canvas.height!==h)this._canvas.height=h;
+   this._dpr=dpr;
+   this.redraw();
+ },
+ redraw(){
+   if(!this._map||!this._canvas)return;
+   largeRadiusDrawOverviewV226(this._canvas,this._map,this._dpr||1);
+ }
+});
+
+function largeRadiusCellKmV226(){
+ const z=map.getZoom();
+ if(z<=7)return 5.0;
+ if(z===8)return 3.5;
+ if(z===9)return 2.5;
+ if(z===10)return 1.8;
+ if(z===11)return 1.25;
+ return .85;
+}
+
+function largeRadiusCellIndexV226(cellKm){
+ const lat0=Number(ANALYSIS_CENTERS[0]?.point?.[0]||52);
+ const cos=Math.max(.28,Math.cos(lat0*Math.PI/180));
+ const dLat=cellKm/111.32,dLon=cellKm/(111.32*cos);
+ const key=[forestDatasetRevision,allFeatures.length,cellKm.toFixed(2),lat0.toFixed(2)].join('|');
+ if(largeRadiusOverviewCacheV226.key===key)return largeRadiusOverviewCacheV226;
+
+ const by=new Map();
+ for(const f of allFeatures){
+   if(f?._kind!=='forest'||!Array.isArray(f._center))continue;
+   const lat=Number(f._center[0]),lon=Number(f._center[1]);
+   if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+   const iy=Math.floor((lat+90)/dLat),ix=Math.floor((lon+180)/dLon),k=iy+'|'+ix;
+   let c=by.get(k);
+   if(!c){
+     c={
+       lat:(iy+.5)*dLat-90,
+       lon:(ix+.5)*dLon-180,
+       dLat,dLon,cellKm,
+       areaHa:0,features:[]
+     };
+     by.set(k,c);
+   }
+   c.features.push(f);
+   const a=Number(f.properties?.sub_area);
+   c.areaHa+=Number.isFinite(a)&&a>0?a:Math.max(.05,featureAreaHa(f));
+ }
+ largeRadiusOverviewCacheV226={key,cells:[...by.values()]};
+ return largeRadiusOverviewCacheV226;
+}
+
+function largeRadiusFeatureVisibleV226(f){
+ if(!f||f._blocked)return false;
+ return atlasSelected.size?atlasShowsFeature(f):filterShowsFeature(f);
+}
+
+function largeRadiusBestInCellV226(cell,scored){
+ let best=null,bestScore=-Infinity,visibleArea=0;
+ for(const f of cell.features){
+   if(!largeRadiusFeatureVisibleV226(f))continue;
+   const a=Number(f.properties?.sub_area);
+   visibleArea+=Number.isFinite(a)&&a>0?a:Math.max(.05,featureAreaHa(f));
+   if(!scored){
+     if(!best)best=f;
+     continue;
+   }
+   const score=mapMode==='today'?todayScoreForStyle(f):stableAnchorScore(f);
+   if(Number.isFinite(score)&&score>bestScore){bestScore=score;best=f;}
+ }
+ return {best,bestScore,visibleArea};
+}
+
+function largeRadiusDrawOverviewV226(canvas,m,dpr=1){
+ const t0=performance.now();
+ const ctx=canvas.getContext('2d',{alpha:true});
+ if(!ctx)return;
+ ctx.setTransform(1,0,0,1,0,0);
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+
+ if(!largeRadiusModeV226||!allFeatures.length||(m.getZoom()>=LARGE_RADIUS_EXACT_ZOOM_V226&&!largeRadiusForceOverviewV226)){
+   largeRadiusLastStatsV226={...largeRadiusLastStatsV226,mode:m.getZoom()>=LARGE_RADIUS_EXACT_ZOOM_V226?'exact':'off',drawMs:performance.now()-t0};
+   return;
+ }
+
+ ctx.scale(dpr,dpr);
+ const cellKm=largeRadiusCellKmV226();
+ const index=largeRadiusCellIndexV226(cellKm);
+ const bounds=m.getBounds().pad(.08);
+ const scored=analysisScoringReady&&activeHotspotCacheReady();
+ let drawn=0,eligible=0;
+
+ for(const cell of index.cells){
+   if(!bounds.contains(L.latLng(cell.lat,cell.lon)))continue;
+   const pick=largeRadiusBestInCellV226(cell,scored);
+   if(!pick.best)continue;
+   eligible++;
+
+   const st=scored?analysisRenderStyleV225(pick.best,true):loadingForestStyle(pick.best,true);
+   const alpha=Number(st?.fillOpacity||0);
+   if(alpha<=0)continue;
+
+   const c=m.latLngToContainerPoint([cell.lat,cell.lon]);
+   const ex=m.latLngToContainerPoint([cell.lat,cell.lon+cell.dLon*.5]);
+   const ey=m.latLngToContainerPoint([cell.lat+cell.dLat*.5,cell.lon]);
+   const cw=Math.max(1.5,Math.abs(ex.x-c.x)*2);
+   const ch=Math.max(1.5,Math.abs(ey.y-c.y)*2);
+
+   // Powierzchnia komórki w ha. Rozmiar znacznika rośnie jak sqrt(pokrycia),
+   // więc pojedynczy mały wydział nie udaje pełnego kwadratu lasu.
+   const cellHa=cell.cellKm*cell.cellKm*100;
+   const coverage=Math.max(.035,Math.min(1,pick.visibleArea/cellHa));
+   const size=Math.max(.24,Math.sqrt(coverage));
+   const w=cw*size,h=ch*size;
+
+   ctx.globalAlpha=Math.max(.045,Math.min(.78,alpha));
+   ctx.fillStyle=st.fillColor||'#748879';
+   ctx.fillRect(c.x-w/2,c.y-h/2,w,h);
+
+   if(Number(st.weight||0)>=.7&&w>=3&&h>=3){
+     ctx.globalAlpha=Math.max(.10,Math.min(.65,Number(st.opacity||.4)));
+     ctx.strokeStyle=st.color&&st.color!=='transparent'?st.color:(st.fillColor||'#526257');
+     ctx.lineWidth=Math.min(1.25,Math.max(.5,Number(st.weight||.5)));
+     ctx.strokeRect(c.x-w/2+.25,c.y-h/2+.25,Math.max(.5,w-.5),Math.max(.5,h-.5));
+   }
+   drawn++;
+ }
+ ctx.globalAlpha=1;
+ largeRadiusLastStatsV226={
+   mode:'overview',cellKm,cells:index.cells.length,visibleCells:eligible,drawn,
+   exact:0,features:allFeatures.length,drawMs:performance.now()-t0,zoom:m.getZoom()
+ };
+}
+
+function largeRadiusEnsureGroupsV226(){
+ if(!largeRadiusOverviewLayerV226)largeRadiusOverviewLayerV226=new LargeRadiusCanvasLayerV226();
+ if(!analysisGroup.hasLayer(largeRadiusOverviewLayerV226))analysisGroup.addLayer(largeRadiusOverviewLayerV226);
+ if(!analysisGroup.hasLayer(largeRadiusExactGroupV226))analysisGroup.addLayer(largeRadiusExactGroupV226);
+}
+
+function largeRadiusClearExactV226(){
+ if(largeRadiusExactGroupV226)largeRadiusExactGroupV226.clearLayers();
+ analysisLayers=[];
+ largeRadiusExactKeyV226='';
+ invalidateInteractionGrid();
+}
+
+function largeRadiusBuildExactV226(){
+ if(!largeRadiusModeV226)return;
+ const z=map.getZoom();
+ if(z<LARGE_RADIUS_EXACT_ZOOM_V226){
+   largeRadiusForceOverviewV226=false;
+   if(analysisLayers.length)largeRadiusClearExactV226();
+   largeRadiusOverviewLayerV226?._reset();
+   return;
+ }
+
+ const b=map.getBounds().pad(.16);
+ const key=[
+   z.toFixed(2),
+   b.getSouth().toFixed(3),b.getWest().toFixed(3),b.getNorth().toFixed(3),b.getEast().toFixed(3),
+   forestDatasetRevision,scoringRevision,currentFilter,atlasSelectionKey(),mapMode
+ ].join('|');
+ if(key===largeRadiusExactKeyV226)return;
+
+ const rows=[];
+ for(const f of allFeatures){
+   const c=f?._center;
+   if(!c||f._kind!=='forest')continue;
+   if(b.contains(L.latLng(c[0],c[1])))rows.push(f);
+ }
+ if(rows.length>LARGE_RADIUS_EXACT_MAX_V226){
+   // Zamiast tworzyć kilka tysięcy obiektów ponad limit pozostajemy przy canvasie.
+   largeRadiusForceOverviewV226=true;
+   largeRadiusClearExactV226();
+   largeRadiusLastStatsV226={...largeRadiusLastStatsV226,mode:'overview-dense',exactCandidates:rows.length,zoom:z};
+   largeRadiusOverviewLayerV226?._reset();
+   return;
+ }
+
+ largeRadiusForceOverviewV226=false;
+ largeRadiusExactGroupV226.clearLayers();
+ analysisLayers=[];
+ invalidateInteractionGrid();
+
+ if(rows.length){
+   const layer=L.geoJSON({type:'FeatureCollection',features:rows},{
+     renderer:perfCanvasRenderer,
+     smoothFactor:1.8,
+     interactive:false,
+     style:f=>{
+       const show=largeRadiusFeatureVisibleV226(f);
+       return analysisScoringReady?analysisRenderStyleV225(f,show):loadingForestStyle(f,show);
+     },
+     onEachFeature:(feature,ly)=>analysisLayers.push({layer:ly,f:feature})
+   });
+   largeRadiusExactGroupV226.addLayer(layer);
+ }
+ largeRadiusExactKeyV226=key;
+ largeRadiusLastStatsV226={
+   mode:'exact',cells:largeRadiusOverviewCacheV226.cells.length,exact:rows.length,
+   features:allFeatures.length,zoom:z,drawMs:0
+ };
+}
+
+function scheduleLargeRadiusVisualV226(){
+ if(!largeRadiusModeV226)return;
+ if(largeRadiusVisualRAFv226)cancelAnimationFrame(largeRadiusVisualRAFv226);
+ largeRadiusVisualRAFv226=requestAnimationFrame(()=>{
+   largeRadiusVisualRAFv226=0;
+   largeRadiusEnsureGroupsV226();
+   largeRadiusBuildExactV226();
+   if(map.getZoom()<LARGE_RADIUS_EXACT_ZOOM_V226||largeRadiusForceOverviewV226)largeRadiusOverviewLayerV226?._reset();
+ });
+}
+
+function largeRadiusResetV226(){
+ largeRadiusModeV226=false;
+ largeRadiusOverviewCacheV226={key:'',cells:[]};
+ largeRadiusExactKeyV226='';
+ largeRadiusForceOverviewV226=false;
+ try{largeRadiusExactGroupV226.clearLayers();}catch(_){}
+ try{if(largeRadiusOverviewLayerV226&&analysisGroup.hasLayer(largeRadiusOverviewLayerV226))analysisGroup.removeLayer(largeRadiusOverviewLayerV226);}catch(_){}
+ try{if(analysisGroup.hasLayer(largeRadiusExactGroupV226))analysisGroup.removeLayer(largeRadiusExactGroupV226);}catch(_){}
+ largeRadiusLastStatsV226={mode:'off',cells:0,exact:0,features:allFeatures.length,drawMs:0};
+}
+window.largeRadiusStatsV226=()=>({...largeRadiusLastStatsV226});
+
+map.on('zoomend moveend',()=>{if(largeRadiusModeV226)scheduleLargeRadiusVisualV226();});
+// ====================================================================================
+
 const topGroup=L.layerGroup().addTo(map);
 const hintGroup=L.layerGroup().addTo(map);
 const linkedHoverGroup=L.layerGroup().addTo(map);
@@ -6041,29 +6328,55 @@ function mergeBbox(a,b){
 
 // Tylko transport API. Nie zmienia prawdziwego obszaru analizy.
 // Nadmiarowe rekordy z prostokąta są później odfiltrowywane przez inAnalysisArea().
+function splitBboxGridV226(bb,n=3){
+ const out=[];
+ const cols=Math.max(1,Math.floor(n)),rows=cols;
+ const dx=(bb[2]-bb[0])/cols,dy=(bb[3]-bb[1])/rows;
+ for(let y=0;y<rows;y++){
+   for(let x=0;x<cols;x++){
+     out.push([
+       bb[0]+dx*x,
+       bb[1]+dy*y,
+       x===cols-1?bb[2]:bb[0]+dx*(x+1),
+       y===rows-1?bb[3]:bb[1]+dy*(y+1)
+     ]);
+   }
+ }
+ return out;
+}
+
 function analysisRequestBboxes(){
  const src=analysisBboxes().map(b=>[...b]);
- if(src.length<=1)return src;
 
  let boxes=src;
- let changed=true;
- while(changed){
-   changed=false;
-   outer:
-   for(let i=0;i<boxes.length;i++){
-     for(let j=i+1;j<boxes.length;j++){
-       const inter=bboxIntersectionAreaDeg(boxes[i],boxes[j]);
-       const denom=Math.min(bboxAreaDeg(boxes[i]),bboxAreaDeg(boxes[j]));
-       const ratio=denom>0?inter/denom:0;
-       if(ratio>=.22){
-         const merged=mergeBbox(boxes[i],boxes[j]);
-         boxes=boxes.filter((_,k)=>k!==i&&k!==j);
-         boxes.push(merged);
-         changed=true;
-         break outer;
+ if(src.length>1){
+   let changed=true;
+   while(changed){
+     changed=false;
+     outer:
+     for(let i=0;i<boxes.length;i++){
+       for(let j=i+1;j<boxes.length;j++){
+         const inter=bboxIntersectionAreaDeg(boxes[i],boxes[j]);
+         const denom=Math.min(bboxAreaDeg(boxes[i]),bboxAreaDeg(boxes[j]));
+         const ratio=denom>0?inter/denom:0;
+         if(ratio>=.22){
+           const merged=mergeBbox(boxes[i],boxes[j]);
+           boxes=boxes.filter((_,k)=>k!==i&&k!==j);
+           boxes.push(merged);
+           changed=true;
+           break outer;
+         }
        }
      }
    }
+ }
+
+ // v226: jeden prostokąt 100 km potrafi zawierać dziesiątki tysięcy wydzieleń.
+ // ArcGIS stronicuje po 2000 rekordów, więc pojedynczy bbox oznaczał 30–40
+ // sekwencyjnych requestów NA WARSTWĘ. Dzielimy wyłącznie transport API na 3x3.
+ // Prawdziwy obszar analizy nadal jest kołem i jest filtrowany przez inAnalysisArea().
+ if(RADIUS_KM>=80){
+   return boxes.flatMap(bb=>splitBboxGridV226(bb,3));
  }
  return boxes;
 }
@@ -6426,6 +6739,22 @@ async function prodFetchText(url,opts={}){
  throw lastErr||new Error('Błąd sieci');
 }
 
+async function settledMapLimitedV226(items,worker,limit=4){
+ const out=new Array(items.length);
+ let next=0;
+ async function run(){
+   while(true){
+     const i=next++;
+     if(i>=items.length)return;
+     try{out[i]={status:'fulfilled',value:await worker(items[i],i)};}
+     catch(reason){out[i]={status:'rejected',reason};}
+   }
+ }
+ const n=Math.max(1,Math.min(items.length,Math.floor(limit)||1));
+ await Promise.all(Array.from({length:n},run));
+ return out;
+}
+
 async function fetchPaged(layerId,outFields,geometry=true,base=BDL_BASE){
  async function fetchArea(bb){
    const rows=[];
@@ -6468,7 +6797,9 @@ async function fetchPaged(layerId,outFields,geometry=true,base=BDL_BASE){
 
  // Każdy rejon jest niezależny: awaria jednego nie blokuje pozostałych.
  const requestBoxes=analysisRequestBboxes();
- const results=await Promise.allSettled(requestBoxes.map(fetchArea));
+ const results=RADIUS_KM>=80
+   ?await settledMapLimitedV226(requestBoxes,fetchArea,4)
+   :await Promise.allSettled(requestBoxes.map(fetchArea));
  const ok=results.filter(x=>x.status==='fulfilled').flatMap(x=>x.value);
  const failed=results.filter(x=>x.status==='rejected');
 
@@ -9350,6 +9681,7 @@ function renderForestBaseImmediately(feats,label='bazowe'){
  try{invalidateLinkedContextGeometryCache();}catch(_){}
 
  if(analysisHeadlessBatchMode){
+   largeRadiusResetV226();
    analysisLayerBuildPending=false;
    analysisLayerBuildLast={mode:'headless',features:feats.length,elapsedMs:0,batches:0};
    document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label} • headless`;
@@ -9357,13 +9689,43 @@ function renderForestBaseImmediately(feats,label='bazowe'){
    return;
  }
 
+ // v226: przy 80–100 km nie materializujemy każdego wydzielenia jako osobnego
+ // obiektu Leafleta. allFeatures nadal zawiera CAŁE 74k+ danych do scoringu.
+ const useLargeRadiusVirtual=RADIUS_KM>=LARGE_RADIUS_THRESHOLD_V226&&feats.length>=10000;
+ if(useLargeRadiusVirtual){
+   const t0=performance.now();
+   largeRadiusModeV226=true;
+   largeRadiusOverviewCacheV226={key:'',cells:[]};
+   largeRadiusExactKeyV226='';
+   largeRadiusForceOverviewV226=false;
+   largeRadiusExactGroupV226.clearLayers();
+   largeRadiusEnsureGroupsV226();
+   analysisLayerBuildPending=false;
+   analysisLayerBuildLast={
+     mode:'large-radius-virtual-v226',
+     features:feats.length,
+     elapsedMs:performance.now()-t0,
+     cpuMs:performance.now()-t0,maxSliceMs:performance.now()-t0,
+     batches:1,containers:1,virtual:true,exactLayers:0
+   };
+   document.getElementById('dsBDL').textContent=`${feats.length} wydz. • ${label} • szybki widok 100 km`;
+   document.getElementById('dsBDL').className='st-ok';
+   console.info('LAYER BUILD PERFORMANCE v226',analysisLayerBuildLast);
+   scheduleLargeRadiusVisualV226();
+   try{render('large-radius-base-v226');}catch(e){console.error('Render bazowy 100 km',e);}
+   return;
+ }
+
+ largeRadiusResetV226();
+ // clearLayers() wyżej usunęło ewentualne subgrupy v226; normalny tryb wraca
+ // dokładnie do dotychczasowej ścieżki Leafleta.
+ analysisGroup.clearLayers();
+
  const useProgressive=feats.length>=5000||(ANALYSIS_CENTERS.length>=3&&feats.length>=900);
  if(useProgressive){
    progressiveAnalysisLayerBuild(feats);
  }else{
    const t0=performance.now();
-   // v168: także mały/pojedynczy obszar budujemy paczkami, żeby nie tworzyć
-   // osobnego kontenera L.GeoJSON dla każdego wydzielenia.
    const chunk=220;
    let cpuMs=0,containers=0;
    for(let i=0;i<feats.length;i+=chunk){
@@ -9702,7 +10064,7 @@ async function main(){
    // użytkownik dostaje już działającą mapę + jawny status brakujących źródeł.
    Promise.race([
      allEnrichmentPromise.then(()=>({timedOut:false})),
-     waitMs(7000).then(()=>({timedOut:true}))
+     waitMs(RADIUS_KM>=80?12000:7000).then(()=>({timedOut:true}))
    ]).then(result=>{
      if(!forestBaseLoaded||!allFeatures.length)return;
      initialRevealTimedOut=!!result?.timedOut;
@@ -13582,7 +13944,13 @@ function opportunitySoilV200(d,s,rel){
  if(Number.isFinite(sand))texture=piecewise(sand,cfg.texture);
  const socScore=Number.isFinite(s.soc)?piecewise(s.soc,SOIL_SOC_POINTS_V189):7;
  const score=.62*phScore+.24*texture+.14*socScore;
- return 7+(score-7)*rel;
+ let out=7+(score-7)*rel;
+ // v226: zgodność z kanonicznym soilSuitability(). Grzyby nadrzewne mają
+ // słabszą zależność od chemii gleby niż mikoryzowe; kernel BEST wcześniej
+ // pomijał ten ostatni krok i dawał ~0.17 pkt różnicy względem pełnego modelu.
+ const woodSoilScale={boczniak_ostrygowaty:.20,opienka_miodowa:.45,siedzun_sosnowy:.55,opienka_ciemna:.80}[d.type]??1;
+ out=7+(out-7)*woodSoilScale;
+ return out;
 }
 function opportunityTreeV200(d,ctx){
  const direct=ctx.direct,near=ctx.near;
@@ -29730,7 +30098,7 @@ async function buildMegaDebugReportV195(){
       areaIsolation={weatherReady,weatherIsolationOk:!weatherReady||rows.every(r=>r.weatherSamples>=5),rows};
     }catch(e){areaIsolation={error:String(e?.stack||e)};}
     const payload={
-      schema:'mushroom-map-mega-debug/1',version:'v223',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
+      schema:'mushroom-map-mega-debug/1',version:'v226',generatedAt:new Date().toISOString(),uptimeSec:+((Date.now()-megaDebugV195.startedAt)/1000).toFixed(1),
       snapshot:{fresh:true,trigger:'current-call',interactionSeq:speciesInteractionPerfV203.seq,softResetCount:speciesSelectionSoftResetV210.count,weatherReady:!!weatherReady},
       verdict:{overall:(qa?.overall==='PASS'&&cacheStressV195.last?.overall==='PASS'&&equivalence?.ok&&areaIsolation?.weatherIsolationOk!==false)?'PASS':'FAIL',autoQA:qa?.overall||null,cacheStress:cacheStressV195.last?.overall||null,equivalenceOk:equivalence?.ok??null,maxDelta:equivalence?.maxDelta??null,weatherIsolationOk:areaIsolation?.weatherIsolationOk??null},
       calibration:calibrationAuditV222(),observationSources:megaDebugSafeV195(observationFetchDiagnostics),
@@ -31405,6 +31773,7 @@ window.copySpeciesAuditJsonV182=async function(){
 
 function render(reason='legacy'){
  if(analysisHeadlessBatchMode)return;
+ if(largeRadiusModeV226)scheduleLargeRadiusVisualV226();
  renderReasonsV176.add(String(reason||'legacy'));
  if(perfRenderRAF){renderCoalescedV176++;cancelAnimationFrame(perfRenderRAF);}
  perfRenderRAF=requestAnimationFrame(()=>{
@@ -32831,6 +33200,13 @@ async function loadHotspotAccessContext(hotspots){
 
 function scheduleHotspotAccessLoad(hotspots,delay=2600){
  clearTimeout(hotspotAccessTimer);
+ // v226: dojazd OSM jest detalem lokalnym. Przy 100 km hotspoty są rozrzucone
+ // po ogromnym obszarze i taki request tylko przeciąża Overpass oraz generuje timeouty.
+ if(RADIUS_KM>=80){
+   hotspotAccessPendingRefresh=false;
+   hotspotAccessLoading=false;
+   return;
+ }
  if(hotspotAccessLoading){hotspotAccessPendingRefresh=true;return;}
  const key=hotspotAccessKey(hotspots||[]);
  if(!key)return;

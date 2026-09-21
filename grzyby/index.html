@@ -36936,8 +36936,7 @@ console.info('V244.1 RUNTIME HARDENING READY',window.__v244RuntimeHardening);
 })();
 </script>
 
-
-<script id="v245-astra-cross-audit">
+<script id="v245.2-astra-cross-audit">
 (function(){
 'use strict';
 
@@ -37191,10 +37190,21 @@ function v245AuditOne(type,rec,matchMethod){
   const strictness=v245Val(rec?.params?.scislosc);
   const strictDesc=v245Norm(strictness?.opis||strictness);
   const strictConfidence=v245Confidence(rec?.params?.scislosc);
+  const strictSources=v245Sources(rec?.params?.scislosc);
+  const strictHasSpecificEvidence=strictSources.some(s=>!['G0','H0'].includes(String(s||'').toUpperCase()));
+
+  // v245.2: G0/H0 alone are NOT enough to create a real STRICT conflict.
+  // They may still create a REVIEW_NOTE, but not CONFLICT_CANDIDATE.
   const strictReview=!!(
     strict &&
     strictDesc.startsWith('szeroka') &&
-    ['srednia','wysoka'].includes(v245Norm(strictConfidence))
+    ['srednia','wysoka'].includes(v245Norm(strictConfidence)) &&
+    strictHasSpecificEvidence
+  );
+  const strictWeakReview=!!(
+    strict &&
+    strictDesc.startsWith('szeroka') &&
+    !strictHasSpecificEvidence
   );
 
   const ourAge=Array.isArray(meta.age)?meta.age:null;
@@ -37236,6 +37246,9 @@ function v245AuditOne(type,rec,matchMethod){
   if(strictReview)priority+=4;
   if(ageConflict||phConflict)priority+=4;
   if(seasonConflict)priority+=3;
+
+  // Weak-evidence differences are research notes, not conflicts.
+  if(strictWeakReview)priority+=1;
   if(ageModelOnly)priority+=1;
   if(phModelOnly)priority+=1;
   if(hostKnown&&hostOverlap===0)priority+=1;
@@ -37293,11 +37306,17 @@ function v245AuditOne(type,rec,matchMethod){
         note:'Brak hosta w Astra NIE jest konfliktem: lista Astra jest jawnie niewyczerpująca.'
       },
       strictHost:{
-        status:strictReview?'REVIEW':'OK_OR_UNKNOWN',
+        status:strictReview?'REVIEW_STRONG':(strictWeakReview?'REVIEW_WEAK_EVIDENCE':'OK_OR_UNKNOWN'),
         ourStrict:strict,
         astraDescription:strictness?.opis??strictness??null,
         confidence:strictConfidence,
-        note:strictReview?'Nasz twardy STRICT, Astra opisuje relację jako szeroką. Wymaga źródeł gatunkowych przed zmianą.':null
+        sources:strictSources,
+        hasSpeciesSpecificEvidence:strictHasSpecificEvidence,
+        note:strictReview
+          ? 'Nasz twardy STRICT koliduje z szeroką relacją podpartą konkretnym źródłem. Wymaga ręcznej weryfikacji.'
+          : (strictWeakReview
+              ? 'Astra opisuje relację jako szeroką, ale tylko na G0/H0. To sygnał do researchu, nie konflikt modelu.'
+              : null)
       },
       age:{
         overlap:ageOverlap,
@@ -37400,13 +37419,14 @@ window.auditAstraV245=async function(){
     support:rows.filter(x=>x.verdict==='SUPPORT').length,
     conflictCandidates:rows.filter(x=>x.verdict==='CONFLICT_CANDIDATE').length,
     unknown:rows.filter(x=>x.verdict==='UNKNOWN').length,
-    strictReview:rows.filter(x=>x.checks.strictHost.status==='REVIEW').length,
+    strictReviewStrong:rows.filter(x=>x.checks.strictHost.status==='REVIEW_STRONG').length,
+    strictReviewWeak:rows.filter(x=>x.checks.strictHost.status==='REVIEW_WEAK_EVIDENCE').length,
     ageModelOnly:rows.filter(x=>x.checks.age.modelOnly).length,
     phModelOnly:rows.filter(x=>x.checks.ph.modelOnly).length,
     seasonConflict:rows.filter(x=>x.checks.season.conflict).length
   };
   const report={
-    version:'v245-astra-cross-audit',
+    version:'v245.2-astra-cross-audit',
     auditOnly:true,
     scoringChanged:false,
     biologyChanged:false,
@@ -37424,6 +37444,7 @@ window.auditAstraV245=async function(){
       flags:{
         ecology:x.checks.ecology.status,
         strict:x.checks.strictHost.status,
+        strictSpecificEvidence:x.checks.strictHost.hasSpeciesSpecificEvidence,
         ageModelOnly:x.checks.age.modelOnly,
         phModelOnly:x.checks.ph.modelOnly,
         seasonConflict:x.checks.season.conflict
@@ -37431,33 +37452,34 @@ window.auditAstraV245=async function(){
     })),
     rules:[
       'Nie zmieniać biologii automatycznie na podstawie tego raportu.',
-      'G0 = synteza konsultacyjna; wymaga źródła gatunkowego przed zmianą krytycznych parametrów.',
-      'H0 = hipoteza; nie używać jako twardej reguły scoringu.',
+      'G0 = synteza konsultacyjna; sama nie może tworzyć CONFLICT_CANDIDATE dla STRICT.',
+      'H0 = hipoteza; sama nie może tworzyć CONFLICT_CANDIDATE ani twardej reguły scoringu.',
+      'STRICT vs szeroka relacja z samym G0/H0 = REVIEW_WEAK_EVIDENCE, nie konflikt.',
       'Brak hosta w Astra nie jest konfliktem, bo lista partnerów jest niewyczerpująca.',
       'Astra null nie oznacza, że nasza wartość jest błędna; oznacza brak potwierdzenia w tym pakiecie.',
       'CONFLICT_CANDIDATE oznacza priorytet do ręcznego researchu, nie verdict biologiczny.'
     ]
   };
   window.__astraV245Last=report;
-  console.info('ASTRA BIOLOGY CROSS-AUDIT v245',report);
+  console.info('ASTRA BIOLOGY CROSS-AUDIT v245.2',report);
   console.table(report.topReview);
   return report;
 };
 
 window.downloadAstraV245Report=async function(){
   const r=window.__astraV245Last||await window.auditAstraV245();
-  v245Download('ASTRA_CROSS_AUDIT_V245.json',JSON.stringify(r,null,2),'application/json');
-  v245Download('ASTRA_CROSS_AUDIT_V245.html',v245Html(r),'text/html');
+  v245Download('ASTRA_CROSS_AUDIT_V245_2.json',JSON.stringify(r,null,2),'application/json');
+  v245Download('ASTRA_CROSS_AUDIT_V245_2.html',v245Html(r),'text/html');
   return r;
 };
 
 window.copyAstraV245Summary=async function(){
   const r=window.__astraV245Last||await window.auditAstraV245();
   const text=[
-    'ASTRA CROSS-AUDIT v245',
+    'ASTRA CROSS-AUDIT v245.2',
     `runtime=${r.summary.runtimeSpecies} matched=${r.summary.matched} unmatched=${r.summary.unmatched}`,
     `SUPPORT=${r.summary.support} CONFLICT_CANDIDATE=${r.summary.conflictCandidates} UNKNOWN=${r.summary.unknown}`,
-    `strictReview=${r.summary.strictReview} ageModelOnly=${r.summary.ageModelOnly} phModelOnly=${r.summary.phModelOnly} seasonConflict=${r.summary.seasonConflict}`,
+    `strictStrong=${r.summary.strictReviewStrong} strictWeak=${r.summary.strictReviewWeak} ageModelOnly=${r.summary.ageModelOnly} phModelOnly=${r.summary.phModelOnly} seasonConflict=${r.summary.seasonConflict}`,
     '',
     ...r.topReview.map((x,i)=>`${i+1}. ${x.label} [${x.type}] priority=${x.priority} verdict=${x.verdict} flags=${JSON.stringify(x.flags)}`)
   ].join('\n');
@@ -37466,7 +37488,7 @@ window.copyAstraV245Summary=async function(){
   return text;
 };
 
-console.info('V245 ASTRA CROSS-AUDIT READY',{
+console.info('V245.2 ASTRA CROSS-AUDIT READY',{
   auditOnly:true,
   scoringChanged:false,
   commands:['auditAstraV245()','downloadAstraV245Report()','copyAstraV245Summary()']

@@ -38013,6 +38013,323 @@ console.info('V246.1 MODEL EVIDENCE AUDIT READY',{
 })();
 </script>
 
+
+<script id="v247-true-ph-sensitivity-audit">
+(function(){
+'use strict';
+
+function v247Clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function v247Q(arr,q){
+  if(!arr.length)return null;
+  const a=arr.slice().sort((x,y)=>x-y);
+  const p=(a.length-1)*q,lo=Math.floor(p),hi=Math.ceil(p);
+  if(lo===hi)return a[lo];
+  return a[lo]+(a[hi]-a[lo])*(p-lo);
+}
+function v247Mean(a){return a.length?a.reduce((s,x)=>s+x,0)/a.length:null}
+function v247Meta(type){
+  try{return (typeof SPECIES_META!=='undefined'&&SPECIES_META[type])?SPECIES_META[type]:null}catch(_){return null}
+}
+function v247Strict(type){
+  try{return typeof STRICT_HOST_TYPES!=='undefined'&&STRICT_HOST_TYPES.has(type)}catch(_){return false}
+}
+function v247Features(){
+  try{
+    if(typeof allFeatures!=='undefined'&&Array.isArray(allFeatures))return allFeatures;
+  }catch(_){}
+  try{
+    if(Array.isArray(window.allFeatures))return window.allFeatures;
+  }catch(_){}
+  return [];
+}
+function v247Types(){
+  try{
+    if(typeof PICK_TYPES!=='undefined'&&Array.isArray(PICK_TYPES))return PICK_TYPES.slice();
+  }catch(_){}
+  try{
+    if(typeof SPECIES_META!=='undefined')return Object.keys(SPECIES_META).filter(t=>SPECIES_META[t]?.collect!==false);
+  }catch(_){}
+  return [];
+}
+function v247Relevant(type,f){
+  try{
+    if(typeof featureRelevant==='function')return !!featureRelevant(type,f);
+  }catch(_){}
+  return true;
+}
+function v247Piecewise(x,pts){
+  if(typeof piecewise==='function')return piecewise(x,pts);
+  x=Number(x);
+  if(!Number.isFinite(x))return pts[0][1];
+  if(x<=pts[0][0])return pts[0][1];
+  for(let i=1;i<pts.length;i++){
+    if(x<=pts[i][0]){
+      const [x0,y0]=pts[i-1],[x1,y1]=pts[i];
+      const t=(x-x0)/(x1-x0||1);
+      return y0+(y1-y0)*t;
+    }
+  }
+  return pts[pts.length-1][1];
+}
+function v247SoilRel(){
+  try{
+    if(typeof soilReliability==='function')return Number(soilReliability())||0;
+  }catch(_){}
+  return 1;
+}
+function v247Blend(raw,rel){return 7+(raw-7)*rel}
+
+function v247SoilComponents(type,f,neutralizePH=false){
+  const m=v247Meta(type);
+  let s=null;
+  try{s=soilAt(f._center)}catch(_){}
+  if(!m||!s)return null;
+
+  const ph=Number(s.ph);
+  if(!Number.isFinite(ph))return null;
+  const rel=v247SoilRel();
+
+  if(type==='ponury'){
+    const phScore=neutralizePH?7:v247Piecewise(ph,[
+      [4.9,2.2],[5.4,3.8],[5.8,6.2],[6.2,8.7],[6.8,9.8],[7.5,9.1],[8.0,7.2],[8.5,4.5]
+    ]);
+    let sand=Number(s.sand);if(sand>100)sand/=10;
+    const texture=Number.isFinite(sand)?v247Piecewise(sand,[
+      [8,8.8],[22,9.3],[40,8.8],[58,7.2],[72,5.6],[88,3.8]
+    ]):7.2;
+    const socScore=Number.isFinite(Number(s.soc))?v247Piecewise(Number(s.soc),[
+      [0,4.8],[10,6.6],[25,8.0],[45,8.8],[80,8.2],[120,6.5]
+    ]):7;
+    const raw=.72*phScore+.18*texture+.10*socScore;
+    return {ph,phScore,texture,socScore,raw,blended:v247Blend(raw,rel),rel};
+  }
+
+  const lo=m.ph?.[0]??4.5,hi=m.ph?.[1]??7,mid=(lo+hi)/2;
+  const phScore=neutralizePH?7:v247Piecewise(ph,[
+    [lo-1.6,3.5],[lo,8],[mid,9.5],[hi,8],[hi+1.4,3.5]
+  ]);
+  let sand=Number(s.sand);if(sand>100)sand/=10;
+  let texture=7.5;
+  if(Number.isFinite(sand)){
+    if(m.sand==='very_sandy')texture=v247Piecewise(sand,[[15,3.5],[35,6.5],[55,9],[75,10],[92,8]]);
+    else if(m.sand==='sandy')texture=v247Piecewise(sand,[[10,5],[30,7],[50,9],[72,9.4],[90,7]]);
+    else texture=v247Piecewise(sand,[[5,6],[25,8],[50,8.7],[75,7.7],[92,5.5]]);
+  }
+  const socScore=Number.isFinite(Number(s.soc))?v247Piecewise(Number(s.soc),[
+    [0,5],[10,7],[25,8.5],[60,9],[120,7]
+  ]):7;
+  const raw=.62*phScore+.24*texture+.14*socScore;
+  return {ph,phScore,texture,socScore,raw,blended:v247Blend(raw,rel),rel,lo,hi};
+}
+
+function v247DetectWeights(){
+  const fallback={strictMycorrhiza:.14,mycorrhiza:.17,wood:.12,edge:.19,grassland:.23};
+  let src='';
+  try{src=String(stableSpeciesPotential)}catch(_){}
+  if(!src)return {weights:fallback,mode:'fallback-no-function-source'};
+
+  function one(re,fb){
+    const m=src.match(re);
+    return m?Number(m[1]):fb;
+  }
+  // Accept decimal forms like .14*soil or 0.14*soil.
+  const weights={
+    strictMycorrhiza:one(/STRICT_HOST_TYPES\.has\(type\)[\s\S]{0,260}?([01]?\.\d+)\*soil/,fallback.strictMycorrhiza),
+    wood:one(/ecology===['"]wood['"][\s\S]{0,240}?([01]?\.\d+)\*soil/,fallback.wood),
+    edge:one(/ecology===['"]edge['"][\s\S]{0,220}?([01]?\.\d+)\*soil/,fallback.edge),
+    grassland:one(/ecology===['"]grassland['"][\s\S]{0,220}?([01]?\.\d+)\*soil/,fallback.grassland)
+  };
+
+  // For the non-strict mycorrhiza branch, find soil weights near first mycorrhiza branch
+  // and choose the largest one when strict/non-strict differ.
+  const mycChunk=(src.match(/ecology===['"]mycorrhiza['"][\s\S]{0,900}?else if\(m\.ecology===['"]wood['"]/)||[])[0]||'';
+  const vals=[...mycChunk.matchAll(/([01]?\.\d+)\*soil/g)].map(m=>Number(m[1])).filter(Number.isFinite);
+  weights.mycorrhiza=vals.length?Math.max(...vals):fallback.mycorrhiza;
+  if(vals.length>=2)weights.strictMycorrhiza=Math.min(...vals);
+
+  const usedFallback=Object.keys(fallback).some(k=>weights[k]===fallback[k] && !src.includes(String(fallback[k]).replace(/^0/,'' )+'*soil'));
+  return {weights,mode:usedFallback?'mixed-detected-fallback':'runtime-detected'};
+}
+
+function v247SoilWeight(type,meta,weights){
+  if(!meta)return null;
+  if(meta.ecology==='mycorrhiza')return v247Strict(type)?weights.strictMycorrhiza:weights.mycorrhiza;
+  if(meta.ecology==='wood')return weights.wood;
+  if(meta.ecology==='edge')return weights.edge;
+  if(meta.ecology==='grassland')return weights.grassland;
+  return null;
+}
+
+function v247Download(name,text,type='application/json'){
+  const blob=new Blob([text],{type:type+';charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+window.auditPHSensitivityV247=async function(){
+  const features=v247Features();
+  const types=v247Types();
+  if(!features.length)throw new Error('v247: brak allFeatures - najpierw załaduj obszar mapy.');
+  if(!types.length)throw new Error('v247: brak listy gatunków.');
+
+  const wd=v247DetectWeights();
+  const rows=[];
+
+  for(const type of types){
+    const meta=v247Meta(type);
+    if(!meta||meta.collect===false||!Array.isArray(meta.ph))continue;
+    const soilWeight=v247SoilWeight(type,meta,wd.weights);
+    if(!Number.isFinite(soilWeight))continue;
+
+    const deltas=[],soilDeltas=[],absDeltas=[],phs=[],phScores=[];
+    let relevant=0,withSoil=0;
+
+    for(const f of features){
+      if(!v247Relevant(type,f))continue;
+      relevant++;
+      const actual=v247SoilComponents(type,f,false);
+      const neutral=v247SoilComponents(type,f,true);
+      if(!actual||!neutral)continue;
+      withSoil++;
+
+      // Read-only counterfactual: replace ONLY pH subscore with neutral 7,
+      // keeping texture, SOC and soil reliability unchanged.
+      const soilDelta=actual.blended-neutral.blended;
+      const potentialDelta=soilWeight*soilDelta;
+      soilDeltas.push(soilDelta);
+      deltas.push(potentialDelta);
+      absDeltas.push(Math.abs(potentialDelta));
+      phs.push(actual.ph);
+      phScores.push(actual.phScore);
+    }
+    if(!withSoil)continue;
+
+    rows.push({
+      type,
+      label:meta.label||type,
+      scientific:meta.scientific||null,
+      ecology:meta.ecology||null,
+      strict:v247Strict(type),
+      modelPH:meta.ph,
+      soilWeight,
+      relevantFeatures:relevant,
+      sampledFeatures:withSoil,
+      soilCoveragePct:Number((100*withSoil/Math.max(1,relevant)).toFixed(1)),
+      observedPH:{
+        min:Number(Math.min(...phs).toFixed(3)),
+        q10:Number(v247Q(phs,.10).toFixed(3)),
+        median:Number(v247Q(phs,.50).toFixed(3)),
+        q90:Number(v247Q(phs,.90).toFixed(3)),
+        max:Number(Math.max(...phs).toFixed(3))
+      },
+      pHScore:{
+        mean:Number(v247Mean(phScores).toFixed(3)),
+        q10:Number(v247Q(phScores,.10).toFixed(3)),
+        median:Number(v247Q(phScores,.50).toFixed(3)),
+        q90:Number(v247Q(phScores,.90).toFixed(3))
+      },
+      potentialDeltaVsNeutralPH:{
+        meanSigned:Number(v247Mean(deltas).toFixed(4)),
+        meanAbs:Number(v247Mean(absDeltas).toFixed(4)),
+        p90Abs:Number(v247Q(absDeltas,.90).toFixed(4)),
+        p95Abs:Number(v247Q(absDeltas,.95).toFixed(4)),
+        maxAbs:Number(Math.max(...absDeltas).toFixed(4)),
+        pctAbsGe025:Number((100*absDeltas.filter(x=>x>=.25).length/absDeltas.length).toFixed(1)),
+        pctAbsGe050:Number((100*absDeltas.filter(x=>x>=.50).length/absDeltas.length).toFixed(1))
+      },
+      auditImpact:Number((v247Q(absDeltas,.90)*Math.sqrt(withSoil)).toFixed(3))
+    });
+  }
+
+  rows.sort((a,b)=>b.auditImpact-a.auditImpact || b.potentialDeltaVsNeutralPH.p90Abs-a.potentialDeltaVsNeutralPH.p90Abs);
+
+  const summary={
+    speciesTested:rows.length,
+    features:features.length,
+    soilReliability:Number(v247SoilRel().toFixed(3)),
+    weightDetection:wd,
+    highestP90Delta:rows[0]?.potentialDeltaVsNeutralPH.p90Abs??null,
+    highestMeanAbsDelta:Math.max(0,...rows.map(r=>r.potentialDeltaVsNeutralPH.meanAbs)),
+    speciesP90Ge025:rows.filter(r=>r.potentialDeltaVsNeutralPH.p90Abs>=.25).length,
+    speciesP90Ge050:rows.filter(r=>r.potentialDeltaVsNeutralPH.p90Abs>=.50).length
+  };
+
+  const report={
+    version:'v247-true-ph-sensitivity-audit',
+    auditOnly:true,
+    scoringChanged:false,
+    biologyChanged:false,
+    counterfactual:'replace pH subscore with neutral 7; keep sand/SOC/reliability unchanged',
+    deltaMeaning:'estimated contribution to stableSpeciesPotential before later context/caps',
+    generatedAt:new Date().toISOString(),
+    summary,
+    top20:rows.slice(0,20),
+    rows,
+    rules:[
+      'To jest read-only counterfactual; nie zmienia SPECIES_META ani danych gleby.',
+      'pH delta izoluje tylko część pH wewnątrz soilSuitability.',
+      'Tekstura, SOC i soilReliability pozostają dokładnie takie jak w runtime.',
+      'potentialDelta używa aktualnej/detekowanej wagi soil w stableSpeciesPotential.',
+      'Wynik nie mówi, jaki zakres pH jest poprawny biologicznie; mówi, jak mocno obecny zakres wpływa na mapę.',
+      'Zmiana biologii wymaga osobnej weryfikacji źródłowej i equivalence/QA.'
+    ]
+  };
+
+  window.__phSensitivityV247Last=report;
+  console.info('TRUE pH SENSITIVITY AUDIT v247',report);
+  console.table(report.top20.map((r,i)=>({
+    rank:i+1,
+    species:r.label,
+    ph:JSON.stringify(r.modelPH),
+    ecology:r.ecology,
+    soilWeight:r.soilWeight,
+    samples:r.sampledFeatures,
+    phMedian:r.observedPH.median,
+    meanAbsDelta:r.potentialDeltaVsNeutralPH.meanAbs,
+    p90AbsDelta:r.potentialDeltaVsNeutralPH.p90Abs,
+    maxAbsDelta:r.potentialDeltaVsNeutralPH.maxAbs,
+    pctGe025:r.potentialDeltaVsNeutralPH.pctAbsGe025,
+    auditImpact:r.auditImpact
+  })));
+  return report;
+};
+
+window.phSensitivityTopV247=async function(n=20){
+  const r=window.__phSensitivityV247Last||await window.auditPHSensitivityV247();
+  const out=r.rows.slice(0,Math.max(1,Math.min(100,Number(n)||20)));
+  console.table(out.map((x,i)=>({
+    rank:i+1,
+    species:x.label,
+    modelPH:JSON.stringify(x.modelPH),
+    observedPH:`${x.observedPH.q10}-${x.observedPH.q90}`,
+    samples:x.sampledFeatures,
+    meanAbs:x.potentialDeltaVsNeutralPH.meanAbs,
+    p90Abs:x.potentialDeltaVsNeutralPH.p90Abs,
+    maxAbs:x.potentialDeltaVsNeutralPH.maxAbs,
+    pctGe025:x.potentialDeltaVsNeutralPH.pctAbsGe025
+  })));
+  return out;
+};
+
+window.downloadPHSensitivityV247=async function(){
+  const r=window.__phSensitivityV247Last||await window.auditPHSensitivityV247();
+  v247Download('TRUE_PH_SENSITIVITY_V247.json',JSON.stringify(r,null,2),'application/json');
+  return r;
+};
+
+console.info('V247 TRUE pH SENSITIVITY AUDIT READY',{
+  auditOnly:true,
+  scoringChanged:false,
+  commands:[
+    'await auditPHSensitivityV247()',
+    'await phSensitivityTopV247(20)',
+    'await downloadPHSensitivityV247()'
+  ]
+});
+})();
+</script>
+
 </body>
 </html>
 

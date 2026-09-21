@@ -36936,6 +36936,544 @@ console.info('V244.1 RUNTIME HARDENING READY',window.__v244RuntimeHardening);
 })();
 </script>
 
+
+<script id="v245-astra-cross-audit">
+(function(){
+'use strict';
+
+const V245_ASTRA_URL='data/astra_v245/astra_cross_audit_v245.json?v=245';
+let v245AstraPromise=null;
+
+function v245Norm(s){
+  return String(s||'')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/×/g,'x')
+    .replace(/\b(s\.?\s*l\.?|sensu\s+auct\.?|sensu\s+lato)\b/g,'')
+    .replace(/[^a-z0-9]+/g,' ')
+    .trim().replace(/\s+/g,' ');
+}
+function v245NormSci(s){
+  const n=v245Norm(s);
+  const parts=n.split(' ').filter(Boolean);
+  return parts.slice(0,2).join(' ');
+}
+function v245Val(p){return p&&Object.prototype.hasOwnProperty.call(p,'wartosc')?p.wartosc:null}
+function v245State(p){return p?.stan_danych||null}
+function v245Confidence(p){return p?.pewnosc||null}
+function v245Sources(p){return Array.isArray(p?.zrodla)?p.zrodla:[]}
+function v245Arr(x){return Array.isArray(x)?x:[]}
+function v245HasText(x,needle){return v245Norm(x).includes(v245Norm(needle))}
+
+const V245_TREE_CODES={
+  SO:{genera:['pinus'],species:['pinus sylvestris'],label:'sosna'},
+  SW:{genera:['picea'],species:['picea abies'],label:'świerk'},
+  'ŚW':{genera:['picea'],species:['picea abies'],label:'świerk'},
+  JD:{genera:['abies'],species:['abies alba'],label:'jodła'},
+  BK:{genera:['fagus'],species:['fagus sylvatica'],label:'buk'},
+  DB:{genera:['quercus'],species:['quercus robur','quercus petraea'],label:'dąb'},
+  BRZ:{genera:['betula'],species:['betula pendula','betula pubescens'],label:'brzoza'},
+  GB:{genera:['carpinus'],species:['carpinus betulus'],label:'grab'},
+  MD:{genera:['larix'],species:['larix decidua'],label:'modrzew'},
+  OS:{genera:['populus'],species:['populus tremula'],label:'osika'},
+  TP:{genera:['populus'],species:[],label:'topola'},
+  OL:{genera:['alnus'],species:['alnus glutinosa'],label:'olsza'},
+  JW:{genera:['acer'],species:['acer pseudoplatanus'],label:'jawor'},
+  KL:{genera:['acer'],species:['acer platanoides'],label:'klon'},
+  LP:{genera:['tilia'],species:[],label:'lipa'},
+  WZ:{genera:['ulmus'],species:[],label:'wiąz'},
+  JS:{genera:['fraxinus'],species:['fraxinus excelsior'],label:'jesion'},
+  WB:{genera:['salix'],species:[],label:'wierzba'}
+};
+
+const V245_ID_ALIASES={
+  borowik:'boletus_edulis',
+  podgrzybek:'imleria_badia',
+  ceglastopory:'neoboletus_luridiformis',
+  ponury:'suillellus_luridus',
+  rydz:'lactarius_deliciosus',
+  kurka:'cantharellus_cibarius',
+  kania:'macrolepiota_procera',
+  kania_gwiazdzista:'macrolepiota_konradii_s_l',
+  czernidlak:'coprinus_comatus',
+  pieczarka_polna:'agaricus_campestris',
+  purchawka_oczkowana:'lycoperdon_utriforme',
+  opienka_miodowa:'armillaria_mellea',
+  opienka_ciemna:'armillaria_ostoyae',
+  maslak_zolty:'suillus_grevillei',
+  maslak_sitarz:'suillus_bovinus',
+  maslak_pstry:'suillus_variegatus',
+  maslak_zwyczajny:'suillus_luteus',
+  maslak_ziarnisty:'suillus_granulatus',
+  mleczaj_swierkowy:'lactarius_deterrimus',
+  siedzun_sosnowy:'sparassis_crispa',
+  kozlarz_babka:'leccinum_scabrum',
+  kozlarz_pomaranczowozolty:'leccinum_versipelle',
+  kozlarz_czerwony:'leccinum_aurantiacum_s_l',
+  kozlarz_grabowy:'leccinellum_pseudoscabrum',
+  kozlarz_debowy:'leccinum_quercinum',
+  kozlarz_sosnowy:'leccinum_vulpinum',
+  pieprznik_trabkowy:'craterellus_tubaeformis',
+  lejkowiec_dety:'craterellus_cornucopioides',
+  kolczak_oblaczasty:'hydnum_repandum',
+  podgrzybek_zajaczek:'xerocomus_subtomentosus',
+  gaska_nieksztaltna:'tricholoma_portentosum',
+  twardzioszek_przydrozny:'marasmius_oreades',
+  boczniak_ostrygowaty:'pleurotus_ostreatus',
+  golabek_zielonawy:'russula_virescens',
+  golabek_bagienny:'russula_paludosa'
+};
+
+async function v245LoadAstra(){
+  if(!v245AstraPromise){
+    v245AstraPromise=fetch(V245_ASTRA_URL,{cache:'no-cache'}).then(async r=>{
+      if(!r.ok)throw new Error(`Astra v245 HTTP ${r.status}`);
+      return r.json();
+    }).catch(e=>{
+      v245AstraPromise=null;
+      throw e;
+    });
+  }
+  return v245AstraPromise;
+}
+
+function v245RuntimeTypes(){
+  let types=[];
+  try{
+    if(typeof ATLAS_ITEMS!=='undefined'&&Array.isArray(ATLAS_ITEMS)){
+      types=[...new Set(ATLAS_ITEMS.map(x=>x?.type).filter(Boolean))];
+    }
+  }catch(_){}
+  if(!types.length){
+    try{
+      if(typeof SPECIES_META!=='undefined'){
+        types=Object.keys(SPECIES_META).filter(t=>SPECIES_META[t]?.collect!==false);
+      }
+    }catch(_){}
+  }
+  return types;
+}
+
+function v245RuntimeMeta(type){
+  try{return (typeof SPECIES_META!=='undefined'&&SPECIES_META[type])?SPECIES_META[type]:{}}catch(_){return{}}
+}
+function v245RuntimeHosts(type,meta){
+  try{
+    if(typeof HOSTS!=='undefined'&&HOSTS[type])return HOSTS[type];
+  }catch(_){}
+  return {strong:v245Arr(meta.strong),secondary:v245Arr(meta.secondary)};
+}
+function v245Strict(type){
+  try{return typeof STRICT_HOST_TYPES!=='undefined'&&STRICT_HOST_TYPES.has(type)}catch(_){return false}
+}
+function v245Hab(type){
+  try{return typeof HAB!=='undefined'?HAB[type]??null:null}catch(_){return null}
+}
+
+function v245BuildIndexes(astra){
+  const byId=new Map(), bySci=new Map(), byPl=new Map();
+  for(const r of astra.records||[]){
+    byId.set(r.id,r);
+    const ns=v245NormSci(r.latin);
+    if(ns&&!bySci.has(ns))bySci.set(ns,r);
+    for(const syn of r.synonyms||[]){
+      const s=typeof syn==='string'?syn:(syn?.nazwa_naukowa||syn?.name||'');
+      const n=v245NormSci(s);
+      if(n&&!bySci.has(n))bySci.set(n,r);
+    }
+    const np=v245Norm(r.pl);
+    if(np&&!byPl.has(np))byPl.set(np,r);
+  }
+  return {byId,bySci,byPl};
+}
+function v245MatchRecord(type,meta,idx){
+  const aid=V245_ID_ALIASES[type];
+  if(aid&&idx.byId.has(aid))return {record:idx.byId.get(aid),method:'id-alias'};
+  const sci=v245NormSci(meta?.scientific);
+  if(sci&&idx.bySci.has(sci))return {record:idx.bySci.get(sci),method:'scientific'};
+  const pl=v245Norm(String(meta?.label||'').replace(/^[^A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]+/,''));
+  if(pl&&idx.byPl.has(pl))return {record:idx.byPl.get(pl),method:'polish-label'};
+  return {record:null,method:'none'};
+}
+
+function v245AstraTrees(rec){
+  const v=v245Val(rec?.params?.drzewa);
+  const g=v?.gatunki;
+  if(!Array.isArray(g))return [];
+  return g.map(x=>({
+    pl:x?.nazwa_polska||'',
+    latin:x?.nazwa_naukowa||'',
+    norm:v245NormSci(x?.nazwa_naukowa||'')
+  })).filter(x=>x.pl||x.latin);
+}
+function v245HostMatches(code,trees){
+  const m=V245_TREE_CODES[code]||V245_TREE_CODES[String(code||'').toUpperCase()];
+  if(!m)return {code,known:false,match:false,label:code};
+  const match=trees.some(t=>{
+    const n=t.norm;
+    return m.species.some(s=>n===v245NormSci(s))||
+           m.genera.some(g=>n.startsWith(g+' ')||n===g);
+  });
+  return {code,known:true,match,label:m.label};
+}
+function v245EcologyCheck(our,astraTrophy){
+  const a=v245Norm(astraTrophy);
+  if(!our||!a)return {status:'UNKNOWN',reason:'brak porównywalnej wartości'};
+  if(our==='mycorrhiza'){
+    return a.includes('ektomikory')||a.includes('mikory')
+      ? {status:'SUPPORT',reason:'ECM zgodne'}
+      : {status:'CONFLICT_CANDIDATE',reason:`u nas mycorrhiza, Astra: ${astraTrophy}`};
+  }
+  if(our==='wood'){
+    if(/saprotrof|pasozy|nekrotrof|drew|ligni/.test(a))return {status:'SUPPORT',reason:'ekologia drewna zgodna'};
+    if(a.includes('ektomikory'))return {status:'CONFLICT_CANDIDATE',reason:`u nas wood, Astra: ${astraTrophy}`};
+    return {status:'UNKNOWN',reason:`Astra: ${astraTrophy}`};
+  }
+  if(our==='grassland'||our==='edge'){
+    if(a.includes('ektomikory'))return {status:'REVIEW',reason:`u nas ${our}, Astra: ${astraTrophy}`};
+    return {status:'UNKNOWN',reason:'typ otwarty nie mapuje się 1:1 na trofię'};
+  }
+  return {status:'UNKNOWN',reason:'nieznana ekologia runtime'};
+}
+
+function v245SeasonAt(curve,doy){
+  if(!Array.isArray(curve)||curve.length<2)return null;
+  const pts=curve.map(x=>[Number(x[0]),Number(x[1])]).filter(x=>Number.isFinite(x[0])&&Number.isFinite(x[1])).sort((a,b)=>a[0]-b[0]);
+  if(pts.length<2)return null;
+  const ext=[[pts[pts.length-1][0]-365,pts[pts.length-1][1]],...pts,[pts[0][0]+365,pts[0][1]]];
+  for(let i=0;i<ext.length-1;i++){
+    const a=ext[i],b=ext[i+1];
+    if(doy>=a[0]&&doy<=b[0]){
+      const t=(doy-a[0])/Math.max(1e-9,b[0]-a[0]);
+      return a[1]+(b[1]-a[1])*t;
+    }
+  }
+  return null;
+}
+const V245_MONTH_DOY=[15,46,74,105,135,166,196,227,258,288,319,349];
+function v245SeasonMonths(curve){
+  const out=[];
+  for(let i=0;i<12;i++){
+    const s=v245SeasonAt(curve,V245_MONTH_DOY[i]);
+    if(s!=null&&s>=15)out.push(i+1);
+  }
+  return out;
+}
+function v245Jaccard(a,b){
+  const A=new Set(a),B=new Set(b),U=new Set([...A,...B]);
+  if(!U.size)return null;
+  let inter=0;for(const x of A)if(B.has(x))inter++;
+  return inter/U.size;
+}
+function v245RangeOverlap(a,b){
+  if(!Array.isArray(a)||a.length<2||!Array.isArray(b)||b.length<2)return null;
+  const x=[Number(a[0]),Number(a[1])],y=[Number(b[0]),Number(b[1])];
+  if(!x.every(Number.isFinite)||!y.every(Number.isFinite))return null;
+  const inter=Math.max(0,Math.min(x[1],y[1])-Math.max(x[0],y[0]));
+  const union=Math.max(x[1],y[1])-Math.min(x[0],y[0]);
+  return union>0?inter/union:(x[0]===y[0]?1:0);
+}
+
+function v245AuditOne(type,rec,matchMethod){
+  const meta=v245RuntimeMeta(type);
+  const hosts=v245RuntimeHosts(type,meta);
+  const trees=v245AstraTrees(rec);
+  const strong=v245Arr(hosts.strong).map(c=>v245HostMatches(c,trees));
+  const secondary=v245Arr(hosts.secondary).map(c=>v245HostMatches(c,trees));
+  const allKnown=[...strong,...secondary].filter(x=>x.known);
+  const hostOverlap=allKnown.filter(x=>x.match).length;
+  const hostKnown=allKnown.length;
+
+  const trophy=v245Val(rec?.params?.trofia);
+  const ecology=v245EcologyCheck(meta.ecology,trophy);
+
+  const strict=v245Strict(type);
+  const strictness=v245Val(rec?.params?.scislosc);
+  const strictDesc=v245Norm(strictness?.opis||strictness);
+  const strictConfidence=v245Confidence(rec?.params?.scislosc);
+  const strictReview=!!(
+    strict &&
+    strictDesc.startsWith('szeroka') &&
+    ['srednia','wysoka'].includes(v245Norm(strictConfidence))
+  );
+
+  const ourAge=Array.isArray(meta.age)?meta.age:null;
+  const astraAge=v245Val(rec?.params?.wiek_lata);
+  const ageOverlap=v245RangeOverlap(ourAge,Array.isArray(astraAge)?astraAge:null);
+  const ageModelOnly=!!(ourAge&&!astraAge);
+  const ageConflict=ageOverlap!=null&&ageOverlap<0.15;
+
+  const ourPh=Array.isArray(meta.ph)?meta.ph:null;
+  const astraPh=v245Val(rec?.params?.ph);
+  let astraPhRange=null;
+  if(Array.isArray(astraPh)&&astraPh.length>=2)astraPhRange=astraPh;
+  else if(astraPh&&Array.isArray(astraPh.zakres))astraPhRange=astraPh.zakres;
+  const phOverlap=v245RangeOverlap(ourPh,astraPhRange);
+  const phModelOnly=!!(ourPh&&!astraPhRange);
+  const phConflict=phOverlap!=null&&phOverlap<0.15;
+
+  const astraMonths=v245Arr(v245Val(rec?.params?.miesiace)).map(Number).filter(x=>x>=1&&x<=12);
+  const ourMonths=v245SeasonMonths(meta.season);
+  const seasonJ=v245Jaccard(ourMonths,astraMonths);
+  const seasonConf=v245Confidence(rec?.params?.miesiace);
+  const seasonConflict=seasonJ!=null&&seasonJ<0.35&&['srednia','wysoka'].includes(v245Norm(seasonConf));
+  const seasonSupport=seasonJ!=null&&seasonJ>=0.60;
+
+  const hardConflict=ecology.status==='CONFLICT_CANDIDATE'||ageConflict||phConflict;
+  const reviewConflict=strictReview||seasonConflict;
+  const supportSignals=[
+    ecology.status==='SUPPORT',
+    hostOverlap>0,
+    seasonSupport
+  ].filter(Boolean).length;
+
+  let verdict='UNKNOWN';
+  if(hardConflict||reviewConflict)verdict='CONFLICT_CANDIDATE';
+  else if(supportSignals>=1)verdict='SUPPORT';
+
+  let priority=0;
+  if(ecology.status==='CONFLICT_CANDIDATE')priority+=5;
+  if(strictReview)priority+=4;
+  if(ageConflict||phConflict)priority+=4;
+  if(seasonConflict)priority+=3;
+  if(ageModelOnly)priority+=1;
+  if(phModelOnly)priority+=1;
+  if(hostKnown&&hostOverlap===0)priority+=1;
+  if(v245Norm(v245Confidence(rec?.params?.drzewa))==='niska')priority-=1;
+
+  const sourceSet=new Set();
+  ['trofia','drzewa','scislosc','wiek_lata','ph','miesiace','gleba','woda_siedlisko','substrat','jakosc'].forEach(k=>{
+    v245Sources(rec?.params?.[k]).forEach(s=>sourceSet.add(s));
+  });
+
+  return {
+    type,
+    label:meta.label||type,
+    scientific:meta.scientific||null,
+    atlasMatch:{id:rec.id,pl:rec.pl,latin:rec.latin,method:matchMethod,taxon:rec.taxon},
+    verdict,priority,
+    runtime:{
+      ecology:meta.ecology||null,
+      strictHost:strict,
+      strong:v245Arr(hosts.strong),
+      secondary:v245Arr(hosts.secondary),
+      age:ourAge,
+      ph:ourPh,
+      moist:meta.moist??null,
+      sand:meta.sand??null,
+      season:meta.season??null,
+      seasonMonths:ourMonths,
+      habitat:v245Hab(type)
+    },
+    astra:{
+      trophy:trophy??null,
+      trees:trees.map(x=>({pl:x.pl,latin:x.latin})),
+      treeConfidence:v245Confidence(rec?.params?.drzewa),
+      strictness:strictness??null,
+      strictnessConfidence:strictConfidence,
+      age:astraAge??null,
+      ph:astraPh??null,
+      months:astraMonths,
+      monthConfidence:seasonConf,
+      tslOpt:v245Val(rec?.params?.tsl_opt),
+      tslAllowed:v245Val(rec?.params?.tsl_dop),
+      tslHypothesis:v245Val(rec?.params?.tsl_hip),
+      soil:v245Val(rec?.params?.gleba),
+      water:v245Val(rec?.params?.woda_siedlisko),
+      substrate:v245Val(rec?.params?.substrat),
+      quality:v245Val(rec?.params?.jakosc),
+      sources:[...sourceSet]
+    },
+    checks:{
+      ecology,
+      hosts:{
+        overlap:hostOverlap,
+        comparable:hostKnown,
+        strong,secondary,
+        note:'Brak hosta w Astra NIE jest konfliktem: lista Astra jest jawnie niewyczerpująca.'
+      },
+      strictHost:{
+        status:strictReview?'REVIEW':'OK_OR_UNKNOWN',
+        ourStrict:strict,
+        astraDescription:strictness?.opis??strictness??null,
+        confidence:strictConfidence,
+        note:strictReview?'Nasz twardy STRICT, Astra opisuje relację jako szeroką. Wymaga źródeł gatunkowych przed zmianą.':null
+      },
+      age:{
+        overlap:ageOverlap,
+        modelOnly:ageModelOnly,
+        conflict:ageConflict,
+        note:ageModelOnly?'Nasz model ma liczbowy zakres, Astra nie podaje zweryfikowanego zakresu. To brak potwierdzenia, nie dowód błędu.':null
+      },
+      ph:{
+        overlap:phOverlap,
+        modelOnly:phModelOnly,
+        conflict:phConflict,
+        note:phModelOnly?'Nasz model ma liczbowy zakres, Astra nie podaje zweryfikowanego zakresu tolerancji.':null
+      },
+      season:{
+        jaccard:seasonJ,
+        ourMonths,
+        astraMonths,
+        conflict:seasonConflict,
+        support:seasonSupport,
+        note:'Miesiące Astra są orientacyjne; konflikt fenologii jest tylko kandydatem do ręcznej weryfikacji.'
+      }
+    }
+  };
+}
+
+function v245Esc(s){
+  return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function v245Html(report){
+  const rows=report.rows.map(r=>{
+    const cls=r.verdict==='CONFLICT_CANDIDATE'?'bad':r.verdict==='SUPPORT'?'good':'unk';
+    const flags=[];
+    if(r.checks.strictHost.status==='REVIEW')flags.push('STRICT');
+    if(r.checks.age.modelOnly)flags.push('AGE model-only');
+    if(r.checks.ph.modelOnly)flags.push('pH model-only');
+    if(r.checks.season.conflict)flags.push('SEASON');
+    if(r.checks.ecology.status==='CONFLICT_CANDIDATE')flags.push('ECOLOGY');
+    return `<tr class="${cls}">
+      <td><b>${v245Esc(r.label)}</b><br><small>${v245Esc(r.type)} · ${v245Esc(r.scientific||'')}</small></td>
+      <td>${v245Esc(r.verdict)}<br><small>priority ${r.priority}</small></td>
+      <td>${v245Esc(r.runtime.ecology)} → ${v245Esc(r.astra.trophy||'brak')}</td>
+      <td>${v245Esc(r.runtime.strong.join(', '))}<br><small>overlap ${r.checks.hosts.overlap}/${r.checks.hosts.comparable}</small></td>
+      <td>${r.runtime.strictHost?'TAK':'nie'} / ${v245Esc(r.astra.strictness?.opis||r.astra.strictness||'brak')}</td>
+      <td>${v245Esc(JSON.stringify(r.runtime.age))}<br><small>Astra: ${v245Esc(JSON.stringify(r.astra.age))}</small></td>
+      <td>${v245Esc(JSON.stringify(r.runtime.ph))}<br><small>Astra: ${v245Esc(JSON.stringify(r.astra.ph))}</small></td>
+      <td>${v245Esc(r.runtime.seasonMonths.join(','))}<br><small>Astra: ${v245Esc(r.astra.months.join(','))} · J=${r.checks.season.jaccard==null?'—':r.checks.season.jaccard.toFixed(2)}</small></td>
+      <td>${v245Esc(flags.join(', ')||'—')}</td>
+    </tr>`;
+  }).join('');
+  return `<!doctype html><html lang="pl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Astra Biology Cross-Audit v245</title>
+  <style>
+  body{font-family:system-ui,sans-serif;margin:20px;background:#f4f6f3;color:#17251d}
+  h1{margin-bottom:4px}.sub{color:#5b6a61;margin-bottom:18px}
+  .cards{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.card{background:white;border:1px solid #d9e0da;border-radius:10px;padding:10px 14px}
+  table{border-collapse:collapse;width:100%;background:white;font-size:12px}th,td{border:1px solid #dfe5df;padding:7px;vertical-align:top}th{position:sticky;top:0;background:#e9eee9}
+  tr.bad{background:#fff0ed}tr.good{background:#eef8ef}tr.unk{background:#fafafa}small{color:#667269}
+  code{background:#edf1ed;padding:1px 4px;border-radius:4px}
+  </style>
+  <h1>Astra Biology Cross-Audit v245</h1>
+  <div class="sub">AUDIT-ONLY. Konflikt = kandydat do weryfikacji źródłowej, nie automatyczna zmiana scoringu.</div>
+  <div class="cards">
+    <div class="card"><b>${report.summary.runtimeSpecies}</b><br>gatunków runtime</div>
+    <div class="card"><b>${report.summary.matched}</b><br>dopasowanych Astra</div>
+    <div class="card"><b>${report.summary.support}</b><br>SUPPORT</div>
+    <div class="card"><b>${report.summary.conflictCandidates}</b><br>CONFLICT_CANDIDATE</div>
+    <div class="card"><b>${report.summary.unknown}</b><br>UNKNOWN</div>
+  </div>
+  <p><b>Najwyższy priorytet ręcznego sprawdzenia:</b> ${report.topReview.map(x=>v245Esc(x.label)+' ('+x.priority+')').join(', ')||'brak'}</p>
+  <table><thead><tr><th>Gatunek</th><th>Werdykt</th><th>Ekologia</th><th>Hosty runtime</th><th>STRICT / Astra</th><th>Wiek</th><th>pH</th><th>Fenologia</th><th>Flagi</th></tr></thead><tbody>${rows}</tbody></table>
+  <p><small>Źródło Astra: ${v245Esc(report.astraSource.date)} · ${v245Esc(report.astraSource.status)}. Pełna walidacja merytoryczna źródła: ${report.astraSource.fullSemanticValidation?'tak':'nie'}.</small></p>`;
+}
+function v245Download(name,text,type='application/json'){
+  const blob=new Blob([text],{type:type+';charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+window.auditAstraV245=async function(){
+  const astra=await v245LoadAstra();
+  const idx=v245BuildIndexes(astra);
+  const types=v245RuntimeTypes();
+  const rows=[];
+  const unmatched=[];
+  for(const type of types){
+    const meta=v245RuntimeMeta(type);
+    const m=v245MatchRecord(type,meta,idx);
+    if(!m.record){
+      unmatched.push({type,label:meta.label||type,scientific:meta.scientific||null});
+      continue;
+    }
+    rows.push(v245AuditOne(type,m.record,m.method));
+  }
+  rows.sort((a,b)=>b.priority-a.priority||a.label.localeCompare(b.label,'pl'));
+  const summary={
+    runtimeSpecies:types.length,
+    matched:rows.length,
+    unmatched:unmatched.length,
+    support:rows.filter(x=>x.verdict==='SUPPORT').length,
+    conflictCandidates:rows.filter(x=>x.verdict==='CONFLICT_CANDIDATE').length,
+    unknown:rows.filter(x=>x.verdict==='UNKNOWN').length,
+    strictReview:rows.filter(x=>x.checks.strictHost.status==='REVIEW').length,
+    ageModelOnly:rows.filter(x=>x.checks.age.modelOnly).length,
+    phModelOnly:rows.filter(x=>x.checks.ph.modelOnly).length,
+    seasonConflict:rows.filter(x=>x.checks.season.conflict).length
+  };
+  const report={
+    version:'v245-astra-cross-audit',
+    auditOnly:true,
+    scoringChanged:false,
+    biologyChanged:false,
+    generatedAt:new Date().toISOString(),
+    astraSource:{
+      date:astra.source_date,
+      status:astra.source_status,
+      completeCountryList:astra.source_complete_country_list,
+      fullSemanticValidation:astra.quality_control?.walidacja_merytoryczna_pelna===true,
+      records:astra.records?.length||0
+    },
+    summary,unmatched,rows,
+    topReview:rows.filter(x=>x.priority>0).slice(0,15).map(x=>({
+      type:x.type,label:x.label,scientific:x.scientific,priority:x.priority,verdict:x.verdict,
+      flags:{
+        ecology:x.checks.ecology.status,
+        strict:x.checks.strictHost.status,
+        ageModelOnly:x.checks.age.modelOnly,
+        phModelOnly:x.checks.ph.modelOnly,
+        seasonConflict:x.checks.season.conflict
+      }
+    })),
+    rules:[
+      'Nie zmieniać biologii automatycznie na podstawie tego raportu.',
+      'G0 = synteza konsultacyjna; wymaga źródła gatunkowego przed zmianą krytycznych parametrów.',
+      'H0 = hipoteza; nie używać jako twardej reguły scoringu.',
+      'Brak hosta w Astra nie jest konfliktem, bo lista partnerów jest niewyczerpująca.',
+      'Astra null nie oznacza, że nasza wartość jest błędna; oznacza brak potwierdzenia w tym pakiecie.',
+      'CONFLICT_CANDIDATE oznacza priorytet do ręcznego researchu, nie verdict biologiczny.'
+    ]
+  };
+  window.__astraV245Last=report;
+  console.info('ASTRA BIOLOGY CROSS-AUDIT v245',report);
+  console.table(report.topReview);
+  return report;
+};
+
+window.downloadAstraV245Report=async function(){
+  const r=window.__astraV245Last||await window.auditAstraV245();
+  v245Download('ASTRA_CROSS_AUDIT_V245.json',JSON.stringify(r,null,2),'application/json');
+  v245Download('ASTRA_CROSS_AUDIT_V245.html',v245Html(r),'text/html');
+  return r;
+};
+
+window.copyAstraV245Summary=async function(){
+  const r=window.__astraV245Last||await window.auditAstraV245();
+  const text=[
+    'ASTRA CROSS-AUDIT v245',
+    `runtime=${r.summary.runtimeSpecies} matched=${r.summary.matched} unmatched=${r.summary.unmatched}`,
+    `SUPPORT=${r.summary.support} CONFLICT_CANDIDATE=${r.summary.conflictCandidates} UNKNOWN=${r.summary.unknown}`,
+    `strictReview=${r.summary.strictReview} ageModelOnly=${r.summary.ageModelOnly} phModelOnly=${r.summary.phModelOnly} seasonConflict=${r.summary.seasonConflict}`,
+    '',
+    ...r.topReview.map((x,i)=>`${i+1}. ${x.label} [${x.type}] priority=${x.priority} verdict=${x.verdict} flags=${JSON.stringify(x.flags)}`)
+  ].join('\n');
+  await navigator.clipboard.writeText(text);
+  console.info(text);
+  return text;
+};
+
+console.info('V245 ASTRA CROSS-AUDIT READY',{
+  auditOnly:true,
+  scoringChanged:false,
+  commands:['auditAstraV245()','downloadAstraV245Report()','copyAstraV245Summary()']
+});
+})();
+</script>
+
 </body>
 </html>
 

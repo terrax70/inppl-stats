@@ -7069,15 +7069,65 @@ async function fetchPaged(layerId,outFields,geometry=true,base=BDL_BASE){
 function joinKey(f,src){
  return src+'|'+String(f.properties?.adress_forest||'').trim();
 }
+// v238-local-stand-composition
+// Warstwa 11/12 BDL zwraca wiele rekordow dla jednego adress_forest:
+// poszczegolne gatunki/warstwy drzewostanu. Stare dedup() wybieralo tylko jeden
+// rekord i wyrzucalo reszte. Teraz nadal renderujemy JEDEN polygon, ale zachowujemy
+// caly sklad w _standSpecies.
 function dedup(features){
- const m=new Map();
- for(const f of features){
-   const p=f.properties||{}, key=f._src+'|'+(p.adress_forest||p.subarea_id||Math.random());
-   const old=m.get(key);
-   const rank=Number(p.storey_rank_order||99), oldRank=Number(old?.properties?.storey_rank_order||99);
-   if(!old || rank<oldRank || (!old.properties?.species_age && p.species_age))m.set(key,f);
- }
- return [...m.values()];
+  const groups=new Map();
+
+  for(const f of features){
+    const p=f.properties||{};
+    const address=String(p.adress_forest||p.subarea_id||'').trim();
+    const key=f._src+'|'+address;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(f);
+  }
+
+  const out=[];
+  for(const rows of groups.values()){
+    if(!rows.length)continue;
+
+    rows.sort((a,b)=>{
+      const ap=a.properties||{},bp=b.properties||{};
+      const ar=Number(ap.storey_rank_order||99),br=Number(bp.storey_rank_order||99);
+      if(ar!==br)return ar-br;
+      const ash=Number(String(ap.part_cd||'').replace(',','.'));
+      const bsh=Number(String(bp.part_cd||'').replace(',','.'));
+      if(Number.isFinite(ash)&&Number.isFinite(bsh)&&ash!==bsh)return bsh-ash;
+      return Number(bp.species_age||0)-Number(ap.species_age||0);
+    });
+
+    const rep=rows[0];
+    const composition=[];
+    const seen=new Set();
+
+    for(const row of rows){
+      const p=row.properties||{};
+      const tree=canonicalTreeCode(p.species_cd||p.gat_grp||p.species_cd_d||'');
+      if(!tree)continue;
+
+      const part=String(p.part_cd??'').trim().toUpperCase();
+      const storey=String(p.storey_cd??'').trim().toUpperCase();
+      const age=Number(p.species_age||0);
+      const rank=Number(p.storey_rank_order||99);
+      const sig=[tree,part,storey,age,rank].join('|');
+      if(seen.has(sig))continue;
+      seen.add(sig);
+
+      composition.push({
+        tree,part,storey,age,rank,
+        lit:String(p.lit??'').trim(),
+        orderKey:String(p.order_key??'').trim()
+      });
+    }
+
+    rep._standSpecies=composition;
+    rep._standCompositionSource=composition.length>1?'bdl-multirow':'bdl-single';
+    out.push(rep);
+  }
+  return out;
 }
 
 function addEcologyContext(feats){
@@ -8787,9 +8837,10 @@ function observationTaxonRequiredV222(taxon,source){
  return taxon;
 }
 
+const INAT_TAXON_ALIAS_V239=Object.freeze({ceglastopory:'Neoboletus erythropus'});
 async function resolveINatTaxonId(type){
  if(observationTaxonResolverCache.inat.has(type))return observationTaxonResolverCache.inat.get(type);
- const scientific=SCI_NAMES[type];
+ const scientific=INAT_TAXON_ALIAS_V239[type]||SCI_NAMES[type];
  let out=null;
  try{
    const q=new URLSearchParams({q:scientific,rank:'species',per_page:'30'});
@@ -10331,8 +10382,8 @@ async function main(){
    // Najważniejsze warstwy idą PIERWSZE. Siedlisko, KO/KDO i rezerwaty są enrichmentem.
    const bdlBaseT0=performance.now();
    const baseResults=await Promise.allSettled([
-     fetchPaged(11,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_rank_order,stand_struct_cd,rotation_age'),
-     fetchPaged(12,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_rank_order,stand_struct_cd,rotation_age')
+     fetchPaged(11,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_cd,storey_rank_order,order_key,lit,stand_struct_cd,rotation_age'),
+     fetchPaged(12,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_cd,storey_rank_order,order_key,lit,stand_struct_cd,rotation_age')
    ]);
    analysisSourceTimings.bdlBase=performance.now()-bdlBaseT0;
 
@@ -10344,7 +10395,8 @@ async function main(){
      feats=prepareBaseForestFeatures(baseRows);
      if(!feats.length)throw new Error('BDL zwróciło dane, ale poza wybranym obszarem.');
 
-     // KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
+     
+      await loadExactStandCompositionV239(feats);// KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
      renderForestBaseImmediately(feats,'bazowe');
      forestBaseLoaded=true;
      validationForestBaseMode='full';
@@ -10366,7 +10418,8 @@ async function main(){
      feats=prepareBaseForestFeatures(fallbackRows);
      if(!feats.length)throw new Error('Awaryjne dane BDL nie zawierają wydzieleń w tym rejonie.');
 
-     renderForestBaseImmediately(feats,'tryb awaryjny');
+     
+      await loadExactStandCompositionV239(feats);renderForestBaseImmediately(feats,'tryb awaryjny');
      forestBaseLoaded=true;
      validationForestBaseMode='fallback-5/6';
      setSourceState('forest','ok',`${feats.length} wydzieleń • tryb awaryjny BDL 5/6`);
@@ -11419,6 +11472,248 @@ function featureNearSpeciesSetV189(f){
  perfFeatureNearSpeciesCacheV189.set(f,{src,len:src.length,set});
  return set;
 }
+// ========================= v238: PELNY SKLAD DRZEWOSTANU =========================
+// WAZNE: _nearSpecies zostaje tylko jako kontekst diagnostyczny/legacy.
+// treePreference(), hostGate() i kernel BEST NIE moga juz pozyczac gospodarza
+// z sasiedniego wydzielenia. Host musi wystepowac w TYM konkretnym polygonie.
+
+/* v239 — full exact stand composition from official BDL export packs */
+const EXACT_STAND_PACKS_V239=Object.freeze({
+  '02-24':{url:'./data/bdl_stands/02_24_2026.min.json',year:2026,prepared:'2026-06-23',district:'Prószków'}
+});
+const exactStandPackCacheV239=new Map();
+let exactStandLastV239={matched:0,total:0,packs:[],elapsedMs:0};
+
+function normalizeStandAddressV239(s){
+  return String(s||'').replace(/\s+/g,'');
+}
+function standDistrictKeyV239(address){
+  const m=/^(\d{2})-(\d{2})-/.exec(normalizeStandAddressV239(address));
+  return m?`${m[1]}-${m[2]}`:'';
+}
+async function getExactStandPackV239(district){
+  if(exactStandPackCacheV239.has(district))return exactStandPackCacheV239.get(district);
+  const cfg=EXACT_STAND_PACKS_V239[district];
+  if(!cfg)return null;
+  const p=fetch(cfg.url,{cache:'force-cache'})
+    .then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status} ${cfg.url}`);return r.json();})
+    .catch(e=>{console.warn('V239 exact BDL pack unavailable',district,e);return null;});
+  exactStandPackCacheV239.set(district,p);
+  return p;
+}
+
+async function loadExactStandCompositionV239(feats){
+  const t0=performance.now();
+  const forests=(feats||[]).filter(f=>f?._kind==='forest');
+  const districts=[...new Set(forests.map(f=>standDistrictKeyV239(f.properties?.adress_forest)).filter(Boolean))];
+  const packs=new Map();
+
+  await Promise.all(districts.map(async d=>{
+    const pack=await getExactStandPackV239(d);
+    if(pack)packs.set(d,pack);
+  }));
+
+  let matched=0,multi=0,rows=0;
+  for(const f of forests){
+    const address=normalizeStandAddressV239(f.properties?.adress_forest);
+    const d=standDistrictKeyV239(address);
+    const pack=packs.get(d);
+    const compact=pack?.stands?.[address];
+    if(!Array.isArray(compact)||!compact.length)continue;
+
+    const decoded=[];
+    for(const r of compact){
+      const treeRaw=pack.trees?.[r[0]]||'';
+      const tree=canonicalTreeCode(treeRaw);
+      if(!tree)continue;
+      const pi=Number(r[2]);
+      decoded.push({
+        tree,
+        rawTree:treeRaw,
+        age:Number(r[1]||0),
+        part:pi>=0?(pack.parts?.[pi]||''):'',
+        storey:'DRZEW',
+        rank:Number(r[3]||99),
+        source:'bdl-full-export-v239'
+      });
+    }
+    if(!decoded.length)continue;
+
+    f._standSpecies=decoded;
+    f._standCompositionSource='bdl-full-export-v239';
+    f._standExactV239=true;
+    f._standPackV239={district:d,year:pack.year,prepared:pack.prepared};
+    matched++;
+    rows+=decoded.length;
+    if(new Set(decoded.map(x=>x.tree)).size>1)multi++;
+  }
+
+  if(matched)invalidateScoringCaches('exact BDL stand composition v239');
+
+  exactStandLastV239={
+    matched,total:forests.length,multiSpecies:multi,rows,
+    coveragePct:forests.length?+(100*matched/forests.length).toFixed(1):0,
+    multiPct:matched?+(100*multi/matched).toFixed(1):0,
+    packs:[...packs.keys()],
+    elapsedMs:+(performance.now()-t0).toFixed(1)
+  };
+  console.info('EXACT BDL STANDS v239',exactStandLastV239);
+  return exactStandLastV239;
+}
+
+window.auditStandV239=function(address=''){
+  const q=normalizeStandAddressV239(address).toLowerCase();
+  const forests=(typeof allFeatures!=='undefined'?allFeatures:[]).filter(f=>f?._kind==='forest');
+  const rows=forests.filter(f=>{
+    const a=normalizeStandAddressV239(f.properties?.adress_forest).toLowerCase();
+    if(!q)return !!f._standExactV239;
+    return a.includes(q);
+  });
+  const report={
+    version:'v239-exact-bdl-stands',
+    last:{...exactStandLastV239},
+    neighborSpeciesUsedForHostScore:false,
+    exactPackConfig:EXACT_STAND_PACKS_V239,
+    matches:rows.slice(0,30).map(f=>({
+      address:normalizeStandAddressV239(f.properties?.adress_forest),
+      dominant:featureTreeCodeV189(f),
+      exact:!!f._standExactV239,
+      source:f._standCompositionSource||'',
+      composition:featureStandSpeciesProfileV238(f),
+      legacyNear:Array.isArray(f._nearSpecies)?[...f._nearSpecies]:[]
+    }))
+  };
+  console.info('V239 STAND AUDIT',report);
+  return report;
+};
+
+
+function standPartShareV238(part,storey=''){
+  const raw=String(part??'').trim().toUpperCase().replace(',','.');
+  const n=Number(raw);
+  let share;
+  if(Number.isFinite(n)&&n>0){
+    share=n<=10?n/10:Math.min(1,n/100);
+  }else if(raw==='MJS'){
+    share=.06;
+  }else if(raw==='PJD'||raw==='JED'){
+    share=.025;
+  }else if(raw){
+    share=.045;
+  }else{
+    share=.04;
+  }
+
+  const st=String(storey||'').toUpperCase();
+  if(st.includes('POD'))share*=.35;
+
+  return Math.max(.005,Math.min(1,share));
+}
+
+function featureStandSpeciesProfileV238(f){
+  const direct=featureTreeCodeV189(f);
+  const raw=Array.isArray(f?._standSpecies)?f._standSpecies:[];
+  const by=new Map();
+
+  for(const r of raw){
+    const tree=canonicalTreeCode(r?.tree||r?.species_cd||r?.gat_grp||r?.species_cd_d||'');
+    if(!tree)continue;
+    const share=Number.isFinite(Number(r?.share))
+      ?Math.max(.005,Math.min(1,Number(r.share)))
+      :standPartShareV238(r?.part,r?.storey);
+    const age=Number(r?.age||0);
+    const cur=by.get(tree);
+    if(!cur||share>cur.share){
+      by.set(tree,{
+        tree,share,age,
+        part:String(r?.part??''),
+        storey:String(r?.storey??''),
+        rank:Number(r?.rank||99),
+        dominant:tree===direct
+      });
+    }
+  }
+
+  if(direct&&!by.has(direct)){
+    by.set(direct,{
+      tree:direct,share:1,age:Number(f?.properties?.species_age||0),
+      part:'10',storey:'',rank:1,dominant:true
+    });
+  }
+
+  return [...by.values()].sort((a,b)=>{
+    if(a.dominant!==b.dominant)return a.dominant?-1:1;
+    if(b.share!==a.share)return b.share-a.share;
+    return a.rank-b.rank;
+  });
+}
+
+function standLocalMatchV238(profile,strong,secondary){
+  const sStrong=strong instanceof Set?strong:new Set(strong||[]);
+  const sSecondary=secondary instanceof Set?secondary:new Set(secondary||[]);
+  let bestStrong=null,bestSecondary=null;
+
+  for(const r of profile||[]){
+    if(sStrong.has(r.tree)&&(!bestStrong||r.share>bestStrong.share))bestStrong=r;
+    if(sSecondary.has(r.tree)&&(!bestSecondary||r.share>bestSecondary.share))bestSecondary=r;
+  }
+  if(bestStrong)return {kind:'strong',row:bestStrong,share:bestStrong.share};
+  if(bestSecondary)return {kind:'secondary',row:bestSecondary,share:bestSecondary.share};
+  return null;
+}
+
+function standTreeScoreV238(match,wood=false){
+  if(!match)return wood?4.2:2.5;
+  if(match.kind==='strong')return Math.min(9.65,7.2+2.5*match.share);
+  return Math.min(7.95,6.2+1.8*match.share);
+}
+
+function standGateScoreV238(match,strict=false){
+  if(!match)return NaN;
+  if(match.kind==='strong')return Math.min(.99,(strict?.72:.68)+(strict?.28:.32)*match.share);
+  return Math.min(.90,(strict?.48:.55)+(strict?.24:.29)*match.share);
+}
+
+function standCompositionTextV238(f){
+  const rows=featureStandSpeciesProfileV238(f);
+  if(!rows.length)return '';
+  return rows.map(r=>{
+    const part=String(r.part||'').trim();
+    const share=part?part:(r.dominant?'domin.':'');
+    const age=Number(r.age)>0?` • ${Math.round(r.age)} l.`:'';
+    const storey=r.storey?` • ${r.storey}`:'';
+    return `${r.tree}${share?` ${share}`:''}${age}${storey}`;
+  }).join(' | ');
+}
+
+function standCompositionHtmlV238(f){
+  const txt=standCompositionTextV238(f);
+  return txt?`<br><span style="opacity:.78">🌳 Skład BDL: ${escapeHtml(txt)}</span>`:'';
+}
+
+window.auditStandV238=function(address=''){
+  const q=String(address||'').trim().toLowerCase();
+  const forests=(typeof allFeatures!=='undefined'?allFeatures:[]).filter(f=>f?._kind==='forest');
+  const rows=forests.filter(f=>!q||String(f.properties?.adress_forest||'').toLowerCase().includes(q));
+  const multi=forests.filter(f=>featureStandSpeciesProfileV238(f).length>1);
+  const report={
+    version:'v238-local-stand-composition',
+    features:forests.length,
+    multiSpeciesFeatures:multi.length,
+    multiSpeciesPct:forests.length?+(100*multi.length/forests.length).toFixed(1):0,
+    neighborSpeciesUsedForHostScore:false,
+    query:address||'',
+    matches:rows.slice(0,20).map(f=>({
+      address:f.properties?.adress_forest||'',
+      dominant:featureTreeCodeV189(f),
+      composition:featureStandSpeciesProfileV238(f),
+      legacyNear:Array.isArray(f._nearSpecies)?[...f._nearSpecies]:[]
+    }))
+  };
+  console.info('V238 STAND AUDIT',report);
+  return report;
+};
+
 function soilAtFeatureV189(f){
  if(!f||typeof f!=='object')return null;
  const hit=perfFeatureSoilSampleCacheV189.get(f);
@@ -11715,55 +12010,69 @@ function speciesAgeCurveV189(type){
 }
 
 function treePreference(type,f){
- const m=SPECIES_META[type];if(!m)return 5;
- if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
- const direct=featureTreeCodeV189(f),near=featureNearSpeciesSetV189(f);
- if(type==='ponury'){
-   if(['DB','BK','LP'].includes(direct))return 9.7;
-   if(direct==='GB')return 8.2;
-   if(['DB','BK','LP'].some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?5.2:6.9;
-   if(near.has('GB'))return 5.9;
-   return 2.6;
- }
- const hosts=SPECIES_HOST_RUNTIME_V221[type];
- if(hosts?.strong.has(direct))return 9.7;
- if(hosts?.secondary.has(direct))return 8.0;
- if(hosts&&v221SetIntersects(hosts.strong,near))return 7.2;
- if(hosts&&v221SetIntersects(hosts.secondary,near))return 6.2;
- return m.ecology==='wood'?4.2:2.5;
+  const m=SPECIES_META[type];if(!m)return 5;
+  if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
+
+  const direct=featureTreeCodeV189(f);
+  const profile=featureStandSpeciesProfileV238(f);
+
+  if(type==='ponury'){
+    const strong=new Set(['DB','BK','LP']),secondary=new Set(['GB']);
+    if(strong.has(direct))return 9.7;
+    if(secondary.has(direct))return 8.2;
+    const match=standLocalMatchV238(profile,strong,secondary);
+    if(match?.kind==='strong'){
+      const base=['SO','SW','JD','MD'].includes(direct)?5.2:6.9;
+      return Math.min(9.35,base+2.0*match.share);
+    }
+    if(match?.kind==='secondary')return Math.min(7.4,5.9+1.5*match.share);
+    return 2.6;
+  }
+
+  const hosts=SPECIES_HOST_RUNTIME_V221[type];
+  if(hosts?.strong.has(direct))return 9.7;
+  if(hosts?.secondary.has(direct))return 8.0;
+
+  const match=hosts?standLocalMatchV238(profile,hosts.strong,hosts.secondary):null;
+  return standTreeScoreV238(match,m.ecology==='wood');
 }
 
 function hostGate(type,f){
- const m=SPECIES_META[type];if(!m)return 1;
- if(m.ecology==='grassland'||m.ecology==='edge')return 1;
+  const m=SPECIES_META[type];if(!m)return 1;
+  if(m.ecology==='grassland'||m.ecology==='edge')return 1;
 
- const cfg=HOSTS[type]||{strong:[],secondary:[]};
- const direct=featureTreeCodeV189(f);
- const near=featureNearSpeciesSetV189(f);
- const strict=STRICT_HOST_TYPES.has(type);
+  const cfg=HOSTS[type]||{strong:[],secondary:[]};
+  const direct=featureTreeCodeV189(f);
+  const profile=featureStandSpeciesProfileV238(f);
+  const strict=STRICT_HOST_TYPES.has(type);
 
- if(type==='ponury'){
-   if(cfg.strong.includes(direct))return 1;
-   if(cfg.secondary.includes(direct))return .82;
-   if(cfg.strong.some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?.42:.62;
-   if(cfg.secondary.some(x=>near.has(x)))return .50;
-   const hab=featureHabitatCodeV189(f);
-   return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
- }
+  if(type==='ponury'){
+    if(cfg.strong.includes(direct))return 1;
+    if(cfg.secondary.includes(direct))return .82;
+    const match=standLocalMatchV238(profile,cfg.strong,cfg.secondary);
+    if(match?.kind==='strong'){
+      const base=['SO','SW','JD','MD'].includes(direct)?.42:.62;
+      return Math.min(.94,base+.28*match.share);
+    }
+    if(match?.kind==='secondary')return Math.min(.78,.50+.20*match.share);
+    const hab=featureHabitatCodeV189(f);
+    return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
+  }
 
- const hosts=SPECIES_HOST_RUNTIME_V221[type];
- if(hosts?.strong.has(direct))return 1;
- if(hosts?.secondary.has(direct))return strict?.72:.84;
- if(hosts&&v221SetIntersects(hosts.strong,near))return strict?.72:.68;
- if(hosts&&v221SetIntersects(hosts.secondary,near))return strict?.48:.55;
+  const hosts=SPECIES_HOST_RUNTIME_V221[type];
+  if(hosts?.strong.has(direct))return 1;
+  if(hosts?.secondary.has(direct))return strict?.72:.84;
 
- if(m.ecology==='wood')return .38;
+  const match=hosts?standLocalMatchV238(profile,hosts.strong,hosts.secondary):null;
+  const localGate=standGateScoreV238(match,strict);
+  if(Number.isFinite(localGate))return localGate;
 
- const hab=featureHabitatCodeV189(f);
- if(strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
- return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
+  if(m.ecology==='wood')return .38;
+
+  const hab=featureHabitatCodeV189(f);
+  if(strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
+  return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
 }
-
 
 function soilReliability(){
  if(!soilReady)return 0;
@@ -14360,13 +14669,15 @@ function opportunityForestDescriptorsV200(types){
  return opportunityForestDescriptorCacheV200;
 }
 function opportunityForestContextV200(f,sharedCtxScore=NaN){
- const p=f.properties||{};
- return {
-   f,p,direct:featureTreeCodeV189(f),habCode:featureHabitatCodeV189(f),near:featureNearSpeciesSetV189(f),
-   soil:soilAtFeatureV189(f),terrainBase:terrainBaseForFeatureV189(f),age:Number(p.species_age||0),
-   ko:!!f._ko,ctxScore:Number.isFinite(sharedCtxScore)?sharedCtxScore:forestContextInfo(f).score,center:f._center
- };
+  const p=f.properties||{};
+  return {
+    f,p,direct:featureTreeCodeV189(f),habCode:featureHabitatCodeV189(f),
+    stand:featureStandSpeciesProfileV238(f),
+    soil:soilAtFeatureV189(f),terrainBase:terrainBaseForFeatureV189(f),age:Number(p.species_age||0),
+    ko:!!f._ko,ctxScore:Number.isFinite(sharedCtxScore)?sharedCtxScore:forestContextInfo(f).score,center:f._center
+  };
 }
+
 function opportunityAgeV200(d,age){
  age=Number(age||0);
  if(!age)return 6.5;
@@ -14412,37 +14723,54 @@ function opportunitySoilV200(d,s,rel){
  return out;
 }
 function opportunityTreeV200(d,ctx){
- const direct=ctx.direct,near=ctx.near;
- if(d.type==='ponury'){
-   if(['DB','BK','LP'].includes(direct))return 9.7;
-   if(direct==='GB')return 8.2;
-   if(['DB','BK','LP'].some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?5.2:6.9;
-   if(near.has('GB'))return 5.9;
-   return 2.6;
- }
- if(d.strong.includes(direct))return 9.7;
- if(d.secondary.includes(direct))return 8.0;
- if(d.strong.some(x=>near.has(x)))return 7.2;
- if(d.secondary.some(x=>near.has(x)))return 6.2;
- return d.eco==='wood'?4.2:2.5;
+  const direct=ctx.direct,profile=ctx.stand||[];
+
+  if(d.type==='ponury'){
+    const strong=new Set(['DB','BK','LP']),secondary=new Set(['GB']);
+    if(strong.has(direct))return 9.7;
+    if(secondary.has(direct))return 8.2;
+    const match=standLocalMatchV238(profile,strong,secondary);
+    if(match?.kind==='strong'){
+      const base=['SO','SW','JD','MD'].includes(direct)?5.2:6.9;
+      return Math.min(9.35,base+2.0*match.share);
+    }
+    if(match?.kind==='secondary')return Math.min(7.4,5.9+1.5*match.share);
+    return 2.6;
+  }
+
+  if(d.strong.includes(direct))return 9.7;
+  if(d.secondary.includes(direct))return 8.0;
+  const match=standLocalMatchV238(profile,d.strong,d.secondary);
+  return standTreeScoreV238(match,d.eco==='wood');
 }
+
 function opportunityGateV200(d,ctx){
- const direct=ctx.direct,near=ctx.near,hab=ctx.habCode;
- if(d.type==='ponury'){
-   if(d.strong.includes(direct))return 1;
-   if(d.secondary.includes(direct))return .82;
-   if(d.strong.some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?.42:.62;
-   if(d.secondary.some(x=>near.has(x)))return .50;
-   return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
- }
- if(d.strong.includes(direct))return 1;
- if(d.secondary.includes(direct))return d.strict?.72:.84;
- if(d.strong.some(x=>near.has(x)))return d.strict?.72:.68;
- if(d.secondary.some(x=>near.has(x)))return d.strict?.48:.55;
- if(d.eco==='wood')return .38;
- if(d.strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
- return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
+  const direct=ctx.direct,profile=ctx.stand||[],hab=ctx.habCode;
+
+  if(d.type==='ponury'){
+    if(d.strong.includes(direct))return 1;
+    if(d.secondary.includes(direct))return .82;
+    const match=standLocalMatchV238(profile,d.strong,d.secondary);
+    if(match?.kind==='strong'){
+      const base=['SO','SW','JD','MD'].includes(direct)?.42:.62;
+      return Math.min(.94,base+.28*match.share);
+    }
+    if(match?.kind==='secondary')return Math.min(.78,.50+.20*match.share);
+    return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
+  }
+
+  if(d.strong.includes(direct))return 1;
+  if(d.secondary.includes(direct))return d.strict?.72:.84;
+
+  const match=standLocalMatchV238(profile,d.strong,d.secondary);
+  const localGate=standGateScoreV238(match,d.strict);
+  if(Number.isFinite(localGate))return localGate;
+
+  if(d.eco==='wood')return .38;
+  if(d.strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
+  return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
 }
+
 function opportunityHabitatV200(d,hab){
  if(Object.prototype.hasOwnProperty.call(d.habCache,hab))return d.habCache[hab];
  let s=(STABLE_HABITAT_BASE_V189[hab]??6.4)+((d.habMap?.[hab])||0);
@@ -26694,7 +27022,7 @@ function popupHtmlBase(f){
  const soilRaw=soilAt(f._center),hist=historyInfo(type,f),what=whatCanGrowHere(f);
  const src=f._kind==='open'?'OpenStreetMap':(f._src==='pgl'?'PGL LP':(f._src==='other'?'poza PGL LP':'KO/KDO'));
  const mainLine=f._kind==='open'?`🌿 <b>Teren otwarty OSM:</b> ${p.open_type||'teren otwarty'}${p.name?' • '+p.name:''} • ${openHabitatAreaHa(f).toFixed(2)} ha`:
-   `🌲 <b>${p.species_cd||p.gat_grp||'?'}</b> • ${p.species_age??'?'} lat • ${p.site_type_cd||'?'} • ${p.sub_area??'?'} ha`;
+   `🌲 <b>${p.species_cd||p.gat_grp||'?'}</b> • ${p.species_age??'?'} lat • ${p.site_type_cd||'?'} • ${p.sub_area??'?'} ha${standCompositionHtmlV238(f)}`;
  const goodHtml=reasons.good.map(x=>`<div class="reason-good">✅ ${x}</div>`).join(''),warnHtml=reasons.warn.map(x=>`<div class="reason-warn">⚠️ ${x}</div>`).join('');
  const stable=stableAnchorScore(f),cls=currentMapClassForFeature(f),hs=f._hotspotIndex?` • należy do hotspotu ${f._hotspotLabel||''}`:' • poza numerowanym hotspotem';
  return `<div class="popup-card">`+
@@ -28297,15 +28625,20 @@ const SYNTHETIC_EXPECTED_V186={
 };
 
 function v186SyntheticFeature(region){
- return {
-   _kind:region.kind==='open'?'open':'forest',
-   _nearSpecies:[...(region.near||[])],
-   _center:[52,19],_ko:false,_openNear:region.kind==='open'?0:2,
-   properties:{
-     species_cd:region.tree||'',gat_grp:region.tree||'',site_type_cd:region.hab||'',species_age:region.age||0,
-     open_type:region.openType||'',open_area_ha:region.areaHa||0
-   }
- };
+  const local=[
+    {tree:region.tree||'',part:'10',share:1,age:region.age||0,storey:'DRZEW',rank:1},
+    ...(region.near||[]).map((tree,i)=>({tree,part:'2',share:.2,age:region.age||0,storey:'DRZEW',rank:i+2}))
+  ];
+  return {
+    _kind:region.kind==='open'?'open':'forest',
+    _nearSpecies:[...(region.near||[])],
+    _standSpecies:local,
+    _center:[52,19],_ko:false,_openNear:region.kind==='open'?0:2,
+    properties:{
+      species_cd:region.tree||'',gat_grp:region.tree||'',site_type_cd:region.hab||'',species_age:region.age||0,
+      open_type:region.openType||'',open_area_ha:region.areaHa||0
+    }
+  };
 }
 
 function v186SyntheticSoilScore(type,region){
@@ -28798,46 +29131,101 @@ window.copyFullYearPhenologyAuditV188=async function(){
 // Referencja odtwarza logikę v188 dla wszystkich elementów zmienionych w fast-path.
 // W przeciwieństwie do audytu v189 finalne pairStatic/pairDynamic NIE wołają
 // produkcyjnych stableScoreForType()/speciesEffective(), więc nie są tautologią.
+function v190RefStandProfileV238(f){
+  const direct=speciesCode(f.properties||{});
+  const raw=Array.isArray(f?._standSpecies)?f._standSpecies:[];
+  const by=new Map();
+
+  const shareFor=(part,storey='')=>{
+    const raw=String(part??'').trim().toUpperCase().replace(',','.');
+    const n=Number(raw);
+    let s;
+    if(Number.isFinite(n)&&n>0)s=n<=10?n/10:Math.min(1,n/100);
+    else if(raw==='MJS')s=.06;
+    else if(raw==='PJD'||raw==='JED')s=.025;
+    else if(raw)s=.045;
+    else s=.04;
+    if(String(storey||'').toUpperCase().includes('POD'))s*=.35;
+    return Math.max(.005,Math.min(1,s));
+  };
+
+  for(const r of raw){
+    const tree=canonicalTreeCode(r?.tree||r?.species_cd||r?.gat_grp||r?.species_cd_d||'');
+    if(!tree)continue;
+    const share=Number.isFinite(Number(r?.share))?Number(r.share):shareFor(r?.part,r?.storey);
+    const cur=by.get(tree);
+    if(!cur||share>cur.share)by.set(tree,{tree,share});
+  }
+  if(direct&&!by.has(direct))by.set(direct,{tree:direct,share:1});
+  return [...by.values()];
+}
+function v190RefLocalMatchV238(profile,strong,secondary){
+  let a=null,b=null;
+  for(const r of profile||[]){
+    if((strong||[]).includes(r.tree)&&(!a||r.share>a.share))a=r;
+    if((secondary||[]).includes(r.tree)&&(!b||r.share>b.share))b=r;
+  }
+  if(a)return {kind:'strong',share:a.share};
+  if(b)return {kind:'secondary',share:b.share};
+  return null;
+}
 function v190RefTreePreference(type,f){
- const m=SPECIES_META[type];if(!m)return 5;
- if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
- const direct=speciesCode(f.properties||{}),near=new Set(f._nearSpecies||[]);
- if(type==='ponury'){
-   if(['DB','BK','LP'].includes(direct))return 9.7;
-   if(direct==='GB')return 8.2;
-   if(['DB','BK','LP'].some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?5.2:6.9;
-   if(near.has('GB'))return 5.9;
-   return 2.6;
- }
- if((m.strong||[]).includes(direct))return 9.7;
- if((m.secondary||[]).includes(direct))return 8.0;
- if((m.strong||[]).some(x=>near.has(x)))return 7.2;
- if((m.secondary||[]).some(x=>near.has(x)))return 6.2;
- return m.ecology==='wood'?4.2:2.5;
+  const m=SPECIES_META[type];if(!m)return 5;
+  if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
+  const direct=speciesCode(f.properties||{}),profile=v190RefStandProfileV238(f);
+
+  if(type==='ponury'){
+    const strong=['DB','BK','LP'],secondary=['GB'];
+    if(strong.includes(direct))return 9.7;
+    if(secondary.includes(direct))return 8.2;
+    const x=v190RefLocalMatchV238(profile,strong,secondary);
+    if(x?.kind==='strong'){
+      const base=['SO','SW','JD','MD'].includes(direct)?5.2:6.9;
+      return Math.min(9.35,base+2*x.share);
+    }
+    if(x?.kind==='secondary')return Math.min(7.4,5.9+1.5*x.share);
+    return 2.6;
+  }
+
+  if((m.strong||[]).includes(direct))return 9.7;
+  if((m.secondary||[]).includes(direct))return 8.0;
+  const x=v190RefLocalMatchV238(profile,m.strong||[],m.secondary||[]);
+  if(x?.kind==='strong')return Math.min(9.65,7.2+2.5*x.share);
+  if(x?.kind==='secondary')return Math.min(7.95,6.2+1.8*x.share);
+  return m.ecology==='wood'?4.2:2.5;
 }
 function v190RefHostGate(type,f){
- const m=SPECIES_META[type];if(!m)return 1;
- if(m.ecology==='grassland'||m.ecology==='edge')return 1;
- const cfg=HOSTS[type]||{strong:[],secondary:[]};
- const direct=speciesCode(f.properties||{}),near=new Set(f._nearSpecies||[]);
- const strict=STRICT_HOST_TYPES.has(type);
- if(type==='ponury'){
-   if(cfg.strong.includes(direct))return 1;
-   if(cfg.secondary.includes(direct))return .82;
-   if(cfg.strong.some(x=>near.has(x)))return ['SO','SW','JD','MD'].includes(direct)?.42:.62;
-   if(cfg.secondary.some(x=>near.has(x)))return .50;
-   const hab=habitatCode(f.properties||{});
-   return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
- }
- if(cfg.strong.includes(direct))return 1;
- if(cfg.secondary.includes(direct))return strict?.72:.84;
- if(cfg.strong.some(x=>near.has(x)))return strict?.72:.68;
- if(cfg.secondary.some(x=>near.has(x)))return strict?.48:.55;
- if(m.ecology==='wood')return .38;
- const hab=habitatCode(f.properties||{});
- if(strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
- return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
+  const m=SPECIES_META[type];if(!m)return 1;
+  if(m.ecology==='grassland'||m.ecology==='edge')return 1;
+  const cfg=HOSTS[type]||{strong:[],secondary:[]};
+  const direct=speciesCode(f.properties||{}),profile=v190RefStandProfileV238(f);
+  const strict=STRICT_HOST_TYPES.has(type);
+
+  if(type==='ponury'){
+    if(cfg.strong.includes(direct))return 1;
+    if(cfg.secondary.includes(direct))return .82;
+    const x=v190RefLocalMatchV238(profile,cfg.strong,cfg.secondary);
+    if(x?.kind==='strong'){
+      const base=['SO','SW','JD','MD'].includes(direct)?.42:.62;
+      return Math.min(.94,base+.28*x.share);
+    }
+    if(x?.kind==='secondary')return Math.min(.78,.50+.20*x.share);
+    const hab=habitatCode(f.properties||{});
+    return (hab.startsWith('LM')||hab.startsWith('BM'))?.20:.10;
+  }
+
+  if(cfg.strong.includes(direct))return 1;
+  if(cfg.secondary.includes(direct))return strict?.72:.84;
+  const x=v190RefLocalMatchV238(profile,cfg.strong,cfg.secondary);
+  if(x?.kind==='strong')return Math.min(.99,(strict?.72:.68)+(strict?.28:.32)*x.share);
+  if(x?.kind==='secondary')return Math.min(.90,(strict?.48:.55)+(strict?.24:.29)*x.share);
+
+  if(m.ecology==='wood')return .38;
+  const hab=habitatCode(f.properties||{});
+  if(strict)return (hab.startsWith('LM')||hab.startsWith('BM'))?.10:.04;
+  return (hab.startsWith('LM')||hab.startsWith('BM'))?.38:.20;
 }
+
 function v190RefStableHabitatScore(type,f){
  const hab=habitatCode(f.properties||{}),m=SPECIES_META[type];if(!m)return 5.5;
  if(m.ecology==='grassland'||m.ecology==='edge')return openHabitatScore(type,f);
@@ -30034,18 +30422,21 @@ function localSoilSignatureV191(area){
  return commutativeSigV191(parts);
 }
 function featureContextFingerprintV191(f){
- const p=f?.properties||{};
- const near=Array.isArray(f?._nearSpecies)?[...f._nearSpecies].map(String).sort().join(','):'';
- const ctx=f?._kind==='open'?null:forestContextInfo(f);
- return [
-   stableFeatureKey(f),f?._kind||'',f?._blocked?1:0,
-   featureTreeCodeV189(f),featureHabitatCodeV189(f),sigNumV191(p.species_age,1),
-   near,f?._ko?1:0,sigNumV191(f?._openNear,4),sigNumV191(f?._forestNear,4),
-   sigNumV191(f?._relElev,4),sigNumV191(f?._slope,4),sigNumV191(f?._northness,5),
-   sigNumV191(ctx?.score,5),sigNumV191(ctx?.near45,4),sigNumV191(ctx?.near90,4),
-   String(p.open_type||''),sigNumV191(p.open_area_ha,4)
- ].join('|');
+  const p=f?.properties||{};
+  const stand=featureStandSpeciesProfileV238(f)
+    .map(r=>`${r.tree}:${sigNumV191(r.share,4)}:${sigNumV191(r.age,1)}:${r.storey||''}`)
+    .sort().join(',');
+  const ctx=f?._kind==='open'?null:forestContextInfo(f);
+  return [
+    stableFeatureKey(f),f?._kind||'',f?._blocked?1:0,
+    featureTreeCodeV189(f),featureHabitatCodeV189(f),sigNumV191(p.species_age,1),
+    stand,f?._ko?1:0,sigNumV191(f?._openNear,4),sigNumV191(f?._forestNear,4),
+    sigNumV191(f?._relElev,4),sigNumV191(f?._slope,4),sigNumV191(f?._northness,5),
+    sigNumV191(ctx?.score,5),sigNumV191(ctx?.near45,4),sigNumV191(ctx?.near90,4),
+    String(p.open_type||''),sigNumV191(p.open_area_ha,4)
+  ].join('|');
 }
+
 function areaStaticContextSignatureV191(area){
  if(!area)return '';
  const parts=[`area=${analysisAreaGeometrySigV191(area)}`,`soil=${localSoilSignatureV191(area)}`,`open=${openReady?1:0}`,`terrain=${terrainReady?1:0}`];
@@ -32363,15 +32754,16 @@ function v181Pct(n,d){return d?100*n/d:0;}
 function v181Fmt(n,d=2){return Number.isFinite(n)?Number(n).toFixed(d):'—';}
 function v181Mean(arr){const a=arr.filter(Number.isFinite);return a.length?a.reduce((x,y)=>x+y,0)/a.length:NaN;}
 function v181HostMatchBucket(type,f){
- const m=SPECIES_META[type]||{};
- if(m.ecology!=='mycorrhiza'&&m.ecology!=='wood')return 'na';
- const strong=m.strong||[],secondary=m.secondary||[];
- const direct=speciesCode(f.properties||{}),near=new Set(f._nearSpecies||[]);
- if(strong.includes(direct))return 'directStrong';
- if(secondary.includes(direct))return 'directSecondary';
- if(strong.some(x=>near.has(x)))return 'nearStrong';
- if(secondary.some(x=>near.has(x)))return 'nearSecondary';
- return 'none';
+  const m=SPECIES_META[type]||{};
+  if(m.ecology!=='mycorrhiza'&&m.ecology!=='wood')return 'na';
+  const strong=m.strong||[],secondary=m.secondary||[];
+  const direct=speciesCode(f.properties||{}),profile=featureStandSpeciesProfileV238(f);
+  if(strong.includes(direct))return 'directStrong';
+  if(secondary.includes(direct))return 'directSecondary';
+  const x=standLocalMatchV238(profile,strong,secondary);
+  if(x?.kind==='strong')return 'nearStrong';
+  if(x?.kind==='secondary')return 'nearSecondary';
+  return 'none';
 }
 
 async function runSpeciesAuditV183({reason='manual',force=false}={}){
@@ -35811,7 +36203,20 @@ window.auditV176Architecture=function(){
 <script src="runtime_fixes_v235.js?v=235"></script>
 <script src="spun_config_v237.js?v=2371"></script>
 <script src="spun_layer_v237_1.js?v=2371"></script>
-<script src="runtime_checks_v237_1.js?v=2371"></script>
+<script src="runtime_checks_v237_1.js?v=2371">
+// v239-exact-bdl-stands
+window.__v239ExactBdl={
+  version:'v239-exact-bdl-stands',
+  source:'Forest Data Bank / Bank Danych o Lasach',
+  district:'02-24',
+  year:2026,
+  prepared:'2026-06-23',
+  exactPolygonHostScoring:true,
+  neighboringCompartmentsAffectHostScore:false,
+  iNatAlias:{ceglastopory:'Neoboletus erythropus'}
+};
+
+</script>
 <!-- V234_RADAR_V4_END -->
 </body>
 </html>

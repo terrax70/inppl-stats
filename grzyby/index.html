@@ -38013,8 +38013,7 @@ console.info('V246.1 MODEL EVIDENCE AUDIT READY',{
 })();
 </script>
 
-
-<script id="v247-true-ph-sensitivity-audit">
+<script id="v247.1-true-ph-sensitivity-audit">
 (function(){
 'use strict';
 
@@ -38123,32 +38122,79 @@ function v247SoilComponents(type,f,neutralizePH=false){
 }
 
 function v247DetectWeights(){
-  const fallback={strictMycorrhiza:.14,mycorrhiza:.17,wood:.12,edge:.19,grassland:.23};
   let src='';
   try{src=String(stableSpeciesPotential)}catch(_){}
-  if(!src)return {weights:fallback,mode:'fallback-no-function-source'};
+  if(!src)throw new Error('v247.1: brak stableSpeciesPotential w runtime.');
 
-  function one(re,fb){
-    const m=src.match(re);
-    return m?Number(m[1]):fb;
+  function branch(startRe,endRe){
+    const sm=src.match(startRe);
+    if(!sm)return '';
+    const start=sm.index;
+    const rest=src.slice(start);
+    const em=rest.match(endRe);
+    return em ? rest.slice(0,em.index) : rest;
   }
-  // Accept decimal forms like .14*soil or 0.14*soil.
+
+  function soilCoeffs(chunk){
+    if(!chunk)return [];
+    const vals=[];
+    for(const m of chunk.matchAll(/([01]?\.\d+)\s*\*\s*soil\b/g)) vals.push(Number(m[1]));
+    for(const m of chunk.matchAll(/\bsoil\s*\*\s*([01]?\.\d+)/g)) vals.push(Number(m[1]));
+    return [...new Set(vals.filter(Number.isFinite))];
+  }
+
+  const myc=branch(
+    /ecology\s*===\s*['"]mycorrhiza['"]/,
+    /ecology\s*===\s*['"]wood['"]/
+  );
+  const wood=branch(
+    /ecology\s*===\s*['"]wood['"]/,
+    /ecology\s*===\s*['"]edge['"]/
+  );
+  const edge=branch(
+    /ecology\s*===\s*['"]edge['"]/,
+    /ecology\s*===\s*['"]grassland['"]/
+  );
+  const grass=branch(
+    /ecology\s*===\s*['"]grassland['"]/,
+    /return|else\s*\{/
+  );
+
+  const mycVals=soilCoeffs(myc);
+  const woodVals=soilCoeffs(wood);
+  const edgeVals=soilCoeffs(edge);
+  const grassVals=soilCoeffs(grass);
+
+  // mycorrhiza branch should expose strict + non-strict soil coefficients.
+  // If both are present, lower = strict, higher = non-strict in current production model.
   const weights={
-    strictMycorrhiza:one(/STRICT_HOST_TYPES\.has\(type\)[\s\S]{0,260}?([01]?\.\d+)\*soil/,fallback.strictMycorrhiza),
-    wood:one(/ecology===['"]wood['"][\s\S]{0,240}?([01]?\.\d+)\*soil/,fallback.wood),
-    edge:one(/ecology===['"]edge['"][\s\S]{0,220}?([01]?\.\d+)\*soil/,fallback.edge),
-    grassland:one(/ecology===['"]grassland['"][\s\S]{0,220}?([01]?\.\d+)\*soil/,fallback.grassland)
+    strictMycorrhiza:mycVals.length>=2 ? Math.min(...mycVals) : null,
+    mycorrhiza:mycVals.length>=2 ? Math.max(...mycVals) : (mycVals[0]??null),
+    wood:woodVals[0]??null,
+    edge:edgeVals[0]??null,
+    grassland:grassVals[0]??null
   };
 
-  // For the non-strict mycorrhiza branch, find soil weights near first mycorrhiza branch
-  // and choose the largest one when strict/non-strict differ.
-  const mycChunk=(src.match(/ecology===['"]mycorrhiza['"][\s\S]{0,900}?else if\(m\.ecology===['"]wood['"]/)||[])[0]||'';
-  const vals=[...mycChunk.matchAll(/([01]?\.\d+)\*soil/g)].map(m=>Number(m[1])).filter(Number.isFinite);
-  weights.mycorrhiza=vals.length?Math.max(...vals):fallback.mycorrhiza;
-  if(vals.length>=2)weights.strictMycorrhiza=Math.min(...vals);
+  const unresolved=Object.entries(weights).filter(([,v])=>!Number.isFinite(v)).map(([k])=>k);
+  const audit={
+    mode:unresolved.length?'RUNTIME_PARSE_FAIL':'RUNTIME_VERIFIED',
+    weights,
+    raw:{
+      mycorrhiza:mycVals,
+      wood:woodVals,
+      edge:edgeVals,
+      grassland:grassVals
+    },
+    unresolved,
+    sourceLength:src.length
+  };
 
-  const usedFallback=Object.keys(fallback).some(k=>weights[k]===fallback[k] && !src.includes(String(fallback[k]).replace(/^0/,'' )+'*soil'));
-  return {weights,mode:usedFallback?'mixed-detected-fallback':'runtime-detected'};
+  if(unresolved.length){
+    const err=new Error('v247.1: nie udalo sie potwierdzic wag soil z runtime: '+unresolved.join(', '));
+    err.v247WeightAudit=audit;
+    throw err;
+  }
+  return audit;
 }
 
 function v247SoilWeight(type,meta,weights){
@@ -38249,6 +38295,7 @@ window.auditPHSensitivityV247=async function(){
     features:features.length,
     soilReliability:Number(v247SoilRel().toFixed(3)),
     weightDetection:wd,
+    runtimeWeightsVerified:wd.mode==='RUNTIME_VERIFIED',
     highestP90Delta:rows[0]?.potentialDeltaVsNeutralPH.p90Abs??null,
     highestMeanAbsDelta:Math.max(0,...rows.map(r=>r.potentialDeltaVsNeutralPH.meanAbs)),
     speciesP90Ge025:rows.filter(r=>r.potentialDeltaVsNeutralPH.p90Abs>=.25).length,
@@ -38256,7 +38303,7 @@ window.auditPHSensitivityV247=async function(){
   };
 
   const report={
-    version:'v247-true-ph-sensitivity-audit',
+    version:'v247.1-true-ph-sensitivity-audit',
     auditOnly:true,
     scoringChanged:false,
     biologyChanged:false,
@@ -38270,14 +38317,14 @@ window.auditPHSensitivityV247=async function(){
       'To jest read-only counterfactual; nie zmienia SPECIES_META ani danych gleby.',
       'pH delta izoluje tylko część pH wewnątrz soilSuitability.',
       'Tekstura, SOC i soilReliability pozostają dokładnie takie jak w runtime.',
-      'potentialDelta używa aktualnej/detekowanej wagi soil w stableSpeciesPotential.',
+      'potentialDelta używa wyłącznie wag soil potwierdzonych z aktualnego stableSpeciesPotential; brak pełnego odczytu zatrzymuje audyt.',
       'Wynik nie mówi, jaki zakres pH jest poprawny biologicznie; mówi, jak mocno obecny zakres wpływa na mapę.',
       'Zmiana biologii wymaga osobnej weryfikacji źródłowej i equivalence/QA.'
     ]
   };
 
   window.__phSensitivityV247Last=report;
-  console.info('TRUE pH SENSITIVITY AUDIT v247',report);
+  console.info('TRUE pH SENSITIVITY AUDIT v247.1',report);
   console.table(report.top20.map((r,i)=>({
     rank:i+1,
     species:r.label,
@@ -38314,11 +38361,11 @@ window.phSensitivityTopV247=async function(n=20){
 
 window.downloadPHSensitivityV247=async function(){
   const r=window.__phSensitivityV247Last||await window.auditPHSensitivityV247();
-  v247Download('TRUE_PH_SENSITIVITY_V247.json',JSON.stringify(r,null,2),'application/json');
+  v247Download('TRUE_PH_SENSITIVITY_V247_1.json',JSON.stringify(r,null,2),'application/json');
   return r;
 };
 
-console.info('V247 TRUE pH SENSITIVITY AUDIT READY',{
+console.info('V247.1 TRUE pH SENSITIVITY AUDIT READY',{
   auditOnly:true,
   scoringChanged:false,
   commands:[

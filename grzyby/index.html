@@ -10396,7 +10396,7 @@ async function main(){
      if(!feats.length)throw new Error('BDL zwróciło dane, ale poza wybranym obszarem.');
 
      
-      attachNativeStandCompositionV241(feats,baseRows);// KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
+      await loadExactStandCompositionV239(feats); // v242: exact pack wins; v241 native rows are not full composition// KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
      renderForestBaseImmediately(feats,'bazowe');
      forestBaseLoaded=true;
      validationForestBaseMode='full';
@@ -36535,6 +36535,19 @@ window.__v241NativeBdl={
   capturePoint:'before prepareBaseForestFeatures/dedup discards repeated species rows',
   fields:['adress_forest','species_cd','part_cd','species_age','storey_cd','storey_rank_order','a_year'],
   localPackRole:'fallback only when base BDL 11/12 fail'
+};
+
+
+// v242-restore-exact-bdl
+window.__v242RestoreExactBdl={
+  version:'v242-restore-exact-bdl',
+  reason:'BDL map layers 11/12 expose mostly one species row per stand; native v241 multi-species coverage was only 3 stands in runtime test',
+  productionComposition:'v239 exact local packs when available',
+  nativeV241Production:false,
+  liveV240Production:false,
+  fallback:'legacy BDL dominant/near-species outside installed exact packs',
+  biologyChanged:false,
+  scoringFormulaChanged:false
 };
 
 </script>

@@ -38013,7 +38013,7 @@ console.info('V246.1 MODEL EVIDENCE AUDIT READY',{
 })();
 </script>
 
-<script id="v247.2-true-ph-sensitivity-audit">
+<script id="v247.3-true-ph-sensitivity-audit">
 (function(){
 'use strict';
 
@@ -38124,103 +38124,105 @@ function v247SoilComponents(type,f,neutralizePH=false){
 function v247DetectWeights(){
   let src='';
   try{src=String(stableSpeciesPotential)}catch(_){}
-  if(!src)throw new Error('v247.2: brak stableSpeciesPotential w runtime.');
+  if(!src)throw new Error('v247.3: brak stableSpeciesPotential w runtime.');
 
-  function findBranch(name,nextName){
-    const startRe=new RegExp(
-      "(?:m\\.)?ecology\\s*===\\s*['\\\"]"+name+"['\\\"]"
-    );
-    const sm=startRe.exec(src);
-    if(!sm)return '';
-
-    const from=sm.index;
-    let to=src.length;
-    if(nextName){
-      const nextRe=new RegExp(
-        "(?:m\\.)?ecology\\s*===\\s*['\\\"]"+nextName+"['\\\"]"
-      );
-      nextRe.lastIndex=from+sm[0].length;
-      const tail=src.slice(from+sm[0].length);
-      const nm=nextRe.exec(tail);
-      if(nm)to=from+sm[0].length+nm.index;
-    }
-    return src.slice(from,to);
-  }
-
-  function soilCoeffs(chunk){
-    if(!chunk)return [];
-    const vals=[];
-    for(const m of chunk.matchAll(/([01]?\.\d+)\s*\*\s*soil\b/g))vals.push(Number(m[1]));
-    for(const m of chunk.matchAll(/\bsoil\s*\*\s*([01]?\.\d+)/g))vals.push(Number(m[1]));
-    return [...new Set(vals.filter(Number.isFinite))];
-  }
-
-  const myc=findBranch('mycorrhiza','wood');
-  const wood=findBranch('wood','edge');
-  const edge=findBranch('edge','grassland');
-  const grass=findBranch('grassland',null);
-
-  const mycVals=soilCoeffs(myc);
-  const woodVals=soilCoeffs(wood);
-  const edgeVals=soilCoeffs(edge);
-  const grassVals=soilCoeffs(grass);
-
-  // Current production mycorrhiza branch contains two soil coefficients:
-  // strict host and non-strict host.
-  const weights={
-    strictMycorrhiza:mycVals.length>=2?Math.min(...mycVals):null,
-    mycorrhiza:mycVals.length>=2?Math.max(...mycVals):(mycVals[0]??null),
-    wood:woodVals[0]??null,
-    edge:edgeVals[0]??null,
-    grassland:grassVals[0]??null
-  };
-
-  const unresolved=Object.entries(weights)
-    .filter(([,v])=>!Number.isFinite(v))
-    .map(([k])=>k);
-
-  const audit={
-    mode:unresolved.length?'RUNTIME_PARSE_FAIL':'RUNTIME_VERIFIED',
-    weights,
-    raw:{
-      mycorrhiza:mycVals,
-      wood:woodVals,
-      edge:edgeVals,
-      grassland:grassVals
-    },
-    branchFound:{
-      mycorrhiza:!!myc,
-      wood:!!wood,
-      edge:!!edge,
-      grassland:!!grass
-    },
-    syntax:{
-      hasMEcology:/m\.ecology\s*===/.test(src),
-      hasBareEcology:/(^|[^.\w])ecology\s*===/.test(src)
-    },
-    unresolved,
-    sourceLength:src.length
-  };
-
-  if(unresolved.length){
-    const err=new Error(
-      'v247.2: nie udalo sie potwierdzic wag soil z runtime: '+
-      unresolved.join(', ')+' | debug='+JSON.stringify(audit)
-    );
-    err.v247WeightAudit=audit;
+  // Ignore the early relevance guard:
+  // if((m.ecology==='mycorrhiza'||m.ecology==='wood')&&f._kind==='open')
+  // and parse only the actual scoring section after `let s=0`.
+  const scoreStartMatch=/\blet\s+s\s*=\s*0\s*;?/.exec(src);
+  if(!scoreStartMatch){
+    const err=new Error('v247.3: nie znaleziono początku sekcji scoringu `let s=0`.');
+    err.v247WeightAudit={mode:'RUNTIME_PARSE_FAIL',sourceLength:src.length};
     throw err;
   }
 
-  // Sanity guard against accidentally parsing unrelated decimals.
-  const expectedShape=
-    mycVals.length>=2 &&
-    woodVals.length>=1 &&
-    edgeVals.length>=1 &&
-    grassVals.length>=1 &&
-    weights.strictMycorrhiza < weights.mycorrhiza;
+  const scoreSrc=src.slice(scoreStartMatch.index);
 
-  if(!expectedShape){
-    const err=new Error('v247.2: parser znalazl wagi, ale struktura galezi jest podejrzana: '+JSON.stringify(audit));
+  const branchTokens=[
+    {name:'mycorrhiza',re:/(?:m\.)?ecology\s*===\s*['"]mycorrhiza['"]/},
+    {name:'wood',re:/(?:m\.)?ecology\s*===\s*['"]wood['"]/},
+    {name:'edge',re:/(?:m\.)?ecology\s*===\s*['"]edge['"]/},
+    {name:'grassland',re:/(?:m\.)?ecology\s*===\s*['"]grassland['"]/}
+  ];
+
+  const branchPos={};
+  for(const b of branchTokens){
+    const m=b.re.exec(scoreSrc);
+    branchPos[b.name]=m?m.index:-1;
+  }
+
+  const orderedBranches=
+    branchPos.mycorrhiza>=0 &&
+    branchPos.wood>branchPos.mycorrhiza &&
+    branchPos.edge>branchPos.wood &&
+    branchPos.grassland>branchPos.edge;
+
+  const strictPos=scoreSrc.indexOf('STRICT_HOST_TYPES.has(type)');
+  const strictInMycorrhiza=
+    strictPos>=branchPos.mycorrhiza &&
+    strictPos<branchPos.wood;
+
+  // Read every coefficient multiplying the local `soil` component.
+  // Current runtime has exactly five, in scoring order:
+  // strict mycorrhiza, non-strict mycorrhiza, wood, edge, grassland.
+  const coeffMatches=[];
+  const coeffRe=/((?:\d+(?:\.\d*)?)|(?:\.\d+))\s*\*\s*soil\b/g;
+  for(const m of scoreSrc.matchAll(coeffRe)){
+    coeffMatches.push({
+      value:Number(m[1]),
+      index:m.index,
+      text:m[0]
+    });
+  }
+
+  const coeffs=coeffMatches.map(x=>x.value).filter(Number.isFinite);
+  const expectedCount=coeffs.length===5;
+
+  const positionsFitBranches=
+    expectedCount &&
+    coeffMatches[0].index>strictPos &&
+    coeffMatches[1].index>coeffMatches[0].index &&
+    coeffMatches[1].index<branchPos.wood &&
+    coeffMatches[2].index>branchPos.wood &&
+    coeffMatches[2].index<branchPos.edge &&
+    coeffMatches[3].index>branchPos.edge &&
+    coeffMatches[3].index<branchPos.grassland &&
+    coeffMatches[4].index>branchPos.grassland;
+
+  const weights=expectedCount?{
+    strictMycorrhiza:coeffs[0],
+    mycorrhiza:coeffs[1],
+    wood:coeffs[2],
+    edge:coeffs[3],
+    grassland:coeffs[4]
+  }:{
+    strictMycorrhiza:null,
+    mycorrhiza:null,
+    wood:null,
+    edge:null,
+    grassland:null
+  };
+
+  const audit={
+    mode:(orderedBranches&&strictInMycorrhiza&&expectedCount&&positionsFitBranches)
+      ?'RUNTIME_VERIFIED'
+      :'RUNTIME_PARSE_FAIL',
+    weights,
+    rawCoefficients:coeffMatches,
+    branchPositions:branchPos,
+    orderedBranches,
+    strictInMycorrhiza,
+    expectedCoefficientCount:expectedCount,
+    positionsFitBranches,
+    sourceLength:src.length,
+    scoringSourceLength:scoreSrc.length
+  };
+
+  if(audit.mode!=='RUNTIME_VERIFIED'){
+    const err=new Error(
+      'v247.3: nie udalo sie bezpiecznie odczytac wag soil z runtime | debug='+
+      JSON.stringify(audit)
+    );
     err.v247WeightAudit=audit;
     throw err;
   }
@@ -38334,7 +38336,7 @@ window.auditPHSensitivityV247=async function(){
   };
 
   const report={
-    version:'v247.2-true-ph-sensitivity-audit',
+    version:'v247.3-true-ph-sensitivity-audit',
     auditOnly:true,
     scoringChanged:false,
     biologyChanged:false,
@@ -38348,14 +38350,14 @@ window.auditPHSensitivityV247=async function(){
       'To jest read-only counterfactual; nie zmienia SPECIES_META ani danych gleby.',
       'pH delta izoluje tylko część pH wewnątrz soilSuitability.',
       'Tekstura, SOC i soilReliability pozostają dokładnie takie jak w runtime.',
-      'potentialDelta używa wyłącznie wag soil potwierdzonych z aktualnego stableSpeciesPotential; parser obsługuje zapis m.ecology i zatrzymuje audyt przy niepełnej/podejrzanej strukturze.',
+      'potentialDelta używa wyłącznie wag soil potwierdzonych z aktualnego stableSpeciesPotential; parser analizuje wyłącznie sekcję po `let s=0`, odczytuje 5 współczynników `*soil` w kolejności gałęzi i zatrzymuje audyt przy niepełnej/podejrzanej strukturze.',
       'Wynik nie mówi, jaki zakres pH jest poprawny biologicznie; mówi, jak mocno obecny zakres wpływa na mapę.',
       'Zmiana biologii wymaga osobnej weryfikacji źródłowej i equivalence/QA.'
     ]
   };
 
   window.__phSensitivityV247Last=report;
-  console.info('TRUE pH SENSITIVITY AUDIT v247.2',report);
+  console.info('TRUE pH SENSITIVITY AUDIT v247.3',report);
   console.table(report.top20.map((r,i)=>({
     rank:i+1,
     species:r.label,
@@ -38392,11 +38394,11 @@ window.phSensitivityTopV247=async function(n=20){
 
 window.downloadPHSensitivityV247=async function(){
   const r=window.__phSensitivityV247Last||await window.auditPHSensitivityV247();
-  v247Download('TRUE_PH_SENSITIVITY_V247_2.json',JSON.stringify(r,null,2),'application/json');
+  v247Download('TRUE_PH_SENSITIVITY_V247_3.json',JSON.stringify(r,null,2),'application/json');
   return r;
 };
 
-console.info('V247.2 TRUE pH SENSITIVITY AUDIT READY',{
+console.info('V247.3 TRUE pH SENSITIVITY AUDIT READY',{
   auditOnly:true,
   scoringChanged:false,
   commands:[

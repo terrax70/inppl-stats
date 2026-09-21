@@ -10396,7 +10396,7 @@ async function main(){
      if(!feats.length)throw new Error('BDL zwróciło dane, ale poza wybranym obszarem.');
 
      
-      await loadExactStandCompositionV239(feats); // v242: exact pack wins; v241 native rows are not full composition// KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
+      await loadExactStandCompositionV243(feats); // v242: exact pack wins; v241 native rows are not full composition// KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
      renderForestBaseImmediately(feats,'bazowe');
      forestBaseLoaded=true;
      validationForestBaseMode='full';
@@ -10419,7 +10419,7 @@ async function main(){
      if(!feats.length)throw new Error('Awaryjne dane BDL nie zawierają wydzieleń w tym rejonie.');
 
      
-      await loadExactStandCompositionV239(feats);renderForestBaseImmediately(feats,'tryb awaryjny');
+      await loadExactStandCompositionV243(feats);renderForestBaseImmediately(feats,'tryb awaryjny');
      forestBaseLoaded=true;
      validationForestBaseMode='fallback-5/6';
      setSourceState('forest','ok',`${feats.length} wydzieleń • tryb awaryjny BDL 5/6`);
@@ -11881,6 +11881,175 @@ window.auditStandV241=function(address=''){
     }))
   };
   console.info('V241 STAND AUDIT',report);
+  return report;
+};
+
+
+/* v243 — Poland-wide exact PGL LP stand composition from official BDL export ZIPs.
+   Runtime loads only compressed shards required by currently loaded forest features. */
+const EXACT_STAND_MANIFEST_URL_V243='./data/bdl_stands/manifest_v243.json';
+let exactStandManifestPromiseV243=null;
+const exactStandPackCacheV243=new Map();
+let exactStandLastV243={matched:0,total:0,multiSpecies:0,rows:0,packs:[],failedPacks:[],elapsedMs:0};
+
+function normalizeStandAddressV243(s){
+  return String(s||'').replace(/\s+/g,'');
+}
+function standDistrictKeyV243(address){
+  const m=/^(\d{2})-(\d{2})-/.exec(normalizeStandAddressV243(address));
+  return m?`${m[1]}-${m[2]}`:'';
+}
+async function getExactStandManifestV243(){
+  if(exactStandManifestPromiseV243)return exactStandManifestPromiseV243;
+  exactStandManifestPromiseV243=fetch(EXACT_STAND_MANIFEST_URL_V243,{cache:'force-cache'})
+    .then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status} ${EXACT_STAND_MANIFEST_URL_V243}`);return r.json();})
+    .then(m=>{
+      if(!m||m.year!==2026||!m.districts)throw new Error('Invalid v243 manifest');
+      return m;
+    })
+    .catch(e=>{
+      console.warn('V243 exact BDL manifest unavailable',e);
+      exactStandManifestPromiseV243=null;
+      return null;
+    });
+  return exactStandManifestPromiseV243;
+}
+async function decodeGzipJsonV243(response){
+  const ab=await response.arrayBuffer();
+  const bytes=new Uint8Array(ab);
+  // Some static hosts can transparently decode. Sniff gzip magic first.
+  if(bytes.length>=2 && bytes[0]===0x1f && bytes[1]===0x8b){
+    if(typeof DecompressionStream!=='function')throw new Error('Browser lacks DecompressionStream(gzip)');
+    const ds=new DecompressionStream('gzip');
+    const stream=new Blob([bytes]).stream().pipeThrough(ds);
+    return JSON.parse(await new Response(stream).text());
+  }
+  return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+}
+async function getExactStandPackV243(district,manifest){
+  if(exactStandPackCacheV243.has(district))return exactStandPackCacheV243.get(district);
+  const cfg=manifest?.districts?.[district];
+  if(!cfg)return null;
+  const url='./data/bdl_stands/'+cfg.file;
+  const p=fetch(url,{cache:'force-cache'})
+    .then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status} ${url}`);return decodeGzipJsonV243(r);})
+    .then(pack=>{
+      if(!pack||pack.district!==district||Number(pack.year)!==2026)throw new Error(`Pack metadata mismatch ${district}`);
+      return pack;
+    })
+    .catch(e=>{console.warn('V243 exact BDL shard unavailable',district,e);return null;});
+  exactStandPackCacheV243.set(district,p);
+  return p;
+}
+
+async function loadExactStandCompositionV243(feats){
+  const t0=performance.now();
+  const forests=(feats||[]).filter(f=>f?._kind==='forest');
+  const districts=[...new Set(forests.map(f=>standDistrictKeyV243(f.properties?.adress_forest)).filter(Boolean))];
+  const manifest=await getExactStandManifestV243();
+
+  if(!manifest){
+    // Safe fallback for the already-verified Prószków pack from v239.
+    if(typeof loadExactStandCompositionV239==='function'){
+      const r=await loadExactStandCompositionV239(feats);
+      exactStandLastV243={...r,packs:r.packs||[],failedPacks:['manifest'],fallback:'v239',elapsedMs:+(performance.now()-t0).toFixed(1)};
+      console.info('EXACT BDL STANDS v243 FALLBACK',exactStandLastV243);
+      return exactStandLastV243;
+    }
+    return exactStandLastV243;
+  }
+
+  const packs=new Map();
+  const failed=[];
+  await Promise.all(districts.map(async d=>{
+    const pack=await getExactStandPackV243(d,manifest);
+    if(pack)packs.set(d,pack);
+    else if(manifest.districts?.[d])failed.push(d);
+  }));
+
+  let matched=0,multi=0,rows=0;
+  for(const f of forests){
+    const address=normalizeStandAddressV243(f.properties?.adress_forest);
+    const d=standDistrictKeyV243(address);
+    const pack=packs.get(d);
+    const compact=pack?.stands?.[address];
+    if(!Array.isArray(compact)||!compact.length)continue;
+
+    const decoded=[];
+    for(const r of compact){
+      const treeRaw=pack.trees?.[r[0]]||'';
+      const tree=canonicalTreeCode(treeRaw);
+      if(!tree)continue;
+      const pi=Number(r[2]);
+      decoded.push({
+        tree,
+        rawTree:treeRaw,
+        age:Number(r[1]||0),
+        part:pi>=0?(pack.parts?.[pi]||''):'',
+        storey:'DRZEW',
+        rank:Number(r[3]||99),
+        source:'bdl-full-export-v243'
+      });
+    }
+    if(!decoded.length)continue;
+
+    f._standSpecies=decoded;
+    f._standCompositionSource='bdl-full-export-v243';
+    f._standExactV243=true;
+    f._standExactV239=false;
+    f._standExactV240=false;
+    f._standExactV241=false;
+    f._standPackV243={district:d,year:pack.year};
+    matched++;
+    rows+=decoded.length;
+    if(new Set(decoded.map(x=>x.tree)).size>1)multi++;
+  }
+
+  // If the Prószków shard itself failed, preserve the verified v239 local pack.
+  if(failed.includes('02-24') && typeof loadExactStandCompositionV239==='function'){
+    await loadExactStandCompositionV239(feats);
+  }
+
+  if(matched)invalidateScoringCaches('exact BDL stand composition v243');
+
+  exactStandLastV243={
+    matched,total:forests.length,multiSpecies:multi,rows,
+    coveragePct:forests.length?+(100*matched/forests.length).toFixed(1):0,
+    multiPct:matched?+(100*multi/matched).toFixed(1):0,
+    packs:[...packs.keys()],
+    failedPacks:failed,
+    manifestDistricts:Object.keys(manifest.districts||{}).length,
+    gzip:true,
+    elapsedMs:+(performance.now()-t0).toFixed(1)
+  };
+  console.info('EXACT BDL STANDS v243',exactStandLastV243);
+  return exactStandLastV243;
+}
+
+window.auditStandV243=function(address=''){
+  const q=normalizeStandAddressV243(address).toLowerCase();
+  const forests=(typeof allFeatures!=='undefined'?allFeatures:[]).filter(f=>f?._kind==='forest');
+  const list=forests.filter(f=>{
+    const a=normalizeStandAddressV243(f.properties?.adress_forest).toLowerCase();
+    return q?a.includes(q):!!f._standExactV243;
+  });
+  const report={
+    version:'v243-poland-exact-bdl',
+    last:{...exactStandLastV243},
+    exactScope:'PGL Lasy Państwowe / official BDL 2026 exports',
+    runtimeLoadsOnlyNeededDistricts:true,
+    sourceUrlsPublished:false,
+    matches:list.slice(0,30).map(f=>({
+      address:normalizeStandAddressV243(f.properties?.adress_forest),
+      dominant:featureTreeCodeV189(f),
+      exact:!!f._standExactV243,
+      source:f._standCompositionSource||'',
+      pack:f._standPackV243||null,
+      composition:featureStandSpeciesProfileV238(f),
+      legacyNear:Array.isArray(f._nearSpecies)?[...f._nearSpecies]:[]
+    }))
+  };
+  console.info('V243 STAND AUDIT',report);
   return report;
 };
 
@@ -36548,6 +36717,22 @@ window.__v242RestoreExactBdl={
   fallback:'legacy BDL dominant/near-species outside installed exact packs',
   biologyChanged:false,
   scoringFormulaChanged:false
+};
+
+
+// v243-poland-exact-bdl
+window.__v243PolandExactBdl={
+  version:'v243-poland-exact-bdl',
+  year:2026,
+  scope:'PGL Lasy Państwowe',
+  districts:429,
+  rdlp:17,
+  source:'official BDL per-forest-district export ZIPs supplied to the data requester',
+  runtime:'manifest + gzip shards; only districts present in current BDL features are fetched',
+  sourceUrlsPublished:false,
+  biologyChanged:false,
+  scoringFormulaChanged:false,
+  installerFix:'v243-install-fix-1'
 };
 
 </script>

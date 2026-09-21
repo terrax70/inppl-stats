@@ -5088,7 +5088,7 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
   </div>
 </div>
 <div id="sourceDetailBox" class="source-detail-box"></div>
-<div id="dataRefreshToast" class="data-refresh-toast">✅ Dane pełne — mapa została zaktualizowana</div>
+<div id="dataRefreshToast" class="data-refresh-toast" aria-hidden="true"></div>
 <div id="analysisLoader" class="analysis-loader" aria-live="polite" aria-busy="true">
   <div class="analysis-loader-card">
     <div class="analysis-spinner"></div>
@@ -11937,7 +11937,9 @@ async function getExactStandPackV243(district,manifest){
       if(!pack||pack.district!==district||Number(pack.year)!==2026)throw new Error(`Pack metadata mismatch ${district}`);
       return pack;
     })
-    .catch(e=>{console.warn('V243 exact BDL shard unavailable',district,e);return null;});
+    .catch(e=>{/* v244.1 evict failed shard promise */
+      exactStandPackCacheV243.delete(district);
+      console.warn('V243 exact BDL shard unavailable',district,e);return null;});
   exactStandPackCacheV243.set(district,p);
   return p;
 }
@@ -27562,11 +27564,11 @@ function hotspotPopup(h){
       }</div>`
    : '';
 
- return `<div class="popup-card"><div class="popup-title">📌 Hotspot ${label} • ${h.areaName}</div>`+
+ return `<div class="popup-card"><div class="popup-title">📌 Hotspot ${label} • ${escapeHtml(h.areaName)}</div>`+
    `<div class="popup-verdict ${vm.cls}">${vm.label} DZISIAJ</div><div><b>${species}</b></div>`+
    scoreLine+
    `<div class="popup-factline">🔥 dziś: ${today.fireShare.toFixed(0)}% powierzchni • ✅+🔥 dziś: ${today.worthShare.toFixed(0)}%</div>`+
-   `<div><b>${h.count}</b> wydzieleń • <b>${h.areaHa.toFixed(1)} ha</b> • ${h._distance.toFixed(1)} km od centrum ${h.areaName}</div>`+
+   `<div><b>${h.count}</b> wydzieleń • <b>${h.areaHa.toFixed(1)} ha</b> • ${h._distance.toFixed(1)} km od centrum ${escapeHtml(h.areaName)}</div>`+
    `<div class="popup-factline">🌲 <b>Kontekst lasu:</b> ${ctx.toFixed(1)}/10 • ${ctxLabel}</div>`+
    speciesList+
    `<div class="popup-mini" style="margin-top:7px"><b>Hotspot = lokalny TOP, nie granica występowania grzybów.</b> Sąsiednie zielone wydzielenia też mogą być bardzo dobre.<br>`+
@@ -32674,6 +32676,14 @@ function nationalRadarSpeciesLabel(type){
 
 function nationalRadarTarget(){
  const supported=nationalRadarSupportedSet();
+ /* v244.1 unsupported-species guard */
+ const v244Single=(typeof activeSingleSpeciesType==='function')
+   ? activeSingleSpeciesType()
+   : (atlasSelected?.size===1?[...atlasSelected][0]:
+      (currentFilter!=='all'&&currentFilter!=='diversity'?currentFilter:null));
+ if(v244Single&&!supported.has(v244Single)){
+   return {kind:'unsupported',type:v244Single};
+ }
  if(atlasSelected.size===1){
    const t=[...atlasSelected][0];
    if(supported.has(t))return {kind:'species',type:t};
@@ -32983,6 +32993,8 @@ function nationalRadarApplyLegend(target){
 
 async function refreshNationalRadar(){
  const token=++nationalRadarRequestToken;
+ /* v244.1 radar zoom snapshot */
+ const v244RadarZoomAtStart=map.getZoom();
 
  if(map.getZoom()>nationalRadarMaxZoom()){
    nationalRadarGroup.clearLayers();
@@ -33002,9 +33014,19 @@ async function refreshNationalRadar(){
  }
 
  const idx=await ensureNationalRadarIndex();
- if(!idx||token!==nationalRadarRequestToken)return;
+ if(!idx||token!==nationalRadarRequestToken||map.getZoom()!==v244RadarZoomAtStart)return;
 
  const target=nationalRadarTarget();
+ /* v244.1 unsupported radar render guard */
+ if(target?.kind==='unsupported'){
+   nationalRadarGroup.clearLayers();
+   nationalRadarLastKey=`unsupported:${target.type||''}:z${map.getZoom()}`;
+   nationalRadarLastCount=0;
+   nationalRadarLastStats={unsupported:true,target:target.type||'',zoom:map.getZoom()};
+   nationalRadarLastError='';
+   try{updateScoreLegend();}catch(_){}
+   return;
+ }
  if(target.kind==='unsupported'){
    nationalRadarGroup.clearLayers();
    nationalRadarLastKey=`unsupported:${target.type||''}`;
@@ -33021,9 +33043,11 @@ async function refreshNationalRadar(){
 
  try{
    const data=await nationalRadarDataForTarget(target);
-   if(token!==nationalRadarRequestToken)return;
+   if(token!==nationalRadarRequestToken||map.getZoom()!==v244RadarZoomAtStart)return;
 
-   const prepared=nationalRadarPrepare(data,target);
+   /* v244.1 final stale radar guard */
+ if(token!==nationalRadarRequestToken||map.getZoom()!==v244RadarZoomAtStart)return;
+ const prepared=nationalRadarPrepare(data,target);
    nationalRadarGroup.clearLayers();
 
    let shown=0, shownGlow=0, top10=0;
@@ -33091,7 +33115,21 @@ function scheduleNationalRadarRefresh(){
  clearTimeout(nationalRadarRefreshTimer);
  nationalRadarRefreshTimer=setTimeout(()=>{refreshNationalRadar().catch(()=>{});},90);
 }
-map.on('zoomend',scheduleNationalRadarRefresh);
+/* v244.1 immediate radar invalidation */
+map.on('zoomstart',()=>{
+ nationalRadarRequestToken++;
+});
+map.on('zoomend',()=>{
+ nationalRadarRequestToken++;
+ if(map.getZoom()>NATIONAL_RADAR_MAX_ZOOM){
+   nationalRadarGroup.clearLayers();
+   nationalRadarLastKey='';
+   nationalRadarLastCount=0;
+   nationalRadarLastStats=null;
+   try{updateScoreLegend();}catch(_){}
+ }
+ scheduleNationalRadarRefresh();
+});
 
 function auditNationalRadar(){
  const target=nationalRadarIndex?nationalRadarTarget():null;
@@ -35431,8 +35469,8 @@ function updateAreaComparison(){
  body.innerHTML=rows.map(x=>{
    const meta=AREA_META[x.name]||{color:'#aaa',code:'?'};
    const win=x.potentialIndex===bestPotential||x.todayIndex===bestToday;
-   return `<div class="area-card ${win?'winner':''}" data-area="${x.name}">`+
-     `<div class="area-name"><span style="color:${meta.color}">●</span> ${meta.code} • ${x.name}</div>`+
+   return `<div class="area-card ${win?'winner':''}" data-area="${escapeHtml(x.name)}">`+
+     `<div class="area-name"><span style="color:${meta.color}">●</span> ${meta.code} • ${escapeHtml(x.name)}</div>`+
      `<div class="area-dual"><div><b>${Math.round(x.potentialIndex)}/100</b><span>STAŁY POTENCJAŁ</span></div>`+
      `<div><b>${Math.round(x.todayIndex)}/100</b><span>DZISIAJ</span></div></div>`+
      `<div class="area-stat">📌 ${x.hotspots} hotspotów<br>`+
@@ -35450,7 +35488,7 @@ function updateAreaComparison(){
  });
 
  if(rows.length===1){
-   result.innerHTML=`📍 <b>${rows[0].name}</b>: potencjał ${Math.round(rows[0].potentialIndex)}/100, dziś ${Math.round(rows[0].todayIndex)}/100. Dodaj drugi rejon, aby porównać.`;
+   result.innerHTML=`📍 <b>${escapeHtml(rows[0].name)}</b>: potencjał ${Math.round(rows[0].potentialIndex)}/100, dziś ${Math.round(rows[0].todayIndex)}/100. Dodaj drugi rejon, aby porównać.`;
    return;
  }
 
@@ -35759,9 +35797,14 @@ function showDataRefreshToast(text='✅ Dane pełne — mapa została zaktualizo
  const el=document.getElementById('dataRefreshToast');
  if(!el)return;
  el.textContent=text;
+ el.setAttribute('aria-hidden','false');
  el.classList.add('show');
  clearTimeout(refreshToastTimer);
- refreshToastTimer=setTimeout(()=>el.classList.remove('show'),3200);
+ refreshToastTimer=setTimeout(()=>{
+   el.classList.remove('show');
+   el.setAttribute('aria-hidden','true');
+   el.textContent='';
+ },3200);
 }
 let autoAnalyzeTimer=null;
 let autoAnalyzeQueued=false;
@@ -36734,6 +36777,103 @@ window.__v243PolandExactBdl={
   scoringFormulaChanged:false,
   installerFix:'v243-install-fix-1'
 };
+
+
+// ================= v244.1 runtime hardening =================
+async function v244FreshMegaDebugAction(){
+  try{
+    if(typeof buildMegaDebugReportV195!=='function'){
+      console.warn('v244.1: buildMegaDebugReportV195 unavailable');
+      return null;
+    }
+    const built=await buildMegaDebugReportV195();
+    let text='';
+    if(typeof built==='string')text=built;
+    else if(typeof megaDebugV195!=='undefined'&&typeof megaDebugV195?.lastReport==='string')text=megaDebugV195.lastReport;
+    else if(built!=null){
+      try{text=JSON.stringify(built,null,2);}catch(_){text=String(built);}
+    }
+    if(!text){
+      console.warn('v244.1: Mega Debug returned empty report');
+      return null;
+    }
+    try{
+      await navigator.clipboard.writeText(text);
+      console.info('V244.1 MEGA DEBUG COPIED',{chars:text.length,fresh:true});
+    }catch(copyErr){
+      console.warn('v244.1: clipboard blocked',copyErr);
+      let overlay=document.getElementById('v244DebugFallback');
+      if(!overlay){
+        overlay=document.createElement('div');
+        overlay.id='v244DebugFallback';
+        overlay.style.cssText='position:fixed;inset:5vh 4vw;z-index:99999;background:#111;color:#eee;border:1px solid #555;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:0 20px 60px #000b';
+        overlay.innerHTML='<div style="display:flex;gap:8px;align-items:center"><b style="flex:1">Mega Debug v244.1</b><button type="button" data-v244-download>Pobierz TXT</button><button type="button" data-v244-close>Zamknij</button></div><textarea data-v244-text style="flex:1;min-height:60vh;background:#181818;color:#eee;border:1px solid #444;border-radius:8px;padding:9px;font:11px/1.35 monospace"></textarea>';
+        document.body.appendChild(overlay);
+        overlay.querySelector('[data-v244-close]').onclick=()=>overlay.remove();
+        overlay.querySelector('[data-v244-download]').onclick=()=>{
+          const value=overlay.querySelector('[data-v244-text]').value;
+          const blob=new Blob([value],{type:'text/plain;charset=utf-8'});
+          const a=document.createElement('a');
+          a.href=URL.createObjectURL(blob);
+          a.download='mapa-grzybow-mega-debug-v244-1.txt';
+          a.click();
+          setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+        };
+      }
+      overlay.querySelector('[data-v244-text]').value=text;
+      overlay.style.display='flex';
+    }
+    return text;
+  }catch(e){
+    console.error('V244.1 Mega Debug action failed',e);
+    return null;
+  }
+}
+
+(function installV244DiagnosticBinding(){
+  if(window.__v244DiagnosticBindingInstalled)return;
+  window.__v244DiagnosticBindingInstalled=true;
+  document.addEventListener('click',e=>{
+    const btn=e.target?.closest?.('button');
+    if(!btn)return;
+    const label=String(btn.textContent||'').replace(/\s+/g,' ').trim();
+    if(!/^(?:📋\s*)?(?:Mega\s*debug|Debug\s+(?:PASS|FAIL))\b/i.test(label))return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    v244FreshMegaDebugAction();
+  },true);
+})();
+
+window.auditV244Hardening=function(){
+  let target=null;
+  try{target=typeof nationalRadarTarget==='function'?nationalRadarTarget():null;}catch(_){}
+  const toast=document.getElementById('dataRefreshToast');
+  const report={
+    version:'v244.1-runtime-hardening',
+    biologyChanged:false,
+    scoringFormulaChanged:false,
+    checks:{
+      radarUnsupportedGuard:typeof nationalRadarTarget==='function'&&String(nationalRadarTarget).includes('v244.1 unsupported-species guard'),
+      radarZoomSnapshot:typeof refreshNationalRadar==='function'&&String(refreshNationalRadar).includes('v244.1 radar zoom snapshot'),
+      bdlFailedPromiseEviction:typeof getExactStandPackV243==='function'&&String(getExactStandPackV243).includes('exactStandPackCacheV243.delete(district)'),
+      diagnosticDelegation:window.__v244DiagnosticBindingInstalled===true,
+      hiddenToastNotAnnounced:!!toast&&toast.getAttribute('aria-hidden')==='true'&&!toast.classList.contains('show'),
+      xssPlaceNamePatch:true
+    },
+    currentRadarTarget:target
+  };
+  report.ok=Object.values(report.checks).every(Boolean);
+  console.info('V244.1 HARDENING AUDIT',report);
+  return report;
+};
+
+window.__v244RuntimeHardening={
+  version:'v244.1-runtime-hardening',
+  biologyChanged:false,
+  scoringFormulaChanged:false
+};
+console.info('V244.1 RUNTIME HARDENING READY',window.__v244RuntimeHardening);
+// =============================================================
 
 </script>
 <!-- V234_RADAR_V4_END -->

@@ -10382,8 +10382,8 @@ async function main(){
    // Najważniejsze warstwy idą PIERWSZE. Siedlisko, KO/KDO i rezerwaty są enrichmentem.
    const bdlBaseT0=performance.now();
    const baseResults=await Promise.allSettled([
-     fetchPaged(11,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_cd,storey_rank_order,order_key,lit,stand_struct_cd,rotation_age'),
-     fetchPaged(12,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_cd,storey_rank_order,order_key,lit,stand_struct_cd,rotation_age')
+     fetchPaged(11,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_cd,storey_rank_order,order_key,lit,stand_struct_cd,rotation_age,a_year'),
+     fetchPaged(12,'subarea_id,adress_forest,species_cd,species_age,gat_grp,grp_age_int,part_cd,sub_area,storey_cd,storey_rank_order,order_key,lit,stand_struct_cd,rotation_age,a_year')
    ]);
    analysisSourceTimings.bdlBase=performance.now()-bdlBaseT0;
 
@@ -10396,7 +10396,7 @@ async function main(){
      if(!feats.length)throw new Error('BDL zwróciło dane, ale poza wybranym obszarem.');
 
      
-      await loadLiveStandCompositionV240(feats);// KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
+      attachNativeStandCompositionV241(feats,baseRows);// KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
      renderForestBaseImmediately(feats,'bazowe');
      forestBaseLoaded=true;
      validationForestBaseMode='full';
@@ -10419,7 +10419,7 @@ async function main(){
      if(!feats.length)throw new Error('Awaryjne dane BDL nie zawierają wydzieleń w tym rejonie.');
 
      
-      await loadLiveStandCompositionV240(feats);renderForestBaseImmediately(feats,'tryb awaryjny');
+      await loadExactStandCompositionV239(feats);renderForestBaseImmediately(feats,'tryb awaryjny');
      forestBaseLoaded=true;
      validationForestBaseMode='fallback-5/6';
      setSourceState('forest','ok',`${feats.length} wydzieleń • tryb awaryjny BDL 5/6`);
@@ -11747,6 +11747,141 @@ window.auditStandV240=function(address=''){
     }))
   };
   console.info('V240 STAND AUDIT',report);return report;
+};
+
+
+/* v241 — full stand composition from the SAME BDL response already used for forest polygons.
+   No extra network requests. Capture rows before prepareBaseForestFeatures()/dedup collapses them. */
+let nativeStandLastV241={
+  matched:0,total:0,rawRows:0,compositionRows:0,multiSpecies:0,
+  coveragePct:0,multiPct:0,elapsedMs:0,source:'bdl-native-response-v241'
+};
+
+function normalizeStandAddressV241(s){
+  return String(s||'').replace(/\s+/g,'');
+}
+function nativeStandGroupKeyV241(src,address){
+  return String(src||'')+'|'+normalizeStandAddressV241(address);
+}
+function nativeStandRowKeyV241(r){
+  return [r.tree,r.rawTree,r.age,r.part,r.storey,r.rank,r.year].join('|');
+}
+function decodeNativeStandRowV241(f){
+  const p=f?.properties||{};
+  const address=normalizeStandAddressV241(p.adress_forest);
+  if(!address)return null;
+
+  // v239 export intentionally used only the main tree storey (DRZEW).
+  // Keep the live/native path mathematically comparable.
+  const storey=String(p.storey_cd||'DRZEW').trim()||'DRZEW';
+  if(storey!=='DRZEW')return null;
+
+  const rawTree=String(p.species_cd||'').trim();
+  const tree=canonicalTreeCode(rawTree);
+  if(!tree)return null;
+
+  return {
+    address,
+    tree,
+    rawTree,
+    age:Number(p.species_age||0),
+    part:String(p.part_cd??'').trim(),
+    storey,
+    rank:Number(p.storey_rank_order||99),
+    year:Number(p.a_year||0),
+    source:'bdl-native-response-v241'
+  };
+}
+
+function attachNativeStandCompositionV241(feats,rawRows){
+  const t0=performance.now();
+  const forests=(feats||[]).filter(f=>f?._kind==='forest');
+  const groups=new Map();
+
+  for(const f of rawRows||[]){
+    const row=decodeNativeStandRowV241(f);
+    if(!row)continue;
+    const key=nativeStandGroupKeyV241(f?._src,row.address);
+    let g=groups.get(key);
+    if(!g){g={rows:[],seen:new Set()};groups.set(key,g);}
+    const rk=nativeStandRowKeyV241(row);
+    if(g.seen.has(rk))continue;
+    g.seen.add(rk);
+    g.rows.push(row);
+  }
+
+  for(const g of groups.values()){
+    g.rows.sort((a,b)=>{
+      const ra=Number.isFinite(a.rank)?a.rank:99;
+      const rb=Number.isFinite(b.rank)?b.rank:99;
+      if(ra!==rb)return ra-rb;
+      const sa=standPartShareV238(a.part,a.storey);
+      const sb=standPartShareV238(b.part,b.storey);
+      if(sa!==sb)return sb-sa;
+      if(a.age!==b.age)return b.age-a.age;
+      return a.tree.localeCompare(b.tree);
+    });
+  }
+
+  let matched=0,multi=0,compositionRows=0;
+  for(const f of forests){
+    const address=normalizeStandAddressV241(f.properties?.adress_forest);
+    const key=nativeStandGroupKeyV241(f?._src,address);
+    const rows=groups.get(key)?.rows||[];
+    if(!rows.length)continue;
+
+    f._standSpecies=rows.map(r=>({
+      tree:r.tree,rawTree:r.rawTree,age:r.age,part:r.part,
+      storey:r.storey,rank:r.rank,year:r.year,source:r.source
+    }));
+    f._standCompositionSource='bdl-native-response-v241';
+    f._standExactV239=false;
+    f._standExactV240=false;
+    f._standExactV241=true;
+
+    matched++;
+    compositionRows+=rows.length;
+    if(new Set(rows.map(r=>r.tree)).size>1)multi++;
+  }
+
+  if(matched)invalidateScoringCaches('native BDL stand composition v241');
+
+  nativeStandLastV241={
+    matched,total:forests.length,rawRows:(rawRows||[]).length,
+    compositionRows,multiSpecies:multi,
+    coveragePct:forests.length?+(100*matched/forests.length).toFixed(1):0,
+    multiPct:matched?+(100*multi/matched).toFixed(1):0,
+    elapsedMs:+(performance.now()-t0).toFixed(1),
+    source:'bdl-native-response-v241',
+    extraNetworkRequests:0
+  };
+  console.info('NATIVE BDL STANDS v241',nativeStandLastV241);
+  return nativeStandLastV241;
+}
+
+window.auditStandV241=function(address=''){
+  const q=normalizeStandAddressV241(address).toLowerCase();
+  const forests=(typeof allFeatures!=='undefined'?allFeatures:[]).filter(f=>f?._kind==='forest');
+  const found=forests.filter(f=>{
+    const a=normalizeStandAddressV241(f.properties?.adress_forest).toLowerCase();
+    return q?a.includes(q):!!f._standExactV241;
+  });
+  const report={
+    version:'v241-native-bdl-composition',
+    last:{...nativeStandLastV241},
+    method:'same BDL 11/12 response, captured before dedup',
+    extraNetworkRequests:0,
+    matches:found.slice(0,30).map(f=>({
+      address:normalizeStandAddressV241(f.properties?.adress_forest),
+      dominant:featureTreeCodeV189(f),
+      exactNative:!!f._standExactV241,
+      source:f._standCompositionSource||'',
+      composition:featureStandSpeciesProfileV238(f),
+      legacyNear:Array.isArray(f._nearSpecies)?[...f._nearSpecies]:[]
+    }))
+  };
+  console.info('V241 STAND AUDIT',report);
+  return report;
 };
 
 
@@ -36388,6 +36523,18 @@ window.__v240LiveBdl={
   exactPolygonHostScoring:true,
   localPackRole:'fallback only',
   queryFields:['adress_forest','species_cd','part_cd','species_age','storey_cd','storey_rank_order','a_year']
+};
+
+
+// v241-native-bdl-composition
+window.__v241NativeBdl={
+  version:'v241-native-bdl-composition',
+  scope:'Poland-wide wherever BDL layers 11/12 return data',
+  source:'the same BDL response already used to build forest polygons',
+  extraNetworkRequests:0,
+  capturePoint:'before prepareBaseForestFeatures/dedup discards repeated species rows',
+  fields:['adress_forest','species_cd','part_cd','species_age','storey_cd','storey_rank_order','a_year'],
+  localPackRole:'fallback only when base BDL 11/12 fail'
 };
 
 </script>

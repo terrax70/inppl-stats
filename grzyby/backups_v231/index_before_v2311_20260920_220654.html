@@ -6657,9 +6657,6 @@ async function prodPaceSource(key,minIntervalMs){
 }
 function prodRetryAfterMs(response){
  try{
-    // v237.1: cross-origin XHR moze nie expose'owac Retry-After.
-    // Korzystamy wtedy z naszego lokalnego host cooldown.
-    if(response?._transport==='xhr')return 0;
    const raw=response?.headers?.get?.('retry-after');
    if(!raw)return 0;
    const sec=Number(raw);
@@ -6685,8 +6682,7 @@ function prodXhrLikeResponse(url,{method='GET',body='',headers,timeoutMs=16000}=
        const e=new Error(message);e.status=status;e.code=code;reject(e);
      };
      xhr.onload=()=>resolve({
-       _transport:'xhr',
-        ok:xhr.status>=200&&xhr.status<300,
+       ok:xhr.status>=200&&xhr.status<300,
        status:xhr.status,
        statusText:xhr.statusText||'',
        headers:{get:(name)=>{try{return xhr.getResponseHeader(name)||'';}catch(_){return '';}}},
@@ -30286,20 +30282,12 @@ async function runAutoQAV192(){
    const expectedDynamicOk=mapMode!=='today'||!weatherReady||!reuseApplicable||phaseDynamic>=expectedReuseNow;
    const reuseOk=phaseReuseOk&&expectedDynamicOk;
 
-    // v2371-autoqa-reuse-is-performance
-    // READD/REPEAT mówi tylko, że taki obszar był wcześniej widziany.
-    // Cache ma prawo go odrzucić, gdy zmienił się OSM/gleba/pogoda/context.
-    // Correctness sprawdzają equivalence + exact roundTrip + weather isolation.
-    const reuseStatus=resultCacheHit?'RESULT_HIT':
-      (!reuseApplicable?'N/A':(reuseOk?'PASS':'MISS_RECOMPUTED'));
-
-   const overall=!!equivalence?.ok&&roundTrip.ok&&weatherIsolationOk;
+   const overall=!!equivalence?.ok&&roundTrip.ok&&weatherIsolationOk&&reuseOk;
    const report={
      version:'v210',scenario:scenario.kind,areas:rows.length,areaSigs:rows.map(r=>r.sig),overlap:scenario.overlap,
      overall:overall?'PASS':'FAIL',equivalenceOk:!!equivalence?.ok,maxDelta:Number(equivalence?.maxDelta??NaN),
      roundTripOk:roundTrip.ok,roundTripMaxDelta:roundTrip.maxDelta,roundTripStaticAreas:roundTrip.staticAreas,roundTripDynamicAreas:roundTrip.dynamicAreas,
      weatherStatus,weatherSamples:rows.map(r=>r.weatherSamples),expectedReuse:expectedReuseNow,reuseApplicable,resultCacheHit,
-      reuseStatus,
      phaseReuseOk:reuseOk,phaseStaticAreas:phaseStatic,phaseDynamicAreas:phaseDynamic,phaseReusedFeatures:phaseFinal,
      priorMs:Number(phase.priorMs||0),distributionMs:Number(phase.distributionMs||0),distributionPairs:Number(phase.distributionPairs||0),forestKernelFeatures:Number(phase.forestKernelFeatures||0),forestKernelPairs:Number(phase.forestKernelPairs||0),
      totalMs:Number(phase.elapsedMs||phase.totalMs||0),qaMs:performance.now()-started
@@ -30309,7 +30297,7 @@ async function runAutoQAV192(){
    if(autoQAV192.runs.length>24)autoQAV192.runs.shift();
    window.__v192AutoQA=report;window.__v195AutoQA=report;
    console.info('V210 AUTO QA',report);
-   console.info(`V237.1 AUTO QA FLAT | scenario=${report.scenario} | areas=${report.areas} | equivalence=${report.equivalenceOk?'PASS':'FAIL'}(delta ${Number.isFinite(report.maxDelta)?report.maxDelta:'?'}) | cacheRoundTrip=${report.roundTripOk?'PASS':'FAIL'}(delta ${report.roundTripMaxDelta}, static ${report.roundTripStaticAreas}, dynamic ${report.roundTripDynamicAreas}) | resultCache=${report.resultCacheHit?'HIT':'MISS'} | phaseReuse=${report.reuseStatus}(static ${report.phaseStaticAreas}, dyn ${report.phaseDynamicAreas}, final ${report.phaseReusedFeatures}) | weather=${report.weatherStatus}[${report.weatherSamples.join(',')}] | prior=${report.priorMs.toFixed(1)} | distribution=${report.distributionMs.toFixed(1)} pairs=${report.distributionPairs} | overall=${report.overall}`);
+   console.info(`V210 AUTO QA FLAT | scenario=${report.scenario} | areas=${report.areas} | equivalence=${report.equivalenceOk?'PASS':'FAIL'}(delta ${Number.isFinite(report.maxDelta)?report.maxDelta:'?'}) | cacheRoundTrip=${report.roundTripOk?'PASS':'FAIL'}(delta ${report.roundTripMaxDelta}, static ${report.roundTripStaticAreas}, dynamic ${report.roundTripDynamicAreas}) | resultCache=${report.resultCacheHit?'HIT':'MISS'} | phaseReuse=${reuseApplicable?(report.phaseReuseOk?'PASS':'FAIL'):'N/A'}(${report.phaseStaticAreas}/${report.expectedReuse}, dyn ${report.phaseDynamicAreas}, final ${report.phaseReusedFeatures}) | weather=${report.weatherStatus}[${report.weatherSamples.join(',')}] | prior=${report.priorMs.toFixed(1)} | distribution=${report.distributionMs.toFixed(1)} pairs=${report.distributionPairs} | overall=${report.overall}`);
    return report;
  }catch(err){
    const report={version:'v210',overall:'FAIL',error:String(err?.stack||err)};
@@ -31326,27 +31314,7 @@ function perfRenderNow(){
  const rowPlan=prioritizedRenderRowsV176([...analysisLayers]);
  const rows=rowPlan.rows;
  const visibleRows=rowPlan.visibleCount;
-
- // v236: diagnoza pokazala 2 render/perfRender przy radius-only. Pierwszy przebieg
- // przygotowuje hotspot/cache, a drugi robi finalne style. Dodatkowo v229 juz
- // pokazuje osobna fale attach/detach polygonow. Dla typowego 5/10/15 km drugi
- // PROGRESYWNY paint wygladal wiec jak ponowne ladowanie od centrum.
- //
- // Nie usuwamy zadnego liczenia i nie zmieniamy score. Gdy warstwy pochodza z
- // zachowanego poolu v229 i jest ich <=8500, finalne setStyle robimy w jednym
- // paintcie. Dla wiekszych obszarow zachowujemy scheduler progresywny, zeby
- // nie blokowac slabszych telefonow.
- const radiusTransitionPaintV236=!!(
-   radiusStyleCommitPendingV236 &&
-   radiusTransitionLastV228?.preservedVisual &&
-   radiusTransitionLastV228?.sameCenters &&
-   (radiusTransitionLastV228?.kind==='shrink'||radiusTransitionLastV228?.kind==='expand') &&
-   RADIUS_KM<80
- );
- const radiusAtomicStyleV236=radiusTransitionPaintV236&&rows.length<=8500;
- const progressive=!radiusAtomicStyleV236&&(
-   perfForceProgressiveRender||rows.length>950||(ANALYSIS_CENTERS.length>1&&rows.length>650)
- );
+ const progressive=perfForceProgressiveRender||rows.length>950||(ANALYSIS_CENTERS.length>1&&rows.length>650);
  perfForceProgressiveRender=false;
  const visualStateKey=visualStateKeyV176();
  const wholeStyleCacheHit=lastVisualStateKeyV176===visualStateKey;
@@ -31399,23 +31367,6 @@ function perfRenderNow(){
  const finish=(ts1,styleCpuMs=0,styleBatches=0,stylePlan=null)=>{
    if(workToken!==perfRenderWorkToken)return;
    if(styleRenderBusyTokenV210===workToken)styleRenderBusyTokenV210=0;
-
-   if(radiusTransitionPaintV236){
-     radiusStyleCommitPendingV236=false;
-     radiusStyleCommitLastV236={
-       kind:radiusTransitionLastV228?.kind||'',
-       fromRadius:Number(radiusTransitionLastV228?.fromRadius)||0,
-       toRadius:Number(radiusTransitionLastV228?.toRadius)||0,
-       rows:rows.length,
-       atomic:!!radiusAtomicStyleV236,
-       progressive:!!progressive,
-       wallMs:+Math.max(0,ts1-styleStartAt).toFixed(1),
-       cpuMs:+Number(styleCpuMs||0).toFixed(1),
-       batches:Number(styleBatches||0),
-       at:Date.now()
-     };
-     console.info('RADIUS STYLE COMMIT v236',radiusStyleCommitLastV236);
-   }
 
    // v203: dopiero po zakończeniu stylowania uruchamiamy niekrytyczne prace,
    // które dawniej były skutkiem buildTop() i mogły wejść przed pierwszy paint.
@@ -34626,26 +34577,6 @@ let searchTimer=null;
 let searchSeq=0;
 let analysisRunning=false;
 let analysisScoringReady=true;
-// v236-radius-transition-style-commit
-// Przy zmianie TYLKO promienia v229 juz zachowuje istniejace polygony.
-// Finalne przestylowanie 5-15 km wykonujemy jeden raz atomowo, zeby nie
-// pokazywac drugiej fali srodek->obrzeze po fali reuse/attach/detach.
-let radiusStyleCommitPendingV236=false;
-let radiusStyleCommitLastV236=null;
-
-window.auditRadiusV236=function(){
- const report={
-   version:'v236-radius-transition-style-commit',
-   pending:!!radiusStyleCommitPendingV236,
-   transition:(typeof radiusTransitionLastV228!=='undefined')?{...radiusTransitionLastV228}:null,
-   wave:(typeof radiusWaveLastV229!=='undefined')?{...radiusWaveLastV229}:null,
-   styleCommit:radiusStyleCommitLastV236?{...radiusStyleCommitLastV236}:null,
-   render:(typeof perfAuditLast!=='undefined')?{...perfAuditLast}:null,
-   note:'BDL transport/cache i geometria sa nadal reuse v228/v229. v236 zmienia tylko sposob finalnego paintu stylow po zmianie promienia.'
- };
- console.info('RADIUS TRANSITION AUDIT v236',report);
- return report;
-};
 let deferSecondaryRenders=false;
 
 function showAnalysisLoader(text='Pobieram dane…'){
@@ -35235,9 +35166,6 @@ async function analyzeDraft(){
      kind:radiusOnly?(nextRadius>prevRadius?'expand':'shrink'):(sameCenters?'repeat':'new-area'),
      fromRadius:prevRadius,toRadius:nextRadius,sameCenters,preservedVisual:canPreserveVisual
    };
-   // v236: tylko dla prawdziwej zmiany promienia z zachowanymi warstwami.
-   // Nowy rejon, zmiana gatunku/trybu i 80-100 km nie korzystaja z tej sciezki.
-   radiusStyleCommitPendingV236=!!(radiusOnly&&canPreserveVisual&&nextRadius<80);
 
    RADIUS_KM=nextRadius;
    ANALYSIS_CENTERS=nextCenters;
@@ -35800,19 +35728,11 @@ window.auditV176Architecture=function(){
 })();
 </script>
 
-
-
-
-
-<!-- V234_RADAR_V4_START -->
-<!-- v234: broad z10 hybrid continuity: legacy 5 km underlay + v4 1 km detail; viewport fix preserved; biology/scoring unchanged -->
-<script src="./radar_v4_loader.js?v=234"></script>
-<script src="radar_v4_bridge_v235.js?v=235"></script>
-<script src="runtime_fixes_v235.js?v=235"></script>
-<script src="spun_config_v237.js?v=2371"></script>
-<script src="spun_layer_v237_1.js?v=2371"></script>
-<script src="runtime_checks_v237_1.js?v=2371"></script>
-<!-- V234_RADAR_V4_END -->
+<!-- V231_RADAR_V4_START -->
+<!-- v231: zoom LOD 5 km -> 1 km -> 500 m -> exact BDL; v4 is visual/static only -->
+<script src="./radar_v4_loader.js?v=231"></script>
+<script src="./radar_v4_bridge_v231.js?v=231"></script>
+<!-- V231_RADAR_V4_END -->
 </body>
 </html>
 

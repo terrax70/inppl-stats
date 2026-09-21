@@ -1,0 +1,20 @@
+{
+  "release": "v234",
+  "status": "PASS",
+  "generatedAt": "2026-09-20T21:03:20.040532+00:00",
+  "site": "C:\\Users\\Terra\\OneDrive\\Desktop\\FM STRONA INTERNETOWA\\grzyby\\A1. grzyby",
+  "radarMiB": 76.728,
+  "modelDigest": "dfa30ad791217196",
+  "species": 31,
+  "change": {
+    "fix": "at z10 + radius>=50 km keep legacy 5 km radar as low-opacity continuity underlay, overlay v4 1 km detail, preserve viewport-key/padded lazy loading",
+    "reason": "v233 viewport fix did not remove the visible strip, so v234 does not assume a renderer-cache root cause; it uses the already-proven 5 km radar only as broad-view visual fallback",
+    "biologyChanged": false,
+    "scoringChanged": false,
+    "weatherChanged": false,
+    "observationsChanged": false,
+    "indexOutsideRadarInjectionChanged": false
+  },
+  "backup": "C:\\Users\\Terra\\OneDrive\\Desktop\\FM STRONA INTERNETOWA\\grzyby\\A1. grzyby\\backups_v234\\index_before_v234_20260920_230319.html",
+  "test": "radar_v4_test_v234.html"
+}

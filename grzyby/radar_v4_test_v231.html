@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Radar v4 v231 — test</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>html,body,#map{height:100%;margin:0;background:#111}#box{position:absolute;z-index:1000;left:10px;top:10px;background:#151a17eF;color:#eee;padding:10px 12px;border-radius:10px;font:12px/1.45 system-ui;max-width:360px}b{color:#b9efc0}</style></head>
+<body><div id="map"></div><div id="box">⏳ Start testu Radar v4…</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="./radar_v4_loader.js?v=231"></script>
+<script>
+(async()=>{
+ const box=document.getElementById('box'),map=L.map('map',{preferCanvas:true}).setView([52.05,19.25],7);
+ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+ const r=new RadarV4('./data/radar_v4',{maxCacheEntries:160});
+ let cal=null,seq=0,layer=L.layerGroup().addTo(map);
+ function pct(entry,u){
+   if(!entry?._p){let s=0;entry._p=new Float64Array(entry.counts.length+1);for(let i=0;i<entry.counts.length;i++){entry._p[i]=s;s+=entry.counts[i]||0;}entry._p[entry.counts.length]=s;entry._n=s;}
+   const i=Math.max(0,Math.min(entry.counts.length-1,Math.round(u))),c=entry.counts[i]||0,n=entry._n,less=entry._p[i];return n<=1?1:(less+(Math.max(1,c)-1)/2)/(n-1);
+ }
+ function color(p){return p>=.9?'#116f38':p>=.75?'#54ab5d':p>=.55?'#a39f46':p>=.35?'#ca8850':'#d5c2b0';}
+ async function draw(){
+   const my=++seq,t0=performance.now();await r.init();
+   if(!cal){const cr=await fetch('./data/radar_v4/calibration.json');if(!cr.ok)throw new Error('calibration HTTP '+cr.status);cal=await cr.json();}
+   const z=map.getZoom(),lod=(z===12&&r.availableLods().includes(500))?500:1000;
+   const b=map.getBounds(),bounds={west:b.getWest(),east:b.getEast(),south:b.getSouth(),north:b.getNorth()};
+   const rows=await r.loadViewport({cellMeters:lod,bounds,overview:true});if(my!==seq)return;
+   layer.clearLayers();const e=cal.lods[lod+'m'].overview;let shown=0;
+   for(const c of rows){const p=pct(e,Math.round(c.raw*100));if(p<.35)continue;L.rectangle([[c.bounds.south,c.bounds.west],[c.bounds.north,c.bounds.east]],{renderer:L.canvas(),stroke:false,fill:true,fillColor:color(p),fillOpacity:.18+.38*p,interactive:false}).addTo(layer);shown++;}
+   box.innerHTML=`<b>PASS loader</b><br>LOD: ${lod} m<br>Komórki w viewport: ${rows.length}<br>Rysowane: ${shown}<br>Requesty: ${r.stats.requests} • cache: ${r.stats.cacheHits}<br>Pobrano: ${(r.stats.bytes/1024).toFixed(0)} KiB<br>Czas: ${(performance.now()-t0).toFixed(0)} ms<br><small>z≤9 na stronie produkcyjnej pozostaje 5 km; z13+ exact BDL.</small>`;
+ }
+ map.on('moveend zoomend',()=>draw().catch(e=>box.textContent='❌ '+e.message));
+ draw().catch(e=>box.textContent='❌ '+e.message);
+})();
+</script></body></html>

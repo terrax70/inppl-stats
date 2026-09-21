@@ -1,0 +1,49 @@
+{
+  "release": "v231",
+  "status": "PASS",
+  "generatedAt": "2026-09-20T19:56:58.199522+00:00",
+  "site": "C:\\Users\\Terra\\OneDrive\\Desktop\\FM STRONA INTERNETOWA\\grzyby\\A1. grzyby",
+  "radarSource": "C:\\Users\\Terra\\OneDrive\\Desktop\\FM STRONA INTERNETOWA\\grzyby\\radar_poland_builder_v4\\radar_poland_builder_v4\\output\\radar_v4_fast",
+  "backupIndex": "C:\\Users\\Terra\\OneDrive\\Desktop\\FM STRONA INTERNETOWA\\grzyby\\A1. grzyby\\backups_v231\\index_before_v231_20260920_215530.html",
+  "policy": {
+    "zoom<=9": "existing 5km/v3",
+    "zoom10-11": "v4 1km",
+    "zoom12": "v4 500m if available else 1km",
+    "zoom>=13": "exact BDL"
+  },
+  "scope": "visual national radar transport/render only; no biological scoring changes",
+  "checks": {
+    "manifestFormat": true,
+    "modelDigest": "dfa30ad791217196",
+    "builderRevision": "4.3",
+    "lod1000": true,
+    "tiles1000": 101,
+    "activeCells1000": 240011,
+    "species": 31,
+    "calibrationPresent": true,
+    "indexInjection": true,
+    "oldIndexPreservedExceptInjection": true,
+    "js": {
+      "radar_v4_loader.js": {
+        "status": "PASS",
+        "stdout": "",
+        "stderr": ""
+      },
+      "radar_v4_bridge_v231.js": {
+        "status": "PASS",
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    "radarFiles": 212107,
+    "radarBytes": 5111551936,
+    "radarMiB": 4874.756
+  },
+  "filesToCommit": [
+    "index.html",
+    "index_v231.html",
+    "radar_v4_loader.js",
+    "radar_v4_bridge_v231.js",
+    "data/radar_v4/**"
+  ]
+}

@@ -36936,7 +36936,7 @@ console.info('V244.1 RUNTIME HARDENING READY',window.__v244RuntimeHardening);
 })();
 </script>
 
-<script id="v245.2-astra-cross-audit">
+<script id="v245.3-astra-cross-audit">
 (function(){
 'use strict';
 
@@ -37023,6 +37023,15 @@ const V245_ID_ALIASES={
   golabek_bagienny:'russula_paludosa'
 };
 
+// v245.3: scientific-name aliases not present in the Astra source itself.
+// These aliases only improve record matching; they do not change biology.
+const V245_SCI_ALIASES={
+  'bovistella utriformis':'lycoperdon utriforme',
+  'calvatia utriformis':'lycoperdon utriforme',
+  'handkea utriformis':'lycoperdon utriforme'
+};
+
+
 async function v245LoadAstra(){
   if(!v245AstraPromise){
     v245AstraPromise=fetch(V245_ASTRA_URL,{cache:'no-cache'}).then(async r=>{
@@ -37088,8 +37097,18 @@ function v245BuildIndexes(astra){
 function v245MatchRecord(type,meta,idx){
   const aid=V245_ID_ALIASES[type];
   if(aid&&idx.byId.has(aid))return {record:idx.byId.get(aid),method:'id-alias'};
+
   const sci=v245NormSci(meta?.scientific);
-  if(sci&&idx.bySci.has(sci))return {record:idx.bySci.get(sci),method:'scientific'};
+  if(sci){
+    const canonical=v245NormSci(V245_SCI_ALIASES[sci]||sci);
+    if(idx.bySci.has(canonical)){
+      return {
+        record:idx.bySci.get(canonical),
+        method:canonical===sci?'scientific':'scientific-alias'
+      };
+    }
+  }
+
   const pl=v245Norm(String(meta?.label||'').replace(/^[^A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]+/,''));
   if(pl&&idx.byPl.has(pl))return {record:idx.byPl.get(pl),method:'polish-label'};
   return {record:null,method:'none'};
@@ -37115,23 +37134,66 @@ function v245HostMatches(code,trees){
   });
   return {code,known:true,match,label:m.label};
 }
-function v245EcologyCheck(our,astraTrophy){
+function v245EcologyCheck(our,astraTrophy,rec){
   const a=v245Norm(astraTrophy);
   if(!our||!a)return {status:'UNKNOWN',reason:'brak porównywalnej wartości'};
+
   if(our==='mycorrhiza'){
     return a.includes('ektomikory')||a.includes('mikory')
       ? {status:'SUPPORT',reason:'ECM zgodne'}
       : {status:'CONFLICT_CANDIDATE',reason:`u nas mycorrhiza, Astra: ${astraTrophy}`};
   }
+
   if(our==='wood'){
-    if(/saprotrof|pasozy|nekrotrof|drew|ligni/.test(a))return {status:'SUPPORT',reason:'ekologia drewna zgodna'};
-    if(a.includes('ektomikory'))return {status:'CONFLICT_CANDIDATE',reason:`u nas wood, Astra: ${astraTrophy}`};
+    if(/saprotrof|pasozy|nekrotrof|drew|ligni/.test(a)){
+      return {status:'SUPPORT',reason:'ekologia drewna/saprotrofia zgodna'};
+    }
+    if(a.includes('ektomikory')){
+      return {status:'CONFLICT_CANDIDATE',reason:`u nas wood, Astra: ${astraTrophy}`};
+    }
     return {status:'UNKNOWN',reason:`Astra: ${astraTrophy}`};
   }
+
+  // v245.3: grassland/edge are habitat classes, not trophic guilds.
+  // Compare them against Astra habitat/substrate descriptions instead of
+  // declaring UNKNOWN solely because trophy is "saprotrof".
   if(our==='grassland'||our==='edge'){
-    if(a.includes('ektomikory'))return {status:'REVIEW',reason:`u nas ${our}, Astra: ${astraTrophy}`};
-    return {status:'UNKNOWN',reason:'typ otwarty nie mapuje się 1:1 na trofię'};
+    const habitatText=v245Norm([
+      v245Val(rec?.params?.wiek_opis),
+      v245Val(rec?.params?.gleba),
+      v245Val(rec?.params?.substrat),
+      v245Val(rec?.params?.tsl_opt),
+      v245Val(rec?.params?.tsl_dop),
+      v245Val(rec?.params?.naslonecznienie)
+    ].filter(Boolean).join(' | '));
+
+    const openHabitat=/(laka|laki|pastwisk|traw|zieln|otwart|polan|skraj|nieles)/.test(habitatText);
+    const soilSaprotroph=/(saprotrof|glebow|sciolk)/.test(a);
+
+    if(openHabitat && soilSaprotroph){
+      return {
+        status:'SUPPORT',
+        reason:`${our}: Astra potwierdza siedlisko otwarte + saprotrofię glebową/ściółkową`
+      };
+    }
+    if(openHabitat){
+      return {
+        status:'SUPPORT',
+        reason:`${our}: Astra opisuje zgodne siedlisko otwarte`
+      };
+    }
+    if(a.includes('ektomikory')){
+      return {
+        status:'REVIEW',
+        reason:`u nas ${our}, Astra opisuje ECM; porównać siedlisko i partnera`
+      };
+    }
+    return {
+      status:'UNKNOWN',
+      reason:'brak wystarczającego opisu siedliska otwartego w Astra'
+    };
   }
+
   return {status:'UNKNOWN',reason:'nieznana ekologia runtime'};
 }
 
@@ -37184,7 +37246,7 @@ function v245AuditOne(type,rec,matchMethod){
   const hostKnown=allKnown.length;
 
   const trophy=v245Val(rec?.params?.trofia);
-  const ecology=v245EcologyCheck(meta.ecology,trophy);
+  const ecology=v245EcologyCheck(meta.ecology,trophy,rec);
 
   const strict=v245Strict(type);
   const strictness=v245Val(rec?.params?.scislosc);
@@ -37426,11 +37488,15 @@ window.auditAstraV245=async function(){
     seasonConflict:rows.filter(x=>x.checks.season.conflict).length
   };
   const report={
-    version:'v245.2-astra-cross-audit',
+    version:'v245.3-astra-cross-audit',
     auditOnly:true,
     scoringChanged:false,
     biologyChanged:false,
     generatedAt:new Date().toISOString(),
+    matcher:{
+      scientificAliases:Object.keys(V245_SCI_ALIASES).length,
+      habitatAwareEcology:true
+    },
     astraSource:{
       date:astra.source_date,
       status:astra.source_status,
@@ -37457,26 +37523,28 @@ window.auditAstraV245=async function(){
       'STRICT vs szeroka relacja z samym G0/H0 = REVIEW_WEAK_EVIDENCE, nie konflikt.',
       'Brak hosta w Astra nie jest konfliktem, bo lista partnerów jest niewyczerpująca.',
       'Astra null nie oznacza, że nasza wartość jest błędna; oznacza brak potwierdzenia w tym pakiecie.',
-      'CONFLICT_CANDIDATE oznacza priorytet do ręcznego researchu, nie verdict biologiczny.'
+      'CONFLICT_CANDIDATE oznacza priorytet do ręcznego researchu, nie verdict biologiczny.',
+      'v245.3: grassland/edge porównuje się z opisem siedliska Astra, nie tylko z trofią.',
+      'v245.3: synonimy naukowe służą wyłącznie do dopasowania rekordu; nie zmieniają modelu.'
     ]
   };
   window.__astraV245Last=report;
-  console.info('ASTRA BIOLOGY CROSS-AUDIT v245.2',report);
+  console.info('ASTRA BIOLOGY CROSS-AUDIT v245.3',report);
   console.table(report.topReview);
   return report;
 };
 
 window.downloadAstraV245Report=async function(){
   const r=window.__astraV245Last||await window.auditAstraV245();
-  v245Download('ASTRA_CROSS_AUDIT_V245_2.json',JSON.stringify(r,null,2),'application/json');
-  v245Download('ASTRA_CROSS_AUDIT_V245_2.html',v245Html(r),'text/html');
+  v245Download('ASTRA_CROSS_AUDIT_V245_3.json',JSON.stringify(r,null,2),'application/json');
+  v245Download('ASTRA_CROSS_AUDIT_V245_3.html',v245Html(r),'text/html');
   return r;
 };
 
 window.copyAstraV245Summary=async function(){
   const r=window.__astraV245Last||await window.auditAstraV245();
   const text=[
-    'ASTRA CROSS-AUDIT v245.2',
+    'ASTRA CROSS-AUDIT v245.3',
     `runtime=${r.summary.runtimeSpecies} matched=${r.summary.matched} unmatched=${r.summary.unmatched}`,
     `SUPPORT=${r.summary.support} CONFLICT_CANDIDATE=${r.summary.conflictCandidates} UNKNOWN=${r.summary.unknown}`,
     `strictStrong=${r.summary.strictReviewStrong} strictWeak=${r.summary.strictReviewWeak} ageModelOnly=${r.summary.ageModelOnly} phModelOnly=${r.summary.phModelOnly} seasonConflict=${r.summary.seasonConflict}`,
@@ -37488,7 +37556,7 @@ window.copyAstraV245Summary=async function(){
   return text;
 };
 
-console.info('V245.2 ASTRA CROSS-AUDIT READY',{
+console.info('V245.3 ASTRA CROSS-AUDIT READY',{
   auditOnly:true,
   scoringChanged:false,
   commands:['auditAstraV245()','downloadAstraV245Report()','copyAstraV245Summary()']

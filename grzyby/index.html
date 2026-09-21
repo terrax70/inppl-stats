@@ -10396,7 +10396,7 @@ async function main(){
      if(!feats.length)throw new Error('BDL zwróciło dane, ale poza wybranym obszarem.');
 
      
-      await loadExactStandCompositionV239(feats);// KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
+      await loadLiveStandCompositionV240(feats);// KLUCZOWA ZMIANA: mapa grzybowa pojawia się już tutaj.
      renderForestBaseImmediately(feats,'bazowe');
      forestBaseLoaded=true;
      validationForestBaseMode='full';
@@ -10419,7 +10419,7 @@ async function main(){
      if(!feats.length)throw new Error('Awaryjne dane BDL nie zawierają wydzieleń w tym rejonie.');
 
      
-      await loadExactStandCompositionV239(feats);renderForestBaseImmediately(feats,'tryb awaryjny');
+      await loadLiveStandCompositionV240(feats);renderForestBaseImmediately(feats,'tryb awaryjny');
      forestBaseLoaded=true;
      validationForestBaseMode='fallback-5/6';
      setSourceState('forest','ok',`${feats.length} wydzieleń • tryb awaryjny BDL 5/6`);
@@ -11585,6 +11585,168 @@ window.auditStandV239=function(address=''){
   };
   console.info('V239 STAND AUDIT',report);
   return report;
+};
+
+
+/* v240 — live exact stand composition from official BDL ArcGIS layers, Poland-wide */
+const BDL_STAND_LAYERS_V240=Object.freeze([
+  {id:11,label:'Drzewostany PGL LP'},
+  {id:9,label:'Drzewostany KO/KDO PGL LP'},
+  {id:12,label:'Drzewostany poza PGL LP'},
+  {id:10,label:'Drzewostany KO/KDO poza PGL LP'}
+]);
+const BDL_STAND_QUERY_BASE_V240='https://mapserver.bdl.lasy.gov.pl/arcgis/rest/services/WMS_BDL_mapa_drzewostanow/MapServer';
+const liveStandAddressCacheV240=new Map();
+let liveStandLastV240={matched:0,total:0,rows:0,multiSpecies:0,coveragePct:0,multiPct:0,requests:0,failedRequests:0,fallbackMatched:0,elapsedMs:0};
+
+function normalizeStandAddressV240(s){return String(s||'').replace(/\s+/g,'');}
+function chunkV240(arr,n){const out=[];for(let i=0;i<arr.length;i+=n)out.push(arr.slice(i,i+n));return out;}
+function escapeSqlV240(s){return String(s).replace(/'/g,"''");}
+function rowKeyV240(r){return [r.address,r.tree,r.part,r.age,r.storey,r.rank].join('|');}
+
+async function fetchStandLayerBatchV240(layerId,addresses,stats){
+  if(!addresses.length)return [];
+  const where=`adress_forest IN (${addresses.map(a=>`'${escapeSqlV240(a)}'`).join(',')})`;
+  const qs=new URLSearchParams({
+    where,
+    outFields:'adress_forest,species_cd,part_cd,species_age,storey_cd,storey_rank_order,a_year',
+    returnGeometry:'false',
+    f:'json',
+    resultRecordCount:'2000'
+  });
+  const url=`${BDL_STAND_QUERY_BASE_V240}/${layerId}/query?${qs}`;
+  stats.requests++;
+  try{
+    const ctl=new AbortController();
+    const timer=setTimeout(()=>ctl.abort(),12000);
+    const res=await fetch(url,{cache:'force-cache',signal:ctl.signal});
+    clearTimeout(timer);
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
+    if(data?.error)throw new Error(data.error.message||'ArcGIS error');
+    return Array.isArray(data?.features)?data.features.map(x=>x.attributes||{}):[];
+  }catch(err){
+    stats.failedRequests++;
+    console.warn('V240 live BDL stand query failed',layerId,err);
+    return [];
+  }
+}
+
+function decodeLiveStandRowsV240(attrs,layerId){
+  const out=[];
+  for(const a of attrs||[]){
+    const address=normalizeStandAddressV240(a.adress_forest);
+    const rawTree=String(a.species_cd||'').trim();
+    const tree=canonicalTreeCode(rawTree);
+    if(!address||!tree)continue;
+    out.push({
+      address,tree,rawTree,
+      age:Number(a.species_age||0),
+      part:String(a.part_cd??'').trim(),
+      storey:String(a.storey_cd||'DRZEW').trim()||'DRZEW',
+      rank:Number(a.storey_rank_order||99),
+      year:Number(a.a_year||0),
+      layerId,
+      source:'bdl-live-arcgis-v240'
+    });
+  }
+  return out;
+}
+
+async function getLiveStandCompositionV240(addresses,stats){
+  const unique=[...new Set((addresses||[]).map(normalizeStandAddressV240).filter(Boolean))];
+  const missing=unique.filter(a=>!liveStandAddressCacheV240.has(a));
+  if(missing.length){
+    const gathered=new Map(missing.map(a=>[a,[]]));
+    // Query all four official stand layers. Dedupe handles any overlap between normal and KO/KDO layers.
+    for(const batch of chunkV240(missing,30)){
+      const layerResults=await Promise.all(BDL_STAND_LAYERS_V240.map(async l=>{
+        const attrs=await fetchStandLayerBatchV240(l.id,batch,stats);
+        return decodeLiveStandRowsV240(attrs,l.id);
+      }));
+      for(const rows of layerResults)for(const r of rows){
+        if(gathered.has(r.address))gathered.get(r.address).push(r);
+      }
+    }
+    for(const address of missing){
+      const seen=new Set(), rows=[];
+      for(const r of gathered.get(address)||[]){
+        const k=rowKeyV240(r); if(seen.has(k))continue; seen.add(k); rows.push(r);
+      }
+      rows.sort((a,b)=>(a.rank-b.rank)||(b.age-a.age)||a.tree.localeCompare(b.tree));
+      liveStandAddressCacheV240.set(address,rows);
+    }
+  }
+  return new Map(unique.map(a=>[a,liveStandAddressCacheV240.get(a)||[]]));
+}
+
+async function loadLiveStandCompositionV240(feats){
+  const t0=performance.now();
+  const forests=(feats||[]).filter(f=>f?._kind==='forest');
+  const addresses=forests.map(f=>normalizeStandAddressV240(f.properties?.adress_forest)).filter(Boolean);
+  const stats={requests:0,failedRequests:0};
+  const byAddress=await getLiveStandCompositionV240(addresses,stats);
+
+  let matched=0,multi=0,rows=0;
+  const unmatched=[];
+  for(const f of forests){
+    const address=normalizeStandAddressV240(f.properties?.adress_forest);
+    const live=byAddress.get(address)||[];
+    if(!live.length){unmatched.push(f);continue;}
+    f._standSpecies=live.map(r=>({
+      tree:r.tree,rawTree:r.rawTree,age:r.age,part:r.part,storey:r.storey,rank:r.rank,
+      source:r.source,layerId:r.layerId,year:r.year
+    }));
+    f._standCompositionSource='bdl-live-arcgis-v240';
+    f._standExactV239=false;
+    f._standExactV240=true;
+    matched++; rows+=live.length;
+    if(new Set(live.map(x=>x.tree)).size>1)multi++;
+  }
+
+  // Safe fallback: keep the validated v239 Prószków pack if BDL live is temporarily unavailable.
+  let fallbackMatched=0;
+  if(unmatched.length && typeof loadExactStandCompositionV239==='function'){
+    const before=unmatched.filter(f=>f._standExactV239).length;
+    await loadExactStandCompositionV239(unmatched);
+    const after=unmatched.filter(f=>f._standExactV239).length;
+    fallbackMatched=Math.max(0,after-before);
+  }
+  if(matched)invalidateScoringCaches('live exact BDL stand composition v240');
+
+  liveStandLastV240={
+    matched,total:forests.length,rows,multiSpecies:multi,
+    coveragePct:forests.length?+(100*matched/forests.length).toFixed(1):0,
+    multiPct:matched?+(100*multi/matched).toFixed(1):0,
+    requests:stats.requests,failedRequests:stats.failedRequests,
+    fallbackMatched,cacheSize:liveStandAddressCacheV240.size,
+    elapsedMs:+(performance.now()-t0).toFixed(1)
+  };
+  console.info('LIVE BDL STANDS v240',liveStandLastV240);
+  return liveStandLastV240;
+}
+
+window.auditStandV240=function(address=''){
+  const q=normalizeStandAddressV240(address).toLowerCase();
+  const forests=(typeof allFeatures!=='undefined'?allFeatures:[]).filter(f=>f?._kind==='forest');
+  const found=forests.filter(f=>{
+    const a=normalizeStandAddressV240(f.properties?.adress_forest).toLowerCase();
+    return q?a.includes(q):!!f._standExactV240;
+  });
+  const report={
+    version:'v240-live-bdl-stands',last:{...liveStandLastV240},
+    endpoint:BDL_STAND_QUERY_BASE_V240,layers:BDL_STAND_LAYERS_V240,
+    cacheSize:liveStandAddressCacheV240.size,
+    matches:found.slice(0,30).map(f=>({
+      address:normalizeStandAddressV240(f.properties?.adress_forest),
+      dominant:featureTreeCodeV189(f),
+      exactLive:!!f._standExactV240,
+      source:f._standCompositionSource||'',
+      composition:featureStandSpeciesProfileV238(f),
+      legacyNear:Array.isArray(f._nearSpecies)?[...f._nearSpecies]:[]
+    }))
+  };
+  console.info('V240 STAND AUDIT',report);return report;
 };
 
 
@@ -36214,6 +36376,18 @@ window.__v239ExactBdl={
   exactPolygonHostScoring:true,
   neighboringCompartmentsAffectHostScore:false,
   iNatAlias:{ceglastopory:'Neoboletus erythropus'}
+};
+
+
+// v240-live-bdl-stands
+window.__v240LiveBdl={
+  version:'v240-live-bdl-stands',
+  scope:'Poland-wide on demand',
+  source:'BDL ArcGIS WMS_BDL_mapa_drzewostanow',
+  layers:[11,9,12,10],
+  exactPolygonHostScoring:true,
+  localPackRole:'fallback only',
+  queryFields:['adress_forest','species_cd','part_cd','species_age','storey_cd','storey_rank_order','a_year']
 };
 
 </script>

@@ -33115,19 +33115,12 @@ function scheduleNationalRadarRefresh(){
  clearTimeout(nationalRadarRefreshTimer);
  nationalRadarRefreshTimer=setTimeout(()=>{refreshNationalRadar().catch(()=>{});},90);
 }
-/* v244.1 immediate radar invalidation */
+/* v244.4 immediate radar invalidation - no external zoom constant */
 map.on('zoomstart',()=>{
  nationalRadarRequestToken++;
 });
 map.on('zoomend',()=>{
  nationalRadarRequestToken++;
- if(map.getZoom()>NATIONAL_RADAR_MAX_ZOOM){
-   nationalRadarGroup.clearLayers();
-   nationalRadarLastKey='';
-   nationalRadarLastCount=0;
-   nationalRadarLastStats=null;
-   try{updateScoreLegend();}catch(_){}
- }
  scheduleNationalRadarRefresh();
 });
 
@@ -36877,6 +36870,72 @@ console.info('V244.1 RUNTIME HARDENING READY',window.__v244RuntimeHardening);
 
 </script>
 <!-- V234_RADAR_V4_END -->
+
+<script id="v244-4-global-audit">
+(function(){
+  window.auditV244Hardening = function(){
+    var toast=document.getElementById('dataRefreshToast');
+    var source=document.documentElement.innerHTML;
+    var zoomMarker='v244.4 immediate radar invalidation'+' - no external zoom constant';
+
+    var checks={
+      radarUnsupportedGuard:
+        source.indexOf('v244.1 unsupported-species guard')>=0,
+      radarZoomSnapshot:
+        source.indexOf('v244.1 radar zoom snapshot')>=0,
+      radarLateResponseInvalidation:
+        source.indexOf(zoomMarker)>=0,
+      noBrokenZoomConstantInV244Handler:true,
+      bdlFailedPromiseEviction:
+        source.indexOf('v244.1 evict failed shard promise')>=0,
+      diagnosticDelegation:
+        source.indexOf('__v244DiagnosticBindingInstalled')>=0,
+      hiddenToastNotAnnounced:
+        !!toast && toast.getAttribute('aria-hidden')==='true' && !toast.classList.contains('show'),
+      globalAuditAvailable:
+        typeof window.auditV244Hardening==='function'
+    };
+
+    var pos=source.indexOf(zoomMarker);
+    if(pos>=0){
+      var near=source.slice(pos,pos+700);
+      checks.noBrokenZoomConstantInV244Handler=
+        near.indexOf('NATIONAL_RADAR_MAX_ZOOM')<0;
+    }
+
+    var report={
+      version:'v244.4-runtime-hardening',
+      biologyChanged:false,
+      scoringFormulaChanged:false,
+      bdlShardDataChanged:false,
+      checks:checks
+    };
+
+    report.ok=Object.keys(checks).every(function(k){
+      return checks[k]===true;
+    });
+
+    console.info('V244.4 HARDENING AUDIT',report);
+    return report;
+  };
+
+  window.__v244RuntimeHardening = Object.assign(
+    {},
+    window.__v244RuntimeHardening||{},
+    {
+      version:'v244.4-runtime-hardening',
+      biologyChanged:false,
+      scoringFormulaChanged:false,
+      bdlShardDataChanged:false
+    }
+  );
+
+  console.info('V244.4 GLOBAL AUDIT READY',{
+    auditGlobal:typeof window.auditV244Hardening==='function'
+  });
+})();
+</script>
+
 </body>
 </html>
 

@@ -38013,7 +38013,7 @@ console.info('V246.1 MODEL EVIDENCE AUDIT READY',{
 })();
 </script>
 
-<script id="v247.3-true-ph-sensitivity-audit">
+<script id="v247.4-true-ph-sensitivity-audit">
 (function(){
 'use strict';
 
@@ -38121,112 +38121,185 @@ function v247SoilComponents(type,f,neutralizePH=false){
   return {ph,phScore,texture,socScore,raw,blended:v247Blend(raw,rel),rel,lo,hi};
 }
 
+function v247CloneFeature(f){
+  const c={...f};
+  if(f?.properties)c.properties={...f.properties};
+  if(f?._center)c._center=f._center;
+  return c;
+}
+
+function v247WeightGroup(type,meta){
+  if(!meta)return null;
+  if(meta.ecology==='mycorrhiza')return v247Strict(type)?'strictMycorrhiza':'mycorrhiza';
+  if(meta.ecology==='wood')return 'wood';
+  if(meta.ecology==='edge')return 'edge';
+  if(meta.ecology==='grassland')return 'grassland';
+  return null;
+}
+
+function v247ModeWeight(values){
+  if(!values.length)return null;
+  const bins=new Map();
+  for(const v of values){
+    if(!Number.isFinite(v)||v<=0||v>.6)continue;
+    const k=(Math.round(v*1000)/1000).toFixed(3);
+    const a=bins.get(k)||{value:Number(k),count:0,raw:[]};
+    a.count++;a.raw.push(v);bins.set(k,a);
+  }
+  const rows=[...bins.values()].sort((a,b)=>b.count-a.count || b.value-a.value);
+  return rows[0]||null;
+}
+
 function v247DetectWeights(){
-  let src='';
-  try{src=String(stableSpeciesPotential)}catch(_){}
-  if(!src)throw new Error('v247.3: brak stableSpeciesPotential w runtime.');
+  const features=v247Features();
+  const types=v247Types();
+  if(!features.length)throw new Error('v247.4: brak allFeatures.');
+  if(!types.length)throw new Error('v247.4: brak gatunkow runtime.');
 
-  // Ignore the early relevance guard:
-  // if((m.ecology==='mycorrhiza'||m.ecology==='wood')&&f._kind==='open')
-  // and parse only the actual scoring section after `let s=0`.
-  const scoreStartMatch=/\blet\s+s\s*=\s*0\s*;?/.exec(src);
-  if(!scoreStartMatch){
-    const err=new Error('v247.3: nie znaleziono początku sekcji scoringu `let s=0`.');
-    err.v247WeightAudit={mode:'RUNTIME_PARSE_FAIL',sourceLength:src.length};
-    throw err;
+  const original=globalThis.soilSuitability;
+  if(typeof original!=='function'){
+    throw new Error('v247.4: soilSuitability nie jest funkcja globalna.');
+  }
+  if(typeof stableSpeciesPotential!=='function'){
+    throw new Error('v247.4: stableSpeciesPotential nie jest funkcja.');
   }
 
-  const scoreSrc=src.slice(scoreStartMatch.index);
-
-  const branchTokens=[
-    {name:'mycorrhiza',re:/(?:m\.)?ecology\s*===\s*['"]mycorrhiza['"]/},
-    {name:'wood',re:/(?:m\.)?ecology\s*===\s*['"]wood['"]/},
-    {name:'edge',re:/(?:m\.)?ecology\s*===\s*['"]edge['"]/},
-    {name:'grassland',re:/(?:m\.)?ecology\s*===\s*['"]grassland['"]/}
-  ];
-
-  const branchPos={};
-  for(const b of branchTokens){
-    const m=b.re.exec(scoreSrc);
-    branchPos[b.name]=m?m.index:-1;
-  }
-
-  const orderedBranches=
-    branchPos.mycorrhiza>=0 &&
-    branchPos.wood>branchPos.mycorrhiza &&
-    branchPos.edge>branchPos.wood &&
-    branchPos.grassland>branchPos.edge;
-
-  const strictPos=scoreSrc.indexOf('STRICT_HOST_TYPES.has(type)');
-  const strictInMycorrhiza=
-    strictPos>=branchPos.mycorrhiza &&
-    strictPos<branchPos.wood;
-
-  // Read every coefficient multiplying the local `soil` component.
-  // Current runtime has exactly five, in scoring order:
-  // strict mycorrhiza, non-strict mycorrhiza, wood, edge, grassland.
-  const coeffMatches=[];
-  const coeffRe=/((?:\d+(?:\.\d*)?)|(?:\.\d+))\s*\*\s*soil\b/g;
-  for(const m of scoreSrc.matchAll(coeffRe)){
-    coeffMatches.push({
-      value:Number(m[1]),
-      index:m.index,
-      text:m[0]
-    });
-  }
-
-  const coeffs=coeffMatches.map(x=>x.value).filter(Number.isFinite);
-  const expectedCount=coeffs.length===5;
-
-  const positionsFitBranches=
-    expectedCount &&
-    coeffMatches[0].index>strictPos &&
-    coeffMatches[1].index>coeffMatches[0].index &&
-    coeffMatches[1].index<branchPos.wood &&
-    coeffMatches[2].index>branchPos.wood &&
-    coeffMatches[2].index<branchPos.edge &&
-    coeffMatches[3].index>branchPos.edge &&
-    coeffMatches[3].index<branchPos.grassland &&
-    coeffMatches[4].index>branchPos.grassland;
-
-  const weights=expectedCount?{
-    strictMycorrhiza:coeffs[0],
-    mycorrhiza:coeffs[1],
-    wood:coeffs[2],
-    edge:coeffs[3],
-    grassland:coeffs[4]
-  }:{
-    strictMycorrhiza:null,
-    mycorrhiza:null,
-    wood:null,
-    edge:null,
-    grassland:null
+  const groups={
+    strictMycorrhiza:[],
+    mycorrhiza:[],
+    wood:[],
+    edge:[],
+    grassland:[]
   };
+  const samplesByGroup={
+    strictMycorrhiza:[],
+    mycorrhiza:[],
+    wood:[],
+    edge:[],
+    grassland:[]
+  };
+
+  // 4->5->6->7->8->9 gives several local slopes. Clamp can only reduce
+  // a slope, so the modal repeated exact slope across many features/types
+  // recovers the actual coefficient used by the live model.
+  const constants=[4,5,6,7,8,9];
+  const maxFeatureSamplesPerGroup=28;
+
+  let patchVerified=false;
+
+  try{
+    // First prove that replacing the global binding is visible to runtime calls.
+    globalThis.soilSuitability=function(){return 6.123456789;};
+    const probeType=types.find(t=>v247Meta(t)?.collect!==false);
+    const probeFeature=features[0];
+    if(!probeType||!probeFeature)throw new Error('v247.4: brak probki do testu patcha.');
+    let probe=null;
+    try{probe=soilSuitability(probeType,v247CloneFeature(probeFeature));}catch(_){}
+    patchVerified=Math.abs(Number(probe)-6.123456789)<1e-9;
+    if(!patchVerified){
+      throw new Error('v247.4: podmiana soilSuitability nie jest widoczna dla globalnego bindingu.');
+    }
+
+    for(const type of types){
+      const meta=v247Meta(type);
+      if(!meta||meta.collect===false)continue;
+      const group=v247WeightGroup(type,meta);
+      if(!group||samplesByGroup[group].length>=maxFeatureSamplesPerGroup)continue;
+
+      for(const f of features){
+        if(samplesByGroup[group].length>=maxFeatureSamplesPerGroup)break;
+        if(!v247Relevant(type,f))continue;
+
+        const outputs=[];
+        let ok=true;
+        for(const k of constants){
+          globalThis.soilSuitability=function(){return k;};
+          const fc=v247CloneFeature(f);
+          let y;
+          try{y=Number(stableSpeciesPotential(type,fc));}
+          catch(_){ok=false;break;}
+          if(!Number.isFinite(y)){ok=false;break;}
+          outputs.push(y);
+        }
+        if(!ok||outputs.length!==constants.length)continue;
+
+        const slopes=[];
+        for(let i=1;i<outputs.length;i++){
+          const dy=outputs[i]-outputs[i-1];
+          const dx=constants[i]-constants[i-1];
+          const slope=dy/dx;
+          if(Number.isFinite(slope)&&slope>0.005&&slope<0.6){
+            slopes.push(slope);
+            groups[group].push(slope);
+          }
+        }
+        if(slopes.length){
+          samplesByGroup[group].push({
+            type,
+            outputs:outputs.map(x=>Number(x.toFixed(6))),
+            slopes:slopes.map(x=>Number(x.toFixed(6)))
+          });
+        }
+      }
+    }
+  }finally{
+    globalThis.soilSuitability=original;
+  }
+
+  // Verify restoration before trusting anything.
+  const restored=globalThis.soilSuitability===original;
+  if(!restored){
+    throw new Error('v247.4: NIE udalo sie przywrocic soilSuitability.');
+  }
+
+  const inferred={};
+  const modeDetails={};
+  for(const [group,vals] of Object.entries(groups)){
+    const mode=v247ModeWeight(vals);
+    inferred[group]=mode?.value??null;
+    modeDetails[group]=mode?{
+      value:mode.value,
+      count:mode.count,
+      totalSlopes:vals.length,
+      confidence:Number((mode.count/Math.max(1,vals.length)).toFixed(3))
+    }:{
+      value:null,count:0,totalSlopes:vals.length,confidence:0
+    };
+  }
+
+  const unresolved=Object.entries(inferred)
+    .filter(([,v])=>!Number.isFinite(v))
+    .map(([k])=>k);
+
+  const lowConfidence=Object.entries(modeDetails)
+    .filter(([,d])=>d.totalSlopes<3 || d.confidence<0.15)
+    .map(([k])=>k);
 
   const audit={
-    mode:(orderedBranches&&strictInMycorrhiza&&expectedCount&&positionsFitBranches)
-      ?'RUNTIME_VERIFIED'
-      :'RUNTIME_PARSE_FAIL',
-    weights,
-    rawCoefficients:coeffMatches,
-    branchPositions:branchPos,
-    orderedBranches,
-    strictInMycorrhiza,
-    expectedCoefficientCount:expectedCount,
-    positionsFitBranches,
-    sourceLength:src.length,
-    scoringSourceLength:scoreSrc.length
+    mode:(!unresolved.length&&!lowConfidence.length&&patchVerified&&restored)
+      ?'RUNTIME_BLACKBOX_VERIFIED'
+      :'RUNTIME_BLACKBOX_FAIL',
+    weights:inferred,
+    patchVerified,
+    restored,
+    modeDetails,
+    sampleCounts:Object.fromEntries(
+      Object.entries(samplesByGroup).map(([k,v])=>[k,v.length])
+    ),
+    unresolved,
+    lowConfidence,
+    examples:Object.fromEntries(
+      Object.entries(samplesByGroup).map(([k,v])=>[k,v.slice(0,3)])
+    )
   };
 
-  if(audit.mode!=='RUNTIME_VERIFIED'){
+  if(audit.mode!=='RUNTIME_BLACKBOX_VERIFIED'){
     const err=new Error(
-      'v247.3: nie udalo sie bezpiecznie odczytac wag soil z runtime | debug='+
-      JSON.stringify(audit)
+      'v247.4: black-box verification wag soil FAIL | debug='+JSON.stringify(audit)
     );
     err.v247WeightAudit=audit;
     throw err;
   }
-
   return audit;
 }
 
@@ -38328,7 +38401,7 @@ window.auditPHSensitivityV247=async function(){
     features:features.length,
     soilReliability:Number(v247SoilRel().toFixed(3)),
     weightDetection:wd,
-    runtimeWeightsVerified:wd.mode==='RUNTIME_VERIFIED',
+    runtimeWeightsVerified:wd.mode==='RUNTIME_BLACKBOX_VERIFIED',
     highestP90Delta:rows[0]?.potentialDeltaVsNeutralPH.p90Abs??null,
     highestMeanAbsDelta:Math.max(0,...rows.map(r=>r.potentialDeltaVsNeutralPH.meanAbs)),
     speciesP90Ge025:rows.filter(r=>r.potentialDeltaVsNeutralPH.p90Abs>=.25).length,
@@ -38336,7 +38409,7 @@ window.auditPHSensitivityV247=async function(){
   };
 
   const report={
-    version:'v247.3-true-ph-sensitivity-audit',
+    version:'v247.4-true-ph-sensitivity-audit',
     auditOnly:true,
     scoringChanged:false,
     biologyChanged:false,
@@ -38350,14 +38423,14 @@ window.auditPHSensitivityV247=async function(){
       'To jest read-only counterfactual; nie zmienia SPECIES_META ani danych gleby.',
       'pH delta izoluje tylko część pH wewnątrz soilSuitability.',
       'Tekstura, SOC i soilReliability pozostają dokładnie takie jak w runtime.',
-      'potentialDelta używa wyłącznie wag soil potwierdzonych z aktualnego stableSpeciesPotential; parser analizuje wyłącznie sekcję po `let s=0`, odczytuje 5 współczynników `*soil` w kolejności gałęzi i zatrzymuje audyt przy niepełnej/podejrzanej strukturze.',
+      'potentialDelta używa wag soil zmierzonych black-boxem na faktycznie działającym stableSpeciesPotential przez kontrolowaną podmianę soilSuitability i natychmiastowe przywrócenie funkcji.',
       'Wynik nie mówi, jaki zakres pH jest poprawny biologicznie; mówi, jak mocno obecny zakres wpływa na mapę.',
       'Zmiana biologii wymaga osobnej weryfikacji źródłowej i equivalence/QA.'
     ]
   };
 
   window.__phSensitivityV247Last=report;
-  console.info('TRUE pH SENSITIVITY AUDIT v247.3',report);
+  console.info('TRUE pH SENSITIVITY AUDIT v247.4',report);
   console.table(report.top20.map((r,i)=>({
     rank:i+1,
     species:r.label,
@@ -38394,11 +38467,11 @@ window.phSensitivityTopV247=async function(n=20){
 
 window.downloadPHSensitivityV247=async function(){
   const r=window.__phSensitivityV247Last||await window.auditPHSensitivityV247();
-  v247Download('TRUE_PH_SENSITIVITY_V247_3.json',JSON.stringify(r,null,2),'application/json');
+  v247Download('TRUE_PH_SENSITIVITY_V247_4.json',JSON.stringify(r,null,2),'application/json');
   return r;
 };
 
-console.info('V247.3 TRUE pH SENSITIVITY AUDIT READY',{
+console.info('V247.4 TRUE pH SENSITIVITY AUDIT READY',{
   auditOnly:true,
   scoringChanged:false,
   commands:[

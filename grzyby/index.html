@@ -37564,8 +37564,7 @@ console.info('V245.3 ASTRA CROSS-AUDIT READY',{
 })();
 </script>
 
-
-<script id="v246-model-evidence-audit">
+<script id="v246.1-model-evidence-audit">
 (function(){
 'use strict';
 
@@ -37636,6 +37635,56 @@ function v246EvidenceGap(kind){
     case 'SUPPORTED': return 0.15;
     default:return 1.5;
   }
+}
+
+
+function v246ParameterApplicability(type,param){
+  const meta=v246Meta(type);
+  const eco=meta.ecology||null;
+  const strict=v246Strict(type);
+
+  // Mirrors production architecture:
+  // mycorrhiza: age component is used
+  // edge: age component is used
+  // grassland: NO age component
+  // wood: production uses woodAgeScore/oldAge, not SPECIES_META.age
+  if(param==='age'){
+    if(eco==='mycorrhiza')return {applicable:true,path:strict?'mycorrhiza.strict.age':'mycorrhiza.age'};
+    if(eco==='edge')return {applicable:true,path:'edge.age'};
+    if(eco==='grassland')return {applicable:false,path:'grassland.no-age'};
+    if(eco==='wood')return {applicable:false,path:'wood.uses-oldAge-not-meta-age'};
+    return {applicable:false,path:'unknown-ecology'};
+  }
+
+  if(param==='hosts'){
+    return {
+      applicable:eco==='mycorrhiza'||eco==='wood',
+      path:eco==='mycorrhiza'?'mycorrhiza.tree-host':(eco==='wood'?'wood.tree-host':'no-host-component')
+    };
+  }
+
+  if(param==='strictHost'){
+    return {
+      applicable:(eco==='mycorrhiza'||eco==='wood')&&strict,
+      path:strict?'strict-host-gate':'no-strict-host'
+    };
+  }
+
+  if(param==='ph'||param==='sand'){
+    // Both feed soilSuitability(), and soil is present in all four ecology formulas.
+    return {applicable:['mycorrhiza','wood','edge','grassland'].includes(eco),path:`${eco||'unknown'}.soilSuitability`};
+  }
+
+  if(param==='moist'){
+    // Runtime moist contributes through moisture/terrain suitability; terrain is present in all four ecology formulas.
+    return {applicable:['mycorrhiza','wood','edge','grassland'].includes(eco),path:`${eco||'unknown'}.moistureTerrain`};
+  }
+
+  if(param==='season'){
+    return {applicable:true,path:'fruitingConditions.season'};
+  }
+
+  return {applicable:true,path:'unknown'};
 }
 
 function v246EvidenceFor(type,astraRow,param){
@@ -37745,6 +37794,9 @@ function v246EvidenceFor(type,astraRow,param){
 }
 
 function v246Row(type,astraRow,param){
+  const applicability=v246ParameterApplicability(type,param);
+  if(!applicability.applicable)return null;
+
   const info=v246EvidenceFor(type,astraRow,param);
   if(!info)return null;
   const meta=v246Meta(type);
@@ -37759,6 +37811,8 @@ function v246Row(type,astraRow,param){
     scientific:meta.scientific||null,
     parameter:param,
     parameterLabel:V246_PARAM_MODEL[param].label,
+    applicable:true,
+    productionPath:applicability.path,
     runtimeValue:info.runtimeValue,
     astraValue:info.astraValue,
     evidence:info.evidence,
@@ -37783,6 +37837,7 @@ function v246Html(report){
       <td>${r.impactProxy}</td>
       <td>${r.leverageProxy}</td>
       <td><code>${v246Esc(JSON.stringify(r.runtimeValue))}</code></td>
+      <td>${v246Esc(r.productionPath)}</td>
       <td>${v246Esc(r.sourceNote)}</td>
     </tr>`).join('');
 
@@ -37809,6 +37864,7 @@ function v246Html(report){
     <div class="card"><b>${report.summary.modelOnly}</b><br>MODEL_ONLY</div>
     <div class="card"><b>${report.summary.weakEvidence}</b><br>WEAK_G0_H0</div>
     <div class="card"><b>${report.summary.qualitativeOnly}</b><br>QUALITATIVE_ONLY</div>
+    <div class="card"><b>${report.summary.skippedNotApplicable}</b><br>NOT_APPLICABLE pominięte</div>
   </div>
   <div class="warn">Priorytet = impactProxy × evidenceGapWeight × leverageProxy. Nie jest to zmierzony delta scoringu; służy wyłącznie do kolejności researchu.</div>
 
@@ -37816,7 +37872,7 @@ function v246Html(report){
   <table><thead><tr><th>Parametr</th><th>Razem</th><th>MODEL_ONLY</th><th>WEAK</th><th>QUALITATIVE</th><th>SUPPORTED</th></tr></thead><tbody>${groupRows}</tbody></table>
 
   <h2>Ranking parametrów do weryfikacji</h2>
-  <table><thead><tr><th>#</th><th>Gatunek</th><th>Parametr</th><th>Dowód</th><th>Priority</th><th>Impact</th><th>Leverage</th><th>Runtime</th><th>Dlaczego</th></tr></thead><tbody>${topRows}</tbody></table>
+  <table><thead><tr><th>#</th><th>Gatunek</th><th>Parametr</th><th>Dowód</th><th>Priority</th><th>Impact</th><th>Leverage</th><th>Runtime</th><th>Production path</th><th>Dlaczego</th></tr></thead><tbody>${topRows}</tbody></table>
   </html>`;
 }
 
@@ -37826,10 +37882,32 @@ window.auditModelEvidenceV246=async function(){
   const types=(astraReport.rows||[]).map(r=>r.type);
 
   const rows=[];
+  const skippedNotApplicable=[];
   const params=['hosts','strictHost','season','age','ph','moist','sand'];
   for(const type of types){
     const ar=astraByType.get(type);
     for(const p of params){
+      const applicability=v246ParameterApplicability(type,p);
+      if(!applicability.applicable){
+        const meta=v246Meta(type);
+        const hasRuntimeValue=(
+          (p==='age'&&Array.isArray(meta.age)) ||
+          (p==='hosts'&&(v246Hosts(type,meta).strong.length||v246Hosts(type,meta).secondary.length)) ||
+          (p==='strictHost'&&v246Strict(type))
+        );
+        if(hasRuntimeValue){
+          skippedNotApplicable.push({
+            type,
+            label:meta.label||type,
+            scientific:meta.scientific||null,
+            parameter:p,
+            runtimeValue:p==='age'?meta.age:(p==='strictHost'?true:v246Hosts(type,meta)),
+            productionPath:applicability.path,
+            reason:'Pole istnieje w profilu, ale ta gałąź produkcyjnego scoringu go nie używa.'
+          });
+        }
+        continue;
+      }
       const row=v246Row(type,ar,p);
       if(row)rows.push(row);
     }
@@ -37856,11 +37934,12 @@ window.auditModelEvidenceV246=async function(){
     qualitativeOnly:rows.filter(r=>r.evidence==='QUALITATIVE_ONLY').length,
     partialSupport:rows.filter(r=>r.evidence==='PARTIAL_SUPPORT').length,
     supported:rows.filter(r=>r.evidence==='SUPPORTED').length,
+    skippedNotApplicable:skippedNotApplicable.length,
     top20Threshold:rows[19]?.priorityScore??null
   };
 
   const report={
-    version:'v246-model-evidence-audit',
+    version:'v246.1-model-evidence-audit',
     auditOnly:true,
     scoringChanged:false,
     biologyChanged:false,
@@ -37870,6 +37949,7 @@ window.auditModelEvidenceV246=async function(){
     sourceAuditVersion:astraReport.version,
     summary,
     byParameter,
+    skippedNotApplicable,
     top20:rows.slice(0,20),
     rows,
     rules:[
@@ -37878,12 +37958,14 @@ window.auditModelEvidenceV246=async function(){
       'QUALITATIVE_ONLY = Astra wspiera kierunek/opis, ale nie kalibruje naszej kategorii lub progu.',
       'SUPPORTED nie oznacza pełnej kalibracji modelu.',
       'priorityScore jest proxy do kolejności researchu, nie prawdopodobieństwem i nie rzeczywistym delta scoringu.',
-      'Żaden wynik v246 nie zmienia konfiguracji produkcyjnej automatycznie.'
+      'Żaden wynik v246.1 nie zmienia konfiguracji produkcyjnej automatycznie.',
+      'v246.1 filtruje parametry po rzeczywistej gałęzi scoringu: grassland nie używa age, wood używa oldAge zamiast SPECIES_META.age.',
+      'Pole obecne w SPECIES_META, ale nieużywane przez daną ekologię, trafia do skippedNotApplicable zamiast rankingu.'
     ]
   };
 
   window.__modelEvidenceV246Last=report;
-  console.info('MODEL EVIDENCE AUDIT v246',report);
+  console.info('MODEL EVIDENCE AUDIT v246.1',report);
   console.table(report.top20.map((r,i)=>({
     rank:i+1,
     type:r.type,
@@ -37891,15 +37973,16 @@ window.auditModelEvidenceV246=async function(){
     parameter:r.parameter,
     evidence:r.evidence,
     priority:r.priorityScore,
-    runtime:JSON.stringify(r.runtimeValue)
+    runtime:JSON.stringify(r.runtimeValue),
+    path:r.productionPath
   })));
   return report;
 };
 
 window.downloadModelEvidenceV246Report=async function(){
   const r=window.__modelEvidenceV246Last || await window.auditModelEvidenceV246();
-  v246Download('MODEL_EVIDENCE_AUDIT_V246.json',JSON.stringify(r,null,2),'application/json');
-  v246Download('MODEL_EVIDENCE_AUDIT_V246.html',v246Html(r),'text/html');
+  v246Download('MODEL_EVIDENCE_AUDIT_V246_1.json',JSON.stringify(r,null,2),'application/json');
+  v246Download('MODEL_EVIDENCE_AUDIT_V246_1.html',v246Html(r),'text/html');
   return r;
 };
 
@@ -37918,7 +38001,7 @@ window.modelEvidenceTopV246=async function(n=20){
   return out;
 };
 
-console.info('V246 MODEL EVIDENCE AUDIT READY',{
+console.info('V246.1 MODEL EVIDENCE AUDIT READY',{
   auditOnly:true,
   scoringChanged:false,
   commands:[

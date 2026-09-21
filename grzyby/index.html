@@ -37564,6 +37564,372 @@ console.info('V245.3 ASTRA CROSS-AUDIT READY',{
 })();
 </script>
 
+
+<script id="v246-model-evidence-audit">
+(function(){
+'use strict';
+
+function v246Norm(s){
+  return String(s||'')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9]+/g,' ')
+    .trim().replace(/\s+/g,' ');
+}
+function v246Arr(v){return Array.isArray(v)?v:[]}
+function v246Clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function v246Meta(type){
+  try{return (typeof SPECIES_META!=='undefined'&&SPECIES_META[type])?SPECIES_META[type]:{}}catch(_){return{}}
+}
+function v246Hosts(type,meta){
+  try{
+    if(typeof HOSTS!=='undefined'&&HOSTS[type])return HOSTS[type];
+  }catch(_){}
+  return {strong:v246Arr(meta.strong),secondary:v246Arr(meta.secondary)};
+}
+function v246Strict(type){
+  try{return typeof STRICT_HOST_TYPES!=='undefined'&&STRICT_HOST_TYPES.has(type)}catch(_){return false}
+}
+function v246Esc(s){
+  return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function v246Download(name,text,type='application/json'){
+  const blob=new Blob([text],{type:type+';charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+const V246_PARAM_MODEL={
+  hosts:{impact:5,label:'gospodarze / hosty'},
+  strictHost:{impact:5,label:'twarda bramka gospodarza'},
+  season:{impact:5,label:'fenologia / season curve'},
+  age:{impact:4,label:'wiek drzewostanu'},
+  ph:{impact:4,label:'pH'},
+  moist:{impact:3,label:'wilgotność siedliska'},
+  sand:{impact:2.5,label:'piaszczystość / gleba'}
+};
+
+function v246RangeSharpness(param,value){
+  if(!Array.isArray(value)||value.length<2)return 1;
+  const a=Number(value[0]),b=Number(value[1]);
+  if(!Number.isFinite(a)||!Number.isFinite(b)||b<=a)return 1;
+  const width=b-a;
+  if(param==='ph'){
+    // narrower pH windows influence more strongly than very broad ones.
+    return 1 + v246Clamp((4.5-width)/4.5,0,1)*0.75;
+  }
+  if(param==='age'){
+    return 1 + v246Clamp((130-width)/130,0,1)*0.65;
+  }
+  return 1;
+}
+
+function v246EvidenceGap(kind){
+  switch(kind){
+    case 'MODEL_ONLY': return 3.0;
+    case 'WEAK_G0_H0': return 2.2;
+    case 'QUALITATIVE_ONLY': return 1.8;
+    case 'PARTIAL_SUPPORT': return 1.0;
+    case 'SUPPORTED': return 0.15;
+    default:return 1.5;
+  }
+}
+
+function v246EvidenceFor(type,astraRow,param){
+  const meta=v246Meta(type);
+
+  if(param==='age'){
+    if(!Array.isArray(meta.age))return null;
+    return {
+      runtimeValue:meta.age,
+      evidence:astraRow?.astra?.age!=null?'PARTIAL_SUPPORT':'MODEL_ONLY',
+      astraValue:astraRow?.astra?.age??null,
+      sourceNote:astraRow?.astra?.age!=null
+        ? 'Astra ma wartość wieku; porównać metodę i zakres.'
+        : 'Astra nie podaje zweryfikowanego liczbowego zakresu wieku.'
+    };
+  }
+
+  if(param==='ph'){
+    if(!Array.isArray(meta.ph))return null;
+    return {
+      runtimeValue:meta.ph,
+      evidence:astraRow?.astra?.ph!=null?'PARTIAL_SUPPORT':'MODEL_ONLY',
+      astraValue:astraRow?.astra?.ph??null,
+      sourceNote:astraRow?.astra?.ph!=null
+        ? 'Astra ma wartość pH; sprawdzić metodę pomiaru i czy to tolerancja czy obserwacja.'
+        : 'Astra nie podaje zweryfikowanego liczbowego zakresu tolerancji pH.'
+    };
+  }
+
+  if(param==='season'){
+    if(!Array.isArray(meta.season))return null;
+    const j=astraRow?.checks?.season?.jaccard;
+    const conflict=astraRow?.checks?.season?.conflict===true;
+    let evidence='PARTIAL_SUPPORT';
+    if(conflict)evidence='QUALITATIVE_ONLY';
+    else if(j!=null&&j>=0.60)evidence='SUPPORTED';
+    return {
+      runtimeValue:meta.season,
+      evidence,
+      astraValue:astraRow?.astra?.months??null,
+      sourceNote:j==null
+        ? 'Brak porównywalnego kalendarza.'
+        : `Zgodność miesięcy Jaccard=${Number(j).toFixed(2)}; Astra ma orientacyjny kalendarz, nie kalibrację krzywej.`
+    };
+  }
+
+  if(param==='hosts'){
+    const h=v246Hosts(type,meta);
+    if(!h.strong.length&&!h.secondary.length)return null;
+    const overlap=astraRow?.checks?.hosts?.overlap??0;
+    const comparable=astraRow?.checks?.hosts?.comparable??0;
+    const sources=astraRow?.astra?.sources||[];
+    const specific=sources.some(s=>!['G0','H0'].includes(String(s||'').toUpperCase()));
+    let evidence='WEAK_G0_H0';
+    if(overlap>0&&specific)evidence='SUPPORTED';
+    else if(overlap>0)evidence='PARTIAL_SUPPORT';
+    return {
+      runtimeValue:{strong:h.strong,secondary:h.secondary},
+      evidence,
+      astraValue:astraRow?.astra?.trees??null,
+      sourceNote:`Host overlap ${overlap}/${comparable}. Listy Astra są niewyczerpujące; brak hosta nie jest dowodem konfliktu.`
+    };
+  }
+
+  if(param==='strictHost'){
+    if(!v246Strict(type))return null;
+    const st=astraRow?.checks?.strictHost;
+    let evidence='MODEL_ONLY';
+    if(st?.status==='REVIEW_STRONG')evidence='PARTIAL_SUPPORT';
+    else if(st?.status==='REVIEW_WEAK_EVIDENCE')evidence='WEAK_G0_H0';
+    else if(st?.hasSpeciesSpecificEvidence)evidence='SUPPORTED';
+    return {
+      runtimeValue:true,
+      evidence,
+      astraValue:st?.astraDescription??null,
+      sourceNote:st?.note||'Twarda bramka wymaga szczególnie mocnego uzasadnienia gatunkowego.'
+    };
+  }
+
+  if(param==='moist'){
+    if(meta.moist==null)return null;
+    const water=astraRow?.astra?.water;
+    return {
+      runtimeValue:meta.moist,
+      evidence:water?'QUALITATIVE_ONLY':'MODEL_ONLY',
+      astraValue:water??null,
+      sourceNote:water
+        ? 'Astra opisuje wilgotność jakościowo, bez progu liczbowego/mapowania kategorii runtime.'
+        : 'Brak porównywalnych danych wilgotności.'
+    };
+  }
+
+  if(param==='sand'){
+    if(meta.sand==null)return null;
+    const soil=astraRow?.astra?.soil;
+    return {
+      runtimeValue:meta.sand,
+      evidence:soil?'QUALITATIVE_ONLY':'MODEL_ONLY',
+      astraValue:soil??null,
+      sourceNote:soil
+        ? 'Astra opisuje glebę jakościowo; nie kalibruje kategorii sand runtime.'
+        : 'Brak porównywalnego opisu gleby.'
+    };
+  }
+
+  return null;
+}
+
+function v246Row(type,astraRow,param){
+  const info=v246EvidenceFor(type,astraRow,param);
+  if(!info)return null;
+  const meta=v246Meta(type);
+  const impact=V246_PARAM_MODEL[param].impact;
+  const gap=v246EvidenceGap(info.evidence);
+  const sharp=v246RangeSharpness(param,info.runtimeValue);
+  const score=impact*gap*sharp;
+
+  return {
+    type,
+    label:meta.label||type,
+    scientific:meta.scientific||null,
+    parameter:param,
+    parameterLabel:V246_PARAM_MODEL[param].label,
+    runtimeValue:info.runtimeValue,
+    astraValue:info.astraValue,
+    evidence:info.evidence,
+    impactProxy:impact,
+    evidenceGapWeight:gap,
+    leverageProxy:Number(sharp.toFixed(3)),
+    priorityScore:Number(score.toFixed(3)),
+    sourceNote:info.sourceNote,
+    astraSources:astraRow?.astra?.sources||[],
+    auditVerdict:astraRow?.verdict||null
+  };
+}
+
+function v246Html(report){
+  const topRows=report.rows.slice(0,100).map((r,i)=>`
+    <tr>
+      <td>${i+1}</td>
+      <td><b>${v246Esc(r.label)}</b><br><small>${v246Esc(r.scientific||r.type)}</small></td>
+      <td><b>${v246Esc(r.parameterLabel)}</b><br><small>${v246Esc(r.parameter)}</small></td>
+      <td>${v246Esc(r.evidence)}</td>
+      <td>${r.priorityScore}</td>
+      <td>${r.impactProxy}</td>
+      <td>${r.leverageProxy}</td>
+      <td><code>${v246Esc(JSON.stringify(r.runtimeValue))}</code></td>
+      <td>${v246Esc(r.sourceNote)}</td>
+    </tr>`).join('');
+
+  const groupRows=Object.entries(report.byParameter).map(([k,v])=>`
+    <tr><td>${v246Esc(k)}</td><td>${v.count}</td><td>${v.modelOnly}</td><td>${v.weak}</td><td>${v.qualitative}</td><td>${v.supported}</td></tr>
+  `).join('');
+
+  return `<!doctype html><html lang="pl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Model Evidence Audit v246</title>
+  <style>
+  body{font-family:system-ui,sans-serif;margin:20px;background:#f4f6f3;color:#17251d}
+  h1{margin-bottom:4px}.sub{color:#5b6a61;margin-bottom:18px;max-width:1000px}
+  .cards{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.card{background:#fff;border:1px solid #d9e0da;border-radius:10px;padding:10px 14px}
+  table{border-collapse:collapse;width:100%;background:#fff;font-size:12px;margin:14px 0 28px}
+  th,td{border:1px solid #dfe5df;padding:7px;vertical-align:top}th{background:#e9eee9;position:sticky;top:0}
+  small{color:#667269}code{white-space:pre-wrap}
+  .warn{background:#fff3df;padding:12px;border-radius:8px}
+  </style>
+  <h1>Model Evidence Audit v246</h1>
+  <div class="sub">AUDIT-ONLY. Ranking wskazuje, które parametry najbardziej opłaca się zweryfikować naukowo. <b>priorityScore to transparentny proxy audytowy, nie wynik biologiczny ani zmiana scoringu.</b></div>
+  <div class="cards">
+    <div class="card"><b>${report.summary.species}</b><br>gatunków</div>
+    <div class="card"><b>${report.summary.parameterRows}</b><br>parametrów ocenionych</div>
+    <div class="card"><b>${report.summary.modelOnly}</b><br>MODEL_ONLY</div>
+    <div class="card"><b>${report.summary.weakEvidence}</b><br>WEAK_G0_H0</div>
+    <div class="card"><b>${report.summary.qualitativeOnly}</b><br>QUALITATIVE_ONLY</div>
+  </div>
+  <div class="warn">Priorytet = impactProxy × evidenceGapWeight × leverageProxy. Nie jest to zmierzony delta scoringu; służy wyłącznie do kolejności researchu.</div>
+
+  <h2>Podsumowanie wg parametru</h2>
+  <table><thead><tr><th>Parametr</th><th>Razem</th><th>MODEL_ONLY</th><th>WEAK</th><th>QUALITATIVE</th><th>SUPPORTED</th></tr></thead><tbody>${groupRows}</tbody></table>
+
+  <h2>Ranking parametrów do weryfikacji</h2>
+  <table><thead><tr><th>#</th><th>Gatunek</th><th>Parametr</th><th>Dowód</th><th>Priority</th><th>Impact</th><th>Leverage</th><th>Runtime</th><th>Dlaczego</th></tr></thead><tbody>${topRows}</tbody></table>
+  </html>`;
+}
+
+window.auditModelEvidenceV246=async function(){
+  const astraReport=window.__astraV245Last || await window.auditAstraV245();
+  const astraByType=new Map((astraReport.rows||[]).map(r=>[r.type,r]));
+  const types=(astraReport.rows||[]).map(r=>r.type);
+
+  const rows=[];
+  const params=['hosts','strictHost','season','age','ph','moist','sand'];
+  for(const type of types){
+    const ar=astraByType.get(type);
+    for(const p of params){
+      const row=v246Row(type,ar,p);
+      if(row)rows.push(row);
+    }
+  }
+
+  rows.sort((a,b)=>b.priorityScore-a.priorityScore || a.label.localeCompare(b.label,'pl') || a.parameter.localeCompare(b.parameter));
+
+  const byParameter={};
+  for(const r of rows){
+    const g=byParameter[r.parameter] ||= {count:0,modelOnly:0,weak:0,qualitative:0,supported:0,partial:0};
+    g.count++;
+    if(r.evidence==='MODEL_ONLY')g.modelOnly++;
+    else if(r.evidence==='WEAK_G0_H0')g.weak++;
+    else if(r.evidence==='QUALITATIVE_ONLY')g.qualitative++;
+    else if(r.evidence==='SUPPORTED')g.supported++;
+    else if(r.evidence==='PARTIAL_SUPPORT')g.partial++;
+  }
+
+  const summary={
+    species:types.length,
+    parameterRows:rows.length,
+    modelOnly:rows.filter(r=>r.evidence==='MODEL_ONLY').length,
+    weakEvidence:rows.filter(r=>r.evidence==='WEAK_G0_H0').length,
+    qualitativeOnly:rows.filter(r=>r.evidence==='QUALITATIVE_ONLY').length,
+    partialSupport:rows.filter(r=>r.evidence==='PARTIAL_SUPPORT').length,
+    supported:rows.filter(r=>r.evidence==='SUPPORTED').length,
+    top20Threshold:rows[19]?.priorityScore??null
+  };
+
+  const report={
+    version:'v246-model-evidence-audit',
+    auditOnly:true,
+    scoringChanged:false,
+    biologyChanged:false,
+    rankingIsMeasuredScoringDelta:false,
+    rankingFormula:'impactProxy × evidenceGapWeight × leverageProxy',
+    generatedAt:new Date().toISOString(),
+    sourceAuditVersion:astraReport.version,
+    summary,
+    byParameter,
+    top20:rows.slice(0,20),
+    rows,
+    rules:[
+      'MODEL_ONLY = parametr runtime istnieje, ale pakiet Astra nie podaje porównywalnej zweryfikowanej wartości.',
+      'WEAK_G0_H0 = wsparcie/rozbieżność opiera się tylko na syntezie G0 lub hipotezie H0.',
+      'QUALITATIVE_ONLY = Astra wspiera kierunek/opis, ale nie kalibruje naszej kategorii lub progu.',
+      'SUPPORTED nie oznacza pełnej kalibracji modelu.',
+      'priorityScore jest proxy do kolejności researchu, nie prawdopodobieństwem i nie rzeczywistym delta scoringu.',
+      'Żaden wynik v246 nie zmienia konfiguracji produkcyjnej automatycznie.'
+    ]
+  };
+
+  window.__modelEvidenceV246Last=report;
+  console.info('MODEL EVIDENCE AUDIT v246',report);
+  console.table(report.top20.map((r,i)=>({
+    rank:i+1,
+    type:r.type,
+    label:r.label,
+    parameter:r.parameter,
+    evidence:r.evidence,
+    priority:r.priorityScore,
+    runtime:JSON.stringify(r.runtimeValue)
+  })));
+  return report;
+};
+
+window.downloadModelEvidenceV246Report=async function(){
+  const r=window.__modelEvidenceV246Last || await window.auditModelEvidenceV246();
+  v246Download('MODEL_EVIDENCE_AUDIT_V246.json',JSON.stringify(r,null,2),'application/json');
+  v246Download('MODEL_EVIDENCE_AUDIT_V246.html',v246Html(r),'text/html');
+  return r;
+};
+
+window.modelEvidenceTopV246=async function(n=20){
+  const r=window.__modelEvidenceV246Last || await window.auditModelEvidenceV246();
+  const out=r.rows.slice(0,Math.max(1,Math.min(200,Number(n)||20)));
+  console.table(out.map((x,i)=>({
+    rank:i+1,
+    species:x.label,
+    parameter:x.parameterLabel,
+    evidence:x.evidence,
+    priority:x.priorityScore,
+    runtime:JSON.stringify(x.runtimeValue),
+    note:x.sourceNote
+  })));
+  return out;
+};
+
+console.info('V246 MODEL EVIDENCE AUDIT READY',{
+  auditOnly:true,
+  scoringChanged:false,
+  commands:[
+    'await auditModelEvidenceV246()',
+    'await modelEvidenceTopV246(20)',
+    'await downloadModelEvidenceV246Report()'
+  ]
+});
+})();
+</script>
+
 </body>
 </html>
 

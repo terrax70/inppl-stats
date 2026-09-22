@@ -7885,7 +7885,7 @@ function soilAt(c){
     acc[k]=wsum[k]>0 ? acc[k]/wsum[k] : NaN;
   }
 
-  acc._soilReliability=soilCoverageReliabilityV248(region.coverage);
+  acc._soilReliability=soilCoverageReliabilityV249(region.coverage);
   return Number.isFinite(acc.ph)?acc:null;
  })();
 
@@ -38803,6 +38803,14 @@ console.info('V248 SOIL DEPTH SENSITIVITY AUDIT READY',{
  };
  console.info('V249 SAFE ASTRA MERGE READY',{auditGlobal:true});
 })();
+</script>
+
+
+<script id="v249.5-soil-helper-hotfix">
+console.info('V249.5 SOIL HELPER HOTFIX READY',{
+ oldRefGone:true,
+ helper:'soilCoverageReliabilityV249'
+});
 </script>
 
 </body>

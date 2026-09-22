@@ -54,7 +54,7 @@
    queue=job.catch(()=>{});
    return job;
  }
- global.mapGeocoderV248={
+ global.mapGeocoderV249={
    search:(q,options)=>request('/api/',{q:q.trim(),limit:'6',countrycode:'PL',bbox:'14,49,24.3,55.2'},options),
    reverse:async(lat,lon)=>{
      const rows=await request('/reverse/',{lat:String(lat),lon:String(lon),limit:'1'});

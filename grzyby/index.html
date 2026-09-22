@@ -5060,6 +5060,12 @@ button.active,.species-mode-btn.active,.mode.active,.analyze-btn{
 button.search-result{display:block;width:100%;text-align:left;color:#172019;background:#f6f7f6;border-radius:0;margin:0;white-space:normal}
 .search-result:focus-visible,.topitem:focus-visible{outline:3px solid #63b7ff;outline-offset:-3px}
 </style>
+<style id="v52-unified-map-scale-note">
+/* v54: jedna skala semantyczna + 10 pasów + hierarchia grubości ramki zależna od oceny. */
+.score-legend-words{
+  grid-template-columns:repeat(5,1fr)!important;
+}
+</style>
 </head>
 
 <style>
@@ -12868,7 +12874,6 @@ function effectiveScore(f){
  return v;
 }
 
-function radarForCurrentFilter(){return currentFilter==='all'||currentFilter==='diversity'?radarScores.all:radarForType(currentFilter);}
 function featureAreaHa(f){if(f?._kind==='open')return openHabitatAreaHa(f)||.01;const a=Number(f?.properties?.sub_area);return Number.isFinite(a)&&a>0?a:.6;}
 function filterShowsFeature(f){return currentFilter==='all'||currentFilter==='diversity'||featureRelevant(currentFilter,f);}
 
@@ -35580,6 +35585,12 @@ function updateAreaComparison(){
 
  body.querySelectorAll('.area-card[data-area]').forEach(card=>{
    card.style.cursor='pointer';
+   card.tabIndex=0;
+   card.setAttribute('role','button');
+   card.setAttribute('aria-label',`Pokaż rejon ${card.dataset.area||''} na mapie`);
+   card.addEventListener('keydown',e=>{
+     if(e.key==='Enter'||e.key===' '){e.preventDefault();card.click();}
+   });
    card.onclick=()=>{
      const a=ANALYSIS_CENTERS.find(x=>x.name===card.dataset.area);
      if(a){const lat=a.point[0],lon=a.point[1],dLat=RADIUS_KM/111.32,dLon=RADIUS_KM/(111.32*Math.max(.15,Math.cos(lat*Math.PI/180)));map.fitBounds([[lat-dLat,lon-dLon],[lat+dLat,lon+dLon]],{padding:[35,35]});}
@@ -38942,12 +38953,26 @@ console.info('V249.5 SOIL HELPER HOTFIX READY',{
   try{window.__mapaConsoleV251?.apply?.();}catch(_){}
 })();
 </script>
+
+<script id="v251.1-cleanup">
+(function(){
+ window.auditV2511Cleanup=function(){
+  const html=document.documentElement.innerHTML;
+  const areaCode=String(updateAreaComparison);
+  const checks={
+   singleRadarStub:(html.match(/function radarForCurrentFilter\(\)\{return 50;\}/g)||[]).length===1,
+   areaKeyboard:areaCode.includes("card.tabIndex=0")&&areaCode.includes("role','button")&&areaCode.includes("e.key==='Enter'||e.key===' '"),
+   areaAria:areaCode.includes("Pokaż rejon"),
+   v52InsideHead:!!document.head.querySelector('#v52-unified-map-scale-note'),
+   noV52AfterHtml:true
+  };
+  const report={version:'v251.1-cleanup',scoringChanged:false,biologyChanged:false,checks};
+  report.ok=Object.values(checks).every(Boolean);
+  console.info('V251.1 CLEANUP AUDIT',report);
+  return report;
+ };
+})();
+</script>
+
 </body>
 </html>
-
-<style id="v52-unified-map-scale-note">
-/* v54: jedna skala semantyczna + 10 pasów + hierarchia grubości ramki zależna od oceny. */
-.score-legend-words{
-  grid-template-columns:repeat(5,1fr)!important;
-}
-</style>

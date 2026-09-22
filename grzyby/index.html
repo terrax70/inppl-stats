@@ -38483,6 +38483,256 @@ console.info('V247.4 TRUE pH SENSITIVITY AUDIT READY',{
 })();
 </script>
 
+
+<script id="v248-soil-depth-sensitivity-audit">
+(function(){
+'use strict';
+
+function v248Q(a,q){
+  const x=a.filter(Number.isFinite).slice().sort((m,n)=>m-n);
+  if(!x.length)return null;
+  const p=(x.length-1)*q,lo=Math.floor(p),hi=Math.ceil(p);
+  return lo===hi?x[lo]:x[lo]+(x[hi]-x[lo])*(p-lo);
+}
+function v248Mean(a){const x=a.filter(Number.isFinite);return x.length?x.reduce((s,v)=>s+v,0)/x.length:null}
+function v248Meta(t){try{return SPECIES_META?.[t]||null}catch(_){return null}}
+function v248Strict(t){try{return STRICT_HOST_TYPES?.has?.(t)||false}catch(_){return false}}
+function v248Types(){try{return PICK_TYPES.slice()}catch(_){return Object.keys(SPECIES_META||{})}}
+function v248Features(){try{return allFeatures||[]}catch(_){return []}}
+function v248Rel(t,f){try{return typeof featureRelevant==='function'?!!featureRelevant(t,f):true}catch(_){return true}}
+function v248Piecewise(x,pts){
+  if(typeof piecewise==='function')return piecewise(x,pts);
+  x=Number(x); if(!Number.isFinite(x))return pts[0][1];
+  if(x<=pts[0][0])return pts[0][1];
+  for(let i=1;i<pts.length;i++){
+    if(x<=pts[i][0]){
+      const [x0,y0]=pts[i-1],[x1,y1]=pts[i],tt=(x-x0)/(x1-x0||1);
+      return y0+(y1-y0)*tt;
+    }
+  }
+  return pts[pts.length-1][1];
+}
+function v248SoilRel(){try{return Number(soilReliability())||0}catch(_){return 1}}
+function v248Blend(raw,rel){return 7+(raw-7)*rel}
+
+function v248At(c,samples){
+  if(!samples?.length||!c)return null;
+  let sw=0,acc=0;
+  for(const s of samples){
+    if(!Number.isFinite(s.ph))continue;
+    let d;
+    try{d=hav(c,[s.lat,s.lon])}catch(_){
+      const dy=(c[0]-s.lat)*111.32,dx=(c[1]-s.lon)*70;
+      d=Math.hypot(dx,dy);
+    }
+    const w=1/(Math.max(.35,d)**2);
+    sw+=w;acc+=w*s.ph;
+  }
+  return sw?acc/sw:null;
+}
+
+function v248SoilScore(type,f,phOverride){
+  const m=v248Meta(type),s=soilAt(f._center);
+  if(!m||!s)return null;
+  const ph=Number(phOverride);
+  if(!Number.isFinite(ph))return null;
+  const rel=v248SoilRel();
+
+  if(type==='ponury'){
+    const phScore=v248Piecewise(ph,[
+      [4.9,2.2],[5.4,3.8],[5.8,6.2],[6.2,8.7],[6.8,9.8],[7.5,9.1],[8.0,7.2],[8.5,4.5]
+    ]);
+    let sand=Number(s.sand);if(sand>100)sand/=10;
+    const texture=Number.isFinite(sand)?v248Piecewise(sand,[
+      [8,8.8],[22,9.3],[40,8.8],[58,7.2],[72,5.6],[88,3.8]
+    ]):7.2;
+    const socScore=Number.isFinite(Number(s.soc))?v248Piecewise(Number(s.soc),[
+      [0,4.8],[10,6.6],[25,8.0],[45,8.8],[80,8.2],[120,6.5]
+    ]):7;
+    return v248Blend(.72*phScore+.18*texture+.10*socScore,rel);
+  }
+
+  const lo=m.ph?.[0]??4.5,hi=m.ph?.[1]??7,mid=(lo+hi)/2;
+  const phScore=v248Piecewise(ph,[
+    [lo-1.6,3.5],[lo,8],[mid,9.5],[hi,8],[hi+1.4,3.5]
+  ]);
+  let sand=Number(s.sand);if(sand>100)sand/=10;
+  let texture=7.5;
+  if(Number.isFinite(sand)){
+    if(m.sand==='very_sandy')texture=v248Piecewise(sand,[[15,3.5],[35,6.5],[55,9],[75,10],[92,8]]);
+    else if(m.sand==='sandy')texture=v248Piecewise(sand,[[10,5],[30,7],[50,9],[72,9.4],[90,7]]);
+    else texture=v248Piecewise(sand,[[5,6],[25,8],[50,8.7],[75,7.7],[92,5.5]]);
+  }
+  const socScore=Number.isFinite(Number(s.soc))?v248Piecewise(Number(s.soc),[
+    [0,5],[10,7],[25,8.5],[60,9],[120,7]
+  ]):7;
+  return v248Blend(.62*phScore+.24*texture+.14*socScore,rel);
+}
+
+function v248SoilWeight(type,meta,weights){
+  if(meta.ecology==='mycorrhiza')return v248Strict(type)?weights.strictMycorrhiza:weights.mycorrhiza;
+  if(meta.ecology==='wood')return weights.wood;
+  if(meta.ecology==='edge')return weights.edge;
+  if(meta.ecology==='grassland')return weights.grassland;
+  return null;
+}
+
+async function v248FetchDepth(coverage){
+  if(typeof analysisBboxes!=='function'||typeof fetchSoilWcsRaster!=='function'||typeof soilRasterToSamples!=='function'){
+    throw new Error('v248: brak funkcji WCS runtime.');
+  }
+  const bbs=analysisBboxes();
+  const def={key:'ph',map:'phh2o',coverage,factor:10};
+  const tasks=[];
+  for(const bb of bbs){
+    tasks.push(async()=>{
+      const raster=await fetchSoilWcsRaster(def,bb);
+      return soilRasterToSamples(raster,bb,def).map(x=>({lat:x.lat,lon:x.lon,ph:x.value}));
+    });
+  }
+  const rows=typeof runLimited==='function'?await runLimited(tasks,3):await Promise.all(tasks);
+  return rows.filter(Boolean).flat();
+}
+
+window.auditSoilDepthV248=async function(){
+  const phAudit=window.__phSensitivityV247Last||await window.auditPHSensitivityV247();
+  if(!phAudit?.summary?.runtimeWeightsVerified)throw new Error('v248: najpierw musi przejsc v247.4.');
+  const weights=phAudit.summary.weightDetection.weights;
+  const features=v248Features();
+  if(!features.length)throw new Error('v248: brak allFeatures.');
+
+  const [d0,d1,d2]=await Promise.all([
+    v248FetchDepth('phh2o_0-5cm_mean'),
+    v248FetchDepth('phh2o_5-15cm_mean'),
+    v248FetchDepth('phh2o_15-30cm_mean')
+  ]);
+
+  const paired=[];
+  for(const f of features){
+    if(!f?._center)continue;
+    const p0=v248At(f._center,d0),p1=v248At(f._center,d1),p2=v248At(f._center,d2);
+    if([p0,p1,p2].every(Number.isFinite))paired.push({f,p0,p1,p2});
+  }
+
+  const depthDelta={
+    count:paired.length,
+    p5_15_minus_0_5:{
+      mean:Number(v248Mean(paired.map(x=>x.p1-x.p0)).toFixed(3)),
+      q10:Number(v248Q(paired.map(x=>x.p1-x.p0),.1).toFixed(3)),
+      median:Number(v248Q(paired.map(x=>x.p1-x.p0),.5).toFixed(3)),
+      q90:Number(v248Q(paired.map(x=>x.p1-x.p0),.9).toFixed(3))
+    },
+    p15_30_minus_0_5:{
+      mean:Number(v248Mean(paired.map(x=>x.p2-x.p0)).toFixed(3)),
+      q10:Number(v248Q(paired.map(x=>x.p2-x.p0),.1).toFixed(3)),
+      median:Number(v248Q(paired.map(x=>x.p2-x.p0),.5).toFixed(3)),
+      q90:Number(v248Q(paired.map(x=>x.p2-x.p0),.9).toFixed(3))
+    }
+  };
+
+  const rows=[];
+  for(const type of v248Types()){
+    const meta=v248Meta(type);
+    if(!meta||!Array.isArray(meta.ph))continue;
+    const w=v248SoilWeight(type,meta,weights);
+    if(!Number.isFinite(w))continue;
+    const d15=[],d30=[],abs15=[],abs30=[];
+    let n=0;
+    for(const x of paired){
+      if(!v248Rel(type,x.f))continue;
+      const s0=v248SoilScore(type,x.f,x.p0);
+      const s1=v248SoilScore(type,x.f,x.p1);
+      const s2=v248SoilScore(type,x.f,x.p2);
+      if(![s0,s1,s2].every(Number.isFinite))continue;
+      const a=w*(s1-s0),b=w*(s2-s0);
+      d15.push(a);d30.push(b);abs15.push(Math.abs(a));abs30.push(Math.abs(b));n++;
+    }
+    if(!n)continue;
+    rows.push({
+      type,label:meta.label||type,scientific:meta.scientific||null,ecology:meta.ecology,
+      modelPH:meta.ph,soilWeight:w,samples:n,
+      pHDepth:{
+        p0_5:{q10:v248Q(paired.map(x=>x.p0),.1),median:v248Q(paired.map(x=>x.p0),.5),q90:v248Q(paired.map(x=>x.p0),.9)},
+        p5_15:{q10:v248Q(paired.map(x=>x.p1),.1),median:v248Q(paired.map(x=>x.p1),.5),q90:v248Q(paired.map(x=>x.p1),.9)},
+        p15_30:{q10:v248Q(paired.map(x=>x.p2),.1),median:v248Q(paired.map(x=>x.p2),.5),q90:v248Q(paired.map(x=>x.p2),.9)}
+      },
+      potentialDelta_5_15_vs_0_5:{
+        meanSigned:Number(v248Mean(d15).toFixed(4)),
+        meanAbs:Number(v248Mean(abs15).toFixed(4)),
+        p90Abs:Number(v248Q(abs15,.9).toFixed(4)),
+        maxAbs:Number(Math.max(...abs15).toFixed(4))
+      },
+      potentialDelta_15_30_vs_0_5:{
+        meanSigned:Number(v248Mean(d30).toFixed(4)),
+        meanAbs:Number(v248Mean(abs30).toFixed(4)),
+        p90Abs:Number(v248Q(abs30,.9).toFixed(4)),
+        maxAbs:Number(Math.max(...abs30).toFixed(4))
+      },
+      depthSensitivity:Number((Math.max(v248Q(abs15,.9),v248Q(abs30,.9))*Math.sqrt(n)).toFixed(3))
+    });
+  }
+  rows.sort((a,b)=>b.depthSensitivity-a.depthSensitivity);
+
+  const report={
+    version:'v248-soil-depth-sensitivity-audit',
+    auditOnly:true,scoringChanged:false,biologyChanged:false,
+    source:{
+      provider:'SoilGrids',
+      property:'phh2o',
+      currentProductionDepth:'0-5cm',
+      comparedDepths:['5-15cm','15-30cm'],
+      method:'mean'
+    },
+    samples:{
+      depth0_5:d0.length,depth5_15:d1.length,depth15_30:d2.length,pairedFeatures:paired.length
+    },
+    depthDelta,
+    top20:rows.slice(0,20),
+    ponury:rows.find(r=>r.type==='ponury')||null,
+    rows,
+    rules:[
+      'AUDIT-ONLY: nie zmienia soilSamples ani scoringu.',
+      'Porównanie głębokości nie mówi automatycznie, która głębokość jest biologicznie właściwa.',
+      'Delta pokazuje, jak zmieniłby się stableSpeciesPotential przy tej samej teksturze/SOC i innym pH SoilGrids.',
+      'Przed zmianą produkcji wymagane są źródła gatunkowe oraz test krajowy.'
+    ]
+  };
+  window.__soilDepthV248Last=report;
+  console.info('SOIL DEPTH SENSITIVITY AUDIT v248',report);
+  console.table(report.top20.map((r,i)=>({
+    rank:i+1,species:r.label,modelPH:JSON.stringify(r.modelPH),samples:r.samples,
+    d5_15:r.potentialDelta_5_15_vs_0_5.meanSigned,
+    p90_5_15:r.potentialDelta_5_15_vs_0_5.p90Abs,
+    d15_30:r.potentialDelta_15_30_vs_0_5.meanSigned,
+    p90_15_30:r.potentialDelta_15_30_vs_0_5.p90Abs,
+    depthSensitivity:r.depthSensitivity
+  })));
+  return report;
+};
+
+window.soilDepthTopV248=async function(n=20){
+  const r=window.__soilDepthV248Last||await window.auditSoilDepthV248();
+  const out=r.rows.slice(0,Math.max(1,Math.min(100,Number(n)||20)));
+  console.table(out.map((x,i)=>({
+    rank:i+1,species:x.label,modelPH:JSON.stringify(x.modelPH),
+    p0_5:Number(x.pHDepth.p0_5.median.toFixed(3)),
+    p5_15:Number(x.pHDepth.p5_15.median.toFixed(3)),
+    p15_30:Number(x.pHDepth.p15_30.median.toFixed(3)),
+    meanDelta5_15:x.potentialDelta_5_15_vs_0_5.meanSigned,
+    p90Abs5_15:x.potentialDelta_5_15_vs_0_5.p90Abs,
+    meanDelta15_30:x.potentialDelta_15_30_vs_0_5.meanSigned,
+    p90Abs15_30:x.potentialDelta_15_30_vs_0_5.p90Abs
+  })));
+  return out;
+};
+
+console.info('V248 SOIL DEPTH SENSITIVITY AUDIT READY',{
+  auditOnly:true,scoringChanged:false,
+  commands:['await auditSoilDepthV248()','await soilDepthTopV248(20)']
+});
+})();
+</script>
+
 </body>
 </html>
 

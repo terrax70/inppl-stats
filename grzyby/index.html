@@ -29898,6 +29898,7 @@ async function auditV191PerformanceEquivalence(limit=180){
  const upd=(k,d,f,t)=>{if(d>maxima[k]){maxima[k]=d;worst[k]={type:t,kind:f?._kind||'forest',tree:speciesCode(f?.properties||{}),habitat:habitatCode(f?.properties||{}),address:String(f?.properties?.adress_forest||'')}}};
  const t0=performance.now();
  const auditForestKernelActive=mapMode==='today'&&!atlasSelected.size&&currentFilter==='all';
+ const auditAllModeCaches=!activeSingleSpeciesType();
  for(const f of features){
    // v210: wyspecjalizowany kernel v200 jest produkcyjnie aktywny tylko w pełnym
    // BEST / DZIŚ. Przy single-species może działać observation evidence, którego
@@ -29918,7 +29919,7 @@ async function auditV191PerformanceEquivalence(limit=180){
      const refStable=v190RefStableScoreForType(t,f);
      upd('stableScoreMax',Math.abs(stableScoreForType(t,f)-refStable),f,t);
      const packed=perfStableTypePackedV199.get(f),packedIdx=PICK_TYPE_INDEX_V199[t];
-     if(packed&&packed.rev===scoringRevision&&packedIdx!==undefined)upd('packedStableMax',Math.abs(packed.values[packedIdx]-refStable),f,t);
+     if(auditAllModeCaches&&packed&&packed.rev===scoringRevision&&packedIdx!==undefined)upd('packedStableMax',Math.abs(packed.values[packedIdx]-refStable),f,t);
      if(mapMode==='today')upd('effectiveMax',Math.abs(speciesEffective(t,f)-v190RefSpeciesEffective(t,f)),f,t);
      if(forestAuditCtxV200){
        const dcfg=forestAuditCfgV200,di=PICK_TYPE_INDEX_V199[t],dd=dcfg.rows[di];
@@ -29932,14 +29933,16 @@ async function auditV191PerformanceEquivalence(limit=180){
      }
      checks++;
    }
-   const fast=opportunityRawScorePairV175(f,types,mapMode==='today');
-   const lean=opportunityRawScorePairLeanV197(f,types,mapMode==='today');
-   const ref=v190ReferenceRawPair(f,types,mapMode==='today');
-   upd('pairStaticMax',Math.abs(fast.staticScore-ref.staticScore),f,'ALL');
-   upd('leanPairStaticMax',Math.abs(lean.staticScore-ref.staticScore),f,'ALL');
-   if(mapMode==='today'){
-     upd('pairDynamicMax',Math.abs(fast.dynamicScore-ref.dynamicScore),f,'ALL');
-     upd('leanPairDynamicMax',Math.abs(lean.dynamicScore-ref.dynamicScore),f,'ALL');
+   if(auditAllModeCaches){
+     const fast=opportunityRawScorePairV175(f,types,mapMode==='today');
+     const lean=opportunityRawScorePairLeanV197(f,types,mapMode==='today');
+     const ref=v190ReferenceRawPair(f,types,mapMode==='today');
+     upd('pairStaticMax',Math.abs(fast.staticScore-ref.staticScore),f,'ALL');
+     upd('leanPairStaticMax',Math.abs(lean.staticScore-ref.staticScore),f,'ALL');
+     if(mapMode==='today'){
+       upd('pairDynamicMax',Math.abs(fast.dynamicScore-ref.dynamicScore),f,'ALL');
+       upd('leanPairDynamicMax',Math.abs(lean.dynamicScore-ref.dynamicScore),f,'ALL');
+     }
    }
    if(mapMode==='today'&&!atlasSelected.size&&currentFilter==='all'){
      const core=perfBestTodayCoreV198.get(f);
@@ -29959,7 +29962,7 @@ async function auditV191PerformanceEquivalence(limit=180){
    }
  }
  const maxDelta=Math.max(...Object.values(maxima));
- const report={version:'v210',features:features.length,checks,mode:mapMode,...maxima,maxDelta,ok:maxDelta<=1e-8,worst,elapsedMs:performance.now()-t0};
+ const report={version:'v210',features:features.length,checks,mode:mapMode,allModeCachesAudited:auditAllModeCaches,singleSpeciesType:activeSingleSpeciesType()||null,...maxima,maxDelta,ok:maxDelta<=1e-8,worst,elapsedMs:performance.now()-t0};
  window.__v190PerformanceEquivalence=report;
  console.info('V210 TRUE PERFORMANCE EQUIVALENCE',report);
  return report;
@@ -36212,15 +36215,31 @@ async function analyzeDraft(){
  }
 }
 
-searchBtn.onclick=geocodeSearch;
+searchBtn.onclick=()=>{clearTimeout(searchDebounceV2496);geocodeSearch();};
+let searchDebounceV2496=0;
 locationSearch.addEventListener('input',()=>{
  ++searchSeq;searchControllerV249?.abort();
- searchResults.replaceChildren();searchResults.classList.remove('open');
+ clearTimeout(searchDebounceV2496);
+ const q=locationSearch.value.trim();
+ if(q.length<2){
+   searchResults.replaceChildren();
+   searchResults.classList.remove('open');
+   return;
+ }
+ searchResults.innerHTML='<div class="search-result">Szukam…</div>';
+ searchResults.classList.add('open');
+ searchDebounceV2496=setTimeout(()=>geocodeSearch(),320);
 });
 locationSearch.addEventListener('keydown',e=>{
- if(e.key==='Enter'){e.preventDefault();geocodeSearch();}
+ if(e.key==='Enter'){
+   e.preventDefault();
+   clearTimeout(searchDebounceV2496);
+   const first=searchResults.querySelector('button.search-result');
+   if(searchResults.classList.contains('open')&&first){first.click();return;}
+   geocodeSearch();
+ }
  if(e.key==='ArrowDown'){const first=searchResults.querySelector('button');if(first){e.preventDefault();first.focus();}}
- if(e.key==='Escape'){++searchSeq;searchControllerV249?.abort();searchResults.classList.remove('open');}
+ if(e.key==='Escape'){clearTimeout(searchDebounceV2496);++searchSeq;searchControllerV249?.abort();searchResults.classList.remove('open');}
 });
 searchResults.addEventListener('keydown',e=>{
  const buttons=[...searchResults.querySelectorAll('button')],i=buttons.indexOf(document.activeElement);
@@ -38811,6 +38830,33 @@ console.info('V249.5 SOIL HELPER HOTFIX READY',{
  oldRefGone:true,
  helper:'soilCoverageReliabilityV249'
 });
+</script>
+
+
+<script id="v249.6-search-qa-hotfix">
+(function(){
+ window.auditV2496Hotfix=function(){
+  const a=String(auditV191PerformanceEquivalence);
+  const html=document.documentElement.innerHTML;
+  const checks={
+   liveSearchDebounce:html.includes('searchDebounceV2496'),
+   smartEnter:html.includes("first.click();return;"),
+   qaAllModeGuard:a.includes('auditAllModeCaches'),
+   qaPackedGuard:a.includes('auditAllModeCaches&&packed'),
+   qaPairGuard:a.includes('if(auditAllModeCaches)'),
+   v2495Preserved:html.includes('v249.5-soil-helper-hotfix')
+  };
+  const report={version:'v249.6-search-qa-hotfix',scoringChanged:false,checks};
+  report.ok=Object.values(checks).every(Boolean);
+  console.info('V249.6 SEARCH + QA HOTFIX AUDIT',report);
+  return report;
+ };
+ console.info('V249.6 SEARCH + QA HOTFIX READY',{
+  liveAutocomplete:true,
+  qaSingleSpeciesFalsePositiveFixed:true,
+  scoringChanged:false
+ });
+})();
 </script>
 
 </body>

@@ -1,6 +1,84 @@
 <!doctype html>
 <html lang="pl">
 <head>
+<script id="v251-prod-console">
+(function(){
+'use strict';
+const c=window.console;
+if(!c)return;
+
+const state=window.__mapaConsoleV251||{};
+if(!state.original){
+  state.original={};
+  for(const k of ['log','info','debug','warn','error']){
+    state.original[k]=typeof c[k]==='function'?c[k].bind(c):function(){};
+  }
+}
+
+state.isDebug=function(){
+  try{
+    const p=new URLSearchParams(location.search);
+    if(p.get('debug')==='1'||p.get('debug')==='true')return true;
+    if(localStorage.getItem('mapaDebug')==='1')return true;
+  }catch(_){}
+  return false;
+};
+
+state.isExpectedWarning=function(args){
+  const s=String(args?.[0]??'');
+  return (
+    /^Overpass \d+\/\d+ failed\b/.test(s) ||
+    /^HOTSPOT ACCESS .*pominięte po timeout\/API failure/.test(s) ||
+    /^SPUN v237\.1 unavailable\b/.test(s)
+  );
+};
+
+state.apply=function(){
+  state.debug=state.isDebug();
+  if(state.debug)return false;
+
+  c.log=function(){};
+  c.info=function(){};
+  c.debug=function(){};
+  c.warn=function(...args){
+    if(state.isExpectedWarning(args))return;
+    state.original.warn(...args);
+  };
+  // Never suppress real errors.
+  c.error=state.original.error;
+  return true;
+};
+
+window.__mapaConsoleV251=state;
+
+window.enableMapaDebug=function(){
+  try{localStorage.setItem('mapaDebug','1');}catch(_){}
+  const u=new URL(location.href);
+  u.searchParams.set('debug','1');
+  location.href=u.toString();
+};
+
+window.disableMapaDebug=function(){
+  try{localStorage.removeItem('mapaDebug');}catch(_){}
+  const u=new URL(location.href);
+  u.searchParams.delete('debug');
+  location.href=u.toString();
+};
+
+window.mapaDebugStatus=function(){
+  return {
+    version:'v251-prod-console',
+    debug:state.isDebug(),
+    quiet:!state.isDebug(),
+    enable:'enableMapaDebug()',
+    disable:'disableMapaDebug()'
+  };
+};
+
+state.apply();
+})();
+</script>
+
 <!-- v230 — BINARY RADAR V3 + JSON FALLBACK
      - krajowy/regionalny radar 5 km domyślnie czyta data/radar_v3 zamiast wielkich JSON-ów,
      - geometria/forest/coverage są dekodowane jeden raz z base.bin i współdzielone przez wszystkie gatunki,
@@ -38859,6 +38937,11 @@ console.info('V249.5 SOIL HELPER HOTFIX READY',{
 })();
 </script>
 
+<script id="v251-prod-console-finalize">
+(function(){
+  try{window.__mapaConsoleV251?.apply?.();}catch(_){}
+})();
+</script>
 </body>
 </html>
 

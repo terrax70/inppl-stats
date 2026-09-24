@@ -189,7 +189,7 @@ th:first-child,td:first-child{text-align:left}
   </div>
 </div>
 
-<script src="../data.js"></script>
+<script src="../data-loader.js"></script>
 <script>
 const REPO_BASE='https://raw.githubusercontent.com/1vcian/fm/main/public/parsed_configs/';
 
@@ -375,6 +375,7 @@ function stageLevels(type){
 async function load(){
   const status=document.getElementById('status');
   try{
+    await window.inpplReady;
     const versions=await fetch(REPO_BASE+'versions.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('versions');return r.json()});
     VERSION=[...versions].sort((a,b)=>b.localeCompare(a))[0];
     [POSITIONS,UPGRADES,TECHNODES,GUILDBASE]=await Promise.all([

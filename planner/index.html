@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="inppl-build" content="165">
+<meta name="inppl-build" content="20260924221142">
 <meta name="theme-color" content="#080a0e">
 <title>Forge Master Planner</title>
-<link rel="stylesheet" href="planner.css?v=137">
+<link rel="stylesheet" href="planner.css?v=20260924221142">
 <link rel="stylesheet" href="../ui-shell.css?v=165">
 </head>
 <body>
@@ -223,29 +223,7 @@
   </main>
 </div>
 
-<script src="../data.js?v=134"></script>
-<script src="game-data.js?v=165"></script>
-<script src="planner.js?v=165"></script>
-<script>
-(() => {
-  const LOCAL_BUILD = "134";
-  const VERSION_URL = "../version.json";
-  const KEY = "inppl_last_reloaded_build";
-
-  fetch(VERSION_URL + "?t=" + Date.now(), { cache: "no-store" })
-    .then(r => r.ok ? r.json() : null)
-    .then(v => {
-      if (!v || !v.build || String(v.build) === LOCAL_BUILD) return;
-      if (sessionStorage.getItem(KEY) === String(v.build)) return;
-
-      sessionStorage.setItem(KEY, String(v.build));
-      const u = new URL(location.href);
-      u.searchParams.set("_v", String(v.build));
-      location.replace(u.toString());
-    })
-    .catch(() => {});
-})();
-</script>
+<script src="../data-loader.js" data-scripts="game-data.js planner.js"></script>
 
 </body>
 </html>

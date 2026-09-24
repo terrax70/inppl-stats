@@ -6,12 +6,12 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="inppl-build" content="20260923172253">
+<meta name="inppl-build" content="20260924221142">
 <meta name="theme-color" content="#07090d">
 <title>INPPL Stats — Forge Master</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="stylesheet" href="styles.css?v=20260923172253">
-<link rel="stylesheet" href="ui-shell.css?v=20260923172253">
+<link rel="stylesheet" href="styles.css?v=20260924221142">
+<link rel="stylesheet" href="ui-shell.css?v=20260924221142">
 </head>
 <body>
 <div class="app">
@@ -291,38 +291,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script>
-(async () => {
-  const VERSION_URL = "version.json";
-
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = src;
-      s.onload = resolve;
-      s.onerror = reject;
-      document.body.appendChild(s);
-    });
-  }
-
-  let build = String(Date.now());
-
-  try {
-    const r = await fetch(VERSION_URL + "?t=" + Date.now(), { cache: "no-store" });
-    if (r.ok) {
-      const v = await r.json();
-      if (v && v.build != null) build = String(v.build);
-    }
-  } catch (_) {}
-
-  try {
-    await loadScript("data.js?v=" + encodeURIComponent(build));
-    await loadScript("app.js?v=" + encodeURIComponent(build));
-  } catch (e) {
-    console.error("Nie udało się załadować aktualnych danych INPPL:", e);
-  }
-})();
-</script>
+<script src="data-loader.js" data-scripts="app.js"></script>
 
 </body>
 </html>

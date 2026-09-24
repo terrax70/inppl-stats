@@ -6,7 +6,7 @@ const defaults={researchSpeed:60,forgeSpeed:26,forgeLevel:27,waitLimit:30,horizo
 let state=load(),results={tech:[],forge:[]};
 
 function load(){try{return {...defaults,...JSON.parse(localStorage.getItem('fmPlannerV2')||'{}')}}catch{return {...defaults}}}
-function save(){localStorage.setItem('fmPlannerV2',JSON.stringify(state))}
+function save(){try{localStorage.setItem('fmPlannerV2',JSON.stringify(state))}catch{/* Planning also works when browser storage is unavailable. */}}
 function pad(n){return String(n).padStart(2,'0')}
 function fmtDate(d){return d?`${pad(d.getDate())}.${pad(d.getMonth()+1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`:'—'}
 function fmtDur(ms){if(!isFinite(ms))return'—';let m=Math.max(0,Math.round(ms/MIN)),d=Math.floor(m/1440);m-=d*1440;let h=Math.floor(m/60);m-=h*60;return `${d?d+'d ':''}${h?h+'h ':''}${m}m`}
@@ -28,7 +28,7 @@ function weekday(t){let x=gameStart(t).getDay();return x===0?7:x}
 function nextBoundary(after,days){
   let g=gameStart(after);
   for(let i=0;i<18;i++){
-    let base=new Date(g.getTime()+i*DAY);
+    let base=new Date(g);base.setDate(base.getDate()+i);
     if(days.includes(weekday(base))){
       let c=scoringActionAt(base);
       if(c>=after)return c;
@@ -59,7 +59,10 @@ function nextAwakeTime(t){
   return atTime(d,e,0);
 }
 function scoringActionAt(dayStart){
-  return atTime(dayStart,sleepEndParts(),0);
+  const wake=atTime(dayStart,sleepEndParts(),0);
+  // Wake-up before reset belongs to the preceding game day.
+  if(wake<dayStart)wake.setDate(wake.getDate()+1);
+  return nextAwakeTime(wake);
 }
 
 function quietOverlap(start,end){
@@ -89,7 +92,7 @@ function candidateTechStarts(avail,latest){
     d.setDate(d.getDate()+1);
     if(d>latest)break;
   }
-  return values;
+  return values.map(nextAwakeTime).filter(t=>t>=avail&&t<=latest);
 }
 function nextTechSlot(avail,dur){
   let collect=nextBoundary(avail,D.techScoringWeekdays);
@@ -97,6 +100,10 @@ function nextTechSlot(avail,dur){
     let latest=new Date(collect.getTime()-dur);
     if(latest>=avail){
       let candidates=candidateTechStarts(avail,latest);
+      if(!candidates.length){
+        collect=nextBoundary(new Date(collect.getTime()+MIN),D.techScoringWeekdays);
+        continue;
+      }
       let best=candidates[0],bestScore=-1;
       for(const s of candidates){
         let finish=new Date(s.getTime()+dur);

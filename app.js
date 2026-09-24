@@ -94,19 +94,21 @@ function barChart(id, labels, values, formatter=compact, horizontal=false){
   }]},options:opt});
 }
 
+const viewIds=['overview','warsView','playersView','outcastsView','power','compare'];
 function setView(id, push=true){
+ if(!viewIds.includes(id)&&id!=='profile')id='overview';
  scrollPageTop();
   if(id!=='warsView')document.body.classList.remove('war-page-win','war-page-loss');
   $$('.view').forEach(v=>v.classList.toggle('active',v.id===id));
   $$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===id));
-  if(push && id!=='profile') history.replaceState(null,'','#'+id);
+  if(push && id!=='profile') location.hash!== '#'+id && history.pushState(null,'','#'+id);
   if(id==='overview') requestAnimationFrame(renderOverviewCharts);
   if(id==='warsView') requestAnimationFrame(renderWarView);
   if(id==='power') requestAnimationFrame(()=>{renderPower();renderPowerCharts();});
   if(id==='outcastsView') requestAnimationFrame(renderOutcasts);
   if(id==='compare') requestAnimationFrame(renderCompare);
 }
-$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+$$('.nav-btn[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
 
 function tierClass(tier){
  let t=String(tier||'').trim().toUpperCase();
@@ -151,7 +153,7 @@ function placeClass(place){
  if(place<=10)return'place-top10'; if(place<=20)return'place-top20'; if(place<=35)return'place-mid'; return'place-low';
 }
 function placeBadge(place){return `<span class="place-badge ${placeClass(place)}">#${place}</span>`;}
-function playerButton(nick,extra=''){return `<button class="player-inline ${extra}" onclick="openProfile('${escapeHtml(nick).replace(/'/g,"\\'")}')">${escapeHtml(nick)}</button>`;}
+function playerButton(nick,extra=''){return `<button class="player-inline ${extra}" data-profile="${escapeHtml(nick)}">${escapeHtml(nick)}</button>`;}
 const expandedLists={topFive:false,jumps:false,growth:false,powerGrowth:false,powerDrop:false,powerAnalytics:false};
 let jumpMode='up';
 function moreButton(id,key,total,shown){
@@ -179,12 +181,12 @@ function renderOverview(){
   const growthName=growthTop?playerButton(growthTop.nick):'—';
   $('#overviewMetrics').innerHTML =
     metric('Średnia na gracza',compact(l.avg),`${l.count} punktujących`)+
-    metric('Moc klanu',power(pw.totalM),`${pw.count} graczy`,D.powerDeltaPct)+
+    metric('Moc klanu',power(pw?.totalM),pw?`${pw.count} graczy`:'Brak danych Power',D.powerDeltaPct)+
     metric('Lider tygodnia',leader,`${compact(l.winnerPoints)} pkt`)+
     metric('Największy wzrost mocy',growthName,growthTop?`${fmtPct1(growthTop.pct)} • ${formatDelta(growthTop.deltaM,power)}`:'—');
 
   const topLim=expandedLists.topFive?l.entries.length:5;
-  $('#topFive').innerHTML=l.entries.slice(0,topLim).map((e,i)=>`<button class="top-card ${placeClass(i+1)}" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')"><div class="place">${placeBadge(i+1)}</div><div class="name">${escapeHtml(e.nick)}</div><div class="score">${compact(e.points)}</div><div class="rank">${escapeHtml(e.rank)}</div></button>`).join('');
+  $('#topFive').innerHTML=l.entries.slice(0,topLim).map((e,i)=>`<button class="top-card ${placeClass(i+1)}" data-profile="${escapeHtml(e.nick)}"><div class="place">${placeBadge(i+1)}</div><div class="name">${escapeHtml(e.nick)}</div><div class="score">${compact(e.points)}</div><div class="rank">${escapeHtml(e.rank)}</div></button>`).join('');
   moreButton('topFiveMore','topFive',l.entries.length,topLim);
 
   const jumpSource=(jumpMode==='down'?(D.topFalls||[]):(D.topJumps||[]))
@@ -325,7 +327,7 @@ function renderWarView(){
    return cmpVal(a[key],b[key],warSort.dir);
  });
  paintSortHeaders('#warsView',warSort);
- $('#warTable').innerHTML=warEntries.map(e=>`<tr class="${placeClass(e.place)}"><td>${placeBadge(e.place)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(e.nick).replace(/'/g,"\\'")}')">${escapeHtml(e.nick)}</button></td><td><span class="rank-tag">${escapeHtml(e.rank)}</span></td><td class="num"><b>${fmt(e.points)}</b></td><td class="num">${e.position??'—'}</td></tr>`).join('');
+ $('#warTable').innerHTML=warEntries.map(e=>`<tr class="${placeClass(e.place)}"><td>${placeBadge(e.place)}</td><td><button class="player-link" data-profile="${escapeHtml(e.nick)}">${escapeHtml(e.nick)}</button></td><td><span class="rank-tag">${escapeHtml(e.rank)}</span></td><td class="num"><b>${fmt(e.points)}</b></td><td class="num">${e.position??'—'}</td></tr>`).join('');
  requestAnimationFrame(()=>barChart('warDistribution',w.entries.slice(0,15).map(e=>e.nick),w.entries.slice(0,15).map(e=>e.points),compact,true));
 }
 
@@ -355,7 +357,7 @@ function renderPlayers(){
  paintSortHeaders('#playersView',playerSort);
  $('#playersCount').textContent=`${arr.length} graczy`;
  $('#playersTable').innerHTML=arr.map(p=>`<tr class="${p.latestPlace?placeClass(p.latestPlace):''}">
- <td>${p.latestPlace?placeBadge(p.latestPlace):'—'}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button></td>
+ <td>${p.latestPlace?placeBadge(p.latestPlace):'—'}</td><td><button class="player-link" data-profile="${escapeHtml(p.nick)}">${escapeHtml(p.nick)}</button></td>
  <td><span class="rank-tag">${escapeHtml(p.rank)}</span></td><td class="num">${fmt(p.latestPoints)}</td><td class="num">${fmt(p.avg)}</td><td class="num">${fmt(p.best)}</td>
  <td class="num">${power(p.powerM)}</td><td class="num ${p.powerChangeM>0?'positive':p.powerChangeM<0?'negative':''}">${formatDelta(p.powerChangeM,power)}</td><td>${formTag(p.formDelta)}</td></tr>`).join('');
 }
@@ -393,7 +395,7 @@ function renderOutcasts(){
    const last=p.history?.at(-1)||null;
    const pct=p.powerChangePct??powerPct(p.powerChangeM,p.powerM);
    return `<tr class="outcast-row">
-     <td><button class="player-link" onclick="openProfile('${escapeHtml(p.nick).replace(/'/g,"\\'")}')">${escapeHtml(p.nick)}</button><span class="out-badge">POZA KLANEM</span></td>
+     <td><button class="player-link" data-profile="${escapeHtml(p.nick)}">${escapeHtml(p.nick)}</button><span class="out-badge">POZA KLANEM</span></td>
      <td><span class="rank-tag">${escapeHtml(p.rank||'—')}</span></td>
      <td>${last?`${escapeHtml(last.week)} • ${escapeHtml(last.date||'')}`:'—'}</td>
      <td class="num">${fmt(p.latestPoints)}</td>
@@ -490,7 +492,7 @@ function renderPowerSnapshot(){
 
  $('#powerSnapshotTable').innerHTML=arr.map((x,i)=>`<tr class="${placeClass(i+1)}">
    <td>${placeBadge(i+1)}</td>
-   <td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td>
+   <td><button class="player-link" data-profile="${escapeHtml(x.nick)}">${escapeHtml(x.nick)}</button></td>
    <td><span class="rank-tag">${escapeHtml(x.rank||'')}</span></td>
    <td class="num growth-pct-cell ${x.pct>0?'positive':x.pct<0?'negative':''}"><b>${fmtPct1(x.pct)}</b></td>
    <td class="num ${x.deltaM>0?'positive':x.deltaM<0?'negative':''}">${x.deltaM==null?'—':formatDelta(x.deltaM,power)}</td>
@@ -522,13 +524,13 @@ function renderPowerAnalytics(){
  const shown=source.slice(0,lim); let rows=[];
  if(mode==='spikePct'||mode==='spikeAbs'){
    head.innerHTML='<tr><th>#</th><th class="sortable" data-sort="nick">Gracz</th><th>Okres</th><th class="sortable num" data-sort="fromM">Przed</th><th class="sortable num" data-sort="toM">Po</th><th class="sortable num" data-sort="deltaM">Spike</th><th class="sortable num" data-sort="pct">Spike %</th></tr>';
-   rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td>${x.fromWeek} → ${x.toWeek}</td><td class="num">${power(x.fromM)}</td><td class="num">${power(x.toM)}</td><td class="num positive">+${power(x.deltaM)}</td><td class="num positive"><b>${fmtPct1(x.pct)}</b></td></tr>`);
+   rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" data-profile="${escapeHtml(x.nick)}">${escapeHtml(x.nick)}</button></td><td>${x.fromWeek} → ${x.toWeek}</td><td class="num">${power(x.fromM)}</td><td class="num">${power(x.toM)}</td><td class="num positive">+${power(x.deltaM)}</td><td class="num positive"><b>${fmtPct1(x.pct)}</b></td></tr>`);
  }else if(mode==='growthPct'){
    head.innerHTML='<tr><th>#</th><th class="sortable" data-sort="nick">Gracz</th><th class="sortable num" data-sort="avgPct">Śr. wzrost / snapshot</th><th class="sortable num" data-sort="totalM">Łączny wzrost</th><th class="sortable num" data-sort="totalPct">Łącznie %</th></tr>';
-   rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>${fmtPct1(x.avgPct)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
+   rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" data-profile="${escapeHtml(x.nick)}">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>${fmtPct1(x.avgPct)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
  }else{
    head.innerHTML='<tr><th>#</th><th class="sortable" data-sort="nick">Gracz</th><th class="sortable num" data-sort="avgM">Śr. wzrost / snapshot</th><th class="sortable num" data-sort="totalM">Łączny wzrost</th><th class="sortable num" data-sort="totalPct">Łącznie %</th></tr>';
-   rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" onclick="openProfile('${escapeHtml(x.nick).replace(/'/g,"\\'")}')">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>+${power(x.avgM)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
+   rows=shown.map((x,i)=>`<tr class="${placeClass(i+1)}"><td>${placeBadge(i+1)}</td><td><button class="player-link" data-profile="${escapeHtml(x.nick)}">${escapeHtml(x.nick)}</button></td><td class="num positive"><b>+${power(x.avgM)}</b></td><td class="num positive">+${power(x.totalM)}</td><td class="num positive">${fmtPct1(x.totalPct)}</td></tr>`);
  }
  body.innerHTML=rows.join('');
  $$('#powerAnalyticsHead th.sortable').forEach(th=>th.onclick=()=>{
@@ -586,7 +588,7 @@ let profileSort={key:'week',dir:-1};
 let currentProfileNick=null;
 window.openProfile=function(nick){
  const p=D.players.find(x=>x.nick===nick); if(!p)return;
- lastView=$('.view.active')?.id||'playersView';
+ if($('.view.active')?.id!=='profile')lastView=$('.view.active')?.id||'playersView';
  $('#profileName').textContent=p.nick;$('#profileRank').textContent=p.rank;
  $('#profilePower').textContent=power(p.powerM);
  const profPct=p.powerChangePct??powerPct(p.powerChangeM,p.powerM);
@@ -629,7 +631,7 @@ window.openProfile=function(nick){
 };
 $('#profileBack').onclick=()=>setView(lastView,false);
 $('#profileCompare').onclick=()=>{
- const n=$('#profileName').textContent; setView('compare',false); $('#compare1').value=n; renderCompare();
+ const n=$('#profileName').textContent; setView('compare'); $('#compare1').value=n; renderCompare();
 };
 
 function scrollPageTop(){
@@ -681,10 +683,12 @@ function init(){
 init();
 
 window.addEventListener('hashchange',()=>{
-  requestAnimationFrame(()=>scrollPageTop());
+  setView(location.hash.slice(1),false);
 });
 
 document.addEventListener('click',(e)=>{
+  const profile=e.target.closest('[data-profile]');
+  if(profile)openProfile(profile.dataset.profile);
   const a=e.target.closest('a[href^="#"], [data-view], .nav-item, .nav-link');
   if(!a) return;
   requestAnimationFrame(()=>scrollPageTop());

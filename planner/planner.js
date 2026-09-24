@@ -95,30 +95,27 @@ function candidateTechStarts(avail,latest){
   return values.map(nextAwakeTime).filter(t=>t>=avail&&t<=latest);
 }
 function nextTechSlot(avail,dur){
-  let collect=nextBoundary(avail,D.techScoringWeekdays);
-  for(let i=0;i<24;i++){
-    let latest=new Date(collect.getTime()-dur);
-    if(latest>=avail){
-      let candidates=candidateTechStarts(avail,latest);
-      if(!candidates.length){
-        collect=nextBoundary(new Date(collect.getTime()+MIN),D.techScoringWeekdays);
-        continue;
-      }
-      let best=candidates[0],bestScore=-1;
-      for(const s of candidates){
-        let finish=new Date(s.getTime()+dur);
-        let night=quietOverlap(s,finish);
-        // Najpierw maksymalizuj czas badania podczas 23–08.
-        // Przy takim samym wyniku wybierz późniejszy start, żeby nie marnować progresu.
-        let score=night*100000 + s.getTime()/1e9;
-        if(score>bestScore){bestScore=score;best=s}
-      }
-      return {start:new Date(best),finish:new Date(best.getTime()+dur),collect};
-    }
-    collect=nextBoundary(new Date(collect.getTime()+MIN),D.techScoringWeekdays);
+  // Dates have millisecond precision. Use the same integer duration throughout.
+  dur=Math.ceil(dur);
+  const earliest=nextAwakeTime(avail);
+  let collect=nextAwakeTime(new Date(earliest.getTime()+dur));
+  // A scoring day is a whole game day, not just the wake-up instant.
+  while(!isTechDay(collect)){
+    const next=gameStart(collect);
+    next.setDate(next.getDate()+1);
+    collect=nextAwakeTime(next);
   }
-  let start=new Date(avail),finish=new Date(avail.getTime()+dur);
-  return {start,finish,collect:finish};
+  const latest=new Date(collect.getTime()-dur);
+  const candidates=candidateTechStarts(earliest,latest);
+  let best=earliest,bestNight=-1;
+  for(const start of candidates){
+    const night=quietOverlap(start,new Date(start.getTime()+dur));
+    // Optimize overnight work only within the earliest achievable collection.
+    if(night>bestNight || (night===bestNight && start>best)){
+      best=start;bestNight=night;
+    }
+  }
+  return {start:new Date(best),finish:new Date(best.getTime()+dur),collect};
 }
 function nextForgeSlot(avail){
   let awake=nextAwakeTime(avail);
@@ -213,7 +210,12 @@ function calcForge(start,endLimit){
   return out;
 }
 function calculate(){
-  read();save();let start=new Date(),limit=new Date(start.getTime()+state.horizon*DAY);results.tech=calcTech(start,limit);results.forge=calcForge(start,limit);
+  read();save();
+  Array.from($('#techSelect').options).forEach(option=>{
+    const def=techDef(option.value);
+    if(def)option.textContent=`${def.name} • ${fmtDur(techDur(def))}`;
+  });
+  let start=new Date(),limit=new Date(start.getTime()+state.horizon*DAY);results.tech=calcTech(start,limit);results.forge=calcForge(start,limit);
   renderAll();
   $('#results').classList.remove('hidden');
 }

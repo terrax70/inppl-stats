@@ -31,7 +31,7 @@ const forgeTierChances=[100,1,.5,.2,.1,.05,.05,.05,.02,.02];
 function forgeTierTip(name){
  const index=D.itemAges.indexOf(name);if(index<0)return '';
  const level=forgeTierLevels[index],total=forgeTotals(level);
- return `<span>Kuźnia: Forge ${level} • szansa ${forgeTierChances[index].toLocaleString('pl-PL')}%</span><span>Łączny koszt: ${Math.round(total.cost).toLocaleString('pl-PL')} Gold</span><span>Łączny czas: ${forgeDuration(total.seconds)}</span><small>Od Forge 1 w tym cyklu do odblokowania tieru. Bez opłaty za Ascension i czasu zdobywania itemów.</small>`;
+ return `<span>🔨 Kuźnia: Forge ${level} • 🍀 szansa ${forgeTierChances[index].toLocaleString('pl-PL')}%</span><span>💰 Łączny koszt: ${Math.round(total.cost).toLocaleString('pl-PL')} Gold</span><span>🕒 Łączny czas: ${forgeDuration(total.seconds)}</span><small>Od Forge 1 w tym cyklu do odblokowania tieru. Bez opłaty za Ascension i czasu zdobywania itemów.</small>`;
 }
 function updateForgeTooltips(root){
  $$('.asc-chart-point',root).forEach(point=>{
@@ -371,7 +371,7 @@ function applyAscChartZoom(root,id,zoom){
  const autoW=ascAutoWidth(host,id);
  const naturalW=Number(svg.dataset.naturalWidth||svg.getAttribute('width')||autoW);
  const naturalH=Number(svg.dataset.naturalHeight||svg.getAttribute('height')||700);
- const z=zoom==="auto"?1:(Number(zoom)||1);
+ const z=zoom==="auto"?(id==="items"&&window.matchMedia("(max-width:760px)").matches?0.6:1):(Number(zoom)||1);
 
  // 100% is the smart AUTO width, not the giant SVG viewBox width.
  const renderW=Math.round(autoW*z);

@@ -63,11 +63,15 @@ function clearChartHover(root){
 }
 function syncRarityHighlight(id,rarity,{sticky=true,scrollCard=false}={}){
  const root=getSystemRoot(id); if(!root)return;
- if(sticky)chartSelection[id]=rarity;
+ if(sticky){
+   rarity=chartSelection[id]===rarity?null:rarity;
+   chartSelection[id]=rarity;
+ }
+ if(rarity===null)clearChartHover(root);
  root.querySelectorAll("[data-rarity]").forEach(el=>{
    el.classList.toggle("selected-rarity",el.dataset.rarity===rarity);
  });
- const card=root.querySelector(`.rarity-assets article[data-rarity="${CSS.escape(rarity)}"]`);
+ const card=rarity===null?null:root.querySelector(`.rarity-assets article[data-rarity="${CSS.escape(rarity)}"]`);
  if(card&&scrollCard)card.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"});
 }
 function showChartTooltip(host,evt,html){
@@ -79,20 +83,23 @@ function showChartTooltip(host,evt,html){
  }
  tip.innerHTML=html;
  tip.classList.add("show");
- if(host.classList.contains('item-asc-chart')){
-   tip.style.position='fixed';
-   tip.style.left=Math.max(8,Math.min(window.innerWidth-tip.offsetWidth-8,evt.clientX+12))+'px';
-   tip.style.top=Math.max(8,Math.min(window.innerHeight-tip.offsetHeight-8,evt.clientY+12))+'px';
-   return;
- }
- const rect=host.getBoundingClientRect();
- const x=Math.max(8,Math.min(rect.width-tip.offsetWidth-8,evt.clientX-rect.left+12));
- const y=Math.max(8,Math.min(rect.height-tip.offsetHeight-8,evt.clientY-rect.top+12));
- tip.style.left=x+"px"; tip.style.top=y+"px";
+ tip.style.position='fixed';
+ tip.style.left=Math.max(8,Math.min(window.innerWidth-tip.offsetWidth-8,evt.clientX+12))+'px';
+ tip.style.top=Math.max(8,Math.min(window.innerHeight-tip.offsetHeight-8,evt.clientY+12))+'px';
 }
 function hideChartTooltip(host){
  host.querySelector(".chart-hover-tip")?.classList.remove("show");
 }
+function dismissChartTooltips(){
+ $$('.chart-hover-tip.show').forEach(tip=>tip.classList.remove('show'));
+}
+document.addEventListener('pointerdown',event=>{
+ if(!event.target.closest('.chart-point'))dismissChartTooltips();
+});
+document.addEventListener('keydown',event=>{
+ if(event.key==='Escape')dismissChartTooltips();
+});
+window.addEventListener('scroll',dismissChartTooltips,{capture:true,passive:true});
 function bindChartInteractions(host,id){
  const root=getSystemRoot(id); if(!host||!root)return;
  host.querySelectorAll(".chart-point").forEach(point=>{
@@ -296,9 +303,15 @@ function chartProfile(host,rowCount,cycles=1,mode="default"){
  };
 }
 let responsiveRenderTimer=0;
+let renderedViewportWidth=window.innerWidth;
 window.addEventListener("resize",()=>{
+ // Mobile keyboards and browser bars change height without changing chart layout.
+ // Keep the existing inputs (and their focus) when the width stays the same.
+ if(window.innerWidth===renderedViewportWidth)return;
  clearTimeout(responsiveRenderTimer);
  responsiveRenderTimer=setTimeout(()=>{
+   if(window.innerWidth===renderedViewportWidth)return;
+   renderedViewportWidth=window.innerWidth;
    const active=document.querySelector(".view.active")?.id;
    if(D.systems[active])renderSystem(active);
  },180);
@@ -329,10 +342,10 @@ const fmtAxis=n=>{
 };
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-function activateTab(id){
+function activateTab(id,{navigate=false}={}){
  if(!$$('.tab').some(button=>button.dataset.tab===id))id='start';
  savePreference('tab',id);
- if(location.hash!=='#'+id)history.replaceState(null,'','#'+id);
+ if(location.hash!=='#'+id)history[navigate?'pushState':'replaceState'](null,'','#'+id);
  $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===id));
  $$(".view").forEach(v=>v.classList.toggle("active",v.id===id));
  if(D.systems[id]) renderSystem(id);
@@ -340,8 +353,8 @@ function activateTab(id){
  if(id==="tech") renderTech();
  window.scrollTo({top:0,behavior:"smooth"});
 }
-$$(".tab").forEach(b=>b.addEventListener("click",()=>activateTab(b.dataset.tab)));
-$$("[data-jump]").forEach(b=>b.addEventListener("click",()=>activateTab(b.dataset.jump)));
+$$(".tab").forEach(b=>b.addEventListener("click",()=>activateTab(b.dataset.tab,{navigate:true})));
+$$("[data-jump]").forEach(b=>b.addEventListener("click",()=>activateTab(b.dataset.jump,{navigate:true})));
 
 function spriteTexture(system,asc){
  const base=D.systems[system].spriteSheet;
@@ -443,6 +456,7 @@ function renderSystem(id){
  const S=D.systems[id],asc=ascState[id],m=D.ascMultipliers[asc],rows=S.rows.map(r=>({...r,damage:r.damage*m,health:r.health*m}));
  const ratios=calcRatios(S.rows),full=S.rows.at(-1).damage/S.rows[0].damage,big=ratios.reduce((a,b)=>b.value>a.value?b:a,ratios[0]);
  const isItems=id==="items";
+ $('[data-chart="asc"]',root)?._ascResizeObserver?.disconnect();
  root.innerHTML=`
  <div class="system-head">
    <div><div class="eyebrow">${S.icon} ${S.label.toUpperCase()} • AKTUALNY CONFIG</div><h2>${isItems?"Jak rośnie każdy tier?":"Jak rośnie każda rarity?"}</h2>

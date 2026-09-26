@@ -40,9 +40,9 @@ Config źródłowy: `2026_09_02_09_08`
 
 ## Koszty kuźni i progi tierów
 - Koszty i czasy: ForgeData.png dostarczony przez użytkownika.
-- Pierwsza niezerowa szansa tieru: https://github.com/1vcian/fm/blob/main/public/parsed_configs/2026_09_02_09_08/ItemAgeDropChancesLibrary.json
+- Pierwszy poziom z co najmniej 4% szans na tier: https://github.com/1vcian/fm/blob/main/public/parsed_configs/2026_09_02_09_08/ItemAgeDropChancesLibrary.json
 - Level w konfiguracji jest liczony od 0; Forge w interfejsie od 1.
-- Tooltip sumuje ulepszenia od Forge 1 w bieżącym cyklu do pierwszej szansy dropu; nie sumuje wcześniejszych cykli ani opłat Ascension.
+- Tooltip sumuje ulepszenia od Forge 1 w bieżącym cyklu do pierwszego poziomu z co najmniej 4% szans na tier; Primitive od Forge 1 ma 100%; nie sumuje wcześniejszych cykli ani opłat Ascension.
 
 ## Koszty skilli
 - SkillTickets.webp dostarczony przez użytkownika: Legendary 49 600, Ultimate 142 000, Mythic 269 600 Skill Tickets przed discount, próg 2%.
@@ -67,5 +67,9 @@ Config źródłowy: `2026_09_02_09_08`
 
 ## Rotacja ilustracji kart
 - visual-variants.js: lokalne przypisanie wszystkich ikon petów, mountów i skilli do rarity, z ManualSpriteMapping.json oraz SkillLibrary.json (2026_09_02_09_08) w repo 1vcian/fm.
-- Przedmioty: trzy ręcznie sprawdzone prostokąty na tier w oryginalnych atlasach; wyświetlane przez SVG z clipPath. Źródłowe grafiki pozostają niezmienione.
+- Przedmioty: item-variants.js zawiera 144 ręcznie sprawdzone prostokąty we wszystkich dziesięciu atlasach. Wyświetlane przez SVG z clipPath; bez edycji źródłowych grafik. Pominięto jednokolorowe maski efektów (Space, Interstellar, Multiverse, Underworld, Divine), które nie przedstawiają samodzielnych przedmiotów.
 - Zmiana co 4 s, przenikanie 720 ms, przesunięcie fazy między kartami. Rotacja dotyczy wyłącznie ilustracji, nie statystyk. Pauza zapisywana lokalnie; ograniczenie ruchu i niewidoczne karty zatrzymują animacje.
+
+- Pełny zestaw ikon: 25 petów, 15 mountów i 18 skilli na każdy etap A0–A3. Strzałki kart pozwalają obejrzeć cały zestaw także przy ograniczeniu ruchu. Ręczny wybór zatrzymuje daną kartę; ponowne włączenie rotacji usuwa ręczne wybory. Test: tests/artwork.cjs.
+
+- Progi 4% przedmiotów: Medieval 4, Early-Modern 7, Modern 11, Space 15, Interstellar 19, Multiverse 22, Quantum 25, Underworld 30, Divine 35. Koszty i czasy sumowane do tych poziomów na obu wykresach.

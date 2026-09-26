@@ -82,12 +82,13 @@ function updateForge(root){
  $('[data-forge-rows]',root).innerHTML=forgeCosts.map((cost,i)=>`<tr><th>${i+1}</th><td>${i?gold(cost*(1-forgeSettings.discount/100)):'—'}</td><td>${i?forgeDuration(forgeSeconds[i]/(1+forgeSettings.speed/100)):'—'}</td></tr>`).join('');
 }
 // ItemAgeDropChancesLibrary (2026_09_02_09_08) uses zero-based forge levels.
-const forgeTierLevels=[1,2,5,8,11,14,17,20,24,29];
-const forgeTierChances=[100,1,.5,.2,.1,.05,.05,.05,.02,.02];
+// First forge level with at least 4% chance; Primitive starts at 100%.
+const forgeTierLevels=[1,4,7,11,15,19,22,25,30,35];
+const forgeTierChances=[100,4,4,4,4,4,4,4,4,4];
 function forgeTierTip(name){
  const index=D.itemAges.indexOf(name);if(index<0)return '';
  const level=forgeTierLevels[index],total=forgeTotals(level);
- return `<span>🔨 Kuźnia: Forge ${level} • 🍀 szansa ${forgeTierChances[index].toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}%</span><span>💰 Łączny koszt: ${Math.round(total.cost).toLocaleString(window.INPPL_I18N?.locale||'pl-PL')} Gold</span><span>🕒 Łączny czas: ${forgeDuration(total.seconds)}</span><small>Od Forge 1 w tym cyklu do odblokowania tieru. Bez opłaty za Ascension i czasu zdobywania itemów.</small>`;
+ return `<span>🔨 Kuźnia: Forge ${level} • 🍀 szansa ${forgeTierChances[index].toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}%</span><span>💰 Łączny koszt: ${Math.round(total.cost).toLocaleString(window.INPPL_I18N?.locale||'pl-PL')} Gold</span><span>🕒 Łączny czas: ${forgeDuration(total.seconds)}</span><small>Od Forge 1 w tym cyklu do pierwszego poziomu z co najmniej 4% szans na tier. Primitive: 100% od Forge 1. Bez opłaty za Ascension i czasu zdobywania itemów.</small>`;
 }
 function updateForgeTooltips(root){
  $$('.chart-point',root).forEach(point=>{

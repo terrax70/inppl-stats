@@ -443,7 +443,7 @@ function applyAscChartZoom(root,id,zoom){
  const autoW=ascAutoWidth(host,id);
  const naturalW=Number(svg.dataset.naturalWidth||svg.getAttribute('width')||autoW);
  const naturalH=Number(svg.dataset.naturalHeight||svg.getAttribute('height')||700);
- const z=zoom==="auto"?(id==="items"&&window.matchMedia("(max-width:760px)").matches?0.6:1):(Number(zoom)||1);
+ const z=zoom==="auto"?(window.matchMedia("(max-width:760px)").matches?0.6:1):(Number(zoom)||1);
 
  // 100% is the smart AUTO width, not the giant SVG viewBox width.
  const renderW=Math.round(autoW*z);

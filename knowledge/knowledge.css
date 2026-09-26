@@ -1744,3 +1744,6 @@ stroke-dasharray:6 6;}
 .artwork-browse small{font-size:10px;color:#a3b6c5;white-space:nowrap}
 .artwork-rotation[data-manual] .artwork-frame{opacity:0!important}
 .artwork-rotation[data-manual] .artwork-frame.artwork-chosen{opacity:1!important}
+
+/* Match label measurement to the rendered font; reserve space for the rarity dot. */
+.point-rarity-label text{font-family:Arial,sans-serif!important;font-weight:700!important;stroke:none!important;letter-spacing:0!important}

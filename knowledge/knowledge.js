@@ -90,7 +90,7 @@ function forgeTierTip(name){
  return `<span>🔨 Kuźnia: Forge ${level} • 🍀 szansa ${forgeTierChances[index].toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}%</span><span>💰 Łączny koszt: ${Math.round(total.cost).toLocaleString(window.INPPL_I18N?.locale||'pl-PL')} Gold</span><span>🕒 Łączny czas: ${forgeDuration(total.seconds)}</span><small>Od Forge 1 w tym cyklu do odblokowania tieru. Bez opłaty za Ascension i czasu zdobywania itemów.</small>`;
 }
 function updateForgeTooltips(root){
- $$('.asc-chart-point',root).forEach(point=>{
+ $$('.chart-point',root).forEach(point=>{
    point.dataset.baseTip??=point.dataset.tip;
    point.dataset.tip=point.dataset.baseTip+forgeTierTip(point.dataset.rarity);
  });
@@ -208,9 +208,10 @@ function bindAssetInteractions(id){
 }
 
 
+const labelMeasureContext=document.createElement('canvas').getContext('2d');
 function labelTextWidth(text,fontSize,padX){
- const special={"Early-Modern":1.05,"Interstellar":1.02,"Multiverse":1.02};
- return Math.max(42,Math.min(112,String(text).length*fontSize*0.59*(special[text]||1)+padX*2));
+ labelMeasureContext.font=`700 ${fontSize}px Arial`;
+ return Math.ceil(labelMeasureContext.measureText(String(text)).width+padX*2+10);
 }
 function rectOverlapArea(a,b,pad=0){
  const x=Math.max(0,Math.min(a.x+a.w+pad,b.x+b.w+pad)-Math.max(a.x-pad,b.x-pad));
@@ -266,52 +267,32 @@ function smartLabelLayout(points,bounds,{fontSize=9,height=22,gap=8,padX=7,obsta
    return {...p,box:best,fontSize};
  });
 }
-function laneLabelLayout(points,bounds,{fontSize=10,height=24,padX=8,obstacles=[],dense=false}={}){
+function laneLabelLayout(points,bounds,{fontSize=10,height=24,padX=8,obstacles=[]}={}){
  const placed=[];
- const lanes=dense?[-52,-24,24,52]:[-38,34,-62,58];
- return points.map((p,index)=>{
-   const w=labelTextWidth(p.name,fontSize,padX);
-   const h=height;
+ const blocked=[...obstacles,...points.map(p=>({x:p.px-14,y:p.py-14,w:28,h:28}))];
+ return points.map(p=>{
+   const w=labelTextWidth(p.name,fontSize,padX),h=height;
    const candidates=[];
-
-   // First use predictable lanes so labels form readable rows, not random clouds.
-   lanes.forEach((dy,li)=>{
-     candidates.push({
-       x:p.px-w/2,
-       y:p.py+dy-h/2,
-       w,h,side:dy<0?"above":"below",
-       lanePenalty:li*4
-     });
-   });
-
-   // Then side fallbacks.
-   candidates.push({x:p.px+14,y:p.py-h/2,w,h,side:"right",lanePenalty:24});
-   candidates.push({x:p.px-14-w,y:p.py-h/2,w,h,side:"left",lanePenalty:26});
-   candidates.push({x:p.px-w/2,y:p.py-82-h/2,w,h,side:"far-above",lanePenalty:30});
-   candidates.push({x:p.px-w/2,y:p.py+82-h/2,w,h,side:"far-below",lanePenalty:32});
-
-   let best=null,bestScore=Infinity;
-   for(const raw of candidates){
-     const c={...raw};
-     c.x=clamp(c.x,bounds.x,bounds.x+bounds.w-c.w);
-     c.y=clamp(c.y,bounds.y,bounds.y+bounds.h-c.h);
-
-     let score=c.lanePenalty||0;
-     for(const r of placed)score+=rectOverlapArea(c,r,8)*260;
-     for(const r of obstacles)score+=rectOverlapArea(c,r,8)*420;
-
-     // Penalize covering any point.
-     for(const q of points){
-       const pr={x:q.px-11,y:q.py-11,w:22,h:22};
-       score+=rectOverlapArea(c,pr,4)*120;
+   const add=(x,y)=>candidates.push({x:clamp(x,bounds.x,bounds.x+bounds.w-w),y:clamp(y,bounds.y,bounds.y+bounds.h-h),w,h});
+   // Search progressively farther from the point, with room around every dot.
+   for(let distance=22;distance<bounds.h;distance+=16){
+     for(const x of [p.px-w/2,p.px+22,p.px-w-22]){
+       add(x,p.py-distance-h);add(x,p.py+distance);
      }
-
-     const cx=c.x+c.w/2,cy=c.y+c.h/2;
-     score+=Math.hypot(cx-p.px,cy-p.py)*0.12;
-
-     if(score<bestScore){bestScore=score;best=c}
-     if(score===0)break;
    }
+   add(p.px+22,p.py-h/2);add(p.px-w-22,p.py-h/2);
+   let best=null,bestScore=Infinity;
+   const consider=c=>{
+     if([...blocked,...placed].some(r=>rectOverlapArea(c,r,4)>0))return;
+     const edgeX=clamp(p.px,c.x,c.x+c.w),edgeY=clamp(p.py,c.y,c.y+c.h);
+     const score=Math.hypot(edgeX-p.px,edgeY-p.py)+Math.abs(c.x+c.w/2-p.px)*.15;
+     if(score<bestScore){best=c;bestScore=score;}
+   };
+   candidates.forEach(consider);
+   // Full free-space search when the nearby lanes are occupied.
+   if(!best)for(let y=bounds.y;y<=bounds.y+bounds.h-h;y+=8)
+     for(let x=bounds.x;x<=bounds.x+bounds.w-w;x+=8)consider({x,y,w,h});
+   if(!best)throw new Error('Chart label has no free position: '+p.name);
    placed.push(best);
    return {...p,box:best,fontSize};
  });
@@ -743,7 +724,7 @@ function renderRarityChart(host,rows,id){
            <g class="point-rarity-label" transform="translate(${b.x+b.w/2},${b.y+b.h/2})">
              <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(9,b.h/2)}"
                    fill="${c}" fill-opacity=".14" stroke="${c}"/>
-             <text x="0" y="${profile.labelFont*.35}" text-anchor="middle" fill="${c}" style="font-size:${profile.labelFont}px">${r.name}</text>
+             <text x="0" y="${profile.labelFont*.35}" text-anchor="middle" fill="${c}" style="font-size:${profile.labelFont}px!important">${r.name}</text>
            </g>
          </g>`;
  });
@@ -880,7 +861,7 @@ function renderAscChart(host,S,id){
              <g class="point-rarity-label compact" transform="translate(${b.x+b.w/2},${b.y+b.h/2})">
                <rect x="${-b.w/2}" y="${-b.h/2}" width="${b.w}" height="${b.h}" rx="${Math.min(10,b.h/2)}"/>
                <circle cx="${-b.w/2+9}" cy="0" r="3.5" fill="${c}" class="rarity-accent-dot"/>
-               <text x="${profile.dense?3:2}" y="${ascLabelFont*.34}" text-anchor="middle" style="font-size:${ascLabelFont}px">${p.name}</text>
+               <text x="5" y="${ascLabelFont*.34}" text-anchor="middle" style="font-size:${ascLabelFont}px!important">${p.name}</text>
              </g>
            </g>`;
    });

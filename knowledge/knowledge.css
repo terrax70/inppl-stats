@@ -1645,16 +1645,12 @@ stroke-dasharray:6 6;}
 .forge-inputs input{box-sizing:border-box;width:100%;min-width:0;padding:12px;border:1px solid #526577;border-radius:8px;background:#080e14;color:#fff;font:inherit;font-size:16px}
 .forge-inputs input:focus-visible{outline:2px solid #efbf64;outline-offset:2px}
 .forge-inputs input:invalid{border-color:#f27777}
-.forge-targets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}
-.forge-targets article{display:grid;gap:8px;padding:14px;background:#0a1118;border:1px solid #304655;border-radius:10px}
-.forge-targets small{color:#9aafbf}.forge-targets strong{color:#efbf64}.forge-targets span{font-size:13px;line-height:1.5}
 .forge-calculator summary{cursor:pointer;padding:12px 0;color:#efbf64}
 .forge-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
 .forge-table th,.forge-table td{padding:9px 6px;text-align:right;border-bottom:1px solid #293846;overflow-wrap:anywhere}
 .forge-table th:first-child{width:15%;text-align:left}
 @media(max-width:760px){
  .forge-calculator{padding:12px}
- .forge-targets{grid-template-columns:1fr}
  .asc-chart-tools{gap:6px}
  .asc-chart-tools button{min-height:36px;min-width:42px}
 }

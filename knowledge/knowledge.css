@@ -1726,3 +1726,15 @@ stroke-dasharray:6 6;}
 .skill-examples[open] .skill-grid{margin-top:16px}
 
 .item-sprite{display:block;width:90px;height:90px;max-width:100%;margin:0 auto;overflow:hidden;filter:drop-shadow(0 5px 9px rgba(0,0,0,.4))}
+
+.artwork-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px}
+.artwork-controls small{font-size:11px;line-height:1.5;color:#a3b6c5}
+.artwork-controls button{padding:8px 12px;min-height:36px;border:1px solid #43596a;border-radius:8px;background:#101a23;color:#e8c683;font:inherit;font-size:12px;cursor:pointer}
+.artwork-controls button:focus-visible{outline:2px solid #efbf64;outline-offset:3px}
+.artwork-controls button:disabled{opacity:.65;cursor:default}
+.rarity-assets .artwork-rotation{position:relative;display:block;height:90px;width:100%;margin:0 auto}
+.artwork-frame{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none}
+.artwork-frame:first-child{opacity:1}
+.artwork-static .artwork-frame{opacity:0!important}
+.artwork-static .artwork-frame:first-child{opacity:1!important}
+@media(prefers-reduced-motion:reduce){.artwork-frame{opacity:0!important}.artwork-frame:first-child{opacity:1!important}}

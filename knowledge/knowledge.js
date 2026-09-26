@@ -170,6 +170,7 @@ function bindChartInteractions(host,id){
    point.addEventListener("blur",()=>hideChartTooltip(host));
    point.addEventListener("click",e=>{
      if((id==="items"||id==="skills"||id==="pets"||id==="mounts")&&point.classList.contains('asc-chart-point')){
+       syncRarityHighlight(id,rarity,{sticky:true});
        showChartTooltip(host,e,point.dataset.tip);return;
      }
      const targetAsc=point.dataset.asc!==undefined&&point.dataset.asc!==""?Number(point.dataset.asc):ascState[id];
@@ -423,10 +424,73 @@ const itemSpriteRects={
  Multiverse:[2,168,123,402],Quantum:[324,193,94,335],
  Underworld:[447,395,140,330],Divine:[560,150,100,350]
 };
-function itemImage(name){
- const file=D.itemAssets[name],rect=itemSpriteRects[name];
+function itemImage(name,rect=itemSpriteRects[name],variant=0){
+ const file=D.itemAssets[name];
  if(!file||!rect)return '';
- return `<svg class="item-sprite" viewBox="${rect.join(' ')}" role="img" aria-label="${esc(name)} — przykładowa broń" focusable="false"><defs><clipPath id="item-clip-${safeRarityKey(name)}"><rect x="${rect[0]}" y="${rect[1]}" width="${rect[2]}" height="${rect[3]}"/></clipPath></defs><image href="assets/${file}" width="1024" height="1024" clip-path="url(#item-clip-${safeRarityKey(name)})"/></svg>`;
+ return `<svg class="item-sprite" viewBox="${rect.join(' ')}" role="img" aria-label="${esc(name)} — przykładowy przedmiot" focusable="false"><defs><clipPath id="item-clip-${safeRarityKey(name)}-${variant}"><rect x="${rect[0]}" y="${rect[1]}" width="${rect[2]}" height="${rect[3]}"/></clipPath></defs><image href="assets/${file}" width="1024" height="1024" clip-path="url(#item-clip-${safeRarityKey(name)}-${variant})"/></svg>`;
+}
+
+// Additional isolated rectangles from the same item atlases, inspected visually.
+const itemExtraRects={
+ Primitive:[[425,4,102,352],[538,4,130,215]],
+ Medieval:[[158,588,172,207],[578,654,80,334]],
+ 'Early-Modern':[[310,3,356,307],[455,638,219,88]],
+ Modern:[[249,433,149,104],[255,357,169,71]],
+ Space:[[455,162,154,185],[455,355,158,133]],
+ Interstellar:[[511,3,150,148],[678,3,181,129]],
+ Multiverse:[[131,208,109,348],[333,189,165,351]],
+ Quantum:[[518,2,174,160],[709,5,210,183]],
+ Underworld:[[247,423,176,340],[780,194,130,314]],
+ Divine:[[247,803,183,78],[340,2,230,137]]
+};
+let artworkPaused=readPreference('artworkPaused')===true;
+function rotatingArtwork(system,rarity,asc,cardIndex){
+ let frames;
+ if(system==='items'){
+   frames=[itemSpriteRects[rarity],...(itemExtraRects[rarity]||[])].map((rect,index)=>itemImage(rarity,rect,index));
+ }else{
+   const variants=window.FM_VISUAL_VARIANTS?.[system]?.[rarity]||[D.spriteIndices[system][rarity]];
+   frames=variants.map(info=>{
+     const cols=system==='mounts'?4:8;
+     return `<div class="game-sprite" style="--sprite-url:url('${spriteTexture(system,asc)}');--cols:${cols};--rows:${cols};--x:${info.index%cols};--y:${Math.floor(info.index/cols)};--size:76px"></div>`;
+   });
+ }
+ // Shuffle once per render; never change the rarity, stage or associated statistics.
+ for(let i=frames.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[frames[i],frames[j]]=[frames[j],frames[i]];}
+ return `<div class="artwork-rotation" role="img" aria-label="${esc(rarity)} — przykłady wyglądu" data-count="${frames.length}" style="--artwork-offset:${cardIndex*.55}s">${frames.map((frame,i)=>`<div class="artwork-frame" aria-hidden="true" data-frame="${i}">${frame}</div>`).join('')}</div>`;
+}
+function bindArtworkRotation(root){
+ const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+ const groups=$$('.artwork-rotation',root);
+ const animations=[];
+ groups.forEach((group,index)=>{
+   const count=Number(group.dataset.count);if(count<2)return;
+   $$('.artwork-frame',group).forEach((frame,i)=>{
+     const animation=frame.animate([
+       {opacity:1,offset:0},{opacity:1,offset:.82/count},
+       {opacity:0,offset:1/count},{opacity:0,offset:1-.18/count},{opacity:1,offset:1}
+     ],{duration:count*4000,delay:-count*4000+i*4000-index*550,iterations:Infinity});
+     animations.push({animation,group});
+   });
+ });
+ const update=()=>{
+   root.classList.toggle('artwork-static',reduced.matches);
+   animations.forEach(({animation,group})=>{
+     if(artworkPaused||reduced.matches||document.hidden||!group._visible||!root.closest('.view')?.classList.contains('active'))animation.pause();else animation.play();
+   });
+   const button=$('[data-artwork-toggle]',root);
+   button.textContent=artworkPaused?'▶ Włącz zmianę ikon':'Ⅱ Zatrzymaj zmianę ikon';
+   button.setAttribute('aria-pressed',String(artworkPaused));
+   button.disabled=reduced.matches;
+   button.title=reduced.matches?'Animacje wyłączone zgodnie z ustawieniami urządzenia':'';
+ };
+ const observer=new IntersectionObserver(entries=>{entries.forEach(entry=>entry.target._visible=entry.isIntersecting);update();});
+ groups.forEach(group=>observer.observe(group));
+ $('[data-artwork-toggle]',root).addEventListener('click',()=>{artworkPaused=!artworkPaused;savePreference('artworkPaused',artworkPaused);update();});
+ document.addEventListener('visibilitychange',update);
+ reduced.addEventListener('change',update);
+ root._cleanupArtwork=()=>{observer.disconnect();animations.forEach(({animation})=>animation.cancel());document.removeEventListener('visibilitychange',update);reduced.removeEventListener('change',update);};
+ update();
 }
 
 function calcRatios(rows){
@@ -514,6 +578,7 @@ function renderSystem(id){
  const S=D.systems[id],asc=ascState[id],m=D.ascMultipliers[asc],rows=S.rows.map(r=>({...r,damage:r.damage*m,health:r.health*m}));
  const ratios=calcRatios(S.rows),full=S.rows.at(-1).damage/S.rows[0].damage,big=ratios.reduce((a,b)=>b.value>a.value?b:a,ratios[0]);
  const isItems=id==="items";
+ root._cleanupArtwork?.();
  $('[data-chart="asc"]',root)?._ascResizeObserver?.disconnect();
  root.innerHTML=`
  <div class="system-head">
@@ -531,7 +596,8 @@ function renderSystem(id){
  <div class="reading-guide"><b>Jak korzystać?</b><span>① Wpisz bonusy z gry powyżej.</span><span>② Dotknij punktu na wykresie, żeby sprawdzić statystyki i koszt.</span><span>③ Jeśli wykres jest za duży, wybierz mniejszy procent.</span></div>
  <section class="visual-card">
    <div class="card-headline"><div><span>1 • WYGLĄD + STATY</span><h3>Poznaj kolejne poziomy jakości</h3></div><small>Przesuń listę w bok, by zobaczyć więcej. Dotknij karty, aby zaznaczyć lub odznaczyć.</small></div>
-   <div class="rarity-assets">${rows.map(r=>`<article data-rarity="${r.name}" style="--c:${COLORS[r.name]||"#889"}">${isItems?itemImage(r.name):spriteHTML(id,r.name,asc)}<b>${r.name}</b><div><span>⚔️ DMG ${fmt(r.damage)}</span><span>❤️ HP ${fmt(r.health)}</span>${r.hatch?`<span>🥚 ${fmtTime(r.hatch)}</span>`:""}</div></article>`).join("")}</div>
+   <div class="artwork-controls"><small>Ikony pokazują różne przykłady tej samej jakości. Statystyki dotyczą tieru.</small><button type="button" data-artwork-toggle></button></div>
+   <div class="rarity-assets">${rows.map((r,cardIndex)=>`<article data-rarity="${r.name}" style="--c:${COLORS[r.name]||"#889"}">${rotatingArtwork(id,r.name,asc,cardIndex)}<b>${r.name}</b><div><span>⚔️ DMG ${fmt(r.damage)}</span><span>❤️ HP ${fmt(r.health)}</span>${r.hatch?`<span>🥚 ${fmtTime(r.hatch)}</span>`:""}</div></article>`).join("")}</div>
  </section>
  <section class="visual-card">
    <div class="card-headline"><div><span>2 • WYKRES PROGRESJI</span><h3>O ile mocniejszy jest kolejny tier?</h3></div><small>×10 oznacza dziesięć razy większą moc bazową.</small></div>
@@ -614,6 +680,7 @@ function renderSystem(id){
    hint.textContent='Wpisz 25 dla 25%. Wyniki w podpowiedziach wykresów zmienią się automatycznie. Ustawienia zostają na tym urządzeniu.';
    calculator.querySelector('.forge-inputs').after(hint);
  }
+ bindArtworkRotation(root);
  bindAssetInteractions(id);
  if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});
 }

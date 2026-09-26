@@ -64,3 +64,8 @@ Config źródłowy: `2026_09_02_09_08`
 - Arkusz nie podaje kosztów Common/Rare ani poziomów docelowych; nie dodajemy niepotwierdzonych danych.
 
 - Uzupełnienie m1.png/m2.png/m3.png: każde przejście LvN → LvN+1 kosztuje 1 000 Clockwinders. Docelowe poziomy i sumy: Common Lv1 0 (100%), Rare Lv15 14 000 (9,9%, pierwszy próg >=7%), Epic Lv31 30 000 (7,2%), Legendary Lv47 46 000 (7,2%), Ultimate Lv64 63 000 (7,2%), Mythic Lv80 79 000 (7,2%). Pełne tabele uzupełniają wcześniej brakujące dane.
+
+## Rotacja ilustracji kart
+- visual-variants.js: lokalne przypisanie wszystkich ikon petów, mountów i skilli do rarity, z ManualSpriteMapping.json oraz SkillLibrary.json (2026_09_02_09_08) w repo 1vcian/fm.
+- Przedmioty: trzy ręcznie sprawdzone prostokąty na tier w oryginalnych atlasach; wyświetlane przez SVG z clipPath. Źródłowe grafiki pozostają niezmienione.
+- Zmiana co 4 s, przenikanie 720 ms, przesunięcie fazy między kartami. Rotacja dotyczy wyłącznie ilustracji, nie statystyk. Pauza zapisywana lokalnie; ograniczenie ruchu i niewidoczne karty zatrzymują animacje.

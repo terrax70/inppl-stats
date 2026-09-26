@@ -1677,3 +1677,15 @@ stroke-dasharray:6 6;}
    scroll-snap-align:start;
  }
 }
+
+.svg-host.rarity-chart-viewport{
+ width:100%;min-width:0;min-height:0!important;overflow-x:auto;overflow-y:hidden;
+}
+.svg-host.rarity-chart-viewport > svg.rarity-svg{
+ width:var(--rarity-render-width)!important;
+ min-width:var(--rarity-render-width)!important;
+ max-width:none!important;
+ height:var(--rarity-render-height)!important;
+ min-height:0!important;
+ display:block;
+}

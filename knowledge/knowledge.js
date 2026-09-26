@@ -407,6 +407,23 @@ function bindAscChartZoom(root,id){
    host._ascResizeObserver.observe(host);
  }
 }
+const rarityZoomState={};
+function bindRarityChartZoom(root,id){
+ const host=$('[data-chart="rarity"]',root),svg=host.querySelector('svg');
+ const toolbar=$('[data-rarity-tools]',root);
+ toolbar.innerHTML=$('[data-asc-tools]',root).innerHTML.replaceAll('data-chart-zoom','data-rarity-zoom');
+ toolbar.querySelector('small').textContent='AUTO na telefonie: 60%. Każdy wykres ma niezależną skalę.';
+ const apply=zoom=>{
+   rarityZoomState[id]=zoom;
+   const {width,height}=svg.viewBox.baseVal;
+   const scale=zoom==='auto'?(window.matchMedia('(max-width:760px)').matches?0.6:1):Number(zoom);
+   host.style.setProperty('--rarity-render-width',Math.round(width*scale)+'px');
+   host.style.setProperty('--rarity-render-height',Math.round(height*scale)+'px');
+   toolbar.querySelectorAll('[data-rarity-zoom]').forEach(b=>b.classList.toggle('active',b.dataset.rarityZoom===zoom));
+ };
+ toolbar.querySelectorAll('[data-rarity-zoom]').forEach(b=>b.addEventListener('click',()=>apply(b.dataset.rarityZoom)));
+ apply(rarityZoomState[id]||'auto');
+}
 function renderSystem(id){
  const root=$(`.system-root[data-system="${id}"]`); if(!root)return;
  const S=D.systems[id],asc=ascState[id],m=D.ascMultipliers[asc],rows=S.rows.map(r=>({...r,damage:r.damage*m,health:r.health*m}));
@@ -430,7 +447,8 @@ function renderSystem(id){
  </section>
  <section class="visual-card">
    <div class="card-headline"><div><span>2 • WYKRES PROGRESJI</span><h3>Jedna wspólna skala mocy</h3></div><small>oś Y jest logarytmiczna</small></div>
-   <div class="svg-host" data-chart="rarity"></div>
+   <div class="asc-chart-tools" data-rarity-tools></div>
+   <div class="svg-host rarity-chart-viewport" data-chart="rarity"></div>
  </section>
  ${id==="skills"?`<section class="visual-card"><div class="card-headline"><div><span>SKILLE • AKTYWNE EFEKTY</span><h3>Przykłady z SkillLibrary</h3></div><small>Ikona bazowa A0 • statystyki dla wybranego Ascension</small></div><div class="skill-grid">${D.skillExamples.map(s=>`<article style="--c:${COLORS[s.rarity]}">${spriteHTML("skills",s.rarity,0,66).replace(/--x:\d+;--y:\d+;/,(()=>{const i=s.spriteIndex,x=i%8,y=Math.floor(i/8);return `--x:${x};--y:${y};`})())}<div class="skill-title"><b>${s.name}</b><span>${s.rarity}</span></div><div class="skill-meta"><span>CD <b>${s.cooldown}s</b></span><span>Duration <b>${s.duration}s</b></span></div><div class="skill-values"><span>Passive ⚔️ <b>${fmt(s.passiveDamage*m)}</b></span><span>Passive ❤️ <b>${fmt(s.passiveHealth*m)}</b></span>${s.activeDamage?`<span>Active ⚔️ <b>${fmt(s.activeDamage*m)}</b></span>`:""}${s.activeHealth?`<span>Active ❤️ <b>${fmt(s.activeHealth*m)}</b></span>`:""}</div></article>`).join("")}</div></section>`:""}
  <section class="visual-card asc-full">
@@ -459,6 +477,7 @@ function renderSystem(id){
  renderRarityChart($('[data-chart="rarity"]',root),rows,id);
  renderAscChart($('[data-chart="asc"]',root),S,id);
  bindAscChartZoom(root,id);
+ bindRarityChartZoom(root,id);
  if(isItems){
    updateForge(root);updateForgeTooltips(root);
    $$('[data-forge]',root).forEach(input=>input.addEventListener('input',()=>{

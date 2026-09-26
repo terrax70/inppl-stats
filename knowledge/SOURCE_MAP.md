@@ -37,3 +37,9 @@ Config źródłowy: `2026_09_02_09_08`
 - `AscensionConfigsLibrary.json` — mnożniki mocy ×50 / ×2500 / ×125000
 - koszty / recovery targets: oficjalny Discord Comprehensive Ascension Guide dostarczony przez użytkownika
 - wykres używa prawdziwych raw statów i NIE wymusza, aby recovery rarity leżało dokładnie na starej mocy
+
+## Koszty kuźni i progi tierów
+- Koszty i czasy: ForgeData.png dostarczony przez użytkownika.
+- Pierwsza niezerowa szansa tieru: https://github.com/1vcian/fm/blob/main/public/parsed_configs/2026_09_02_09_08/ItemAgeDropChancesLibrary.json
+- Level w konfiguracji jest liczony od 0; Forge w interfejsie od 1.
+- Tooltip sumuje ulepszenia od Forge 1 w bieżącym cyklu do pierwszej szansy dropu; nie sumuje wcześniejszych cykli ani opłat Ascension.

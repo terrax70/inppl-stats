@@ -25,10 +25,21 @@ function updateForge(root){
  $('[data-forge-summary]',root).innerHTML=[[22,'Multiverse • recovery'],[25,'Quantum • zapas'],[35,'Próg Ascension']].map(([level,label])=>{const t=forgeTotals(level);return `<article><small>${label}</small><b>Forge ${level}</b><strong>${gold(t.cost)} Gold</strong><span>${forgeDuration(t.seconds)}</span></article>`;}).join('');
  $('[data-forge-rows]',root).innerHTML=forgeCosts.map((cost,i)=>`<tr><th>${i+1}</th><td>${i?gold(cost*(1-forgeSettings.discount/100)):'—'}</td><td>${i?forgeDuration(forgeSeconds[i]/(1+forgeSettings.speed/100)):'—'}</td></tr>`).join('');
 }
-function mobileForgeChart(S){
- const max=Math.log10(S.rows.at(-1).damage*D.ascMultipliers.at(-1)/S.rows[0].damage);
- return `<div class="forge-mobile-chart"><p>Wspólna skala logarytmiczna względem Primitive A0. Szary: przed recovery; zielony: odzyskana moc.</p>${D.ascMultipliers.map((m,a)=>`<article><h4>A${a} • ×${fmt(m)}</h4>${S.rows.map(r=>{const power=r.damage*m/S.rows[0].damage;const recovered=!a||r.damage*m>=S.rows.at(-1).damage*D.ascMultipliers[a-1];return `<div class="forge-power-row"><span>${r.name}</span><b>${fmtAxis(power)}</b><div class="forge-power-track"><i style="width:${Math.max(1,Math.log10(power)/max*100)}%;background:${recovered?'#63d09a':'#8896a8'}"></i></div></div>`;}).join('')}<small>${a<3?'Forge 35 → Ascension → Forge 1':'Koniec ścieżki A3'}</small></article>`).join('')}</div>`;
+// ItemAgeDropChancesLibrary (2026_09_02_09_08) uses zero-based forge levels.
+const forgeTierLevels=[1,2,5,8,11,14,17,20,24,29];
+const forgeTierChances=[100,1,.5,.2,.1,.05,.05,.05,.02,.02];
+function forgeTierTip(name){
+ const index=D.itemAges.indexOf(name);if(index<0)return '';
+ const level=forgeTierLevels[index],total=forgeTotals(level);
+ return `<span>Kuźnia: Forge ${level} • szansa ${forgeTierChances[index].toLocaleString('pl-PL')}%</span><span>Łączny koszt: ${Math.round(total.cost).toLocaleString('pl-PL')} Gold</span><span>Łączny czas: ${forgeDuration(total.seconds)}</span><small>Od Forge 1 w tym cyklu do odblokowania tieru. Bez opłaty za Ascension i czasu zdobywania itemów.</small>`;
 }
+function updateForgeTooltips(root){
+ $$('.asc-chart-point',root).forEach(point=>{
+   point.dataset.baseTip??=point.dataset.tip;
+   point.dataset.tip=point.dataset.baseTip+forgeTierTip(point.dataset.rarity);
+ });
+}
+const ascZoomState={};
 
 function safeRarityKey(name){
  return String(name).replace(/[^a-z0-9_-]+/gi,"-").toLowerCase();
@@ -57,6 +68,12 @@ function showChartTooltip(host,evt,html){
  }
  tip.innerHTML=html;
  tip.classList.add("show");
+ if(host.classList.contains('item-asc-chart')){
+   tip.style.position='fixed';
+   tip.style.left=Math.max(8,Math.min(window.innerWidth-tip.offsetWidth-8,evt.clientX+12))+'px';
+   tip.style.top=Math.max(8,Math.min(window.innerHeight-tip.offsetHeight-8,evt.clientY+12))+'px';
+   return;
+ }
  const rect=host.getBoundingClientRect();
  const x=Math.max(8,Math.min(rect.width-tip.offsetWidth-8,evt.clientX-rect.left+12));
  const y=Math.max(8,Math.min(rect.height-tip.offsetHeight-8,evt.clientY-rect.top+12));
@@ -83,7 +100,15 @@ function bindChartInteractions(host,id){
      hideChartTooltip(host);
      if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});
    });
-   point.addEventListener("click",()=>{
+   point.addEventListener("focus",()=>{
+     const box=point.getBoundingClientRect();
+     showChartTooltip(host,{clientX:box.x+box.width/2,clientY:box.y+box.height/2},point.dataset.tip||'');
+   });
+   point.addEventListener("blur",()=>hideChartTooltip(host));
+   point.addEventListener("click",e=>{
+     if(id==="items"&&point.classList.contains('asc-chart-point')){
+       showChartTooltip(host,e,point.dataset.tip);return;
+     }
      const targetAsc=point.dataset.asc!==undefined&&point.dataset.asc!==""?Number(point.dataset.asc):ascState[id];
      if(Number.isFinite(targetAsc)&&targetAsc!==ascState[id]){
        ascState[id]=targetAsc;
@@ -354,6 +379,7 @@ function applyAscChartZoom(root,id,zoom){
  const renderH=Math.round(renderW*aspect);
 
  host.dataset.zoom=String(zoom);
+ ascZoomState[id]=String(zoom);
  host.style.setProperty("--asc-render-width",renderW+"px");
  host.style.setProperty("--asc-render-height",renderH+"px");
  svg.style.setProperty("--asc-render-width",renderW+"px");
@@ -366,7 +392,7 @@ function applyAscChartZoom(root,id,zoom){
 }
 function bindAscChartZoom(root,id){
  const host=$('[data-chart="asc"]',root); if(!host)return;
- const current=host.dataset.zoom||"auto";
+ const current=ascZoomState[id]||"auto";
  applyAscChartZoom(root,id,current);
 
  root.querySelectorAll('[data-chart-zoom]').forEach(b=>b.addEventListener('click',()=>{
@@ -410,15 +436,21 @@ function renderSystem(id){
  <section class="visual-card asc-full">
    <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>Common A1 ≠ Common A0</small></div>
    <div class="recovery-note"><b>Według oficjalnego poradnika:</b> stara moc jest odzyskiwana mniej więcej przy <strong>${S.recovery}</strong> po Ascension. Wykres pokazuje jednak prawdziwe surowe staty — nie wymusza sztucznej równości.</div>
-   ${isItems?forgeCalculator()+mobileForgeChart(S):''}
+   ${isItems?forgeCalculator():''}
    <div class="asc-chart-tools" data-asc-tools>
      <span>ROZMIAR WYKRESU</span>
      <button type="button" data-chart-zoom="auto" class="active">AUTO</button>
+     <button type="button" data-chart-zoom="0.1">10%</button>
+     <button type="button" data-chart-zoom="0.2">20%</button>
+     <button type="button" data-chart-zoom="0.3">30%</button>
+     <button type="button" data-chart-zoom="0.4">40%</button>
+     <button type="button" data-chart-zoom="0.6">60%</button>
      <button type="button" data-chart-zoom="0.8">80%</button>
+     
      <button type="button" data-chart-zoom="1">100%</button>
      <button type="button" data-chart-zoom="1.2">120%</button>
      <button type="button" data-chart-zoom="1.4">140%</button>
-     <small>AUTO dobiera szerokość do panelu i liczby punktów. Itemy dostają tylko tyle scrolla, ile potrzebują.</small>
+     <small>Na telefonie wybierz 10–40%, aby pomniejszyć wykres. Dotknij tieru, aby zobaczyć szczegóły.</small>
    </div>
    <div class="svg-host wide asc-chart-viewport ${id==="items"?"item-asc-chart":""}" data-chart="asc"></div>
  </section>
@@ -428,11 +460,11 @@ function renderSystem(id){
  renderAscChart($('[data-chart="asc"]',root),S,id);
  bindAscChartZoom(root,id);
  if(isItems){
-   updateForge(root);
+   updateForge(root);updateForgeTooltips(root);
    $$('[data-forge]',root).forEach(input=>input.addEventListener('input',()=>{
      if(input.value===''||!input.validity.valid)return;
      const value=Number(input.value);if(!Number.isFinite(value))return;
-     forgeSettings[input.dataset.forge]=value;updateForge(root);
+     forgeSettings[input.dataset.forge]=value;updateForge(root);updateForgeTooltips(root);
    }));
  }
  bindAssetInteractions(id);

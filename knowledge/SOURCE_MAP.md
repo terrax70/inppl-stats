@@ -50,3 +50,10 @@ Config źródłowy: `2026_09_02_09_08`
 - Koszty z tego configu są o 4 320 niższe od arkusza. Kalkulator używa kwot z arkusza użytkownika; nie miesza ich z kosztami configu.
 
 - Uzupełnienie: s1.png, s2.png, s3.png użytkownika, Skill Summon Cost and Summon Probabilities. Koszt w wierszu LvN dotyczy przejścia N → N+1. Sumowanie wierszy przed poziomem docelowym daje Common Lv1: 0 (100%), Rare Lv6: 1 200 (2%), Epic Lv14: 9 200 (2%). Potwierdza też sumy 49 600 / 142 000 / 269 600 dla wyższych rarity. Tabele użytkownika mają 2/4/6/... przywołań od Lv1; config ma 2/2/4/... — stąd wcześniejsza różnica.
+
+## Koszty petów
+- Eggshells.png użytkownika: Legendary 48 600, Ultimate 90 000, Mythic 147 500 Eggshells; nagłówek wskazuje około 7% szans na rarity (poradnik Legendary podaje 7,2%).
+- Koszt po bonusie = baza / (1 + extra drop chance / 100), zaokrąglony do najbliższej liczby całkowitej, zgodnie z tabelą. Są to szacowane koszty dzięki dodatkowemu dropowi.
+- Brak kosztów niższych rarity i poziomów Ultimate/Mythic w przesłanym arkuszu; nie dopisujemy niepotwierdzonych wartości.
+
+- Uzupełnienie p1.png/p2.png/p3.png: koszty w wierszu LvN prowadzą do LvN+1. Sumy do poziomów: Common Lv1 0 (100%), Rare Lv6 1 400 (10%, pierwszy próg >=7%), Epic Lv13 5 400 (7,2%), Legendary Lv37 48 600 (7,2%), Ultimate Lv55 90 000 (7,2%), Mythic Lv80 147 500 (7,2%). Pełne tabele uzupełniają wcześniejsze brakujące poziomy i niższe rarity.

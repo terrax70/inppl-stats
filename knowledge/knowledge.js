@@ -37,6 +37,21 @@ function updateSkillTooltips(root){
    point.dataset.tip=point.dataset.baseTip+extra;
  });
 }
+// User tables p1/p2/p3: sum costs before the target level; first chance >=7%.
+const petTargets={Common:{level:1,cost:0,chance:100},Rare:{level:6,cost:1400,chance:10},Epic:{level:13,cost:5400,chance:7.2},Legendary:{level:37,cost:48600,chance:7.2},Ultimate:{level:55,cost:90000,chance:7.2},Mythic:{level:80,cost:147500,chance:7.2}};
+const savedPetExtraDrop=readPreference('petExtraDrop');
+let petExtraDrop=validForgeValue(savedPetExtraDrop)?savedPetExtraDrop:0;
+function petCalculator(){
+ return `<section class="forge-calculator"><h4>Koszt rozwoju petów</h4><div class="forge-inputs"><label>Extra drop chance (+%)<input data-pet-extra-drop type="number" inputmode="decimal" min="0" step="any" value="${petExtraDrop}"></label></div><p>🥚 Koszt bazowy ÷ (1 + extra drop chance / 100). +50% daje koszt równy ⅔ bazowego. Koszty z tabel Pet Summon: Epic–Mythic przy 🍀 7,2% szans; Rare przy 10% (pierwszy próg powyżej 7%), Common od Lv1 przy 100%. Extra drop zwiększa liczbę dropów, nie szansę na konkretną rarity. Wartość zapisuje się na tym urządzeniu.</p></section>`;
+}
+function updatePetTooltips(root){
+ $$('.chart-point',root).forEach(point=>{
+   point.dataset.baseTip??=point.dataset.tip;
+   const target=petTargets[point.dataset.rarity];
+   const extra=target?`<span>🐾 Poziom przywoływania: Lv${target.level} • 🍀 szansa ${target.chance.toLocaleString('pl-PL')}%</span><span>🥚 Łączny koszt: ${Math.round(target.cost/(1+petExtraDrop/100)).toLocaleString('pl-PL')} Eggshells</span><small>Extra drop chance: +${petExtraDrop.toLocaleString('pl-PL')}%. Szacowany koszt od Lv1 w tym cyklu, według tabel Pet Summon; nie gwarancja dropu.</small>`:'<small>🥚 Przesłany arkusz nie zawiera kosztu dla tego rarity.</small>';
+   point.dataset.tip=point.dataset.baseTip+extra;
+ });
+}
 function forgeDuration(seconds){
  let rest=Math.round(seconds);
  return [[86400,'d'],[3600,'h'],[60,'min'],[1,'s']].map(([unit,label])=>{const n=Math.floor(rest/unit);rest%=unit;return n?`${n} ${label}`:'';}).filter(Boolean).join(' ')||'0 s';
@@ -139,7 +154,7 @@ function bindChartInteractions(host,id){
    });
    point.addEventListener("blur",()=>hideChartTooltip(host));
    point.addEventListener("click",e=>{
-     if((id==="items"||id==="skills")&&point.classList.contains('asc-chart-point')){
+     if((id==="items"||id==="skills"||id==="pets")&&point.classList.contains('asc-chart-point')){
        showChartTooltip(host,e,point.dataset.tip);return;
      }
      const targetAsc=point.dataset.asc!==undefined&&point.dataset.asc!==""?Number(point.dataset.asc):ascState[id];
@@ -497,7 +512,7 @@ function renderSystem(id){
  <section class="visual-card asc-full">
    <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>Common A1 ≠ Common A0</small></div>
    <div class="recovery-note"><b>Według oficjalnego poradnika:</b> stara moc jest odzyskiwana mniej więcej przy <strong>${S.recovery}</strong> po Ascension. Wykres pokazuje jednak prawdziwe surowe staty — nie wymusza sztucznej równości.</div>
-   ${isItems?forgeCalculator():id==="skills"?skillCalculator():''}
+   ${isItems?forgeCalculator():id==="skills"?skillCalculator():id==="pets"?petCalculator():''}
    <div class="asc-chart-tools" data-asc-tools>
      <span>ROZMIAR WYKRESU</span>
      <button type="button" data-chart-zoom="auto" class="active">AUTO</button>
@@ -536,6 +551,15 @@ function renderSystem(id){
      if(input.value===''||!input.validity.valid)return;
      const value=Number(input.value);if(!validForgeValue(value,100))return;
      skillDiscount=value;savePreference('skillDiscount',value);updateSkillTooltips(root);
+   });
+ }
+ if(id==='pets'){
+   updatePetTooltips(root);
+   $('[data-pet-extra-drop]',root).addEventListener('input',event=>{
+     const input=event.target;
+     if(input.value===''||!input.validity.valid)return;
+     const value=Number(input.value);if(!validForgeValue(value))return;
+     petExtraDrop=value;savePreference('petExtraDrop',value);updatePetTooltips(root);
    });
  }
  bindAssetInteractions(id);

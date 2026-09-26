@@ -57,3 +57,10 @@ Config źródłowy: `2026_09_02_09_08`
 - Brak kosztów niższych rarity i poziomów Ultimate/Mythic w przesłanym arkuszu; nie dopisujemy niepotwierdzonych wartości.
 
 - Uzupełnienie p1.png/p2.png/p3.png: koszty w wierszu LvN prowadzą do LvN+1. Sumy do poziomów: Common Lv1 0 (100%), Rare Lv6 1 400 (10%, pierwszy próg >=7%), Epic Lv13 5 400 (7,2%), Legendary Lv37 48 600 (7,2%), Ultimate Lv55 90 000 (7,2%), Mythic Lv80 147 500 (7,2%). Pełne tabele uzupełniają wcześniejsze brakujące poziomy i niższe rarity.
+
+## Koszty mountów
+- Clockwinders.png użytkownika: Epic 30 000, Legendary 46 000, Ultimate 63 000, Mythic 79 000 Clockwinders przy około 7% szans na rarity.
+- Koszt = baza × (1 − discount/100) / (1 + extra drop chance/100), zaokrąglony do najbliższej liczby całkowitej. Oba bonusy są niezależne, tabela ilustruje wybrane pary.
+- Arkusz nie podaje kosztów Common/Rare ani poziomów docelowych; nie dodajemy niepotwierdzonych danych.
+
+- Uzupełnienie m1.png/m2.png/m3.png: każde przejście LvN → LvN+1 kosztuje 1 000 Clockwinders. Docelowe poziomy i sumy: Common Lv1 0 (100%), Rare Lv15 14 000 (9,9%, pierwszy próg >=7%), Epic Lv31 30 000 (7,2%), Legendary Lv47 46 000 (7,2%), Ultimate Lv64 63 000 (7,2%), Mythic Lv80 79 000 (7,2%). Pełne tabele uzupełniają wcześniej brakujące dane.

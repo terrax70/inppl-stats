@@ -52,6 +52,21 @@ function updatePetTooltips(root){
    point.dataset.tip=point.dataset.baseTip+extra;
  });
 }
+// User tables m1/m2/m3: each level transition costs 1000; first chance >=7%.
+const mountTargets={Common:{level:1,cost:0,chance:100},Rare:{level:15,cost:14000,chance:9.9},Epic:{level:31,cost:30000,chance:7.2},Legendary:{level:47,cost:46000,chance:7.2},Ultimate:{level:64,cost:63000,chance:7.2},Mythic:{level:80,cost:79000,chance:7.2}};
+const savedMount=readPreference('mount');
+const mountSettings={discount:validForgeValue(savedMount?.discount,100)?savedMount.discount:0,extraDrop:validForgeValue(savedMount?.extraDrop)?savedMount.extraDrop:0};
+function mountCalculator(){
+ return `<section class="forge-calculator"><h4>Koszt rozwoju mountów</h4><div class="forge-inputs"><label>Discount mountów (%)<input data-mount="discount" type="number" inputmode="decimal" min="0" max="100" step="any" value="${mountSettings.discount}"></label><label>Extra drop chance (+%)<input data-mount="extraDrop" type="number" inputmode="decimal" min="0" step="any" value="${mountSettings.extraDrop}"></label></div><p>⚙️ Koszt bazowy × (1 − discount / 100) ÷ (1 + extra drop chance / 100). Wpisz oba bonusy niezależnie. Koszty z tabel Mount Summon: Epic–Mythic przy 🍀 7,2% szans; Rare przy 9,9% (pierwszy próg powyżej 7%), Common od Lv1 przy 100%. Extra drop zwiększa liczbę dropów, nie szansę na konkretną rarity. Ustawienia zapisują się na tym urządzeniu.</p></section>`;
+}
+function updateMountTooltips(root){
+ $$('.chart-point',root).forEach(point=>{
+   point.dataset.baseTip??=point.dataset.tip;
+   const target=mountTargets[point.dataset.rarity];
+   const extra=target?`<span>🐎 Poziom przywoływania: Lv${target.level} • 🍀 szansa ${target.chance.toLocaleString('pl-PL')}%</span><span>⚙️ Łączny koszt: ${Math.round(target.cost*(1-mountSettings.discount/100)/(1+mountSettings.extraDrop/100)).toLocaleString('pl-PL')} Clockwinders</span><small>Discount: ${mountSettings.discount.toLocaleString('pl-PL')}% • Extra drop chance: +${mountSettings.extraDrop.toLocaleString('pl-PL')}%. Szacowany koszt od Lv1 w tym cyklu, według tabel Mount Summon; nie gwarancja dropu.</small>`:'<small>⚙️ Przesłany arkusz nie zawiera kosztu dla tego rarity.</small>';
+   point.dataset.tip=point.dataset.baseTip+extra;
+ });
+}
 function forgeDuration(seconds){
  let rest=Math.round(seconds);
  return [[86400,'d'],[3600,'h'],[60,'min'],[1,'s']].map(([unit,label])=>{const n=Math.floor(rest/unit);rest%=unit;return n?`${n} ${label}`:'';}).filter(Boolean).join(' ')||'0 s';
@@ -154,7 +169,7 @@ function bindChartInteractions(host,id){
    });
    point.addEventListener("blur",()=>hideChartTooltip(host));
    point.addEventListener("click",e=>{
-     if((id==="items"||id==="skills"||id==="pets")&&point.classList.contains('asc-chart-point')){
+     if((id==="items"||id==="skills"||id==="pets"||id==="mounts")&&point.classList.contains('asc-chart-point')){
        showChartTooltip(host,e,point.dataset.tip);return;
      }
      const targetAsc=point.dataset.asc!==undefined&&point.dataset.asc!==""?Number(point.dataset.asc):ascState[id];
@@ -512,7 +527,7 @@ function renderSystem(id){
  <section class="visual-card asc-full">
    <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>Common A1 ≠ Common A0</small></div>
    <div class="recovery-note"><b>Według oficjalnego poradnika:</b> stara moc jest odzyskiwana mniej więcej przy <strong>${S.recovery}</strong> po Ascension. Wykres pokazuje jednak prawdziwe surowe staty — nie wymusza sztucznej równości.</div>
-   ${isItems?forgeCalculator():id==="skills"?skillCalculator():id==="pets"?petCalculator():''}
+   ${isItems?forgeCalculator():id==="skills"?skillCalculator():id==="pets"?petCalculator():id==="mounts"?mountCalculator():''}
    <div class="asc-chart-tools" data-asc-tools>
      <span>ROZMIAR WYKRESU</span>
      <button type="button" data-chart-zoom="auto" class="active">AUTO</button>
@@ -561,6 +576,15 @@ function renderSystem(id){
      const value=Number(input.value);if(!validForgeValue(value))return;
      petExtraDrop=value;savePreference('petExtraDrop',value);updatePetTooltips(root);
    });
+ }
+ if(id==='mounts'){
+   updateMountTooltips(root);
+   $$('[data-mount]',root).forEach(input=>input.addEventListener('input',()=>{
+     if(input.value===''||!input.validity.valid)return;
+     const value=Number(input.value);
+     if(!validForgeValue(value,input.dataset.mount==='discount'?100:Infinity))return;
+     mountSettings[input.dataset.mount]=value;savePreference('mount',mountSettings);updateMountTooltips(root);
+   }));
  }
  bindAssetInteractions(id);
  if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});

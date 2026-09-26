@@ -194,7 +194,7 @@ function bindAssetInteractions(id){
    card.setAttribute("aria-label",`Podświetl ${rarity} na wykresach`);
    const choose=()=>syncRarityHighlight(id,rarity,{sticky:true});
    card.addEventListener("click",choose);
-   card.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();choose();}});
+   card.addEventListener("keydown",e=>{if(e.target!==card)return;if(e.key==="Enter"||e.key===" "){e.preventDefault();choose();}});
    card.addEventListener("mouseenter",()=>{
      clearChartHover(root);
      card.classList.add("hovered");
@@ -430,24 +430,11 @@ function itemImage(name,rect=itemSpriteRects[name],variant=0){
  return `<svg class="item-sprite" viewBox="${rect.join(' ')}" role="img" aria-label="${esc(name)} — przykładowy przedmiot" focusable="false"><defs><clipPath id="item-clip-${safeRarityKey(name)}-${variant}"><rect x="${rect[0]}" y="${rect[1]}" width="${rect[2]}" height="${rect[3]}"/></clipPath></defs><image href="assets/${file}" width="1024" height="1024" clip-path="url(#item-clip-${safeRarityKey(name)}-${variant})"/></svg>`;
 }
 
-// Additional isolated rectangles from the same item atlases, inspected visually.
-const itemExtraRects={
- Primitive:[[425,4,102,352],[538,4,130,215]],
- Medieval:[[158,588,172,207],[578,654,80,334]],
- 'Early-Modern':[[310,3,356,307],[455,638,219,88]],
- Modern:[[249,433,149,104],[255,357,169,71]],
- Space:[[455,162,154,185],[455,355,158,133]],
- Interstellar:[[511,3,150,148],[678,3,181,129]],
- Multiverse:[[131,208,109,348],[333,189,165,351]],
- Quantum:[[518,2,174,160],[709,5,210,183]],
- Underworld:[[247,423,176,340],[780,194,130,314]],
- Divine:[[247,803,183,78],[340,2,230,137]]
-};
 let artworkPaused=readPreference('artworkPaused')===true;
 function rotatingArtwork(system,rarity,asc,cardIndex){
  let frames;
  if(system==='items'){
-   frames=[itemSpriteRects[rarity],...(itemExtraRects[rarity]||[])].map((rect,index)=>itemImage(rarity,rect,index));
+   frames=(window.FM_ITEM_VARIANTS?.[rarity]||[itemSpriteRects[rarity]]).map((rect,index)=>itemImage(rarity,rect,index));
  }else{
    const variants=window.FM_VISUAL_VARIANTS?.[system]?.[rarity]||[D.spriteIndices[system][rarity]];
    frames=variants.map(info=>{
@@ -457,7 +444,7 @@ function rotatingArtwork(system,rarity,asc,cardIndex){
  }
  // Shuffle once per render; never change the rarity, stage or associated statistics.
  for(let i=frames.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[frames[i],frames[j]]=[frames[j],frames[i]];}
- return `<div class="artwork-rotation" role="img" aria-label="${esc(rarity)} — przykłady wyglądu" data-count="${frames.length}" style="--artwork-offset:${cardIndex*.55}s">${frames.map((frame,i)=>`<div class="artwork-frame" aria-hidden="true" data-frame="${i}">${frame}</div>`).join('')}</div>`;
+ return `<div class="artwork-rotation" role="img" aria-label="${esc(rarity)} — przykłady wyglądu" data-count="${frames.length}" style="--artwork-offset:${cardIndex*.55}s">${frames.map((frame,i)=>`<div class="artwork-frame" aria-hidden="true" data-frame="${i}">${frame}</div>`).join('')}</div><div class="artwork-browse"><button type="button" data-artwork-step="-1" aria-label="Poprzednia grafika">‹</button><small>${frames.length} <span>grafik</span></small><button type="button" data-artwork-step="1" aria-label="Następna grafika">›</button></div>`;
 }
 function bindArtworkRotation(root){
  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -473,10 +460,22 @@ function bindArtworkRotation(root){
      animations.push({animation,group});
    });
  });
+ groups.forEach(group=>{
+   const frames=$$('.artwork-frame',group);
+   $$('[data-artwork-step]',group.parentElement).forEach(button=>button.addEventListener('click',event=>{
+     event.stopPropagation();
+     let current=frames.findIndex(frame=>frame.classList.contains('artwork-chosen'));
+     if(current<0)current=frames.reduce((best,frame,i)=>Number(getComputedStyle(frame).opacity)>Number(getComputedStyle(frames[best]).opacity)?i:best,0);
+     const next=(current+Number(button.dataset.artworkStep)+frames.length)%frames.length;
+     group.dataset.manual=String(next);
+     frames.forEach((frame,i)=>frame.classList.toggle('artwork-chosen',i===next));
+     update();
+   }));
+ });
  const update=()=>{
    root.classList.toggle('artwork-static',reduced.matches);
    animations.forEach(({animation,group})=>{
-     if(artworkPaused||reduced.matches||document.hidden||!group._visible||!root.closest('.view')?.classList.contains('active'))animation.pause();else animation.play();
+     if(artworkPaused||group.dataset.manual!==undefined||reduced.matches||document.hidden||!group._visible||!root.closest('.view')?.classList.contains('active'))animation.pause();else animation.play();
    });
    const button=$('[data-artwork-toggle]',root);
    button.textContent=artworkPaused?'▶ Włącz zmianę ikon':'Ⅱ Zatrzymaj zmianę ikon';
@@ -486,7 +485,7 @@ function bindArtworkRotation(root){
  };
  const observer=new IntersectionObserver(entries=>{entries.forEach(entry=>entry.target._visible=entry.isIntersecting);update();});
  groups.forEach(group=>observer.observe(group));
- $('[data-artwork-toggle]',root).addEventListener('click',()=>{artworkPaused=!artworkPaused;savePreference('artworkPaused',artworkPaused);update();});
+ $('[data-artwork-toggle]',root).addEventListener('click',()=>{artworkPaused=!artworkPaused;if(!artworkPaused)groups.forEach(group=>{delete group.dataset.manual;$$('.artwork-chosen',group).forEach(frame=>frame.classList.remove('artwork-chosen'));});savePreference('artworkPaused',artworkPaused);update();});
  document.addEventListener('visibilitychange',update);
  reduced.addEventListener('change',update);
  root._cleanupArtwork=()=>{observer.disconnect();animations.forEach(({animation})=>animation.cancel());document.removeEventListener('visibilitychange',update);reduced.removeEventListener('change',update);};
@@ -596,7 +595,7 @@ function renderSystem(id){
  <div class="reading-guide"><b>Jak korzystać?</b><span>① Wpisz bonusy z gry powyżej.</span><span>② Dotknij punktu na wykresie, żeby sprawdzić statystyki i koszt.</span><span>③ Jeśli wykres jest za duży, wybierz mniejszy procent.</span></div>
  <section class="visual-card">
    <div class="card-headline"><div><span>1 • WYGLĄD + STATY</span><h3>Poznaj kolejne poziomy jakości</h3></div><small>Przesuń listę w bok, by zobaczyć więcej. Dotknij karty, aby zaznaczyć lub odznaczyć.</small></div>
-   <div class="artwork-controls"><small>Ikony pokazują różne przykłady tej samej jakości. Statystyki dotyczą tieru.</small><button type="button" data-artwork-toggle></button></div>
+   <div class="artwork-controls"><small>Wszystkie dostępne grafiki danego tieru. Strzałki zatrzymują rotację i pozwalają wybrać obraz. Statystyki dotyczą tieru.</small><button type="button" data-artwork-toggle></button></div>
    <div class="rarity-assets">${rows.map((r,cardIndex)=>`<article data-rarity="${r.name}" style="--c:${COLORS[r.name]||"#889"}">${rotatingArtwork(id,r.name,asc,cardIndex)}<b>${r.name}</b><div><span>⚔️ DMG ${fmt(r.damage)}</span><span>❤️ HP ${fmt(r.health)}</span>${r.hatch?`<span>🥚 ${fmtTime(r.hatch)}</span>`:""}</div></article>`).join("")}</div>
  </section>
  <section class="visual-card">

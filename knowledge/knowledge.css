@@ -1738,3 +1738,10 @@ stroke-dasharray:6 6;}
 .artwork-static .artwork-frame{opacity:0!important}
 .artwork-static .artwork-frame:first-child{opacity:1!important}
 @media(prefers-reduced-motion:reduce){.artwork-frame{opacity:0!important}.artwork-frame:first-child{opacity:1!important}}
+
+.artwork-browse{display:flex!important;align-items:center;justify-content:center;gap:5px;margin:4px 0 8px}
+.artwork-browse button{width:36px;height:36px;border:1px solid #344757;border-radius:8px;background:#101a23;color:#efbf64;font-size:24px;cursor:pointer}
+.artwork-browse button:focus-visible{outline:2px solid #efbf64;outline-offset:2px}
+.artwork-browse small{font-size:10px;color:#a3b6c5;white-space:nowrap}
+.artwork-rotation[data-manual] .artwork-frame{opacity:0!important}
+.artwork-rotation[data-manual] .artwork-frame.artwork-chosen{opacity:1!important}

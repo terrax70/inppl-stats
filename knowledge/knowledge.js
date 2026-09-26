@@ -33,7 +33,7 @@ function updateSkillTooltips(root){
  $$('.chart-point',root).forEach(point=>{
    point.dataset.baseTip??=point.dataset.tip;
    const target=skillTargets[point.dataset.rarity];
-   const extra=target?`<span>🌀 Poziom przywoływania: Lv${target.level} • 🍀 szansa ${target.chance}%</span><span>🎟️ Łączny koszt: ${Math.round(target.cost*(1-skillDiscount/100)).toLocaleString('pl-PL')} Skill Tickets</span><small>Discount: ${skillDiscount.toLocaleString('pl-PL')}%. Od Lv1 w tym cyklu, według tabel Skill Summon. Próg szansy, nie gwarancja dropu.</small>`:'<small>🎟️ Przesłany arkusz nie zawiera kosztu dla tego rarity.</small>';
+   const extra=target?`<span>🌀 Poziom przywoływania: Lv${target.level} • 🍀 szansa ${target.chance}%</span><span>🎟️ Łączny koszt: ${Math.round(target.cost*(1-skillDiscount/100)).toLocaleString(window.INPPL_I18N?.locale||'pl-PL')} Skill Tickets</span><small>Discount: ${skillDiscount.toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}%. Od Lv1 w tym cyklu, według tabel Skill Summon. Próg szansy, nie gwarancja dropu.</small>`:'<small>🎟️ Przesłany arkusz nie zawiera kosztu dla tego rarity.</small>';
    point.dataset.tip=point.dataset.baseTip+extra;
  });
 }
@@ -48,7 +48,7 @@ function updatePetTooltips(root){
  $$('.chart-point',root).forEach(point=>{
    point.dataset.baseTip??=point.dataset.tip;
    const target=petTargets[point.dataset.rarity];
-   const extra=target?`<span>🐾 Poziom przywoływania: Lv${target.level} • 🍀 szansa ${target.chance.toLocaleString('pl-PL')}%</span><span>🥚 Łączny koszt: ${Math.round(target.cost/(1+petExtraDrop/100)).toLocaleString('pl-PL')} Eggshells</span><small>Extra drop chance: +${petExtraDrop.toLocaleString('pl-PL')}%. Szacowany koszt od Lv1 w tym cyklu, według tabel Pet Summon; nie gwarancja dropu.</small>`:'<small>🥚 Przesłany arkusz nie zawiera kosztu dla tego rarity.</small>';
+   const extra=target?`<span>🐾 Poziom przywoływania: Lv${target.level} • 🍀 szansa ${target.chance.toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}%</span><span>🥚 Łączny koszt: ${Math.round(target.cost/(1+petExtraDrop/100)).toLocaleString(window.INPPL_I18N?.locale||'pl-PL')} Eggshells</span><small>Extra drop chance: +${petExtraDrop.toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}%. Szacowany koszt od Lv1 w tym cyklu, według tabel Pet Summon; nie gwarancja dropu.</small>`:'<small>🥚 Przesłany arkusz nie zawiera kosztu dla tego rarity.</small>';
    point.dataset.tip=point.dataset.baseTip+extra;
  });
 }
@@ -63,7 +63,7 @@ function updateMountTooltips(root){
  $$('.chart-point',root).forEach(point=>{
    point.dataset.baseTip??=point.dataset.tip;
    const target=mountTargets[point.dataset.rarity];
-   const extra=target?`<span>🐎 Poziom przywoływania: Lv${target.level} • 🍀 szansa ${target.chance.toLocaleString('pl-PL')}%</span><span>⚙️ Łączny koszt: ${Math.round(target.cost*(1-mountSettings.discount/100)/(1+mountSettings.extraDrop/100)).toLocaleString('pl-PL')} Clockwinders</span><small>Discount: ${mountSettings.discount.toLocaleString('pl-PL')}% • Extra drop chance: +${mountSettings.extraDrop.toLocaleString('pl-PL')}%. Szacowany koszt od Lv1 w tym cyklu, według tabel Mount Summon; nie gwarancja dropu.</small>`:'<small>⚙️ Przesłany arkusz nie zawiera kosztu dla tego rarity.</small>';
+   const extra=target?`<span>🐎 Poziom przywoływania: Lv${target.level} • 🍀 szansa ${target.chance.toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}%</span><span>⚙️ Łączny koszt: ${Math.round(target.cost*(1-mountSettings.discount/100)/(1+mountSettings.extraDrop/100)).toLocaleString(window.INPPL_I18N?.locale||'pl-PL')} Clockwinders</span><small>Discount: ${mountSettings.discount.toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}% • Extra drop chance: +${mountSettings.extraDrop.toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}%. Szacowany koszt od Lv1 w tym cyklu, według tabel Mount Summon; nie gwarancja dropu.</small>`:'<small>⚙️ Przesłany arkusz nie zawiera kosztu dla tego rarity.</small>';
    point.dataset.tip=point.dataset.baseTip+extra;
  });
 }
@@ -78,7 +78,7 @@ function forgeCalculator(){
  return `<section class="forge-calculator"><h4>Przygotuj kuźnię do Ascension</h4><div class="forge-inputs"><label>Discount — zniżka (%)<input data-forge="discount" type="number" inputmode="decimal" min="0" max="100" step="any" value="${forgeSettings.discount}"></label><label>Forge speed — szybkość kuźni (+%)<input data-forge="speed" type="number" inputmode="decimal" min="0" step="any" value="${forgeSettings.speed}"></label></div><p>Koszt × (1 − discount / 100). Czas ÷ (1 + speed / 100). +50% speed skraca czas do ⅔.</p><p>Sumy od Forge 1. Recovery według poradnika: Multiverse przy Forge 22 (4% szans); bezpieczniejszy cel: Quantum przy Forge 25. Do resetu dolicz osobno 3 000 000 Gold — bez discount. Czas obejmuje ulepszanie kuźni, bez przyspieszeń i zdobywania itemów.</p><details><summary>Koszty i czasy wszystkich 35 poziomów</summary><p>Dane bazowe: przesłany arkusz Forge Data. Wiersz oznacza ulepszenie do wskazanego poziomu.</p><table class="forge-table"><thead><tr><th>Forge</th><th>Koszt Gold</th><th>Czas</th></tr></thead><tbody data-forge-rows></tbody></table></details></section>`;
 }
 function updateForge(root){
- const gold=n=>Math.round(n).toLocaleString('pl-PL');
+ const gold=n=>Math.round(n).toLocaleString(window.INPPL_I18N?.locale||'pl-PL');
  $('[data-forge-rows]',root).innerHTML=forgeCosts.map((cost,i)=>`<tr><th>${i+1}</th><td>${i?gold(cost*(1-forgeSettings.discount/100)):'—'}</td><td>${i?forgeDuration(forgeSeconds[i]/(1+forgeSettings.speed/100)):'—'}</td></tr>`).join('');
 }
 // ItemAgeDropChancesLibrary (2026_09_02_09_08) uses zero-based forge levels.
@@ -87,7 +87,7 @@ const forgeTierChances=[100,1,.5,.2,.1,.05,.05,.05,.02,.02];
 function forgeTierTip(name){
  const index=D.itemAges.indexOf(name);if(index<0)return '';
  const level=forgeTierLevels[index],total=forgeTotals(level);
- return `<span>🔨 Kuźnia: Forge ${level} • 🍀 szansa ${forgeTierChances[index].toLocaleString('pl-PL')}%</span><span>💰 Łączny koszt: ${Math.round(total.cost).toLocaleString('pl-PL')} Gold</span><span>🕒 Łączny czas: ${forgeDuration(total.seconds)}</span><small>Od Forge 1 w tym cyklu do odblokowania tieru. Bez opłaty za Ascension i czasu zdobywania itemów.</small>`;
+ return `<span>🔨 Kuźnia: Forge ${level} • 🍀 szansa ${forgeTierChances[index].toLocaleString(window.INPPL_I18N?.locale||'pl-PL')}%</span><span>💰 Łączny koszt: ${Math.round(total.cost).toLocaleString(window.INPPL_I18N?.locale||'pl-PL')} Gold</span><span>🕒 Łączny czas: ${forgeDuration(total.seconds)}</span><small>Od Forge 1 w tym cyklu do odblokowania tieru. Bez opłaty za Ascension i czasu zdobywania itemów.</small>`;
 }
 function updateForgeTooltips(root){
  $$('.asc-chart-point',root).forEach(point=>{
@@ -366,25 +366,25 @@ const COLORS={Common:"#95a4b7",Rare:"#56a7e8",Epic:"#61d291",Legendary:"#e6c24c"
 Primitive:"#95a4b7",Medieval:"#72a7d8","Early-Modern":"#59bf9a",Modern:"#89c76a",Space:"#d8bd4e",Interstellar:"#e29147",Multiverse:"#ca6bce",Quantum:"#9a77ed",Underworld:"#e46067",Divine:"#f1cb58"};
 const fmt=n=>{
  if(!Number.isFinite(Number(n)))return "—";n=Number(n);const a=Math.abs(n);
- if(a>=1e12)return (n/1e12).toLocaleString("pl-PL",{maximumFractionDigits:2})+"T";
- if(a>=1e9)return (n/1e9).toLocaleString("pl-PL",{maximumFractionDigits:2})+"B";
- if(a>=1e6)return (n/1e6).toLocaleString("pl-PL",{maximumFractionDigits:2})+"M";
- if(a>=1e3)return (n/1e3).toLocaleString("pl-PL",{maximumFractionDigits:2})+"K";
- return n.toLocaleString("pl-PL",{maximumFractionDigits:1});
+ if(a>=1e12)return (n/1e12).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:2})+"T";
+ if(a>=1e9)return (n/1e9).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:2})+"B";
+ if(a>=1e6)return (n/1e6).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:2})+"M";
+ if(a>=1e3)return (n/1e3).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:2})+"K";
+ return n.toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:1});
 };
-const fmtTime=s=>{s=Number(s);if(s>=86400)return (s/86400).toLocaleString("pl-PL",{maximumFractionDigits:1})+" d";if(s>=3600)return (s/3600).toLocaleString("pl-PL",{maximumFractionDigits:1})+" h";return Math.round(s/60)+" min"};
+const fmtTime=s=>{s=Number(s);if(s>=86400)return (s/86400).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:1})+" d";if(s>=3600)return (s/3600).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:1})+" h";return Math.round(s/60)+" min"};
 const fmtMultExact=n=>{
  n=Number(n);
  if(n===1)return "×1";
- return "×"+Math.round(n).toLocaleString("pl-PL");
+ return "×"+Math.round(n).toLocaleString(window.INPPL_I18N?.locale||'pl-PL');
 };
 const fmtAxis=n=>{
  n=Number(n);
- if(n>=1e12)return "×"+(n/1e12).toLocaleString("pl-PL",{maximumFractionDigits:0})+"T";
- if(n>=1e9)return "×"+(n/1e9).toLocaleString("pl-PL",{maximumFractionDigits:0})+"B";
- if(n>=1e6)return "×"+(n/1e6).toLocaleString("pl-PL",{maximumFractionDigits:0})+"M";
- if(n>=1e3)return "×"+(n/1e3).toLocaleString("pl-PL",{maximumFractionDigits:0})+"K";
- return "×"+n.toLocaleString("pl-PL",{maximumFractionDigits:0});
+ if(n>=1e12)return "×"+(n/1e12).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:0})+"T";
+ if(n>=1e9)return "×"+(n/1e9).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:0})+"B";
+ if(n>=1e6)return "×"+(n/1e6).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:0})+"M";
+ if(n>=1e3)return "×"+(n/1e3).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:0})+"K";
+ return "×"+n.toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:0});
 };
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -990,7 +990,7 @@ function formatTechValue(type,v){
  if(type==="AutoForge")return "+1";
  if(type.endsWith("LevelUp"))return `+${v}`;
  const neg=["ForgeUpgradeCost","MountSummonCost","SkillSummonCost","TechNodeUpgradeCost"].includes(type);
- return `${neg?"-":"+"}${(v*100).toLocaleString("pl-PL",{maximumFractionDigits:0})}%`;
+ return `${neg?"-":"+"}${(v*100).toLocaleString(window.INPPL_I18N?.locale||'pl-PL',{maximumFractionDigits:0})}%`;
 }
 $$(".tech-tabs button").forEach(b=>b.addEventListener("click",()=>renderTechBranch(b.dataset.tech)));
 

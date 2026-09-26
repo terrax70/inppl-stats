@@ -1637,3 +1637,33 @@ stroke-dasharray:6 6;}
   background:#21190d !important;
   color:#f3c66e !important;
 }
+.forge-calculator{margin:18px 0;padding:18px;border:1px solid #334453;border-radius:12px;background:#101820;color:#dce6f0}
+.forge-calculator h4{margin:0 0 14px;font-size:18px}
+.forge-calculator p,.forge-mobile-chart p{font-size:12px;line-height:1.65;color:#9aafbf}
+.forge-inputs{display:flex;flex-wrap:wrap;gap:16px}
+.forge-inputs label{display:grid;gap:7px;flex:1;min-width:120px;font-size:13px}
+.forge-inputs input{box-sizing:border-box;width:100%;min-width:0;padding:12px;border:1px solid #526577;border-radius:8px;background:#080e14;color:#fff;font:inherit;font-size:16px}
+.forge-inputs input:focus-visible{outline:2px solid #efbf64;outline-offset:2px}
+.forge-inputs input:invalid{border-color:#f27777}
+.forge-targets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}
+.forge-targets article{display:grid;gap:8px;padding:14px;background:#0a1118;border:1px solid #304655;border-radius:10px}
+.forge-targets small{color:#9aafbf}.forge-targets strong{color:#efbf64}.forge-targets span{font-size:13px;line-height:1.5}
+.forge-calculator summary{cursor:pointer;padding:12px 0;color:#efbf64}
+.forge-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.forge-table th,.forge-table td{padding:9px 6px;text-align:right;border-bottom:1px solid #293846;overflow-wrap:anywhere}
+.forge-table th:first-child{width:15%;text-align:left}
+.forge-mobile-chart{display:none}
+@media(max-width:760px){
+ .system-root[data-system="items"] .asc-full{min-width:0;overflow:hidden}
+ .system-root[data-system="items"] .asc-chart-tools,.system-root[data-system="items"] .svg-host.asc-chart-viewport{display:none!important}
+ .forge-calculator{padding:12px}
+ .forge-targets{grid-template-columns:1fr}
+ .forge-mobile-chart{display:grid;gap:16px}
+ .forge-mobile-chart article{padding:14px;border:1px solid #304655;border-radius:12px;background:#0c131b}
+ .forge-mobile-chart h4{margin:0 0 16px;color:#efbf64}
+ .forge-mobile-chart small{display:block;margin-top:16px;color:#9aafbf}
+ .forge-power-row{display:grid;grid-template-columns:1fr auto;gap:6px;margin:12px 0;font-size:12px}
+ .forge-power-row b{color:#9aafbf}
+ .forge-power-track{grid-column:1/-1;height:5px;background:#1c2834;border-radius:4px;overflow:hidden}
+ .forge-power-track i{display:block;height:100%;border-radius:4px}
+}

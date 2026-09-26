@@ -6,6 +6,29 @@ const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const ascState={pets:0,mounts:0,skills:0,items:0};
 const chartSelection={pets:null,mounts:null,skills:null,items:null};
+// ForgeData.png supplied by the clan: each row is the upgrade TO this level.
+const forgeCosts=[0,400,700,1500,3500,10000,25000,50000,100000,150000,250000,350000,450000,600000,800000,910000,1020000,1130000,1240000,1350000,1460000,1570000,1680000,1790000,1900000,2010000,2120000,2230000,2340000,2450000,2560000,2670000,2780000,2890000,3000000];
+const forgeSeconds=[0,300,900,1800,3600,7200,27200,47200,67200,87200,107200,127200,147200,167200,187200,207200,227200,247200,277200,307200,337200,367200,397200,427200,457200,487200,517200,547200,577200,607200,637200,667200,697200,727200,757200];
+const forgeSettings={discount:0,speed:0};
+function forgeDuration(seconds){
+ let rest=Math.round(seconds);
+ return [[86400,'d'],[3600,'h'],[60,'min'],[1,'s']].map(([unit,label])=>{const n=Math.floor(rest/unit);rest%=unit;return n?`${n} ${label}`:'';}).filter(Boolean).join(' ')||'0 s';
+}
+function forgeTotals(level){
+ return {cost:forgeCosts.slice(0,level).reduce((s,c)=>s+c,0)*(1-forgeSettings.discount/100),seconds:forgeSeconds.slice(0,level).reduce((s,t)=>s+t,0)/(1+forgeSettings.speed/100)};
+}
+function forgeCalculator(){
+ return `<section class="forge-calculator"><h4>Przygotuj kuźnię do Ascension</h4><div class="forge-inputs"><label>Discount (%)<input data-forge="discount" type="number" inputmode="decimal" min="0" max="100" step="any" value="${forgeSettings.discount}"></label><label>Forge speed (+%)<input data-forge="speed" type="number" inputmode="decimal" min="0" step="any" value="${forgeSettings.speed}"></label></div><p>Koszt × (1 − discount / 100). Czas ÷ (1 + speed / 100). +50% speed skraca czas do ⅔.</p><div data-forge-summary class="forge-targets" aria-live="polite"></div><p>Sumy od Forge 1. Recovery według poradnika: Multiverse przy Forge 22 (4% szans); bezpieczniejszy cel: Quantum przy Forge 25. Do resetu dolicz osobno 3 000 000 Gold — bez discount. Czas obejmuje ulepszanie kuźni, bez przyspieszeń i zdobywania itemów.</p><details><summary>Koszty i czasy wszystkich 35 poziomów</summary><p>Dane bazowe: przesłany arkusz Forge Data. Wiersz oznacza ulepszenie do wskazanego poziomu.</p><table class="forge-table"><thead><tr><th>Forge</th><th>Koszt Gold</th><th>Czas</th></tr></thead><tbody data-forge-rows></tbody></table></details></section>`;
+}
+function updateForge(root){
+ const gold=n=>Math.round(n).toLocaleString('pl-PL');
+ $('[data-forge-summary]',root).innerHTML=[[22,'Multiverse • recovery'],[25,'Quantum • zapas'],[35,'Próg Ascension']].map(([level,label])=>{const t=forgeTotals(level);return `<article><small>${label}</small><b>Forge ${level}</b><strong>${gold(t.cost)} Gold</strong><span>${forgeDuration(t.seconds)}</span></article>`;}).join('');
+ $('[data-forge-rows]',root).innerHTML=forgeCosts.map((cost,i)=>`<tr><th>${i+1}</th><td>${i?gold(cost*(1-forgeSettings.discount/100)):'—'}</td><td>${i?forgeDuration(forgeSeconds[i]/(1+forgeSettings.speed/100)):'—'}</td></tr>`).join('');
+}
+function mobileForgeChart(S){
+ const max=Math.log10(S.rows.at(-1).damage*D.ascMultipliers.at(-1)/S.rows[0].damage);
+ return `<div class="forge-mobile-chart"><p>Wspólna skala logarytmiczna względem Primitive A0. Szary: przed recovery; zielony: odzyskana moc.</p>${D.ascMultipliers.map((m,a)=>`<article><h4>A${a} • ×${fmt(m)}</h4>${S.rows.map(r=>{const power=r.damage*m/S.rows[0].damage;const recovered=!a||r.damage*m>=S.rows.at(-1).damage*D.ascMultipliers[a-1];return `<div class="forge-power-row"><span>${r.name}</span><b>${fmtAxis(power)}</b><div class="forge-power-track"><i style="width:${Math.max(1,Math.log10(power)/max*100)}%;background:${recovered?'#63d09a':'#8896a8'}"></i></div></div>`;}).join('')}<small>${a<3?'Forge 35 → Ascension → Forge 1':'Koniec ścieżki A3'}</small></article>`).join('')}</div>`;
+}
 
 function safeRarityKey(name){
  return String(name).replace(/[^a-z0-9_-]+/gi,"-").toLowerCase();
@@ -387,6 +410,7 @@ function renderSystem(id){
  <section class="visual-card asc-full">
    <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>Common A1 ≠ Common A0</small></div>
    <div class="recovery-note"><b>Według oficjalnego poradnika:</b> stara moc jest odzyskiwana mniej więcej przy <strong>${S.recovery}</strong> po Ascension. Wykres pokazuje jednak prawdziwe surowe staty — nie wymusza sztucznej równości.</div>
+   ${isItems?forgeCalculator()+mobileForgeChart(S):''}
    <div class="asc-chart-tools" data-asc-tools>
      <span>ROZMIAR WYKRESU</span>
      <button type="button" data-chart-zoom="auto" class="active">AUTO</button>
@@ -403,6 +427,14 @@ function renderSystem(id){
  renderRarityChart($('[data-chart="rarity"]',root),rows,id);
  renderAscChart($('[data-chart="asc"]',root),S,id);
  bindAscChartZoom(root,id);
+ if(isItems){
+   updateForge(root);
+   $$('[data-forge]',root).forEach(input=>input.addEventListener('input',()=>{
+     if(input.value===''||!input.validity.valid)return;
+     const value=Number(input.value);if(!Number.isFinite(value))return;
+     forgeSettings[input.dataset.forge]=value;updateForge(root);
+   }));
+ }
  bindAssetInteractions(id);
  if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});
 }

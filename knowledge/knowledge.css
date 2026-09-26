@@ -1658,3 +1658,22 @@ stroke-dasharray:6 6;}
  .asc-chart-tools{gap:6px}
  .asc-chart-tools button{min-height:36px;min-width:42px}
 }
+
+/* Item cards form one swipeable row on phones. */
+@media(max-width:760px){
+ .system-root[data-system="items"] .rarity-assets{
+   display:grid;
+   grid-template-columns:none;
+   grid-auto-flow:column;
+   grid-auto-columns:156px;
+   overflow-x:auto;
+   overscroll-behavior-x:contain;
+   scroll-snap-type:x proximity;
+   padding-bottom:10px;
+   max-width:100%;
+   min-width:0;
+ }
+ .system-root[data-system="items"] .rarity-assets article{
+   scroll-snap-align:start;
+ }
+}

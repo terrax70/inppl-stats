@@ -9,7 +9,18 @@ const chartSelection={pets:null,mounts:null,skills:null,items:null};
 // ForgeData.png supplied by the clan: each row is the upgrade TO this level.
 const forgeCosts=[0,400,700,1500,3500,10000,25000,50000,100000,150000,250000,350000,450000,600000,800000,910000,1020000,1130000,1240000,1350000,1460000,1570000,1680000,1790000,1900000,2010000,2120000,2230000,2340000,2450000,2560000,2670000,2780000,2890000,3000000];
 const forgeSeconds=[0,300,900,1800,3600,7200,27200,47200,67200,87200,107200,127200,147200,167200,187200,207200,227200,247200,277200,307200,337200,367200,397200,427200,457200,487200,517200,547200,577200,607200,637200,667200,697200,727200,757200];
-const forgeSettings={discount:0,speed:0};
+function readPreference(key){
+ try{return JSON.parse(localStorage.getItem('inppl.knowledge.'+key));}catch{return null;}
+}
+function savePreference(key,value){
+ try{localStorage.setItem('inppl.knowledge.'+key,JSON.stringify(value));}catch{/* Keep the page usable when storage is unavailable. */}
+}
+const savedForge=readPreference('forge');
+const validForgeValue=(value,max=Infinity)=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=max;
+const forgeSettings={
+ discount:validForgeValue(savedForge?.discount,100)?savedForge.discount:0,
+ speed:validForgeValue(savedForge?.speed)?savedForge.speed:0
+};
 function forgeDuration(seconds){
  let rest=Math.round(seconds);
  return [[86400,'d'],[3600,'h'],[60,'min'],[1,'s']].map(([unit,label])=>{const n=Math.floor(rest/unit);rest%=unit;return n?`${n} ${label}`:'';}).filter(Boolean).join(' ')||'0 s';
@@ -319,6 +330,9 @@ const fmtAxis=n=>{
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function activateTab(id){
+ if(!$$('.tab').some(button=>button.dataset.tab===id))id='start';
+ savePreference('tab',id);
+ if(location.hash!=='#'+id)history.replaceState(null,'','#'+id);
  $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===id));
  $$(".view").forEach(v=>v.classList.toggle("active",v.id===id));
  if(D.systems[id]) renderSystem(id);
@@ -483,7 +497,7 @@ function renderSystem(id){
    $$('[data-forge]',root).forEach(input=>input.addEventListener('input',()=>{
      if(input.value===''||!input.validity.valid)return;
      const value=Number(input.value);if(!Number.isFinite(value))return;
-     forgeSettings[input.dataset.forge]=value;updateForge(root);updateForgeTooltips(root);
+     forgeSettings[input.dataset.forge]=value;savePreference("forge",forgeSettings);updateForge(root);updateForgeTooltips(root);
    }));
  }
  bindAssetInteractions(id);
@@ -799,5 +813,10 @@ function formatTechValue(type,v){
 }
 $$(".tech-tabs button").forEach(b=>b.addEventListener("click",()=>renderTechBranch(b.dataset.tech)));
 
-renderSystem("pets");
+function tabFromHash(){
+ const id=location.hash.slice(1);
+ return $$('.tab').some(button=>button.dataset.tab===id)?id:null;
+}
+window.addEventListener('hashchange',()=>activateTab(tabFromHash()||'start'));
+activateTab(tabFromHash()||readPreference("tab")||"start");
 })();

@@ -1655,9 +1655,9 @@ stroke-dasharray:6 6;}
  .asc-chart-tools button{min-height:36px;min-width:42px}
 }
 
-/* Item cards form one swipeable row on phones. */
+/* All rarity cards form one swipeable row on phones. */
 @media(max-width:760px){
- .system-root[data-system="items"] .rarity-assets{
+ .system-root .rarity-assets{
    display:grid;
    grid-template-columns:none;
    grid-auto-flow:column;
@@ -1669,7 +1669,7 @@ stroke-dasharray:6 6;}
    max-width:100%;
    min-width:0;
  }
- .system-root[data-system="items"] .rarity-assets article{
+ .system-root .rarity-assets article{
    scroll-snap-align:start;
  }
 }

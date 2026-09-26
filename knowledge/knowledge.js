@@ -27,7 +27,7 @@ const skillTargets={Common:{level:1,cost:0,chance:100},Rare:{level:6,cost:1200,c
 const savedSkillDiscount=readPreference('skillDiscount');
 let skillDiscount=validForgeValue(savedSkillDiscount,100)?savedSkillDiscount:0;
 function skillCalculator(){
- return `<section class="forge-calculator"><h4>Koszt rozwoju skilli</h4><div class="forge-inputs"><label>Discount skilli (%)<input data-skill-discount type="number" inputmode="decimal" min="0" max="100" step="any" value="${skillDiscount}"></label></div><p>🎟️ Koszt bazowy × (1 − discount / 100). Koszty z przesłanych tabel Skill Summon: Rare–Mythic przy 🍀 2% szans; Common od Lv1 przy 100%. Koszt dojścia od Lv1 w danym cyklu; osiągnięcie poziomu nie gwarantuje wylosowania skilla. Discount zapisuje się na tym urządzeniu.</p></section>`;
+ return `<section class="forge-calculator"><h4>Koszt rozwoju skilli</h4><div class="forge-inputs"><label>Discount skilli — zniżka (%)<input data-skill-discount type="number" inputmode="decimal" min="0" max="100" step="any" value="${skillDiscount}"></label></div><p>🎟️ Koszt bazowy × (1 − discount / 100). Koszty z przesłanych tabel Skill Summon: Rare–Mythic przy 🍀 2% szans; Common od Lv1 przy 100%. Koszt dojścia od Lv1 w danym cyklu; osiągnięcie poziomu nie gwarantuje wylosowania skilla. Discount zapisuje się na tym urządzeniu.</p></section>`;
 }
 function updateSkillTooltips(root){
  $$('.chart-point',root).forEach(point=>{
@@ -42,7 +42,7 @@ const petTargets={Common:{level:1,cost:0,chance:100},Rare:{level:6,cost:1400,cha
 const savedPetExtraDrop=readPreference('petExtraDrop');
 let petExtraDrop=validForgeValue(savedPetExtraDrop)?savedPetExtraDrop:0;
 function petCalculator(){
- return `<section class="forge-calculator"><h4>Koszt rozwoju petów</h4><div class="forge-inputs"><label>Extra drop chance (+%)<input data-pet-extra-drop type="number" inputmode="decimal" min="0" step="any" value="${petExtraDrop}"></label></div><p>🥚 Koszt bazowy ÷ (1 + extra drop chance / 100). +50% daje koszt równy ⅔ bazowego. Koszty z tabel Pet Summon: Epic–Mythic przy 🍀 7,2% szans; Rare przy 10% (pierwszy próg powyżej 7%), Common od Lv1 przy 100%. Extra drop zwiększa liczbę dropów, nie szansę na konkretną rarity. Wartość zapisuje się na tym urządzeniu.</p></section>`;
+ return `<section class="forge-calculator"><h4>Koszt rozwoju petów</h4><div class="forge-inputs"><label>Extra drop chance — dodatkowy drop (+%)<input data-pet-extra-drop type="number" inputmode="decimal" min="0" step="any" value="${petExtraDrop}"></label></div><p>🥚 Koszt bazowy ÷ (1 + extra drop chance / 100). +50% daje koszt równy ⅔ bazowego. Koszty z tabel Pet Summon: Epic–Mythic przy 🍀 7,2% szans; Rare przy 10% (pierwszy próg powyżej 7%), Common od Lv1 przy 100%. Extra drop zwiększa liczbę dropów, nie szansę na konkretną rarity. Wartość zapisuje się na tym urządzeniu.</p></section>`;
 }
 function updatePetTooltips(root){
  $$('.chart-point',root).forEach(point=>{
@@ -57,7 +57,7 @@ const mountTargets={Common:{level:1,cost:0,chance:100},Rare:{level:15,cost:14000
 const savedMount=readPreference('mount');
 const mountSettings={discount:validForgeValue(savedMount?.discount,100)?savedMount.discount:0,extraDrop:validForgeValue(savedMount?.extraDrop)?savedMount.extraDrop:0};
 function mountCalculator(){
- return `<section class="forge-calculator"><h4>Koszt rozwoju mountów</h4><div class="forge-inputs"><label>Discount mountów (%)<input data-mount="discount" type="number" inputmode="decimal" min="0" max="100" step="any" value="${mountSettings.discount}"></label><label>Extra drop chance (+%)<input data-mount="extraDrop" type="number" inputmode="decimal" min="0" step="any" value="${mountSettings.extraDrop}"></label></div><p>⚙️ Koszt bazowy × (1 − discount / 100) ÷ (1 + extra drop chance / 100). Wpisz oba bonusy niezależnie. Koszty z tabel Mount Summon: Epic–Mythic przy 🍀 7,2% szans; Rare przy 9,9% (pierwszy próg powyżej 7%), Common od Lv1 przy 100%. Extra drop zwiększa liczbę dropów, nie szansę na konkretną rarity. Ustawienia zapisują się na tym urządzeniu.</p></section>`;
+ return `<section class="forge-calculator"><h4>Koszt rozwoju mountów</h4><div class="forge-inputs"><label>Discount mountów — zniżka (%)<input data-mount="discount" type="number" inputmode="decimal" min="0" max="100" step="any" value="${mountSettings.discount}"></label><label>Extra drop chance — dodatkowy drop (+%)<input data-mount="extraDrop" type="number" inputmode="decimal" min="0" step="any" value="${mountSettings.extraDrop}"></label></div><p>⚙️ Koszt bazowy × (1 − discount / 100) ÷ (1 + extra drop chance / 100). Wpisz oba bonusy niezależnie. Koszty z tabel Mount Summon: Epic–Mythic przy 🍀 7,2% szans; Rare przy 9,9% (pierwszy próg powyżej 7%), Common od Lv1 przy 100%. Extra drop zwiększa liczbę dropów, nie szansę na konkretną rarity. Ustawienia zapisują się na tym urządzeniu.</p></section>`;
 }
 function updateMountTooltips(root){
  $$('.chart-point',root).forEach(point=>{
@@ -75,7 +75,7 @@ function forgeTotals(level){
  return {cost:forgeCosts.slice(0,level).reduce((s,c)=>s+c,0)*(1-forgeSettings.discount/100),seconds:forgeSeconds.slice(0,level).reduce((s,t)=>s+t,0)/(1+forgeSettings.speed/100)};
 }
 function forgeCalculator(){
- return `<section class="forge-calculator"><h4>Przygotuj kuźnię do Ascension</h4><div class="forge-inputs"><label>Discount (%)<input data-forge="discount" type="number" inputmode="decimal" min="0" max="100" step="any" value="${forgeSettings.discount}"></label><label>Forge speed (+%)<input data-forge="speed" type="number" inputmode="decimal" min="0" step="any" value="${forgeSettings.speed}"></label></div><p>Koszt × (1 − discount / 100). Czas ÷ (1 + speed / 100). +50% speed skraca czas do ⅔.</p><p>Sumy od Forge 1. Recovery według poradnika: Multiverse przy Forge 22 (4% szans); bezpieczniejszy cel: Quantum przy Forge 25. Do resetu dolicz osobno 3 000 000 Gold — bez discount. Czas obejmuje ulepszanie kuźni, bez przyspieszeń i zdobywania itemów.</p><details><summary>Koszty i czasy wszystkich 35 poziomów</summary><p>Dane bazowe: przesłany arkusz Forge Data. Wiersz oznacza ulepszenie do wskazanego poziomu.</p><table class="forge-table"><thead><tr><th>Forge</th><th>Koszt Gold</th><th>Czas</th></tr></thead><tbody data-forge-rows></tbody></table></details></section>`;
+ return `<section class="forge-calculator"><h4>Przygotuj kuźnię do Ascension</h4><div class="forge-inputs"><label>Discount — zniżka (%)<input data-forge="discount" type="number" inputmode="decimal" min="0" max="100" step="any" value="${forgeSettings.discount}"></label><label>Forge speed — szybkość kuźni (+%)<input data-forge="speed" type="number" inputmode="decimal" min="0" step="any" value="${forgeSettings.speed}"></label></div><p>Koszt × (1 − discount / 100). Czas ÷ (1 + speed / 100). +50% speed skraca czas do ⅔.</p><p>Sumy od Forge 1. Recovery według poradnika: Multiverse przy Forge 22 (4% szans); bezpieczniejszy cel: Quantum przy Forge 25. Do resetu dolicz osobno 3 000 000 Gold — bez discount. Czas obejmuje ulepszanie kuźni, bez przyspieszeń i zdobywania itemów.</p><details><summary>Koszty i czasy wszystkich 35 poziomów</summary><p>Dane bazowe: przesłany arkusz Forge Data. Wiersz oznacza ulepszenie do wskazanego poziomu.</p><table class="forge-table"><thead><tr><th>Forge</th><th>Koszt Gold</th><th>Czas</th></tr></thead><tbody data-forge-rows></tbody></table></details></section>`;
 }
 function updateForge(root){
  const gold=n=>Math.round(n).toLocaleString('pl-PL');
@@ -504,30 +504,32 @@ function renderSystem(id){
  $('[data-chart="asc"]',root)?._ascResizeObserver?.disconnect();
  root.innerHTML=`
  <div class="system-head">
-   <div><div class="eyebrow">${S.icon} ${S.label.toUpperCase()} • AKTUALNY CONFIG</div><h2>${isItems?"Jak rośnie każdy tier?":"Jak rośnie każda rarity?"}</h2>
-   <p>${isItems?"Bazowe HP/DMG reprezentują dominującą wartość danego Age z ItemBalancingLibrary.":"HP i DMG są prawdziwymi bazowymi statami z configu gry."}</p></div>
-   <div class="asc-select"><span>ASCENSION</span><div>${D.ascMultipliers.map((x,i)=>`<button data-sys="${id}" data-a="${i}" class="${i===asc?"active":""}">A${i}<small>×${fmt(x)}</small></button>`).join("")}</div></div>
+   <div><div class="eyebrow">${S.icon} ${S.label.toUpperCase()} • ROZWÓJ POSTACI</div><h2>${isItems?"Itemy i kuźnia — moc oraz koszty":S.label+" — moc oraz koszty"}</h2>
+   <p>⚔️ DMG = obrażenia • ❤️ HP = zdrowie. Rarity oznacza rzadkość; tier to kolejny etap rozwoju.</p></div>
+   <div class="asc-select"><span>TWÓJ ETAP • A0 = PRZED PIERWSZYM RESETEM</span><div>${D.ascMultipliers.map((x,i)=>`<button data-sys="${id}" data-a="${i}" class="${i===asc?"active":""}">A${i}<small>×${fmt(x)}</small></button>`).join("")}</div></div>
  </div>
  <div class="quick-stats">
-   <article><span>PEŁNA PROGRESJA</span><b>×${fmt(full)}</b><small>${S.rows.at(-1).name} vs ${S.rows[0].name}</small></article>
+   <article><span>WZROST MOCY</span><b>×${fmt(full)}</b><small>${S.rows.at(-1).name} vs ${S.rows[0].name}</small></article>
    <article><span>NAJWIĘKSZY SKOK</span><b>×${fmt(big.value)}</b><small>${big.from} → ${big.to}</small></article>
-   <article><span>ASCENSION A${asc}</span><b>×${fmt(m)}</b><small>mnożnik względem A0</small></article>
-   <article><span>PRÓG ASCENSION</span><b>${S.eligibility}</b><small>z oficjalnego poradnika</small></article>
+   <article><span>ASCENSION A${asc}</span><b>×${fmt(m)}</b><small>moc bazowa × bonus etapu</small></article>
+   <article><span>PRÓG ASCENSION</span><b>${S.eligibility}</b><small>od tego poziomu możesz zrobić reset</small></article>
  </div>
+   ${isItems?forgeCalculator():id==="skills"?skillCalculator():id==="pets"?petCalculator():id==="mounts"?mountCalculator():''}
+ <div class="reading-guide"><b>Jak korzystać?</b><span>① Wpisz bonusy z gry powyżej.</span><span>② Dotknij punktu na wykresie, żeby sprawdzić statystyki i koszt.</span><span>③ Jeśli wykres jest za duży, wybierz mniejszy procent.</span></div>
  <section class="visual-card">
-   <div class="card-headline"><div><span>1 • WYGLĄD + STATY</span><h3>${isItems?"Tier po tierze":"Rarity po rarity"}</h3></div><small>autentyczne assety z repo</small></div>
-   <div class="rarity-assets">${rows.map(r=>`<article data-rarity="${r.name}" style="--c:${COLORS[r.name]||"#889"}">${isItems?itemImage(r.name):spriteHTML(id,r.name,asc)}<b>${r.name}</b><div><span>⚔️ ${fmt(r.damage)}</span><span>❤️ ${fmt(r.health)}</span>${r.hatch?`<span>🥚 ${fmtTime(r.hatch)}</span>`:""}</div></article>`).join("")}</div>
+   <div class="card-headline"><div><span>1 • WYGLĄD + STATY</span><h3>Poznaj kolejne poziomy jakości</h3></div><small>Przesuń listę w bok, by zobaczyć więcej. Dotknij karty, aby zaznaczyć lub odznaczyć.</small></div>
+   <div class="rarity-assets">${rows.map(r=>`<article data-rarity="${r.name}" style="--c:${COLORS[r.name]||"#889"}">${isItems?itemImage(r.name):spriteHTML(id,r.name,asc)}<b>${r.name}</b><div><span>⚔️ DMG ${fmt(r.damage)}</span><span>❤️ HP ${fmt(r.health)}</span>${r.hatch?`<span>🥚 ${fmtTime(r.hatch)}</span>`:""}</div></article>`).join("")}</div>
  </section>
  <section class="visual-card">
-   <div class="card-headline"><div><span>2 • WYKRES PROGRESJI</span><h3>Jedna wspólna skala mocy</h3></div><small>oś Y jest logarytmiczna</small></div>
+   <div class="card-headline"><div><span>2 • WYKRES PROGRESJI</span><h3>O ile mocniejszy jest kolejny tier?</h3></div><small>×10 oznacza dziesięć razy większą moc bazową.</small></div>
    <div class="asc-chart-tools" data-rarity-tools></div>
    <div class="svg-host rarity-chart-viewport" data-chart="rarity"></div>
  </section>
- ${id==="skills"?`<section class="visual-card"><div class="card-headline"><div><span>SKILLE • AKTYWNE EFEKTY</span><h3>Przykłady z SkillLibrary</h3></div><small>Ikona bazowa A0 • statystyki dla wybranego Ascension</small></div><div class="skill-grid">${D.skillExamples.map(s=>`<article style="--c:${COLORS[s.rarity]}">${spriteHTML("skills",s.rarity,0,66).replace(/--x:\d+;--y:\d+;/,(()=>{const i=s.spriteIndex,x=i%8,y=Math.floor(i/8);return `--x:${x};--y:${y};`})())}<div class="skill-title"><b>${s.name}</b><span>${s.rarity}</span></div><div class="skill-meta"><span>CD <b>${s.cooldown}s</b></span><span>Duration <b>${s.duration}s</b></span></div><div class="skill-values"><span>Passive ⚔️ <b>${fmt(s.passiveDamage*m)}</b></span><span>Passive ❤️ <b>${fmt(s.passiveHealth*m)}</b></span>${s.activeDamage?`<span>Active ⚔️ <b>${fmt(s.activeDamage*m)}</b></span>`:""}${s.activeHealth?`<span>Active ❤️ <b>${fmt(s.activeHealth*m)}</b></span>`:""}</div></article>`).join("")}</div></section>`:""}
+ ${id==="skills"?`<details class="visual-card skill-examples"><summary>🌀 Zobacz przykładowe skille i ich działanie</summary><p>Pasywne statystyki wzmacniają postać. Aktywne efekty działają przy użyciu skilla. Odnowienie to czas do kolejnego użycia. Wartości dla wybranego etapu Ascension.</p><div class="skill-grid">${D.skillExamples.map(s=>`<article style="--c:${COLORS[s.rarity]}">${spriteHTML("skills",s.rarity,0,66).replace(/--x:\d+;--y:\d+;/,(()=>{const i=s.spriteIndex,x=i%8,y=Math.floor(i/8);return `--x:${x};--y:${y};`})())}<div class="skill-title"><b>${s.name}</b><span>${s.rarity}</span></div><div class="skill-meta"><span>Odnowienie <b>${s.cooldown}s</b></span><span>Czas działania <b>${s.duration}s</b></span></div><div class="skill-values"><span>Pasywne ⚔️ <b>${fmt(s.passiveDamage*m)}</b></span><span>Pasywne ❤️ <b>${fmt(s.passiveHealth*m)}</b></span>${s.activeDamage?`<span>Aktywne ⚔️ <b>${fmt(s.activeDamage*m)}</b></span>`:""}${s.activeHealth?`<span>Aktywne ❤️ <b>${fmt(s.activeHealth*m)}</b></span>`:""}</div></article>`).join("")}</div></details>`:""}
  <section class="visual-card asc-full">
-   <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>Common A1 ≠ Common A0</small></div>
-   <div class="recovery-note"><b>Według oficjalnego poradnika:</b> stara moc jest odzyskiwana mniej więcej przy <strong>${S.recovery}</strong> po Ascension. Wykres pokazuje jednak prawdziwe surowe staty — nie wymusza sztucznej równości.</div>
-   ${isItems?forgeCalculator():id==="skills"?skillCalculator():id==="pets"?petCalculator():id==="mounts"?mountCalculator():''}
+   <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>A1 = po pierwszym resecie • A2 = po drugim • A3 = po trzecim</small></div>
+   <div class="recovery-note"><b>Powrót do mocy sprzed resetu (recovery):</b> poradnik wskazuje okolice <strong>${S.recovery}</strong>. To orientacyjny cel — wykres porównuje bazowe statystyki.</div>
+   <div class="chart-reading-key"><span><i class="key-reset"></i>Szary: odbudowujesz moc</span><span><i class="key-recovered"></i>Zielony: moc odzyskana (A0: start)</span><span>Skala logarytmiczna: równe odstępy oznaczają taki sam mnożnik.</span></div>
    <div class="asc-chart-tools" data-asc-tools>
      <span>ROZMIAR WYKRESU</span>
      <button type="button" data-chart-zoom="auto" class="active">AUTO</button>
@@ -585,6 +587,19 @@ function renderSystem(id){
      if(!validForgeValue(value,input.dataset.mount==='discount'?100:Infinity))return;
      mountSettings[input.dataset.mount]=value;savePreference('mount',mountSettings);updateMountTooltips(root);
    }));
+ }
+ // Put detailed arithmetic behind a disclosure; keep inputs immediately visible.
+ const calculator=$('.forge-calculator',root);
+ if(calculator){
+   const notes=[...calculator.children].filter(el=>el.tagName==='P');
+   const details=document.createElement('details');
+   details.className='calculation-help';
+   details.innerHTML='<summary>Jak liczymy koszty i co oznaczają bonusy?</summary>';
+   notes.forEach(note=>details.appendChild(note));
+   calculator.appendChild(details);
+   const hint=document.createElement('p');hint.className='bonus-hint';
+   hint.textContent='Wpisz 25 dla 25%. Wyniki w podpowiedziach wykresów zmienią się automatycznie. Ustawienia zostają na tym urządzeniu.';
+   calculator.querySelector('.forge-inputs').after(hint);
  }
  bindAssetInteractions(id);
  if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});
@@ -661,7 +676,7 @@ function renderRarityChart(host,rows,id){
          <text x="${mx}" y="${my+5}" text-anchor="middle">×${fmt(ratios[i-1].value)}</text></g>`;
  }
 
- svg+=`<text x="${L}" y="${H-15}" class="caption">Kolor fasolki = rarity • etykiety same szukają wolnego miejsca • przy węższym ekranie wykres rozszerza się zamiast ściskać tekst</text></svg>`;
+ svg+=`<text x="${L}" y="${H-15}" class="caption">Dotknij punktu: statystyki • mniejszy procent: szerszy widok • przesuń wykres w bok, aby zobaczyć dalsze etapy</text></svg>`;
  host.innerHTML=svg;
  bindChartInteractions(host,id);
 }
@@ -689,7 +704,7 @@ function renderAscChart(host,S,id){
 
  let svg=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" data-natural-width="${W}" data-natural-height="${H}" class="chart-svg asc-svg continuous-asc" style="width:${W}px;height:${H}px;min-width:${W}px;max-width:none">`;
  svg+=`<text x="${L}" y="32" class="chart-kicker">A0 → A3 • PEŁNA ŚCIEŻKA ASCENSION • A0 CAŁE ZIELONE • PO ASCENDZIE SZARY = DO RECOVERY • ZIELONY = PO RECOVERY</text>`;
- svg+=`<text x="${W-20}" y="32" text-anchor="end" class="chart-subtitle">Common A1 = ×50 Common A0</text>`;
+ svg+=`<text x="${W-20}" y="32" text-anchor="end" class="chart-subtitle">${rows[0].name} A1 = ×50 ${rows[0].name} A0</text>`;
 
  const expMax=Math.ceil(hi),step=Math.max(1,Math.ceil(expMax/6));
  const exps=[];
@@ -778,7 +793,7 @@ function renderAscChart(host,S,id){
 
    labels.forEach(p=>{
      const b=p.box,t=labelLeaderTarget(p),c=p.color;
-     const tip=`<b>${p.name} • A${a}</b><span>⚔️ DMG: ${fmt(p.damage)}</span><span>❤️ HP: ${fmt(p.health)}</span><small>Moc vs A0 Common: ${fmtAxis(p.multiple)}</small>`;
+     const tip=`<b>${p.name} • A${a}</b><span>⚔️ DMG: ${fmt(p.damage)}</span><span>❤️ HP: ${fmt(p.health)}</span><small>Moc względem ${rows[0].name} A0: ${fmtAxis(p.multiple)}</small>`;
      svg+=`<g class="chart-point asc-chart-point" tabindex="0" data-rarity="${p.name}" data-asc="${a}" data-tip="${esc(tip)}" style="--rarity:${c};color:${c}">
              <circle cx="${p.px}" cy="${p.py}" r="${p.j===n-1?9:7}" fill="${c}" class="dot hit-dot"/>
              <circle cx="${p.px}" cy="${p.py}" r="18" class="dot-hit-area"/>

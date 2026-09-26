@@ -21,6 +21,22 @@ const forgeSettings={
  discount:validForgeValue(savedForge?.discount,100)?savedForge.discount:0,
  speed:validForgeValue(savedForge?.speed)?savedForge.speed:0
 };
+// User tables s1/s2/s3: row cost advances to the NEXT level.
+// Sum rows before the target; Common starts at Lv1 with 100% chance.
+const skillTargets={Common:{level:1,cost:0,chance:100},Rare:{level:6,cost:1200,chance:2},Epic:{level:14,cost:9200,chance:2},Legendary:{level:24,cost:49600,chance:2},Ultimate:{level:45,cost:142000,chance:2},Mythic:{level:74,cost:269600,chance:2}};
+const savedSkillDiscount=readPreference('skillDiscount');
+let skillDiscount=validForgeValue(savedSkillDiscount,100)?savedSkillDiscount:0;
+function skillCalculator(){
+ return `<section class="forge-calculator"><h4>Koszt rozwoju skilli</h4><div class="forge-inputs"><label>Discount skilli (%)<input data-skill-discount type="number" inputmode="decimal" min="0" max="100" step="any" value="${skillDiscount}"></label></div><p>🎟️ Koszt bazowy × (1 − discount / 100). Koszty z przesłanych tabel Skill Summon: Rare–Mythic przy 🍀 2% szans; Common od Lv1 przy 100%. Koszt dojścia od Lv1 w danym cyklu; osiągnięcie poziomu nie gwarantuje wylosowania skilla. Discount zapisuje się na tym urządzeniu.</p></section>`;
+}
+function updateSkillTooltips(root){
+ $$('.chart-point',root).forEach(point=>{
+   point.dataset.baseTip??=point.dataset.tip;
+   const target=skillTargets[point.dataset.rarity];
+   const extra=target?`<span>🌀 Poziom przywoływania: Lv${target.level} • 🍀 szansa ${target.chance}%</span><span>🎟️ Łączny koszt: ${Math.round(target.cost*(1-skillDiscount/100)).toLocaleString('pl-PL')} Skill Tickets</span><small>Discount: ${skillDiscount.toLocaleString('pl-PL')}%. Od Lv1 w tym cyklu, według tabel Skill Summon. Próg szansy, nie gwarancja dropu.</small>`:'<small>🎟️ Przesłany arkusz nie zawiera kosztu dla tego rarity.</small>';
+   point.dataset.tip=point.dataset.baseTip+extra;
+ });
+}
 function forgeDuration(seconds){
  let rest=Math.round(seconds);
  return [[86400,'d'],[3600,'h'],[60,'min'],[1,'s']].map(([unit,label])=>{const n=Math.floor(rest/unit);rest%=unit;return n?`${n} ${label}`:'';}).filter(Boolean).join(' ')||'0 s';
@@ -123,7 +139,7 @@ function bindChartInteractions(host,id){
    });
    point.addEventListener("blur",()=>hideChartTooltip(host));
    point.addEventListener("click",e=>{
-     if(id==="items"&&point.classList.contains('asc-chart-point')){
+     if((id==="items"||id==="skills")&&point.classList.contains('asc-chart-point')){
        showChartTooltip(host,e,point.dataset.tip);return;
      }
      const targetAsc=point.dataset.asc!==undefined&&point.dataset.asc!==""?Number(point.dataset.asc):ascState[id];
@@ -481,7 +497,7 @@ function renderSystem(id){
  <section class="visual-card asc-full">
    <div class="card-headline"><div><span>3 • PEŁNA ŚCIEŻKA ASCENSION</span><h3>A0 → A1 → A2 → A3 na tej samej skali</h3></div><small>Common A1 ≠ Common A0</small></div>
    <div class="recovery-note"><b>Według oficjalnego poradnika:</b> stara moc jest odzyskiwana mniej więcej przy <strong>${S.recovery}</strong> po Ascension. Wykres pokazuje jednak prawdziwe surowe staty — nie wymusza sztucznej równości.</div>
-   ${isItems?forgeCalculator():''}
+   ${isItems?forgeCalculator():id==="skills"?skillCalculator():''}
    <div class="asc-chart-tools" data-asc-tools>
      <span>ROZMIAR WYKRESU</span>
      <button type="button" data-chart-zoom="auto" class="active">AUTO</button>
@@ -512,6 +528,15 @@ function renderSystem(id){
      const value=Number(input.value);if(!Number.isFinite(value))return;
      forgeSettings[input.dataset.forge]=value;savePreference("forge",forgeSettings);updateForge(root);updateForgeTooltips(root);
    }));
+ }
+ if(id==='skills'){
+   updateSkillTooltips(root);
+   $('[data-skill-discount]',root).addEventListener('input',event=>{
+     const input=event.target;
+     if(input.value===''||!input.validity.valid)return;
+     const value=Number(input.value);if(!validForgeValue(value,100))return;
+     skillDiscount=value;savePreference('skillDiscount',value);updateSkillTooltips(root);
+   });
  }
  bindAssetInteractions(id);
  if(chartSelection[id])syncRarityHighlight(id,chartSelection[id],{sticky:false});

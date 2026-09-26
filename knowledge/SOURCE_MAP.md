@@ -43,3 +43,10 @@ Config źródłowy: `2026_09_02_09_08`
 - Pierwsza niezerowa szansa tieru: https://github.com/1vcian/fm/blob/main/public/parsed_configs/2026_09_02_09_08/ItemAgeDropChancesLibrary.json
 - Level w konfiguracji jest liczony od 0; Forge w interfejsie od 1.
 - Tooltip sumuje ulepszenia od Forge 1 w bieżącym cyklu do pierwszej szansy dropu; nie sumuje wcześniejszych cykli ani opłat Ascension.
+
+## Koszty skilli
+- SkillTickets.webp dostarczony przez użytkownika: Legendary 49 600, Ultimate 142 000, Mythic 269 600 Skill Tickets przed discount, próg 2%.
+- Poziomy 24 / 45 / 74: https://github.com/1vcian/fm/blob/main/public/parsed_configs/2026_09_02_09_08/SkillSummonConfig.json (indeks + 1).
+- Koszty z tego configu są o 4 320 niższe od arkusza. Kalkulator używa kwot z arkusza użytkownika; nie miesza ich z kosztami configu.
+
+- Uzupełnienie: s1.png, s2.png, s3.png użytkownika, Skill Summon Cost and Summon Probabilities. Koszt w wierszu LvN dotyczy przejścia N → N+1. Sumowanie wierszy przed poziomem docelowym daje Common Lv1: 0 (100%), Rare Lv6: 1 200 (2%), Epic Lv14: 9 200 (2%). Potwierdza też sumy 49 600 / 142 000 / 269 600 dla wyższych rarity. Tabele użytkownika mają 2/4/6/... przywołań od Lv1; config ma 2/2/4/... — stąd wcześniejsza różnica.

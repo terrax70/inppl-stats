@@ -1724,3 +1724,5 @@ stroke-dasharray:6 6;}
 .skill-examples>summary{cursor:pointer;font-size:15px;font-weight:700;color:#ebc47c;padding:8px 0;line-height:1.5}
 .skill-examples>p{font-size:13px;line-height:1.65;color:#b2c5d3;margin:12px 0}
 .skill-examples[open] .skill-grid{margin-top:16px}
+
+.item-sprite{display:block;width:90px;height:90px;max-width:100%;margin:0 auto;overflow:hidden;filter:drop-shadow(0 5px 9px rgba(0,0,0,.4))}

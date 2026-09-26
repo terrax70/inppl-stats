@@ -414,7 +414,20 @@ function spriteHTML(system,rarity,asc,size=76){
  const x=info.index%cfg.cols,y=Math.floor(info.index/cfg.cols);
  return `<div class="game-sprite" title="${esc(info.name)}" style="--sprite-url:url('${spriteTexture(system,asc)}');--cols:${cfg.cols};--rows:${cfg.rows};--x:${x};--y:${y};--size:${size}px"></div>`;
 }
-function itemImage(name){const f=D.itemAssets[name];return f?`<img class="item-atlas" src="assets/${f}" alt="${esc(name)}" loading="lazy">`:""}
+// Sprite rectangles in the original 1024×1024 item atlases (x, y, width, height).
+// SVG viewBox clips one weapon without altering the source artwork.
+const itemSpriteRects={
+ Primitive:[280,200,138,278],Medieval:[444,250,226,395],
+ 'Early-Modern':[308,316,138,355],Modern:[112,167,132,197],
+ Space:[106,182,56,348],Interstellar:[274,161,186,257],
+ Multiverse:[2,168,123,402],Quantum:[324,193,94,335],
+ Underworld:[447,395,140,330],Divine:[560,150,100,350]
+};
+function itemImage(name){
+ const file=D.itemAssets[name],rect=itemSpriteRects[name];
+ if(!file||!rect)return '';
+ return `<svg class="item-sprite" viewBox="${rect.join(' ')}" role="img" aria-label="${esc(name)} — przykładowa broń" focusable="false"><defs><clipPath id="item-clip-${safeRarityKey(name)}"><rect x="${rect[0]}" y="${rect[1]}" width="${rect[2]}" height="${rect[3]}"/></clipPath></defs><image href="assets/${file}" width="1024" height="1024" clip-path="url(#item-clip-${safeRarityKey(name)})"/></svg>`;
+}
 
 function calcRatios(rows){
  return rows.slice(1).map((r,i)=>({from:rows[i].name,to:r.name,value:r.damage/rows[i].damage}));
